@@ -15,17 +15,16 @@ fn copy_device_from_track_cmd(
 ) -> Result<String, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let device_uuid = Uuid::parse_str(&device_id)
         .map_err(|_| format!("Invalid device_id: {device_id}"))?;
 
     let device_node = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolveDeviceNodeOnTrackQuery {
             track_id: track_uuid,
             device_id: device_uuid,
@@ -57,10 +56,9 @@ fn paste_device_to_track_impl(
 ) -> Result<(dream_orchestrator::commands::PasteDeviceToTrackResult, Option<String>), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // Read clipboard (don't consume it — allow multiple pastes).
     let clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
     let Some(ref source_node) = *clipboard else {
@@ -136,14 +134,13 @@ fn paste_device_to_track_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (_result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,
-        &project_state,
+        &project_registry,
         &clip_pool_state,
         &handle,
         &plugin_host_state,
@@ -168,14 +165,13 @@ fn paste_device_to_track_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,
-        &project_state,
+        &project_registry,
         &clip_pool_state,
         &handle,
         &plugin_host_state,

@@ -14,10 +14,9 @@ fn set_track_volume(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -52,10 +51,9 @@ fn set_track_volume_with_deltas(
 ) -> Result<TrackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -92,10 +90,9 @@ fn set_track_pan(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -130,10 +127,9 @@ fn set_track_pan_with_deltas(
 ) -> Result<TrackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -169,10 +165,9 @@ fn set_master_volume(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetMasterVolumeCommand { volume };
     let clamped = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -199,10 +194,9 @@ fn set_track_disabled(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -228,10 +222,9 @@ fn set_track_disabled_with_deltas(
 ) -> Result<TrackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -262,10 +255,9 @@ fn set_track_solo(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -297,10 +289,9 @@ fn set_track_solo_with_deltas(
 ) -> Result<TrackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -337,10 +328,9 @@ fn set_track_send_level(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,
         send,
@@ -365,10 +355,9 @@ fn set_track_send_level_with_deltas(
 ) -> Result<TrackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,
         send,

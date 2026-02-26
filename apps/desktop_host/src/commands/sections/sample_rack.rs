@@ -17,10 +17,9 @@ fn set_sample_rack_pad_volume_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadVolumeCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -64,14 +63,13 @@ fn set_sample_rack_pad_volume_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_vol = volume.clamp(0.0, 2.0);
-    set_sample_rack_pad_volume_cmd(track_id, pad_index, volume, handle, project_state, app)?;
+    set_sample_rack_pad_volume_cmd(track_id, pad_index, volume, handle, project_registry, app)?;
     Ok(SampleRackDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadVolumeChanged {
             track_id: track_uuid,
@@ -93,10 +91,9 @@ fn set_sample_rack_pad_mute_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadMuteCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -141,13 +138,12 @@ fn set_sample_rack_pad_mute_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-    set_sample_rack_pad_mute_cmd(track_id, pad_index, muted, handle, project_state, app)?;
+    set_sample_rack_pad_mute_cmd(track_id, pad_index, muted, handle, project_registry, app)?;
     Ok(SampleRackDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadMuteChanged {
             track_id: track_uuid,
@@ -169,10 +165,9 @@ fn set_sample_rack_pad_solo_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadSoloCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -219,13 +214,12 @@ fn set_sample_rack_pad_solo_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-    set_sample_rack_pad_solo_cmd(track_id, pad_index, soloed, handle, project_state, app)?;
+    set_sample_rack_pad_solo_cmd(track_id, pad_index, soloed, handle, project_registry, app)?;
     Ok(SampleRackDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadSoloChanged {
             track_id: track_uuid,
@@ -250,10 +244,9 @@ fn set_sample_rack_pad_adsr_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadAdsrCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -309,10 +302,9 @@ fn set_sample_rack_pad_adsr_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_attack = attack.clamp(0.001, 10.0);
@@ -327,7 +319,7 @@ fn set_sample_rack_pad_adsr_with_deltas_cmd(
         sustain,
         release,
         handle,
-        project_state,
+        project_registry,
         app,
     )?;
     Ok(SampleRackDeltaResponse {
@@ -354,10 +346,9 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadFilterCutoffCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -401,14 +392,13 @@ fn set_sample_rack_pad_filter_cutoff_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_cutoff = cutoff.clamp(20.0, 20000.0);
-    set_sample_rack_pad_filter_cutoff_cmd(track_id, pad_index, cutoff, handle, project_state, app)?;
+    set_sample_rack_pad_filter_cutoff_cmd(track_id, pad_index, cutoff, handle, project_registry, app)?;
     Ok(SampleRackDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadFilterCutoffChanged {
             track_id: track_uuid,
@@ -431,10 +421,9 @@ fn set_sample_rack_pad_sample_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let sample_arc = if !sample_path.trim().is_empty() {
         if !PathBuf::from(&sample_path).exists() {
             return Err(format!("Sample path does not exist: {}", sample_path));
@@ -503,17 +492,16 @@ fn set_sample_rack_pad_sample_with_deltas_cmd(
 ) -> Result<SampleRackDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_sample_cmd(
         track_id,
         pad_index,
         sample_path.clone(),
-        project_state,
+        project_registry,
         clip_pool_state,
         handle,
         app,

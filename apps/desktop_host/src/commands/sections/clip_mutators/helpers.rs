@@ -15,10 +15,9 @@ pub(super) fn rebuild_clip_views_and_mark_dirty(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     match mode {
         ClipRebuildMode::ClipsOnly => clip_pool_state.rebuild_clips_only(&project),
@@ -37,10 +36,9 @@ pub(super) fn rebuild_clips_only_and_mark_dirty(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
@@ -55,10 +53,9 @@ pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);
@@ -73,10 +70,9 @@ pub(super) fn rebuild_automation_and_mark_dirty(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     rebuild_automation_snapshot_from_project(&project, automation_runtime);
     drop(project);
@@ -154,10 +150,9 @@ pub(super) fn place_bounced_file_on_new_track(
 ) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
     push_undo(project_state)?;
@@ -211,6 +206,12 @@ pub(super) fn place_stem_files_on_new_tracks(
     stems: &[(String, String)],
     clip_start_frame: i64,
 ) -> Result<(), String> {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string()),
+    };
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+
     struct StemMeta {
         path: String,
         track_name: String,

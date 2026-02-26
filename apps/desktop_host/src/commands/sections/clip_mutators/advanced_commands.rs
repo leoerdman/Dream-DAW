@@ -9,10 +9,9 @@ async fn paint_track_clips_with_track_color_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
@@ -43,10 +42,9 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
     let before_colors = execute_orchestrator_query(
@@ -101,10 +99,9 @@ async fn resolve_missing_file_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -145,10 +142,9 @@ async fn resolve_missing_file_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -201,10 +197,9 @@ async fn set_automation_points_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let persistent_points = points
         .iter()
         .map(|p| dream_models::project::AutomationPoint {
@@ -250,10 +245,9 @@ async fn set_automation_points_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let normalized_param_id = param_id.trim().to_string();
 
@@ -297,10 +291,9 @@ async fn arm_track_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
     execute_orchestrator_command(&project_state, &cmd)?;
@@ -317,10 +310,9 @@ async fn arm_track_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     arm_track_cmd(track_index, armed, project_state, app).await?;
 
     Ok(DeltaMutationResponse {

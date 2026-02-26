@@ -9,10 +9,9 @@ fn set_sampler_sample_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let sample_path = payload.sample_path.clone();
     if !PathBuf::from(&sample_path).exists() {
         return Err(format!("Sample path does not exist: {}", sample_path));
@@ -42,7 +41,7 @@ fn set_sampler_sample_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
 
-    sync_routing_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
+    sync_routing_and_mark_dirty(project_state, &clip_pool_state, &app)?;
     handle
         .sampler_samples
         .set_track_sample(track_index, Some(sample_arc));
@@ -93,14 +92,13 @@ fn set_sampler_sample_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let sample_path = payload.sample_path.clone();
-    set_sampler_sample_cmd(payload, project_state, clip_pool_state, handle, app)?;
+    set_sampler_sample_cmd(payload, project_registry, clip_pool_state, handle, app)?;
     Ok(PluginMutationDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackSamplerSampleChanged {
             track_id: track_uuid,
@@ -126,12 +124,11 @@ fn eager_activate_external_plugins(
 ) -> Result<serde_json::Value, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let external_slots = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ListExternalPluginSlotsQuery,
     )?;
 
@@ -209,7 +206,7 @@ fn eager_activate_external_plugins(
         failed
     );
 
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    sync_external_fx_snapshot_from_state(project_state, &clip_pool_state, &plugin_host_state)?;
 
     Ok(serde_json::json!({
         "total": total,
@@ -237,10 +234,9 @@ fn set_slot_bypass_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
@@ -257,7 +253,7 @@ fn set_slot_bypass_cmd(
     );
 
     sync_plugin_runtime_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
@@ -299,10 +295,9 @@ fn set_slot_bypass_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
@@ -310,7 +305,7 @@ fn set_slot_bypass_with_deltas_cmd(
         track_id,
         slot_id,
         bypassed,
-        project_state,
+        project_registry.clone(),
         plugin_host_state,
         clip_pool_state,
         handle,
@@ -340,10 +335,9 @@ async fn move_effect_slot_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
         .map_err(|e| e.to_string())?;
@@ -372,7 +366,7 @@ async fn move_effect_slot_cmd(
 
     // Rebuild FX snapshot so the audio engine picks up the new order
     sync_plugin_runtime_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
@@ -398,10 +392,9 @@ async fn move_effect_slot_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
         .map_err(|e| e.to_string())?;
@@ -429,7 +422,7 @@ async fn move_effect_slot_with_deltas_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     sync_plugin_runtime_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,

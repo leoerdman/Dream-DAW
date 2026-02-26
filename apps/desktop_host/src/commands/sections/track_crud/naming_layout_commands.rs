@@ -8,10 +8,9 @@ async fn rename_track_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let old_name = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -49,10 +48,9 @@ async fn rename_track_with_deltas_cmd(
 ) -> Result<TrackManagementDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::RenameTrackByIndexCommand { index, name };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -82,10 +80,9 @@ async fn set_track_height_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackHeightCommand::from_str_track_id(&track_id, height)
         .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;
@@ -110,10 +107,9 @@ async fn set_track_height_with_deltas_cmd(
 ) -> Result<TrackManagementDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackHeightCommand::from_str_track_id(&track_id, height)
         .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;

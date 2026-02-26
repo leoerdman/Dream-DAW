@@ -30,10 +30,9 @@ fn resolve_plugin_slot_states_by_plugin_id(
 ) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolvePluginSlotsByPluginIdQuery {
@@ -52,10 +51,9 @@ fn open_plugin_window(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     plugin_host_state.try_enable_sandbox_if_available();
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let Some(slot) = slot_states.first().cloned() else {
@@ -73,7 +71,7 @@ fn open_plugin_window(
     let instance_id =
         plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    sync_external_fx_snapshot_from_state(project_state, &clip_pool_state, &plugin_host_state)?;
 
     let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
@@ -108,10 +106,9 @@ fn open_plugin_window_for_slot(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 
@@ -122,7 +119,7 @@ fn open_plugin_window_for_slot(
     );
 
     let slot = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,
@@ -322,7 +319,7 @@ fn open_plugin_window_for_slot(
         }
     }
 
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    sync_external_fx_snapshot_from_state(project_state, &clip_pool_state, &plugin_host_state)?;
 
     // Mark project dirty — plugin editor opening implies parameters may be
     // changed via the native GUI (which doesn't notify our project model).

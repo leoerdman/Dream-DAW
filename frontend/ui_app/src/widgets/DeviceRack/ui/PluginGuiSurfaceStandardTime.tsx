@@ -19,7 +19,7 @@ import {
 import { renderTimeToneSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardTimeTone';
 
 export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     if (device.effectType === 'delay') {
@@ -73,11 +73,11 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                             <span>{delayTitle}</span><span>L {formatSurfaceParam(timeL)}</span><span>R {formatSurfaceParam(timeR)}</span><span>FB {formatSurfaceParam(fb)}</span><span>Mix {formatSurfaceParam(mix)}</span>
                         </div>
                     </div>
-                    {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-7cc4ff)" />}
+                    {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-7cc4ff)" />}
                 </div>
                 {knobParams.length > 0 && (
                     <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                        {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                     </div>
                 )}
             </div>
@@ -109,11 +109,11 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                             <span>{reverbTitle}</span><span>Size {formatSurfaceParam(reverbSize)}</span><span>Damp {formatSurfaceParam(reverbDamp)}</span><span>Mix {formatSurfaceParam(mix)}</span>
                         </div>
                     </div>
-                    {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-c891ff)" />}
+                    {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-c891ff)" />}
                 </div>
                 {knobParams.length > 0 && (
                     <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                        {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                     </div>
                 )}
             </div>

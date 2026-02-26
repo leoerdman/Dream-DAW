@@ -19,7 +19,7 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onApplyUtilityScene } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onApplyUtilityScene, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     if (device.effectType === 'utility') {
@@ -162,6 +162,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 onChange={onParamChange}
                                 onGestureStart={onParamGestureStart}
                                 onGestureEnd={onParamGestureEnd}
+                                onContextMenu={onParamContextMenu}
                                 accent="var(--token-color-hex-7ab6ff)"
                             />
                         </div>
@@ -176,6 +177,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 onChange={onParamChange}
                                 onGestureStart={onParamGestureStart}
                                 onGestureEnd={onParamGestureEnd}
+                                onContextMenu={onParamContextMenu}
                                 compact
                             />
                         ))}
@@ -258,6 +260,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             onChange={onParamChange}
                             onGestureStart={onParamGestureStart}
                             onGestureEnd={onParamGestureEnd}
+                            onContextMenu={onParamContextMenu}
                             accent="var(--token-color-hex-6ac3ff)"
                         />
                     )}
@@ -280,6 +283,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 onChange={onParamChange}
                                 onGestureStart={onParamGestureStart}
                                 onGestureEnd={onParamGestureEnd}
+                                onContextMenu={onParamContextMenu}
                                 compact
                             />
                         ))}

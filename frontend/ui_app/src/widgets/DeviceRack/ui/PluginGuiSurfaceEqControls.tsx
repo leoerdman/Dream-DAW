@@ -11,6 +11,7 @@ type Props = {
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 };
 
 export function PluginGuiSurfaceEqControls({
@@ -23,6 +24,7 @@ export function PluginGuiSurfaceEqControls({
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
+    onParamContextMenu,
 }: Props): React.ReactNode {
     return (
         <div
@@ -48,6 +50,7 @@ export function PluginGuiSurfaceEqControls({
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
+                    onContextMenu={onParamContextMenu}
                     compact
                 />
             )}
@@ -59,6 +62,7 @@ export function PluginGuiSurfaceEqControls({
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
+                    onContextMenu={onParamContextMenu}
                     compact
                 />
             )}
@@ -71,6 +75,7 @@ export function PluginGuiSurfaceEqControls({
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
+                    onContextMenu={onParamContextMenu}
                     compact
                 />
             )}
@@ -81,6 +86,7 @@ export function PluginGuiSurfaceEqControls({
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
+                    onContextMenu={onParamContextMenu}
                     compact
                 />
             )}

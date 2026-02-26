@@ -84,6 +84,11 @@ fn connect_midi_input(
                 // 4) fallback track 0
                 let target_track = {
                     let project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = app_for_cb.state();
+                    let active_project_arc = match project_registry.get_active_project() {
+                        Some(p) => p,
+                        None => return, // Drop MIDI event if no active project
+                    };
+                    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
                     match project_state.project.lock() {
                         Ok(project) => project
                             .tracks

@@ -17,7 +17,7 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 1, 'Hz');
@@ -43,13 +43,13 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                     </div>
                 </div>
                 {showDryWet && (
-                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-6db3ff)" />
+                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-6db3ff)" />
                 )}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
                     {knobParams.map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
                     ))}
                 </div>
             )}
@@ -58,7 +58,7 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 }
 
 function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
@@ -94,13 +94,13 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                     </div>
                 </div>
                 {showDryWet && (
-                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-998bff)" />
+                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-998bff)" />
                 )}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
                     {knobParams.map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
                     ))}
                 </div>
             )}
@@ -109,7 +109,7 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 }
 
 function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
@@ -144,13 +144,13 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                     </div>
                 </div>
                 {showDryWet && (
-                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-66b3ff)" />
+                    <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-66b3ff)" />
                 )}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
                     {knobParams.map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
                     ))}
                 </div>
             )}

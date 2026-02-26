@@ -8,8 +8,9 @@ const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 const FADER_SCALE_VALS = [12, 6, 0, -6, -12, -24, -36, -48, -60];
 const FADER_SCALE_NODES = FADER_SCALE_VALS.map(val => (
-    <div key={val} style={{ position: 'absolute', bottom: `${clamp01(dbToFader(val)) * 100}%`, right: 2, transform: 'translateY(50%)' }}>
-        {Math.abs(val)}
+    <div key={val} style={{ position: 'absolute', bottom: `${clamp01(dbToFader(val)) * 100}%`, right: 2, transform: 'translateY(50%)', display: 'flex', alignItems: 'center', gap: 2, userSelect: 'none' }}>
+        <span>{Math.abs(val)}</span>
+        <div style={{ width: 3, height: 1, background: 'var(--color-divider)' }} />
     </div>
 ));
 
@@ -18,16 +19,21 @@ const LABEL_STYLE: React.CSSProperties = { fontSize: '9px', fontWeight: 600, col
 const SELECT_STYLE: React.CSSProperties = {
     width: '100%',
     height: 18,
-    borderRadius: 'var(--radius-xs)',
-    border: '1px solid var(--color-divider-light)',
-    background: 'var(--surface-elevated)',
-    color: 'var(--color-text-secondary)',
-    fontSize: '10px',
+    borderRadius: '1px',
+    border: '1px solid #111',
+    background: '#2a2a2a',
+    color: '#ccc',
+    fontSize: '9px',
+    fontWeight: 600,
     fontFamily: 'var(--font-role-body)',
     padding: '0 4px',
     cursor: 'pointer',
     outline: 'none',
-    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.15)',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    backgroundImage: `url("data:image/svg+xml;utf8,<svg fill='%238c8c8c' height='10' viewBox='0 0 24 24' width='10' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/></svg>")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 2px center',
 };
 
 export function SessionIoRow({ label, value }: { label: string; value: string }) {
@@ -49,7 +55,7 @@ export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 
     return (
         <div style={{ display: 'grid', gap: 0, marginBottom: 4 }}>
             <span style={LABEL_STYLE}>Monitor</span>
-            <div style={{ display: 'flex', height: 18, borderRadius: 'var(--radius-xs)', overflow: 'hidden', border: '1px solid var(--color-divider-light)', background: 'var(--surface-elevated)' }}>
+            <div style={{ display: 'flex', height: 18, borderRadius: '1px', overflow: 'hidden', border: '1px solid #111', background: '#2a2a2a' }}>
                 {(['In', 'Auto', 'Off'] as const).map(mode => {
                     const isActive = value === mode;
                     return (
@@ -61,13 +67,14 @@ export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 
                                 flex: 1,
                                 height: '100%',
                                 border: 'none',
+                                borderRight: mode !== 'Off' ? '1px solid #111' : 'none',
                                 background: isActive ? 'var(--color-status-warning)' : 'transparent',
-                                color: isActive ? '#000' : 'var(--color-text-secondary)',
-                                fontSize: '10px',
+                                color: isActive ? '#000' : '#8c8c8c',
+                                fontSize: '9px',
                                 fontFamily: 'var(--font-role-body)',
-                                fontWeight: isActive ? 700 : 500,
+                                fontWeight: isActive ? 800 : 600,
                                 cursor: 'pointer',
-                                transition: 'background 100ms ease, color 100ms ease',
+                                transition: 'background 50ms ease, color 50ms ease',
                             }}
                         >
                             {mode}
@@ -202,10 +209,10 @@ function SessionStripFaderInner({
                 </div>
 
                 {/* 0dB Marker Line */}
-                <div style={{ position: 'absolute', left: 20, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'color-mix(in srgb, var(--color-text-secondary) 30%, transparent)', pointerEvents: 'none', zIndex: 0 }} />
+                <div style={{ position: 'absolute', left: 16, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: '#8c8c8c', pointerEvents: 'none', zIndex: 0 }} />
 
                 {/* STEREO METER */}
-                <div style={{ position: 'relative', flex: 1, maxWidth: 14, borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                <div style={{ position: 'relative', flex: 1, maxWidth: 14, borderRadius: '1px', overflow: 'hidden', background: '#111', border: '1px solid #000' }}>
                     <MeterStrip
                         levelL={meterL}
                         levelR={meterR}
@@ -251,21 +258,21 @@ function SessionStripFaderInner({
                         }}
                     >
                         {/* The Rail */}
-                        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 2, background: 'var(--color-divider)', borderRadius: 1 }} />
+                        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 2, background: '#111', borderRadius: 1 }} />
 
-                        {/* Thumb (Premium Glassy Handle) */}
+                        {/* Thumb (Premium Ableton Handle) */}
                         <div style={{
-                            position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 7px)`,
-                            height: 14,
-                            borderRadius: 'var(--radius-xs)',
-                            background: dragging ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)',
-                            border: '1px solid var(--surface-1)',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.3), inset 0 1px 1px rgba(255,255,255,0.2)',
+                            position: 'absolute', left: 1, right: 1, bottom: `calc(${volNorm * 100}% - 4px)`,
+                            height: 8,
+                            borderRadius: '1px',
+                            background: dragging ? '#ccc' : '#aaa',
+                            border: '1px solid #000',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
                             pointerEvents: 'none',
                             transition: 'background 0.1s',
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}>
-                            <div style={{ width: '80%', height: 2, background: 'var(--surface-elevated)', borderRadius: 1 }} />
+                            <div style={{ width: '100%', height: 2, background: '#fff' }} />
                         </div>
                     </div>
                 </div>
@@ -273,7 +280,7 @@ function SessionStripFaderInner({
 
             {/* PAN KNOB */}
             <div style={{ width: '100%', marginBottom: 4 }}>
-                <div style={{ background: 'var(--surface-elevated)', border: `1px solid var(--color-divider-light)`, borderRadius: 'var(--radius-xs)', color: 'var(--color-text-secondary)', fontSize: '10px', textAlign: 'center', padding: '4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: panDisabled ? 0.4 : 1, userSelect: 'none' }}>
+                <div style={{ background: '#2a2a2a', border: `1px solid #111`, borderRadius: '1px', color: '#ccc', fontSize: '10px', fontWeight: 600, textAlign: 'center', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: panDisabled ? 0.4 : 1, userSelect: 'none' }}>
                     <div
                         ref={panRef}
                         onPointerDown={handlePanPointerDown}
@@ -282,62 +289,61 @@ function SessionStripFaderInner({
                         onPointerCancel={handlePanPointerUp}
                         onDoubleClick={() => !panDisabled && onPanChange(0)}
                         style={{
-                            width: 18, height: 18,
+                            width: 16, height: 16,
                             borderRadius: '50%',
-                            background: 'var(--surface-elevated)',
-                            border: '1px solid color-mix(in srgb, var(--color-text-secondary) 20%, transparent)',
-                            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.4)',
+                            background: '#111',
+                            border: '1px solid #000',
+                            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                             position: 'relative',
                             cursor: panDisabled ? 'default' : 'ns-resize',
                             marginRight: 6,
-                            transform: `rotate(${panAngle}deg)`
                         }}
                     >
-                        <div style={{ position: 'absolute', top: 2, left: 8, width: 2, height: 6, background: actualTrackColor, borderRadius: 1 }} />
+                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: `rotate(${panAngle}deg)` }}>
+                            <div style={{ position: 'absolute', top: 1, left: 7, width: 2, height: 5, background: actualTrackColor, borderRadius: 1 }} />
+                        </div>
                     </div>
-                    <span>{Math.abs(pan) < 0.01 ? 'C' : `${Math.round(Math.abs(pan * 50))}${pan < 0 ? 'L' : 'R'}`}</span>
+                    <span style={{ width: 16, textAlign: 'center' }}>{Math.abs(pan) < 0.01 ? 'C' : `${Math.round(Math.abs(pan * 50))}${pan < 0 ? 'L' : 'R'}`}</span>
                 </div>
             </div>
 
             {/* ABLETON ACTIVATORS */}
             {setTrackDisabled && setTrackSolo && setTrackArmed && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, width: '100%', marginTop: 2 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2, width: '100%', marginTop: 2 }}>
 
                     {/* MUTE / ACTIVATOR BUTTON */}
                     <button
                         type="button"
                         onClick={() => setTrackDisabled(!trackDisabled)}
                         style={{
-                            height: 20,
-                            background: !trackDisabled ? actualTrackColor : 'var(--surface-elevated)',
-                            color: !trackDisabled ? (getContrastColor(actualTrackColor) === 'black' ? '#000' : '#fff') : 'var(--color-text-tertiary)',
-                            border: `1px solid var(--color-divider-light)`,
-                            borderRadius: 'var(--radius-xs)',
+                            height: 18,
+                            background: !trackDisabled ? actualTrackColor : '#222',
+                            color: !trackDisabled ? (getContrastColor(actualTrackColor) === 'black' ? '#000' : '#fff') : '#8c8c8c',
+                            border: `1px solid #111`,
+                            borderRadius: '1px',
                             fontSize: '10px',
                             fontWeight: 800,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             cursor: 'pointer',
-                            transition: 'background 0.1s, color 0.1s',
                         }}
                     >
                         {trackIndex + 1}
                     </button>
 
                     {/* SOLO & ARM */}
-                    <div style={{ display: 'flex', gap: 4, height: 20 }}>
+                    <div style={{ display: 'flex', gap: 2, height: 18 }}>
                         <button
                             type="button"
                             onClick={() => setTrackSolo(!trackSolo)}
                             style={{
                                 flex: 1,
-                                background: trackSolo ? 'var(--color-status-info)' : 'var(--surface-elevated)',
-                                color: trackSolo ? '#fff' : 'var(--color-text-tertiary)',
-                                border: '1px solid var(--color-divider-light)',
-                                borderRadius: 'var(--radius-xs)',
+                                background: trackSolo ? '#358aff' : '#222',
+                                color: trackSolo ? '#fff' : '#8c8c8c',
+                                border: '1px solid #111',
+                                borderRadius: '1px',
                                 fontSize: '10px',
                                 fontWeight: 800,
                                 cursor: 'pointer',
-                                transition: 'background 0.1s, color 0.1s',
                             }}
                         >
                             S
@@ -347,18 +353,17 @@ function SessionStripFaderInner({
                             onClick={() => setTrackArmed(!trackArmed)}
                             style={{
                                 flex: 1,
-                                background: trackArmed ? 'var(--color-status-error)' : 'var(--surface-elevated)',
-                                color: trackArmed ? '#fff' : 'var(--color-text-tertiary)',
-                                border: '1px solid var(--color-divider-light)',
-                                borderRadius: 'var(--radius-xs)',
+                                background: trackArmed ? '#df3f3f' : '#222',
+                                color: trackArmed ? '#fff' : '#8c8c8c',
+                                border: '1px solid #111',
+                                borderRadius: '1px',
                                 fontSize: '10px',
                                 fontWeight: 800,
                                 cursor: 'pointer',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'background 0.1s',
                             }}
                         >
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? '#fff' : 'var(--color-text-tertiary)' }} />
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? '#fff' : '#8c8c8c' }} />
                         </button>
                     </div>
                 </div>

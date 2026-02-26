@@ -17,6 +17,7 @@ export interface DryWetKnobProps {
     onChange: (paramName: string, value: number) => void;
     onGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onGestureEnd?: (paramName: string) => void;
+    onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     /** Override accent color (CSS variable or hex). Default: --color-accent-primary */
     accent?: string;
 }
@@ -28,6 +29,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     onChange,
     onGestureStart,
     onGestureEnd,
+    onContextMenu,
     accent,
 }: DryWetKnobProps) {
     const param = resolveMixParam(device);
@@ -166,6 +168,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                     onPointerCancel={endKnobDrag}
                     onMouseDown={beginMouseDrag}
                     onDoubleClick={onDoubleClick}
+                    onContextMenu={(e) => onContextMenu?.(e, resolvedParam.name)}
                 >
                     <KnobArcSvg
                         pct={pct}

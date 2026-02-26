@@ -18,7 +18,7 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const rate = readSurfaceParam(device, 'rate', 1.2, 'Hz');
@@ -42,11 +42,11 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                         <span>Mix {formatSurfaceParam(mix)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-c867ff)" />}
+                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-c867ff)" />}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                 </div>
             )}
         </div>
@@ -54,7 +54,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 }
 
 function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
@@ -98,11 +98,11 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                         <span>Mix {formatSurfaceParam(mix)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-ffac59)" />}
+                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-ffac59)" />}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                 </div>
             )}
         </div>

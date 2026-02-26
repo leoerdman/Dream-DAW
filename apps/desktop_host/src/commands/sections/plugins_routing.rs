@@ -27,14 +27,13 @@ fn get_plugin_slot_runtime_status_cmd(
 ) -> Result<PluginSlotRuntimeStatus, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,
@@ -185,14 +184,13 @@ fn ensure_plugin_slot_active_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,
@@ -250,7 +248,7 @@ fn ensure_plugin_slot_active_cmd(
         }
     }
 
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    sync_external_fx_snapshot_from_state(project_state, &clip_pool_state, &plugin_host_state)?;
     log::info!(
         "[IPC] ensure_plugin_slot_active_cmd(track={}, slot={}) -> instance {}",
         track_id,
@@ -271,14 +269,13 @@ fn unload_plugin_slot_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,
@@ -290,7 +287,7 @@ fn unload_plugin_slot_cmd(
     }
 
     plugin_host_state.unload_slot_instance(slot.slot_id)?;
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    sync_external_fx_snapshot_from_state(project_state, &clip_pool_state, &plugin_host_state)?;
     log::info!(
         "[IPC] unload_plugin_slot_cmd(track={}, slot={})",
         track_id,
@@ -318,10 +315,9 @@ fn replace_missing_plugin_slot_impl(
 ) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -438,14 +434,13 @@ fn replace_missing_plugin_slot_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let _ = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -465,17 +460,16 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_id_raw = payload.track_id.clone();
     let track_id = Uuid::parse_str(&track_id_raw)
         .map_err(|_| format!("Invalid track_id: {}", track_id_raw))?;
     let cmd_result = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,

@@ -11,10 +11,9 @@ fn import_ableton_project(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     open_project(
         path,
         project_state,
@@ -38,10 +37,9 @@ fn new_project(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut new = dream_models::project::Project::default();
     new.normalize_invariants();
     refresh_offline_flags(&mut new);
@@ -115,10 +113,9 @@ async fn save_project(
 ) -> Result<String, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, path, project_name, legacy_path_to_remove) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
@@ -203,10 +200,9 @@ async fn save_project_as(
 ) -> Result<String, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
@@ -291,10 +287,9 @@ fn open_project(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let file_path = PathBuf::from(&path);
 
     let importing_als = file_path
@@ -533,10 +528,9 @@ fn get_project_status(
 ) -> Result<serde_json::Value, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
     let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
     let project_folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
@@ -558,10 +552,9 @@ fn auto_resolve_missing_plugins_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
@@ -622,10 +615,9 @@ fn auto_resolve_missing_plugins_report_with_deltas_cmd(
 ) -> Result<AutoResolveMissingPluginsReportResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
@@ -689,10 +681,9 @@ fn set_arrangement_viewport_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let ppb = pixels_per_beat.clamp(0.5, 2000.0);
     let scroll = scroll_left.max(0.0);
@@ -713,10 +704,9 @@ fn get_arrangement_viewport_cmd(
 ) -> Result<ArrangementViewportPayload, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let pixels_per_beat = project.view_zoom_scale.or(project.sequencer_navigator_zoom);
     let scroll_left = project
@@ -743,10 +733,9 @@ fn set_arrangement_grid_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
         denominator,
@@ -778,10 +767,9 @@ fn set_arrangement_grid_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
         denominator,
@@ -819,10 +807,9 @@ fn set_key_signature_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
         tonic,
@@ -850,10 +837,9 @@ fn set_key_signature_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
         tonic,
@@ -898,10 +884,9 @@ async fn auto_save_if_dirty(
 ) -> Result<serde_json::Value, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // ── Gate 1: Check dirty flag ──
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
     if !is_dirty {

@@ -208,10 +208,9 @@ pub async fn get_peaks_by_clip_id(
 ) -> Result<tauri::ipc::Response, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let clip_uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip_id: {e}"))?;
 
@@ -254,10 +253,9 @@ pub async fn get_peaks(
 ) -> Result<tauri::ipc::Response, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }
 
@@ -273,9 +271,8 @@ pub async fn get_peaks_binary(
 ) -> Result<tauri::ipc::Response, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }

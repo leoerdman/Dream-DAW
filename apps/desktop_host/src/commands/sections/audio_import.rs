@@ -41,10 +41,9 @@ async fn import_audio_file(
 ) -> Result<ImportAudioResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     log::info!("[IPC] import_audio_file: path='{}' track={} pos={:?}", path, track_index, position_frames);
     let file_path = PathBuf::from(&path);
 
@@ -242,10 +241,9 @@ async fn import_audio_file_with_deltas(
 ) -> Result<ImportAudioWithDeltasResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let response = import_audio_file(
         path,
         track_index,

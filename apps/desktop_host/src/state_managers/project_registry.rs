@@ -2,7 +2,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use arc_swap::ArcSwapOption;
 use uuid::Uuid;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 use crate::state_managers::ProjectState;
 
@@ -19,7 +19,7 @@ pub struct ProjectRegistry {
 
     /// Thread-safe map containing ALL open projects.
     /// Uses `std::sync::RwLock` for fast read/write locks inside the map.
-    pub open_projects: DashMap<Uuid, Arc<RwLock<ProjectState>>>,
+    pub open_projects: DashMap<Uuid, Arc<ProjectState>>,
 }
 
 impl Default for ProjectRegistry {
@@ -37,7 +37,7 @@ impl ProjectRegistry {
     }
 
     /// Retrieves an Arc reference to the active project state.
-    pub fn get_active_project(&self) -> Option<Arc<RwLock<ProjectState>>> {
+    pub fn get_active_project(&self) -> Option<Arc<ProjectState>> {
         let active_id_guard = self.active_project_id.load();
         if let Some(active_id) = &*active_id_guard {
             self.open_projects.get(active_id).map(|p| p.value().clone())
@@ -47,10 +47,8 @@ impl ProjectRegistry {
     }
 
     /// Adds a new project to the registry. Does NOT make it active automatically.
-    pub fn add_project(&self, state: Arc<RwLock<ProjectState>>) {
-        let id_guard = state.read().unwrap();
-        let id = id_guard.id;
-        drop(id_guard); // Release lock before map insertion
+    pub fn add_project(&self, state: Arc<ProjectState>) {
+        let id = state.id;
         self.open_projects.insert(id, state);
     }
 

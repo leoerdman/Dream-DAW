@@ -26,10 +26,9 @@ fn get_project_history(
 ) -> Result<Vec<ProjectHistoryEvent>, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     project_state.history_snapshot(limit, since_seq)
 }
 
@@ -40,14 +39,13 @@ fn get_project_history(
 /// silent state desynchronization when old clients call this command.
 #[tauri::command]
 fn get_project_snapshot_delta(
-    _project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<DeltaMutationResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     Err("get_project_snapshot_delta is disabled in strict delta mode".to_string())
 }
 
@@ -60,10 +58,9 @@ fn get_audio_chain_audit(
 ) -> Result<AudioChainAuditPayload, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     use std::collections::{HashMap, HashSet};
 
     let project = project_state

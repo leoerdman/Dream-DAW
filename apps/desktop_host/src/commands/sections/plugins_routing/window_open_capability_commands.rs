@@ -6,10 +6,9 @@ fn can_open_plugin_editor(
 ) -> Result<PluginEditorCapability, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let instance_id = slot_states
         .first()
@@ -64,16 +63,15 @@ fn can_open_plugin_editor_for_slot(
 ) -> Result<PluginEditorCapability, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid =
         Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,

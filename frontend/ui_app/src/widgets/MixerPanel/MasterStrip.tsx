@@ -63,15 +63,32 @@ export function MasterStrip() {
                 onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; const next = Math.max(0, Math.min(2, vol + (e.deltaY < 0 ? step : -step))); setMasterVolume(next); void useEngineStore.getState().flushTrackControlFinals(); }}
                 style={{ flex: 1, minHeight: 230, display: 'flex', flexDirection: 'row', gap: 2, padding: '6px 4px', cursor: 'ns-resize', touchAction: 'none' }}
             >
-                <div style={{ width: METER_WIDTH + 2, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                <div style={{ width: METER_WIDTH + 2, position: 'relative', borderRadius: '1px', overflow: 'hidden', background: '#111', border: '1px solid #000' }}>
                     <MeterStrip levelL={meterL} levelR={meterL} isMidi={false} width={METER_WIDTH + 2} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
                 </div>
-                <div style={{ flex: 1, position: 'relative', borderRadius: 'var(--radius-xs)', background: 'color-mix(in srgb, var(--surface-2) 60%, transparent)', border: '1px solid color-mix(in srgb, var(--text-primary) 6%, transparent)' }}>
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${dbToFader(0) * 100}%`, height: 1, background: 'color-mix(in srgb, var(--color-text-secondary) 40%, transparent)', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 1, height: `calc(${volNorm * 100}% - 2px)`, background: 'linear-gradient(to top, var(--color-meter-green-start) 0%, var(--color-meter-green-end) 100%)', borderRadius: 'var(--radius-xs)', opacity: 0.8, transition: 'none', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 1px)`, height: 2, background: 'color-mix(in srgb, var(--color-text-bright) 94%, transparent)', borderRadius: 'var(--radius-2xs)', boxShadow: '0 0 2px color-mix(in srgb, var(--color-text-bright) 35%, transparent)', transition: 'none', pointerEvents: 'none' }} />
+                <div style={{ flex: 1, position: 'relative' }}>
+                    {/* The Rail */}
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 2, background: '#111', borderRadius: 1 }} />
+
+                    {/* 0dB Marker Line */}
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${dbToFader(0) * 100}%`, height: 1, background: '#8c8c8c', pointerEvents: 'none', zIndex: 0 }} />
+
+                    {/* Thumb (Premium Ableton Handle) */}
+                    <div style={{
+                        position: 'absolute', left: 1, right: 1, bottom: `calc(${volNorm * 100}% - 4px)`,
+                        height: 8,
+                        borderRadius: '1px',
+                        background: isDragging ? '#ccc' : '#aaa',
+                        border: '1px solid #000',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                        pointerEvents: 'none',
+                        transition: 'background 0.1s',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                        <div style={{ width: '100%', height: 2, background: '#fff' }} />
+                    </div>
                 </div>
-                <div style={{ width: METER_WIDTH + 2, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                <div style={{ width: METER_WIDTH + 2, position: 'relative', borderRadius: '1px', overflow: 'hidden', background: '#111', border: '1px solid #000' }}>
                     <MeterStrip levelL={meterR} levelR={meterR} isMidi={false} width={METER_WIDTH + 2} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
                 </div>
             </div>

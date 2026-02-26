@@ -79,13 +79,14 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
             background: 'color-mix(in srgb, var(--color-bg-panel) 96%, transparent)',
         }}>
             <div style={{
-                height: 24,
+                height: 20,
                 width: '100%',
                 background: trackColor,
                 color: textColor,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '10px', fontWeight: 800, textTransform: 'uppercase',
-                borderRadius: 'var(--radius-xs)',
+                borderRadius: '1px',
+                border: '1px solid rgba(0,0,0,0.5)',
                 boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.2)',
                 marginBottom: 4,
                 overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 4px'

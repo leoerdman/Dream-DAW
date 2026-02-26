@@ -115,10 +115,9 @@ fn seek_to_beat(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // BUG-017 FIX: Validate non-negative beat at the API boundary.
     let safe_beat = beat.max(0.0);
     let state = handle
@@ -151,10 +150,9 @@ fn set_bpm(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if !(20.0..=999.0).contains(&bpm) {
         return Err(format!("BPM {bpm} out of range (20–999)"));
     }
@@ -305,10 +303,9 @@ fn set_bpm_with_deltas(
 ) -> Result<TransportDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_bpm(
         bpm,
         handle,
@@ -331,10 +328,9 @@ fn set_time_signature(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let numerator_u8 = (numerator.clamp(1, 32)) as u8;
     let denominator_u8 = (denominator.clamp(1, 32)) as u8;
 
@@ -368,10 +364,9 @@ fn set_time_signature_with_deltas(
 ) -> Result<TransportDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_time_signature(numerator, denominator, handle, project_state)?;
     Ok(TransportDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TimeSignatureChanged {
@@ -392,10 +387,9 @@ fn set_loop(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (beats_per_bar, sample_rate, bpm) = {
         let project = project_state
             .project
@@ -484,10 +478,9 @@ fn set_loop_with_deltas(
 ) -> Result<TransportDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_loop(
         enabled,
         start_frames,

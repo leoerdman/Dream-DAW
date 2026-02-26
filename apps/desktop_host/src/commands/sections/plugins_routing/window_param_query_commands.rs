@@ -24,19 +24,18 @@ fn get_external_plugin_params(
 ) -> Result<Vec<ExternalPluginParamInfo>, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let hints = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
             plugin_id: plugin_id.clone(),
         },
     )?;
     let metadata_count = hints.metadata_count;
     let lane_name_hints = hints.lane_name_hints;
-    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_registry, &plugin_id)?;
     let Some(slot) = slot_states.first() else {
         return Ok(fallback_external_param_block(metadata_count));
     };
@@ -112,14 +111,13 @@ fn get_external_plugin_params_for_slot(
 ) -> Result<Vec<ExternalPluginParamInfo>, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot_state = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
             track_id: track_uuid,
             slot_id: slot_uuid,
@@ -131,7 +129,7 @@ fn get_external_plugin_params_for_slot(
     }
 
     let hints = execute_orchestrator_query(
-        &project_state,
+        project_state,
         &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
             plugin_id: slot_state.plugin_id.clone(),
         },

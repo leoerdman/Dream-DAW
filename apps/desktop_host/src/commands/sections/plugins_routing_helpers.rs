@@ -72,7 +72,7 @@ pub fn sync_external_fx_snapshot(
 }
 
 pub fn sync_external_fx_snapshot_from_state(
-    project_state: &State<'_, ProjectState>,
+    project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
 ) -> Result<(), String> {
@@ -82,7 +82,7 @@ pub fn sync_external_fx_snapshot_from_state(
 }
 
 pub fn sync_routing_and_mark_dirty(
-    project_state: &State<'_, ProjectState>,
+    project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
@@ -216,7 +216,7 @@ pub fn load_external_slot_best_effort(
 }
 
 pub fn sync_plugin_runtime_and_mark_dirty(
-    project_state: &State<'_, ProjectState>,
+    project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
     handle: &State<'_, AudioEngineHandle>,
@@ -326,7 +326,7 @@ pub fn ensure_external_plugins_prepared_for_offline_render(
 }
 
 pub fn finalize_external_param_update(
-    project_state: &State<'_, ProjectState>,
+    project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
     automation_runtime: &State<'_, AutomationRuntime>,
@@ -349,7 +349,7 @@ pub fn finalize_external_param_update(
 }
 
 pub fn finalize_internal_param_update(
-    project_state: &State<'_, ProjectState>,
+    project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
     automation_runtime: &State<'_, AutomationRuntime>,
     handle: &State<'_, AudioEngineHandle>,

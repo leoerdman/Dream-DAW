@@ -10,6 +10,7 @@ interface PluginGuiSurfaceSamplerProps {
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
 }
@@ -20,6 +21,7 @@ export function PluginGuiSurfaceSampler({
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
+    onParamContextMenu,
     onDropSample,
     onLoadSample,
 }: PluginGuiSurfaceSamplerProps) {
@@ -222,6 +224,7 @@ export function PluginGuiSurfaceSampler({
                         onChange={onParamChange}
                         onGestureStart={onParamGestureStart}
                         onGestureEnd={onParamGestureEnd}
+                        onContextMenu={onParamContextMenu}
                         compact
                     />
                 ))}

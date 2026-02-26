@@ -48,6 +48,7 @@ export type SurfaceHandlers = {
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
 };
 

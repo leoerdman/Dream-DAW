@@ -16,10 +16,9 @@ async fn add_track_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddTrackCommand {
         name: name.clone(),
@@ -65,10 +64,9 @@ async fn add_track_with_deltas_cmd(
 ) -> Result<TrackManagementDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddTrackCommand {
         name: name.clone(),
@@ -133,10 +131,9 @@ async fn delete_track_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -173,10 +170,9 @@ async fn delete_track_with_deltas_cmd(
 ) -> Result<TrackManagementDeltaResponse, String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -212,10 +208,9 @@ async fn delete_tracks_cmd(
 ) -> Result<(), String>  {
     let active_project_arc = match project_registry.get_active_project() {
         Some(p) => p,
-        None => return Err("No active project".to_string());
+        None => return Err("No active project".to_string()),
     };
-    let project_state_guard = active_project_arc.read().unwrap();
-    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if track_ids.is_empty() {
         return Ok(());
     }

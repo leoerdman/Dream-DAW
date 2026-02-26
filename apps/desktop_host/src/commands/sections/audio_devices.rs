@@ -44,6 +44,13 @@ fn restart_audio_engine_impl(
     let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
     let (new_prealloc_producer, new_prealloc_consumer) =
         dream_ipc::prealloc_queue::new_prealloc_queue();
+    // BUF-001 FIX: Read validated buffer_size from settings for cpal.
+    let preferred_buffer_size = settings_state
+        .settings
+        .lock()
+        .ok()
+        .map(|s| crate::settings::validated_buffer_size(s.buffer_size));
+
     let new_stream = dream_engine::driver::start_audio_thread_on_device(
         new_consumer,
         Arc::clone(&handle.master_clock),
@@ -67,6 +74,7 @@ fn restart_audio_engine_impl(
         Some(device_name.as_str()),
         Some(handle.stream_error_tx.clone()),
         new_prealloc_consumer,
+        preferred_buffer_size,
     )
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
 

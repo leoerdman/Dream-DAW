@@ -151,8 +151,10 @@ impl SummingBus {
 }
 
 impl Default for SummingBus {
+    /// BUF-004 FIX: Default was 1024 — any callback block >1024 frames
+    /// would silently truncate audio. Use 8192 to match MAX_BUFFER_FRAMES.
     fn default() -> Self {
-        Self::new(1024)
+        Self::new(8192)
     }
 }
 

@@ -14,6 +14,7 @@ pub(crate) struct OutputSetup {
 
 pub(crate) fn resolve_output_setup(
     preferred_output_device: Option<&str>,
+    preferred_buffer_size: Option<u32>,
 ) -> Result<OutputSetup, AudioDriverError> {
     let host = cpal::default_host();
     info!("Audio host: {:?}", host.id());
@@ -105,7 +106,18 @@ pub(crate) fn resolve_output_setup(
     let sample_format = supported_config.sample_format();
     let sample_rate = supported_config.sample_rate();
     let channels = supported_config.channels() as usize;
-    let config: cpal::StreamConfig = supported_config.into();
+    let mut config: cpal::StreamConfig = supported_config.into();
+
+    // BUF-001 FIX: Apply user-preferred buffer size to cpal StreamConfig.
+    // Without this, the user's buffer_size setting in preferences had zero effect
+    // on actual audio latency — cpal always used the OS default.
+    if let Some(bs) = preferred_buffer_size {
+        let clamped = bs.clamp(32, 8192);
+        config.buffer_size = cpal::BufferSize::Fixed(clamped);
+        info!("Buffer size: {} frames (user preference)", clamped);
+    } else {
+        info!("Buffer size: OS default (no user preference)");
+    }
 
     info!(
         "Stream config: {:?}, {}ch, {:?}",

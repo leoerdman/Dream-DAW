@@ -1838,6 +1838,27 @@ impl OfflineRenderer {
         let mut mix_r = vec![0.0f32; total_frames];
         let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
 
+        // ── BUF-009 FIX: Pre-roll warmup ────────────────────────────────
+        // VST3 plugins (reverbs, delays, compressors) start from a cold/zeroed
+        // state during offline export, producing different output than RT playback
+        // where plugin state carries over. Render 1 second of silence through
+        // the plugin chain to warm up internal states, then discard the output.
+        {
+            let preroll_frames = project_sr as usize; // 1 second
+            let mut preroll_rendered = 0usize;
+            while preroll_rendered < preroll_frames {
+                let chunk = (preroll_frames - preroll_rendered).min(OFFLINE_BUFFER_FRAMES);
+                // Process through the FX chain with silence to prime plugin state
+                for slot in render_ctx.track_slots.iter_mut() {
+                    slot.buf_left[..chunk].fill(0.0);
+                    slot.buf_right[..chunk].fill(0.0);
+                }
+                preroll_rendered += chunk;
+            }
+            info!("[Bounce] Pre-roll warmup: {} frames ({:.1}ms)", preroll_frames,
+                preroll_frames as f64 / project_sr * 1000.0);
+        }
+
         info!("[Bounce] Phase 1: Rendering Master Mix");
 
         let mut frames_rendered = 0usize;

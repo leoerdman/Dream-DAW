@@ -51,8 +51,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
     mut prealloc_consumer: rtrb::Consumer<dream_ipc::prealloc_queue::PrebuiltDevice>,
+    preferred_buffer_size: Option<u32>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
-    let output_setup = resolve_output_setup(preferred_output_device)?;
+    let output_setup = resolve_output_setup(preferred_output_device, preferred_buffer_size)?;
     let device = output_setup.device;
     let device_name = output_setup.device_name;
     let sample_format = output_setup.sample_format;

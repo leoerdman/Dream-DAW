@@ -196,6 +196,36 @@ pub(crate) fn default_sample_rate() -> u32 {
 pub(crate) fn default_buffer_size() -> u32 {
     512
 }
+
+/// BUF-013 FIX: Validates sample_rate to one of the standard audio rates.
+/// Returns the nearest valid rate, or 44100 if the input is wildly out of range.
+const VALID_SAMPLE_RATES: [u32; 8] = [22050, 44100, 48000, 88200, 96000, 176400, 192000, 384000];
+
+pub(crate) fn validated_sample_rate(raw: u32) -> u32 {
+    if VALID_SAMPLE_RATES.contains(&raw) {
+        return raw;
+    }
+    // Find the nearest valid rate
+    VALID_SAMPLE_RATES
+        .iter()
+        .copied()
+        .min_by_key(|&r| (r as i64 - raw as i64).unsigned_abs())
+        .unwrap_or(44100)
+}
+
+/// BUF-014 FIX: Validates buffer_size to a power-of-2 in range [32, 8192].
+/// Returns the nearest valid power-of-2, or 512 if the input is wildly out of range.
+pub(crate) fn validated_buffer_size(raw: u32) -> u32 {
+    let clamped = raw.clamp(32, 8192);
+    // Round to nearest power of 2
+    let prev_pow2 = 1u32 << (31 - clamped.leading_zeros());
+    let next_pow2 = prev_pow2.checked_shl(1).unwrap_or(prev_pow2);
+    if clamped - prev_pow2 <= next_pow2 - clamped {
+        prev_pow2
+    } else {
+        next_pow2.min(8192)
+    }
+}
 pub(crate) fn default_test_tone_volume() -> f64 {
     -20.0
 }

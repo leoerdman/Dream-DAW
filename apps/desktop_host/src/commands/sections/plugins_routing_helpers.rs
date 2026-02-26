@@ -314,11 +314,10 @@ pub fn ensure_external_plugins_prepared_for_offline_render(
 
     clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
-    // BUG-AUD-314 FIX: Use MAX_BUFFER_FRAMES (8192) for offline rendering.
-    // Previously used current_audio_config() which returns the realtime device's
-    // buffer size (e.g., 512). OfflineRenderer processes in larger blocks, causing
-    // the `num_frames > max_buffer_size` passthrough guard to trigger silently.
-    let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
+    // Use OFFLINE_BUFFER_FRAMES (512) to match the actual block size used by
+    // OfflineRenderer. This ensures VST3 plugin internals (envelope followers,
+    // sidechain compressors) produce identical output to the RT path.
+    let buffer_size = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS;
     plugin_host_state
         .reactivate_all(project_sample_rate.max(1.0), buffer_size)
         .map_err(|e| format!("{op_name} aborted: failed to reactivate plugin runtime: {e}"))?;

@@ -160,20 +160,29 @@ impl DeviceProcessor for ExternalDeviceSlot {
         self.output_right[..n].fill(0.0);
 
         // Prepare sidechain buffers if provided.
+        // BUF-012 FIX: Sidechain length MUST match main buffer length `n`.
+        // Previously, sc_n could be < n, causing the plugin to read stale
+        // data beyond the sidechain buffer end.
         let has_sidechain = sidechain_left.is_some() && sidechain_right.is_some();
-        let sc_n = if has_sidechain {
+        if has_sidechain {
             let sc_l = sidechain_left.unwrap();
             let sc_r = sidechain_right.unwrap();
-            let sc_len = n.min(sc_l.len()).min(sc_r.len());
-            self.sc_left[..sc_len].copy_from_slice(&sc_l[..sc_len]);
-            self.sc_right[..sc_len].copy_from_slice(&sc_r[..sc_len]);
-            sc_len
+            let avail = n.min(sc_l.len()).min(sc_r.len());
+            self.sc_left[..avail].copy_from_slice(&sc_l[..avail]);
+            self.sc_right[..avail].copy_from_slice(&sc_r[..avail]);
+            // Zero-fill remainder so plugin never reads stale data.
+            if avail < n {
+                self.sc_left[avail..n].fill(0.0);
+                self.sc_right[avail..n].fill(0.0);
+            }
         } else {
-            0
-        };
+            self.sc_left[..n].fill(0.0);
+            self.sc_right[..n].fill(0.0);
+        }
 
         // Build sidechain input slices (must outlive the process call).
-        let sc_slices: [&[f32]; 2] = [&self.sc_left[..sc_n], &self.sc_right[..sc_n]];
+        // BUF-012: Sidechain buffers are now always `n` frames, matching main input.
+        let sc_slices: [&[f32]; 2] = [&self.sc_left[..n], &self.sc_right[..n]];
         let sidechain: Option<&[&[f32]]> = if has_sidechain {
             Some(&sc_slices)
         } else {

@@ -114,7 +114,7 @@ function shouldApplyViewportRestore(reason: string): boolean {
         || reason === 'native-menu:new'
         || reason === 'project-manager:new'
         || reason.includes(':open')
-        || reason.includes('open-last-project')
+        || reason.includes('last-project')
     );
 }
 export const useEngineStore = create<EngineStore>((set, get) => ({

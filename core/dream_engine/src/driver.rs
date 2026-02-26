@@ -201,6 +201,7 @@ pub fn start_audio_thread(
         None,
         None,
         prealloc_consumer,
+        None,
     )
 }
 
@@ -232,6 +233,7 @@ pub fn start_audio_thread_on_device(
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
     prealloc_consumer: rtrb::Consumer<dream_ipc::prealloc_queue::PrebuiltDevice>,
+    preferred_buffer_size: Option<u32>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     executor::start_audio_thread_on_device_impl(
         consumer,
@@ -256,6 +258,7 @@ pub fn start_audio_thread_on_device(
         preferred_output_device,
         stream_error_tx,
         prealloc_consumer,
+        preferred_buffer_size,
     )
 }
 

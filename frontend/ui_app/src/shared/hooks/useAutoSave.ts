@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { autoSaveIfDirty } from '../api/engine';
+import { autoSaveIfDirty, setArrangementViewport } from '../api/engine';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Auto-Save Hook (Strike 6: Titanium Shield)
@@ -31,6 +32,13 @@ export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
 
             inFlight = true;
             try {
+                // Sync current viewport to backend so auto-save persists scroll/zoom.
+                try {
+                    const tl = useTimelineStore.getState();
+                    await setArrangementViewport(tl.pixelsPerBeat, tl.scrollLeft, tl.scrollTop);
+                } catch {
+                    // Non-fatal: viewport sync failure should not block auto-save.
+                }
                 const result = await autoSaveIfDirty();
                 if (result.saved) {
                     console.info(`[AutoSave] Saved → ${result.path}`);

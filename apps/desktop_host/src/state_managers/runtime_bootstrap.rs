@@ -45,11 +45,14 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         .ok()
         .map(|s| {
             (
-                f64::from(s.sample_rate.max(1)),
-                usize::try_from(s.buffer_size.max(1)).unwrap_or(512),
+                // BUF-013/014 FIX: Validate settings before use to prevent
+                // division-by-zero or excessive allocation from corrupted files.
+                f64::from(crate::settings::validated_sample_rate(s.sample_rate)),
+                usize::try_from(crate::settings::validated_buffer_size(s.buffer_size)).unwrap_or(512),
             )
         })
         .unwrap_or((44_100.0, 512));
+    let preferred_buffer_size_for_cpal = Some(host_buffer_size as u32);
     let mut plugin_host_state = PluginHostState::new_with_io(host_sample_rate, host_buffer_size);
 
     let clip_pool_state = ClipPoolState::new();
@@ -139,6 +142,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         preferred_output_device.as_deref(),
         Some(stream_error_tx.clone()),
         prealloc_consumer,
+        preferred_buffer_size_for_cpal,
     )
     .map_err(|err| format!("failed to start audio engine: {err}"))?;
 
@@ -158,10 +162,11 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     // plugin buffer size so scratch buffers can handle any device block size.
     {
         let actual_sr = f64::from(stream.sample_rate_hz);
-        // Match the engine's MAX_BUFFER_FRAMES constant to ensure plugin
-        // scratch buffers are always large enough for any callback block.
-        const PLUGIN_MAX_BUFFER: usize = 8192;
-        if let Err(e) = plugin_host_state.update_audio_config(actual_sr, PLUGIN_MAX_BUFFER) {
+        // Use the canonical MAX_BUFFER_FRAMES constant (single source of truth)
+        // to ensure plugin scratch buffers are always large enough for any
+        // callback block size.
+        let plugin_max_buffer = dream_engine::render_callback::MAX_BUFFER_FRAMES;
+        if let Err(e) = plugin_host_state.update_audio_config(actual_sr, plugin_max_buffer) {
             log::warn!(
                 "[RuntimeBootstrap] Failed to sync plugin host to device config: {}",
                 e

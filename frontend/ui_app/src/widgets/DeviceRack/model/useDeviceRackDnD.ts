@@ -89,43 +89,57 @@ export function useDeviceRackDnD(
                     await dropHandler(dragging, targetTrack.id);
                 } else {
                     const hint = dragging.slotHint ?? 'auto';
-                    const slot: 'instrument' | 'effect' =
-                        hint === 'instrument'
-                            ? 'instrument'
-                            : hint === 'effect'
-                                ? 'effect'
-                                : targetTrack.track_type === 'Midi' && !targetTrack.instrument
-                                    ? 'instrument'
-                                    : 'effect';
+
+                    // Always detect the effect-chain drop position first,
+                    // regardless of slot auto-detection, so we can override
+                    // the slot when user explicitly targets the effect chain.
+                    const effectIds = (targetTrack.effects ?? [])
+                        .map((effect) => effect?.id)
+                        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+                    const effectIdSet = new Set(effectIds);
+                    const hoveredEl = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+                    const endZone = hoveredEl?.closest('.dream-device-drop-indicator-end');
+                    const slotZone = hoveredEl?.closest('.dream-device-drop-indicator') as HTMLElement | null;
+
                     let insertIndex: number | undefined;
-                    if (slot === 'effect') {
-                        const effectIds = (targetTrack.effects ?? [])
-                            .map((effect) => effect?.id)
-                            .filter((id): id is string => typeof id === 'string' && id.length > 0);
-                        const effectIdSet = new Set(effectIds);
-                        const hoveredEl = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-                        const endZone = hoveredEl?.closest('.dream-device-drop-indicator-end');
-                        const slotZone = hoveredEl?.closest('.dream-device-drop-indicator') as HTMLElement | null;
-                        if (endZone) {
-                            insertIndex = effectIds.length;
-                        } else if (slotZone) {
-                            const slotDeviceId = slotZone.dataset.deviceId ?? '';
-                            const targetEffectIndex = effectIds.findIndex((id) => id === slotDeviceId);
-                            if (targetEffectIndex >= 0) {
-                                const rect = slotZone.getBoundingClientRect();
-                                const midX = rect.left + rect.width / 2;
-                                insertIndex = e.clientX < midX ? targetEffectIndex : targetEffectIndex + 1;
-                            }
+                    let droppedOnEffectZone = false;
+
+                    if (endZone) {
+                        insertIndex = effectIds.length;
+                        droppedOnEffectZone = true;
+                    } else if (slotZone) {
+                        const slotDeviceId = slotZone.dataset.deviceId ?? '';
+                        const targetEffectIndex = effectIds.findIndex((id) => id === slotDeviceId);
+                        if (targetEffectIndex >= 0) {
+                            const rect = slotZone.getBoundingClientRect();
+                            const midX = rect.left + rect.width / 2;
+                            insertIndex = e.clientX < midX ? targetEffectIndex : targetEffectIndex + 1;
+                            droppedOnEffectZone = true;
                         }
-                        if (insertIndex === undefined) {
-                            const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
-                            if (selectedDeviceId && effectIdSet.has(selectedDeviceId)) {
-                                const selectedEffectIndex = effectIds.findIndex((id) => id === selectedDeviceId);
-                                if (selectedEffectIndex >= 0) insertIndex = selectedEffectIndex + 1;
-                            } else {
-                                // Default to append when drop position is ambiguous.
-                                insertIndex = effectIds.length;
-                            }
+                    }
+
+                    // Resolve the slot: if user explicitly dropped on the effect
+                    // chain, force 'effect' regardless of auto-detection (fixes
+                    // MIDI tracks without instrument auto-routing to instrument).
+                    let slot: 'instrument' | 'effect';
+                    if (hint === 'instrument') {
+                        slot = 'instrument';
+                    } else if (hint === 'effect' || droppedOnEffectZone) {
+                        slot = 'effect';
+                    } else if (targetTrack.track_type === 'Midi' && !targetTrack.instrument) {
+                        slot = 'instrument';
+                    } else {
+                        slot = 'effect';
+                    }
+
+                    // For effect slots, ensure insertIndex has a fallback.
+                    if (slot === 'effect' && insertIndex === undefined) {
+                        const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
+                        if (selectedDeviceId && effectIdSet.has(selectedDeviceId)) {
+                            const selectedEffectIndex = effectIds.findIndex((id) => id === selectedDeviceId);
+                            if (selectedEffectIndex >= 0) insertIndex = selectedEffectIndex + 1;
+                        } else {
+                            insertIndex = effectIds.length;
                         }
                     }
 

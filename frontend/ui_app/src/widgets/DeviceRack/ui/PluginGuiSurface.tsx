@@ -203,11 +203,42 @@ export const PluginGuiSurface = ({
         onParamGestureEnd?.(`B${bandIdx}Q`);
     }, [onParamGestureEnd]);
 
+    // ── EQ Performance: local drag overlay ──────────────────────────
+    // During band drag, param changes are applied to a local Map for
+    // zero-latency visual feedback. The IPC call still fires normally.
+    const pendingDragOverrides = useRef<Map<string, number>>(new Map());
+    const [dragRenderTick, setDragRenderTick] = useState(0);
+
+    // When drag ends, clear local overrides (store state will have caught up).
+    const prevDragBandRef = useRef<number | null>(null);
+    if (prevDragBandRef.current !== null && dragEqBand === null) {
+        pendingDragOverrides.current.clear();
+    }
+    prevDragBandRef.current = dragEqBand;
+
+    const onParamChangeLocal = useCallback((paramName: string, value: number) => {
+        if (dragEqBand !== null) {
+            pendingDragOverrides.current.set(paramName.toLowerCase(), value);
+            setDragRenderTick((t) => t + 1);
+        }
+        onParamChange(paramName, value);
+    }, [dragEqBand, onParamChange]);
+
+    // Merge device.params with local drag overrides for instant curve feedback.
+    const mergedEqParams = useMemo(() => {
+        if (pendingDragOverrides.current.size === 0) return device.params;
+        return device.params.map((p) => {
+            const override = pendingDragOverrides.current.get(p.name.toLowerCase());
+            return override !== undefined ? { ...p, value: override } : p;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [device.params, dragRenderTick]);
+
     useEqBandDragEffect({
         dragEqBand,
         eqSurfaceRef,
         resolvedEqBandFilterTypes,
-        onParamChange,
+        onParamChange: onParamChangeLocal,
         endEqBandGesture,
         setDragEqBand,
     });
@@ -271,7 +302,8 @@ export const PluginGuiSurface = ({
                 setEqSpectrumEnabled={setEqSpectrumEnabled}
                 spectrumData={spectrumData}
                 beginEqBandGesture={beginEqBandGesture}
-                onParamChange={onParamChange}
+                onParamChange={onParamChangeLocal}
+                mergedParams={mergedEqParams}
                 onParamGestureStart={onParamGestureStart}
                 onParamGestureEnd={onParamGestureEnd}
             />

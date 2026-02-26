@@ -216,7 +216,8 @@ export function usePreviewSync({
                 enqueuePreviewCommand(async () => {
                     await engineApi.stopPreview().catch(() => undefined);
                     if (previewRequestTokenRef.current !== token) return;
-                    await engineApi.previewAudioFile(audioPath);
+                    await engineApi.previewAudioFile(audioPath)
+                        .catch((err: unknown) => console.error('[Preview] Failed to preview:', audioPath, err));
                 });
             } else {
                 isPreviewPlayingRef.current = false;

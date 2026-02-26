@@ -283,8 +283,7 @@ export function useTimelineClipHandlers({
             return;
         }
 
-        const dragged = liveClip ?? timelineClipsForView.find((clip) => clip.id === clipId);
-        if (!dragged) return;
+        const dragged = liveClip;
 
         const selectedSet = new Set(selectedClipIds);
         const duplicateAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);

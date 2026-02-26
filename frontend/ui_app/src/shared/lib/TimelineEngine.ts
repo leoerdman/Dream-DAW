@@ -1795,7 +1795,7 @@ export class TimelineEngine {
     // Called from _onMouseMove (ClipMove), _onKeyDown, and _onKeyUp.
     // When Cmd/Ctrl is held:
     //   - Primary clip + co-movers stay at ORIGINAL positions
-    //   - Ghost clones appear at TARGET positions (50% alpha)
+    //   - Ghost clones appear at TARGET positions (full opacity)
     //   - Cursor: 'copy'
     // When Cmd/Ctrl is NOT held:
     //   - Primary clip + co-movers move to TARGET positions (normal drag)
@@ -1835,7 +1835,6 @@ export class TimelineEngine {
                 id: `__ghost_${primaryClip.id}`,
                 startBeat: primaryTarget.beat,
                 trackIndex: primaryTarget.track,
-                isDuplicateGhost: true,
                 selected: false,
                 primarySelected: false,
                 hovered: false,
@@ -1854,7 +1853,6 @@ export class TimelineEngine {
                             id: `__ghost_${co.id}`,
                             startBeat: target.beat,
                             trackIndex: target.track,
-                            isDuplicateGhost: true,
                             selected: false,
                             primarySelected: false,
                             hovered: false,
@@ -1933,8 +1931,8 @@ export class TimelineEngine {
 
     private _onKeyUp(e: KeyboardEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
-        // ENTERPRISE: Live toggle Cmd+Drag visual state
-        if (this._drag.mode === DragMode.ClipMove) {
+        // ENTERPRISE: Live toggle Cmd+Drag visual state (Meta key only)
+        if (this._drag.mode === DragMode.ClipMove && e.key === 'Meta') {
             this._applyClipMoveVisuals();
         }
     }

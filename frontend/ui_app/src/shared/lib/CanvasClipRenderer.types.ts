@@ -30,8 +30,7 @@ export interface TimelineClipData {
         durationBeats: number;
         velocity: number;
     }>;
-    /** When true, this clip is a Cmd+Drag duplicate preview (rendered at 50% alpha). */
-    isDuplicateGhost?: boolean;
+
 }
 
 export interface LoopRegion {

@@ -129,23 +129,150 @@ fn normalize_audio_extension(ext: &str) -> String {
 impl AudioReader {
     /// Decodes an entire audio file into an `AudioBuffer`.
     ///
-    /// # Arguments
-    /// - `path`: Path to the audio file.
-    ///
-    /// # Returns
-    /// `AudioBuffer` containing de-interleaved f32 channels.
+    /// Three-stage decoding pipeline for maximum format compatibility:
+    ///   Stage 1: Symphonia with normalized extension hint (fast path).
+    ///   Stage 2: Symphonia without hint (pure content-based detection).
+    ///   Stage 3: macOS `afconvert` → temp WAV → Stage 1 (fallback for
+    ///            AIFF-C with exotic codecs like MACE, GSM, etc.).
     ///
     /// # Performance
     /// This is NOT real-time safe — it reads from disk and allocates.
     /// Call from a worker thread, not the audio callback.
     pub fn read(path: impl AsRef<Path>) -> Result<AudioBuffer, AudioReaderError> {
         let path = path.as_ref();
+        match Self::read_symphonia(path) {
+            Ok(buf) => Ok(buf),
+            Err(symphonia_err) => {
+                // Stage 3: System-level fallback (macOS afconvert / ffmpeg).
+                // This handles AIFF-C compressed formats (MACE3/6, GSM, µ-law,
+                // exotic IMA4 packaging) that symphonia cannot decode.
+                log::warn!(
+                    "Symphonia failed for '{}': {symphonia_err} — trying system convert",
+                    path.display()
+                );
+                match Self::read_via_system_convert(path) {
+                    Ok(buf) => {
+                        log::info!(
+                            "System convert succeeded for '{}' ({}ch × {} frames @ {}Hz)",
+                            path.display(),
+                            buf.channels.len(),
+                            buf.num_frames,
+                            buf.sample_rate,
+                        );
+                        Ok(buf)
+                    }
+                    Err(convert_err) => {
+                        log::error!(
+                            "All decode paths failed for '{}': symphonia={symphonia_err}, system={convert_err}",
+                            path.display()
+                        );
+                        // Return the original symphonia error (more informative).
+                        Err(symphonia_err)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Stage 3 fallback: convert the file to WAV using the OS audio toolchain,
+    /// then decode the resulting WAV through symphonia.
+    ///
+    /// On macOS this uses `afconvert` (ships with every macOS) which delegates
+    /// to CoreAudio — supporting every Apple audio format including:
+    ///   - AIFF-C (MACE3, MACE6, µ-law, A-law, IMA4, GSM)
+    ///   - CAF, M4A/AAC, ALAC, Apple Lossless
+    ///   - All CoreAudio-supported codecs
+    ///
+    /// The temp file is always cleaned up (success or failure).
+    fn read_via_system_convert(path: &Path) -> Result<AudioBuffer, AudioReaderError> {
+        use std::process::Command;
+
+        // Build temp WAV path next to the OS temp dir.
+        let tmp_dir = std::env::temp_dir();
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("audio");
+        let tmp_wav = tmp_dir.join(format!("dream_daw_convert_{stem}_{}.wav", std::process::id()));
+
+        // Guard: clean up on all exit paths.
+        struct TempFileGuard<'a>(&'a Path);
+        impl<'a> Drop for TempFileGuard<'a> {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(self.0);
+            }
+        }
+        let _guard = TempFileGuard(&tmp_wav);
+
+        // Try macOS afconvert first, then ffmpeg as a last resort.
+        let convert_result = if cfg!(target_os = "macos") {
+            Command::new("afconvert")
+                .args([
+                    "-f", "WAVE",   // output format: WAV
+                    "-d", "LEF32",  // data format: 32-bit float little-endian
+                    path.to_str().unwrap_or_default(),
+                    tmp_wav.to_str().unwrap_or_default(),
+                ])
+                .output()
+        } else {
+            // Non-macOS: try ffmpeg.
+            Command::new("ffmpeg")
+                .args([
+                    "-y",           // overwrite
+                    "-i", path.to_str().unwrap_or_default(),
+                    "-acodec", "pcm_f32le",
+                    "-f", "wav",
+                    tmp_wav.to_str().unwrap_or_default(),
+                ])
+                .output()
+        };
+
+        let output = convert_result.map_err(|e| {
+            AudioReaderError::DecodeError(format!(
+                "System convert command failed to launch: {e}"
+            ))
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // If afconvert failed on macOS, try ffmpeg as a last resort.
+            if cfg!(target_os = "macos") {
+                log::warn!("afconvert failed ({}), trying ffmpeg…", stderr.trim());
+                let ffmpeg_out = Command::new("ffmpeg")
+                    .args([
+                        "-y",
+                        "-i", path.to_str().unwrap_or_default(),
+                        "-acodec", "pcm_f32le",
+                        "-f", "wav",
+                        tmp_wav.to_str().unwrap_or_default(),
+                    ])
+                    .output()
+                    .map_err(|e| {
+                        AudioReaderError::DecodeError(format!(
+                            "afconvert failed ({stderr}) and ffmpeg not found: {e}"
+                        ))
+                    })?;
+                if !ffmpeg_out.status.success() {
+                    let ff_err = String::from_utf8_lossy(&ffmpeg_out.stderr);
+                    return Err(AudioReaderError::DecodeError(format!(
+                        "Both afconvert and ffmpeg failed. afconvert: {stderr}, ffmpeg: {ff_err}"
+                    )));
+                }
+            } else {
+                return Err(AudioReaderError::DecodeError(format!(
+                    "System convert failed: {stderr}"
+                )));
+            }
+        }
+
+        // Now decode the resulting WAV through symphonia (should always work).
+        Self::read_symphonia(&tmp_wav)
+    }
+
+    /// Core symphonia decode logic (Stages 1+2).
+    fn read_symphonia(path: &Path) -> Result<AudioBuffer, AudioReaderError> {
         let file = File::open(path)
             .map_err(|e| AudioReaderError::FileNotFound(format!("{}: {e}", path.display())))?;
 
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        // Probe the format — two-stage approach for maximum compatibility:
         // Stage 1: Try with normalized extension hint (fast path).
         // Stage 2: If hint-based probe fails, re-open and try pure content-
         //          based auto-detection (catches AIF, AIFC, unusual extensions).
@@ -163,7 +290,6 @@ impl AudioReader {
             Ok(p) => p,
             Err(hint_err) => {
                 // Stage 2: Fallback — re-open and probe without extension hint.
-                // This lets symphonia inspect the file header bytes directly.
                 let file2 = File::open(path).map_err(|e| {
                     AudioReaderError::FileNotFound(format!("{}: {e}", path.display()))
                 })?;
@@ -218,12 +344,9 @@ impl AudioReader {
         let mut all_samples: Vec<Vec<f32>> = (0..num_channels).map(|_| Vec::new()).collect();
 
         // BUG-013 FIX: Allocate the SampleBuffer once outside the loop and reuse it.
-        // The previous implementation allocated a new SampleBuffer per decoded packet,
-        // causing ~460 alloc+dealloc cycles for a 5-minute 48kHz WAV.
         let mut sample_buf: Option<SampleBuffer<f32>> = None;
         // IO-1 FIX: Track the spec of the current SampleBuffer to detect channel
-        // layout changes mid-stream. Without this, a packet with a different spec
-        // reuses the old buffer → corrupted de-interleave.
+        // layout changes mid-stream.
         let mut sample_buf_spec: Option<symphonia::core::audio::SignalSpec> = None;
 
         loop {
@@ -234,9 +357,6 @@ impl AudioReader {
                 {
                     break; // End of stream
                 }
-                // IO-2 FIX: Non-EOF packet errors (e.g., damaged MP3 frame) should
-                // not terminate the entire decode. Skip the bad packet and continue
-                // to recover as much audio as possible.
                 Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
                     log::warn!("Packet read error (skipping frame): {msg}");
                     continue;
@@ -259,14 +379,9 @@ impl AudioReader {
                 }
             };
 
-            // Convert to interleaved f32 via SampleBuffer
             let spec = *decoded.spec();
             let duration = decoded.capacity();
 
-            // IO-1 FIX: Reuse SampleBuffer only if BOTH capacity AND spec match.
-            // A codec that changes channel layout mid-stream (or VBR packet size
-            // changes) would otherwise reuse a buffer with the wrong spec,
-            // causing corrupted de-interleave.
             let spec_changed = sample_buf_spec != Some(spec);
             let buf =
                 sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration as u64, spec));
@@ -277,13 +392,9 @@ impl AudioReader {
             buf.copy_interleaved_ref(decoded);
 
             let samples = buf.samples();
-            // ENT-IO3: Use all_samples.len() as the authoritative channel count
-            // instead of the per-packet spec. If a codec changes channel layout
-            // mid-stream, this prevents out-of-bounds access and corruption.
             let target_ch_count = all_samples.len();
             let packet_ch_count = spec.channels.count().max(1);
 
-            // De-interleave into per-channel vectors
             for (i, sample) in samples.iter().enumerate() {
                 let ch = i % packet_ch_count;
                 if ch < target_ch_count {
@@ -294,9 +405,7 @@ impl AudioReader {
 
         let num_frames = all_samples.first().map(|ch| ch.len()).unwrap_or(0);
 
-        // ENT-IO1: Sanitize NaN/Inf samples that corrupt decoders may produce.
-        // A single NaN propagates through the entire audio graph causing
-        // permanent silence or infinite distortion.
+        // ENT-IO1: Sanitize NaN/Inf samples.
         for ch in &mut all_samples {
             for sample in ch.iter_mut() {
                 if !sample.is_finite() {

@@ -286,18 +286,19 @@ impl ClipPoolState {
                     let is_internal_effect =
                         builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some();
                     if is_internal_effect {
-                        // Keep runtime indexing aligned with DeviceChain even when this slot is bypassed.
+                        // Always include internal slots in the snapshot — bypass is
+                        // handled at process() time by InternalDeviceSlot, not here.
+                        // Excluding bypassed slots caused sidechain routing entries
+                        // to vanish until the next snapshot rebuild (sidechain dropout).
                         let idx = *internal_slot_index;
                         *internal_slot_index = internal_slot_index.saturating_add(1);
-                        if !effective_bypassed {
-                            out.push(dream_engine::driver::ExternalPluginRuntimeSlot {
-                                slot_id: Some(slot.id),
-                                internal_slot_index: Some(idx),
-                                instance_id: None,
-                                sidechain_track_index,
-                                is_instrument,
-                            });
-                        }
+                        out.push(dream_engine::driver::ExternalPluginRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: Some(idx),
+                            instance_id: None,
+                            sidechain_track_index,
+                            is_instrument,
+                        });
                     } else if !effective_bypassed
                         && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
                     {
@@ -671,8 +672,12 @@ mod tests {
         let snapshot = state.external_fx_snapshot.load();
         let slots = &snapshot[0];
 
-        assert_eq!(slots.len(), 2);
+        // All 3 internal slots are included (even bypassed Comp) so that
+        // sidechain routing survives bypass toggles. Bypass is handled
+        // at process() time, not at snapshot level.
+        assert_eq!(slots.len(), 3);
         assert_eq!(slots[0].internal_slot_index, Some(0));
-        assert_eq!(slots[1].internal_slot_index, Some(2));
+        assert_eq!(slots[1].internal_slot_index, Some(1));
+        assert_eq!(slots[2].internal_slot_index, Some(2));
     }
 }

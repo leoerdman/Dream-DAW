@@ -13,6 +13,7 @@ interface AssetBrowserSidebarProps {
     handleRemoveFolder: (folderPath: string) => void;
     setCollectionLabels: React.Dispatch<React.SetStateAction<Record<string, string>>>;
     saveCollectionLabels: (labels: Record<string, string>) => void;
+    onReselectCategory?: (categoryId: string) => void;
 }
 
 // BUG-39 FIX: wrapped in memo
@@ -27,6 +28,7 @@ export const AssetBrowserSidebar = memo(function AssetBrowserSidebar({
     handleRemoveFolder,
     setCollectionLabels,
     saveCollectionLabels,
+    onReselectCategory,
 }: AssetBrowserSidebarProps) {
     // BUG-98 FIX: memoize section map
     const parentSectionByCategory = useMemo(() => {
@@ -81,7 +83,11 @@ export const AssetBrowserSidebar = memo(function AssetBrowserSidebar({
                     <button
                         key={cat.id}
                         onClick={() => {
-                            setSelectedCategoryId(cat.id);
+                            if (isSelected) {
+                                onReselectCategory?.(cat.id);
+                            } else {
+                                setSelectedCategoryId(cat.id);
+                            }
                             if (fileListRef.current) fileListRef.current.scrollTop = 0;
                         }}
                         onContextMenu={cat.removable ? (e) => {

@@ -187,10 +187,10 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             if (item.type === 'plugin') {
                 const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
                 const fallback: 'instrument' | 'effect' = primary === 'instrument' ? 'effect' : 'instrument';
-                const insertIndex =
-                    (primary === 'effect' || primary === 'auto')
-                        ? resolveEffectInsertIndex(track)
-                        : undefined;
+                // ── UX Rule: Enter always appends to the end of the chain ──
+                // Position-aware insertion (before/after a specific device) is
+                // handled by DnD in useDeviceRackDnD.
+                const insertIndex = undefined;
                 let lastErr: unknown = null;
                 const attempts: Array<'instrument' | 'effect' | 'auto'> = [];
                 for (const slot of [primary, 'auto', fallback] as const) if (!attempts.includes(slot)) attempts.push(slot);

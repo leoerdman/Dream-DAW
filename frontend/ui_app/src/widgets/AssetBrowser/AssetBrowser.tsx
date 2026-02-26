@@ -22,6 +22,8 @@ export const AssetBrowser = () => {
         setSelectedCategoryId,
         fileListRef,
         handleRemoveFolder,
+        triggerLibraryScan,
+        triggerPluginScan,
         setCollectionLabels,
         saveCollectionLabels,
         beginSplitResize,
@@ -64,6 +66,12 @@ export const AssetBrowser = () => {
                         handleRemoveFolder={handleRemoveFolder}
                         setCollectionLabels={setCollectionLabels}
                         saveCollectionLabels={saveCollectionLabels}
+                        onReselectCategory={(categoryId) => {
+                            if (categoryId === 'all') {
+                                triggerLibraryScan();
+                                triggerPluginScan();
+                            }
+                        }}
                     />
                 </div>
                 <div onMouseDown={beginSplitResize} style={splitHandleStyle} />

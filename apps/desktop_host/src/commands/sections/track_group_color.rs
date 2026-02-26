@@ -109,13 +109,16 @@ fn refresh_runtime_after_track_topology_change(
 ) -> Result<(), String> {
     rebuild_group_children(project);
     clip_pool_state.rebuild_snapshot(project);
-    // Rebuild external FX snapshot so plugin-to-track index mappings stay correct
-    // after topology changes (add, delete, move, group, ungroup, duplicate).
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     rebuild_midi_snapshot_from_project(project, handle);
     rebuild_sampler_snapshot_from_project(project, clip_pool_state, handle);
+    // RT-SYNC FIX: Queue device chain Remove+Add commands FIRST,
+    // then publish the external_fx_snapshot. If the snapshot is published
+    // before device chains are rebuilt, process_slot_with_sidechain_ctx()
+    // references stale/missing slots → silent FX.
     rebuild_runtime_device_chains_from_project(project, handle)?;
+    // Publish external FX snapshot AFTER device chain commands are queued.
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     // After topology changes track indices shift — resync volume/pan/mute/solo
     // to the engine so existing tracks don't silently lose audio.
     sync_track_mix_state_from_project(project, handle)

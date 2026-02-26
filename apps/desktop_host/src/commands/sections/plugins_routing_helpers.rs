@@ -228,18 +228,22 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     if rebuild_routing {
         clip_pool_state.rebuild_routing_only(&project);
     }
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
-    // SSOT FIX: Runtime internal device chains must be rebuilt from the same
-    // project snapshot used for external FX mapping; otherwise chain/order/bypass
-    // mutations diverge between project model and audio thread state.
+    // RT-SYNC FIX: Rebuild device chains FIRST (queues Remove+Add commands),
+    // then publish the external_fx_snapshot (ArcSwap — instant).
+    // Previously the snapshot was published first, causing the audio thread
+    // to see NEW internal_slot_index values with OLD DeviceChain.slots[],
+    // which silently skipped FX processing on sidechain tracks.
     let runtime_project = project.clone();
     drop(project);
     crate::state_managers::sync_engine::rebuild_runtime_device_chains_from_project(
         &runtime_project,
         handle,
     )?;
+    // Publish snapshot AFTER device chain commands are queued so the audio
+    // thread picks up both atomically on the same callback cycle.
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&runtime_project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }

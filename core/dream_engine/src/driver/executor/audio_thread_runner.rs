@@ -520,7 +520,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         && s.sidechain_track_index.is_some()
                                                 },
                                             );
-                                            if !has_external && !has_internal_sidechain {
+                                            // RT-SYNC FIX: Validate that runtime_slots
+                                            // internal_slot_index values are in bounds for
+                                            // the current DeviceChain. During rebuild, the
+                                            // snapshot may reference indices that don't exist
+                                            // yet (chain commands are still in the queue).
+                                            // Fall back to safe sequential processing.
+                                            let chain_len = slot.device_chain.len();
+                                            let indices_valid = runtime_slots.iter().all(|s| {
+                                                s.internal_slot_index
+                                                    .map_or(true, |idx| idx < chain_len)
+                                            });
+                                            if !has_external && !has_internal_sidechain
+                                                || !indices_valid
+                                            {
                                                 if !slot.device_chain.is_empty() {
                                                     slot.device_chain.process_with_context(
                                                         &mut left[..c],

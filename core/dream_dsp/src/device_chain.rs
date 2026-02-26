@@ -52,6 +52,11 @@ impl DeviceChain {
         self.slots.len()
     }
 
+    /// Returns the number of device slots in the chain.
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
     /// Returns `true` if the chain has no slots.
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()

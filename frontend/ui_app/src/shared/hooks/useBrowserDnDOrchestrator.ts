@@ -26,24 +26,7 @@ const resolvePluginSlot = (
     return 'effect';
 };
 
-const getSelectedRackDeviceId = (): string => {
-    if (typeof document === 'undefined') return '';
-    const rackScope = document.querySelector<HTMLElement>('[data-keyboard-scope="device-rack"]');
-    return rackScope?.dataset?.selectedDeviceId ?? '';
-};
 
-const resolveEffectInsertIndex = (
-    track: ProjectTrack,
-    slot: 'instrument' | 'effect',
-    selectedTrackId: string,
-): number | undefined => {
-    if (slot !== 'effect') return undefined;
-    if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
-    const selectedDeviceId = getSelectedRackDeviceId();
-    if (!selectedDeviceId) return undefined;
-    const selectedEffectIndex = track.effects.findIndex((effect) => effect?.id === selectedDeviceId);
-    return selectedEffectIndex >= 0 ? selectedEffectIndex + 1 : undefined;
-};
 
 export const useBrowserDnDOrchestrator = ({
     tracks,
@@ -81,7 +64,10 @@ export const useBrowserDnDOrchestrator = ({
         const track = getTrackById(trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
-        const insertIndex = resolveEffectInsertIndex(track, slot, selectedTrackId);
+        // Timeline/browser DnD always appends to end.
+        // Position-aware drops (before/after specific slot) are handled by
+        // useDeviceRackDnD which resolves position from the mouse coordinates.
+        const insertIndex = undefined;
         let lastErr: unknown = null;
         const attempts = buildPluginSlotAttempts(slot);
         for (const attempt of attempts) {

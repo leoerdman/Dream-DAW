@@ -676,18 +676,11 @@ pub fn rebuild_runtime_device_chains_from_project(
         }
     }
 
-    for track_index in 0..project.tracks.len() {
-        let track_index = track_index as u16;
-        for slot_index in 0..MAX_DEVICE_SLOTS as u8 {
-            push_command(
-                handle,
-                EngineCommand::RemoveDevice {
-                    track_index,
-                    slot_index,
-                },
-            )?;
-        }
-    }
+    // ENTERPRISE FIX: Replace 16×N individual RemoveDevice commands with a single
+    // ClearAllDeviceChains command. This reduces command queue pressure from 256+
+    // commands to 1, preventing deferred_topology overflow and drain_commands
+    // budget exhaustion that caused permanent DeviceChain desync on group tracks.
+    push_command(handle, EngineCommand::ClearAllDeviceChains)?;
 
     for (track_index, track) in project.tracks.iter().enumerate() {
         let mut internal_effects: Vec<TrackFxEntry> = Vec::new();

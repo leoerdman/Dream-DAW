@@ -31,6 +31,12 @@ pub mod prealloc_queue;
 /// - Queue capacity (1024) guarantees no backpressure under normal use.
 #[derive(Debug, Clone, Copy)]
 pub enum EngineCommand {
+    // ── Topology (atomic) ────────────────────────────────────────────
+    /// Atomically clears ALL device chains on ALL tracks (and master).
+    /// Replaces 16×N individual RemoveDevice commands with a single O(N) operation,
+    /// preventing command budget exhaustion and deferred topology queue overflow.
+    ClearAllDeviceChains,
+
     // ── Transport ────────────────────────────────────────────────────
     /// Start or stop playback. `true` = play, `false` = stop.
     SetPlay(bool),

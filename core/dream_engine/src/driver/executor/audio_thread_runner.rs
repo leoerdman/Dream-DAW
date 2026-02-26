@@ -775,6 +775,16 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         &mut external_left[..c],
                                                         &mut external_right[..c],
                                                     ];
+
+                                                    {
+                                                        static TICK: [std::sync::atomic::AtomicU32; 256] = [const { std::sync::atomic::AtomicU32::new(0) }; 256];
+                                                        if TICK[track_idx % 256].fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(500) {
+                                                            let mut max_in = 0.0f32;
+                                                            for i in 0..c { max_in = max_in.max(left[i].abs().max(right[i].abs())); }
+                                                            log::info!("[Diagnostics] Track {} VST slot {} before process: max_in={}", track_idx, runtime_slot_idx, max_in);
+                                                        }
+                                                    }
+
                                                     // AUD-603 FIX: Log process errors instead of
                                                     // silently swallowing with `let _ =`.
                                                     // A failing process call means the output
@@ -800,6 +810,15 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     }
                                                     left[..c].copy_from_slice(&external_left[..c]);
                                                     right[..c].copy_from_slice(&external_right[..c]);
+
+                                                    {
+                                                        static TICK_OUT: [std::sync::atomic::AtomicU32; 256] = [const { std::sync::atomic::AtomicU32::new(0) }; 256];
+                                                        if TICK_OUT[track_idx % 256].fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(500) {
+                                                            let mut max_out = 0.0f32;
+                                                            for i in 0..c { max_out = max_out.max(left[i].abs().max(right[i].abs())); }
+                                                            log::info!("[Diagnostics] Track {} VST slot {} after process: max_out={}", track_idx, runtime_slot_idx, max_out);
+                                                        }
+                                                    }
 
                                                     // AUD-506 FIX: Sanitize per-track VST output.
                                                     // NaN/Inf from a misbehaving plugin would

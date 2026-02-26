@@ -62,6 +62,12 @@ impl DeviceChain {
         self.slots.is_empty()
     }
 
+    /// Removes all devices from the chain.
+    /// Used by `ClearAllDeviceChains` to atomically reset during rebuild.
+    pub fn clear(&mut self) {
+        self.slots.clear();
+    }
+
     /// Returns the cached sample rate.
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate

@@ -80,6 +80,15 @@ pub(super) fn drain_commands(
         commands_processed += 1;
 
         match cmd {
+            // ENTERPRISE FIX: Atomic device chain reset. Processes immediately
+            // (not deferred) so the chain state is fully synchronized before
+            // any subsequent AddDevice commands in the same callback cycle.
+            EngineCommand::ClearAllDeviceChains => {
+                for slot in ctx.render_ctx.track_slots.iter_mut() {
+                    slot.device_chain.clear();
+                }
+                ctx.master_device_chain.clear();
+            }
             EngineCommand::SetPlay(play) => {
                 *ctx.is_playing = play;
                 ctx.render_ctx.playhead.set_advancing(play);

@@ -41,7 +41,7 @@ unsafe impl Send for PrebuiltDevice {}
 ///
 /// If the queue is full, the IPC thread logs a warning and falls back
 /// to the legacy `EngineCommand::AddDevice` path (which allocates on RT thread).
-const PREALLOC_QUEUE_CAPACITY: usize = 64;
+const PREALLOC_QUEUE_CAPACITY: usize = 256;
 
 /// Creates a new pre-allocation queue pair.
 ///

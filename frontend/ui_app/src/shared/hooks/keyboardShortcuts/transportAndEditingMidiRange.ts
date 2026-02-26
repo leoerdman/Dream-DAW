@@ -9,9 +9,9 @@ export async function handleCreateMidiClipRangeShortcut(
     e: KeyboardEvent,
     ctx: ShortcutCtx,
 ): Promise<boolean> {
-    const { inPianoRoll, inDeviceRack, marqueeSelection, trackIds, tracksById } = ctx;
+    const { activePanel, marqueeSelection, trackIds, tracksById } = ctx;
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.code !== 'KeyM') return false;
-    if (inPianoRoll || inDeviceRack || !marqueeSelection) return true;
+    if (activePanel !== 'arrangement' || !marqueeSelection) return false;
     e.preventDefault();
     e.stopPropagation();
 

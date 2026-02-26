@@ -1,8 +1,8 @@
-
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
     applyAlphaMultiplier,
     CLIP_LABEL_FONT,

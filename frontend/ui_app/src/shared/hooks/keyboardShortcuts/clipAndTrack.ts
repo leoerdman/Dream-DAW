@@ -43,10 +43,10 @@ function optimisticRemoveClips(clipIds: string[]): () => void {
 
 export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
     const { e, ctx, clipboardRef } = env;
-    const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, timelineClips, marqueeSelection, onClipSelectionChanged, inPianoRoll, inDeviceRack, selectedDeviceId, selectedTrackIndex, playheadFrames } = ctx;
+    const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, timelineClips, marqueeSelection, onClipSelectionChanged, activePanel, selectedTrackIndex, playheadFrames } = ctx;
 
     if (matchesShortcutAction(e, 'glue_clips')) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -63,7 +63,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (isModKey(e) && e.code === 'KeyC') {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -73,7 +73,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (isModKey(e) && e.code === 'KeyV') {
-        if (inPianoRoll || inDeviceRack || clipboardRef.current.length === 0) return true;
+        if (activePanel !== 'arrangement' || clipboardRef.current.length === 0) return false;
         e.preventDefault();
         e.stopPropagation();
         const store = useEngineStore.getState();
@@ -113,7 +113,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (isModKey(e) && e.code === 'KeyX') {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -134,11 +134,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-        // Device rack, track inspector, and piano roll handle their own delete
-        // independently. Piano roll uses capture + stopImmediatePropagation when
-        // MIDI notes are selected, but if the event reaches us first (e.g. the
-        // piano roll listener hasn't attached yet), we must bail here.
-        if (inPianoRoll || (inDeviceRack && selectedDeviceId.length > 0) || getScopedEditorElement(e, 'track-inspector')) return true;
+        if (activePanel !== 'arrangement' || getScopedEditorElement(e, 'track-inspector')) return false;
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return false;
         e.preventDefault();
@@ -157,7 +153,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if ((e.code === 'Digit0' || e.code === 'Numpad0') && !isModKey(e) && !e.shiftKey) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -174,7 +170,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (e.code === 'KeyS' && !isModKey(e) && !e.shiftKey && !e.altKey) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master' || selectedTrackIndex < 0) return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master' || selectedTrackIndex < 0) return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -189,7 +185,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (e.code === 'KeyM' && !isModKey(e) && !e.shiftKey && !e.altKey) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master' || selectedTrackIndex < 0) return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master' || selectedTrackIndex < 0) return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -204,7 +200,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (e.code === 'KeyB' && !isModKey(e) && !e.shiftKey && !e.altKey) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -230,7 +226,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if (isModKey(e) && e.code === 'KeyL') {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const store = useEngineStore.getState();

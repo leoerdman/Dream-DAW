@@ -79,12 +79,10 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     // This replaces the brittle DOM-based e.target / document.activeElement
     // checking that failed with canvas elements (which don't receive focus).
     const activePanel = useFocusPanelStore.getState().activePanel;
-    const inPianoRoll = activePanel === 'piano-roll';
-    const inDeviceRack = activePanel === 'device-rack';
 
     // For device-rack we still need to read selectedDeviceId from the DOM
     // data attribute, as the rack component writes it there.
-    const deviceRackScope = inDeviceRack ? getScopedEditorElement(e, 'device-rack') ?? document.querySelector('[data-keyboard-scope="device-rack"]') as HTMLElement | null : null;
+    const deviceRackScope = activePanel === 'device-rack' ? getScopedEditorElement(e, 'device-rack') ?? document.querySelector('[data-keyboard-scope="device-rack"]') as HTMLElement | null : null;
 
     const selectedTrackIndex = config.selectedTrackId
         ? storeState.tracks.allIds.indexOf(config.selectedTrackId)
@@ -99,8 +97,7 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     return {
         ...config,
         playheadFrames,
-        inPianoRoll,
-        inDeviceRack,
+        activePanel,
         selectedDeviceId: deviceRackScope?.dataset?.selectedDeviceId ?? '',
         selectedTrackIndex,
         insertAfterIndex,

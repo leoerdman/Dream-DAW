@@ -30,10 +30,10 @@ export async function handleRegionShortcuts(
     e: KeyboardEvent,
     ctx: ShortcutCtx,
 ): Promise<boolean> {
-    const { marqueeSelection, onClipSelectionChanged, inPianoRoll, inDeviceRack } = ctx;
+    const { marqueeSelection, onClipSelectionChanged, activePanel } = ctx;
 
     if (matchesShortcutAction(e, 'region_capture_a') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const range = normalizeRegion(marqueeSelection);
@@ -47,7 +47,7 @@ export async function handleRegionShortcuts(
     }
 
     if (matchesShortcutAction(e, 'region_capture_b') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const range = normalizeRegion(marqueeSelection);
@@ -61,7 +61,7 @@ export async function handleRegionShortcuts(
     }
 
     if (matchesShortcutAction(e, 'region_swap_a_b') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const { regionA, regionB } = useRegionEditStore.getState();
@@ -79,7 +79,7 @@ export async function handleRegionShortcuts(
     }
 
     if (matchesShortcutAction(e, 'region_duplicate') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const range = normalizeRegion(marqueeSelection);
@@ -98,7 +98,7 @@ export async function handleRegionShortcuts(
     }
 
     if (matchesShortcutAction(e, 'region_move_left') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const range = normalizeRegion(marqueeSelection);
@@ -116,7 +116,7 @@ export async function handleRegionShortcuts(
     }
 
     if (matchesShortcutAction(e, 'region_move_right') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const range = normalizeRegion(marqueeSelection);
@@ -140,10 +140,10 @@ export async function handleAutomationShortcuts(
     e: KeyboardEvent,
     ctx: ShortcutCtx,
 ): Promise<boolean> {
-    const { selectedTrackId, inPianoRoll, inDeviceRack, editCursorBeat = -1, playheadFrames } = ctx;
+    const { selectedTrackId, activePanel, editCursorBeat = -1, playheadFrames } = ctx;
 
     if (matchesShortcutAction(e, 'toggle_track_automation_visibility') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master') return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master') return false;
         e.preventDefault();
         e.stopPropagation();
         useAutomationStore.getState().toggleTrackAutomation(selectedTrackId);
@@ -151,7 +151,7 @@ export async function handleAutomationShortcuts(
     }
 
     if (matchesShortcutAction(e, 'create_envelope_last_touched') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master') return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master') return false;
         e.preventDefault();
         e.stopPropagation();
         const autoStore = useAutomationStore.getState();
@@ -169,7 +169,7 @@ export async function handleAutomationShortcuts(
     }
 
     if (matchesShortcutAction(e, 'create_automation_item') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master') return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master') return false;
         e.preventDefault();
         e.stopPropagation();
         const autoStore = useAutomationStore.getState();
@@ -201,7 +201,7 @@ export async function handleAutomationShortcuts(
     }
 
     if (matchesShortcutAction(e, 'delete_automation_item') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack || !selectedTrackId || selectedTrackId === 'master') return true;
+        if (activePanel !== 'arrangement' || !selectedTrackId || selectedTrackId === 'master') return false;
         e.preventDefault();
         e.stopPropagation();
         const autoStore = useAutomationStore.getState();
@@ -229,10 +229,10 @@ export async function handlePitchShortcuts(
     e: KeyboardEvent,
     ctx: ShortcutCtx,
 ): Promise<boolean> {
-    const { selectedClipId, selectedClipIds, timelineClips, inPianoRoll, inDeviceRack } = ctx;
+    const { selectedClipId, selectedClipIds, timelineClips, activePanel } = ctx;
 
     if (matchesShortcutAction(e, 'pitch_plus_12') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -255,7 +255,7 @@ export async function handlePitchShortcuts(
     }
 
     if (matchesShortcutAction(e, 'pitch_minus_12') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);

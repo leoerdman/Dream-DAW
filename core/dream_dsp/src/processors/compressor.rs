@@ -54,7 +54,9 @@ pub struct CompressorProcessor {
     rms_mode: bool,
     // State
     envelope_db: f32,
+    prev_gain_db: f32,
     rms_state: f32,
+    was_sidechain: bool,
     // Sidechain HPF state
     sc_hp_state_l: f32,
     sc_hp_state_r: f32,
@@ -99,7 +101,9 @@ impl CompressorProcessor {
             auto_gain: true,
             rms_mode: false,
             envelope_db: -96.0,
+            prev_gain_db: 0.0,
             rms_state: 0.0,
+            was_sidechain: false,
             sc_hp_state_l: 0.0,
             sc_hp_state_r: 0.0,
             sc_hp_prev_l: 0.0,
@@ -285,6 +289,16 @@ impl DspProcessor for CompressorProcessor {
         // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
         let rms_coeff = self.rms_coeff;
 
+        if self.was_sidechain {
+            self.was_sidechain = false;
+            self.sc_hp_state_l = 0.0;
+            self.sc_hp_state_r = 0.0;
+            if len > 0 {
+                self.sc_hp_prev_l = left[0];
+                self.sc_hp_prev_r = right[0];
+            }
+        }
+
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
@@ -327,8 +341,7 @@ impl DspProcessor for CompressorProcessor {
 
             // Envelope with program-dependent release:
             // deeper GR => slower release (musical, less pumping).
-            let gr_probe_db =
-                -Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            let gr_probe_db = -self.prev_gain_db;
             let rel_blend = (gr_probe_db / 24.0).clamp(0.0, 1.0);
             let release_dyn = release + (release_slow - release) * rel_blend;
             let coeff = if input_db > self.envelope_db {
@@ -350,6 +363,7 @@ impl DspProcessor for CompressorProcessor {
 
             // Gain computation (with soft knee)
             let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            self.prev_gain_db = gain_db;
             let gain = db_to_linear(gain_db) * makeup;
 
             let read_pos =
@@ -393,6 +407,16 @@ impl DspProcessor for CompressorProcessor {
         self.knee_sm_db.set_target(self.knee_db);
         // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
         let rms_coeff = self.rms_coeff;
+
+        if !self.was_sidechain {
+            self.was_sidechain = true;
+            self.sc_hp_state_l = 0.0;
+            self.sc_hp_state_r = 0.0;
+            if len > 0 {
+                self.sc_hp_prev_l = sidechain_left.and_then(|sc| sc.get(0).copied()).unwrap_or(left[0]);
+                self.sc_hp_prev_r = sidechain_right.and_then(|sc| sc.get(0).copied()).unwrap_or(right[0]);
+            }
+        }
 
         for i in 0..len {
             let dry_l = left[i];
@@ -439,8 +463,7 @@ impl DspProcessor for CompressorProcessor {
             };
 
             let input_db = Self::linear_to_db(detection);
-            let gr_probe_db =
-                -Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            let gr_probe_db = -self.prev_gain_db;
             let rel_blend = (gr_probe_db / 24.0).clamp(0.0, 1.0);
             let release_dyn = release + (release_slow - release) * rel_blend;
             let coeff = if input_db > self.envelope_db {
@@ -459,6 +482,7 @@ impl DspProcessor for CompressorProcessor {
             crate::processors::flush_denormal!(self.sc_hp_prev_r);
 
             let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            self.prev_gain_db = gain_db;
             let gain = db_to_linear(gain_db) * makeup;
 
             let read_pos =
@@ -515,7 +539,9 @@ impl DspProcessor for CompressorProcessor {
 
     fn reset(&mut self) {
         self.envelope_db = -96.0;
+        self.prev_gain_db = 0.0;
         self.rms_state = 0.0;
+        self.was_sidechain = false;
         self.sc_hp_state_l = 0.0;
         self.sc_hp_state_r = 0.0;
         self.sc_hp_prev_l = 0.0;

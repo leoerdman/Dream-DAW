@@ -150,6 +150,12 @@ impl DelayProcessor {
             let required_size = ((sr * MAX_DELAY_SECONDS) as usize + 1)
                 .next_power_of_two()
                 .min(self.buf_capacity);
+            
+            if required_size > self.buf_size {
+                self.buf_l[self.buf_size..required_size].fill(0.0);
+                self.buf_r[self.buf_size..required_size].fill(0.0);
+            }
+            
             self.buf_size = required_size;
             self.write_pos &= self.buf_size - 1;
             self.update_filter();
@@ -320,10 +326,9 @@ impl DspProcessor for DelayProcessor {
     }
 
     fn reset(&mut self) {
-        // BUG-030 FIX: Clear full physical capacity, not just logical buf_size.
-        // If SR increases later, old data beyond previous buf_size would contaminate the new region.
-        self.buf_l[..self.buf_capacity].fill(0.0);
-        self.buf_r[..self.buf_capacity].fill(0.0);
+        let bs = self.buf_size;
+        self.buf_l[..bs].fill(0.0);
+        self.buf_r[..bs].fill(0.0);
         self.write_pos = 0;
         self.fb_filter_l = 0.0;
         self.fb_filter_r = 0.0;

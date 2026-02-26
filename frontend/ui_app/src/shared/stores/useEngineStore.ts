@@ -7,7 +7,7 @@ import { createTransportActions } from '@/shared/stores/engine/actionsTransport'
 import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
-import { createTelemetryActions } from '@/shared/stores/engine/actionsTelemetry';
+import { createTelemetryActions, getLatestMetersSnapshot, setBpmPendingUntil } from '@/shared/stores/engine/actionsTelemetry';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -84,8 +84,6 @@ export interface EngineStore {
     reloadCrashedSandboxPlugins: () => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     closeAllPluginEditors: () => Promise<void>;
-    readLatestMeters: (fallback: MeteringSnapshot) => MeteringSnapshot;
-    markBpmPending: (ms: number) => void;
 }
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
@@ -113,7 +111,7 @@ const DEFAULT_METERS: MeteringSnapshot = {
     master_right: { ...DEFAULT_METER },
 };
 export function getMetersRef(): MeteringSnapshot {
-    return useEngineStore.getState().readLatestMeters(useEngineStore.getState().meters);
+    return getLatestMetersSnapshot() ?? useEngineStore.getState().meters;
 }
 function shouldApplyViewportRestore(reason: string): boolean {
     if (!reason) return false;
@@ -163,7 +161,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // BUG-001: Dirty flag actions
     markDirty: () => set((s) => s.isDirty ? s : { isDirty: true }),
     clearDirty: () => set({ isDirty: false }),
-    ...createTransportActions(set, get, (ms) => get().markBpmPending(ms)),
+    ...createTransportActions(set, get, setBpmPendingUntil),
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),

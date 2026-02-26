@@ -491,8 +491,8 @@ impl DspProcessor for ReverbProcessor {
                 + Self::read_delay_frac(&self.predelay_buf_r, pd_pos, er_tap_4) * 0.28
                 + Self::read_delay_frac(&self.predelay_buf_l, pd_pos, er_tap_3) * 0.17;
 
-            self.predelay_buf_l[pd_pos] = dry_l;
-            self.predelay_buf_r[pd_pos] = dry_r;
+            self.predelay_buf_l[pd_pos] = if self.freeze { 0.0 } else { dry_l };
+            self.predelay_buf_r[pd_pos] = if self.freeze { 0.0 } else { dry_r };
             self.predelay_pos = (pd_pos + 1) % MAX_PREDELAY_SAMPLES;
 
             // Input filter block (LoCut/HiCut), pre-reverb send only.

@@ -63,8 +63,10 @@ pub struct GateProcessor {
     /// Previous SC HPF input for first-order HP: y[n] = α*(y[n-1] + x[n] - x[n-1])
     sc_prev_l: f32,
     sc_prev_r: f32,
+    was_sidechain: bool,
     sc_coeff: f32,
     sample_rate: f32,
+    // Smoothing
     threshold_sm_db: SmoothedValue,
     range_sm_lin: SmoothedValue,
 }
@@ -92,6 +94,7 @@ impl GateProcessor {
             sc_state_r: 0.0,
             sc_prev_l: 0.0,
             sc_prev_r: 0.0,
+            was_sidechain: false,
             sc_coeff: 0.0,
             sample_rate,
             threshold_sm_db: SmoothedValue::new(sample_rate, 8.0, -30.0),
@@ -154,6 +157,18 @@ impl DspProcessor for GateProcessor {
         let len = left.len().min(right.len());
         self.threshold_sm_db.set_target(self.threshold_db);
         self.range_sm_lin.set_target(self.range_lin);
+
+        // If we were previously using sidechain, reset HPF states to avoid clicks
+        // when switching back to internal sidechain.
+        if self.was_sidechain {
+            self.was_sidechain = false;
+            self.sc_state_l = 0.0;
+            self.sc_state_r = 0.0;
+            if len > 0 {
+                self.sc_prev_l = left[0];
+                self.sc_prev_r = right[0];
+            }
+        }
 
         for i in 0..len {
             let thresh_open = self.threshold_sm_db.next_value();
@@ -254,6 +269,24 @@ impl DspProcessor for GateProcessor {
         let len = left.len().min(right.len());
         self.threshold_sm_db.set_target(self.threshold_db);
         self.range_sm_lin.set_target(self.range_lin);
+
+        // If we were NOT previously using sidechain, reset HPF states to avoid clicks
+        // when switching to external sidechain.
+        if !self.was_sidechain {
+            self.was_sidechain = true;
+            self.sc_state_l = 0.0;
+            self.sc_state_r = 0.0;
+            if len > 0 {
+                let sc_in_l = sidechain_left
+                    .and_then(|sc| sc.get(0).copied())
+                    .unwrap_or(left[0]);
+                let sc_in_r = sidechain_right
+                    .and_then(|sc| sc.get(0).copied())
+                    .unwrap_or(right[0]);
+                self.sc_prev_l = sc_in_l;
+                self.sc_prev_r = sc_in_r;
+            }
+        }
 
         for i in 0..len {
             let thresh_open = self.threshold_sm_db.next_value();
@@ -386,6 +419,7 @@ impl DspProcessor for GateProcessor {
         self.sc_state_r = 0.0;
         self.sc_prev_l = 0.0;
         self.sc_prev_r = 0.0;
+        self.was_sidechain = false;
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.range_sm_lin.set_instant(self.range_lin);
         // BUG-074 FIX: Recalculate hold_samples on reset.

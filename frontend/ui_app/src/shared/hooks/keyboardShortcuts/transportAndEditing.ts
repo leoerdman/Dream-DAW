@@ -24,8 +24,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     const {
         selectedTrackId,
         onTogglePlayback,
-        inPianoRoll,
-        inDeviceRack,
+        activePanel,
         insertAfterIndex,
     } = ctx;
     {
@@ -34,7 +33,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (e.altKey && !isModKey(e) && !e.repeat && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -46,7 +45,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (e.altKey && !isModKey(e) && !e.repeat && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -61,7 +60,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     // Split is handled by matchesShortcutAction('split_clips') below.
 
     if (!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyD') {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -92,7 +91,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (matchesShortcutAction(e, 'grid_half_size') && !e.repeat) {
-        if (inDeviceRack) return true;
+        if (activePanel === 'device-rack') return false;
         e.preventDefault();
         e.stopPropagation();
         useGridStore.getState().stepDivisionFiner();
@@ -100,7 +99,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (matchesShortcutAction(e, 'grid_double_size') && !e.repeat) {
-        if (inDeviceRack) return true;
+        if (activePanel === 'device-rack') return false;
         e.preventDefault();
         e.stopPropagation();
         useGridStore.getState().stepDivisionCoarser();
@@ -133,6 +132,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (isModKey(e) && !e.shiftKey && e.code === 'KeyT') {
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -145,6 +145,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (isModKey(e) && e.shiftKey && e.code === 'KeyT') {
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -162,7 +163,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (matchesShortcutAction(e, 'split_clips') && !e.repeat) {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {
@@ -196,7 +197,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (isModKey(e) && e.code === 'KeyD') {
-        if (inPianoRoll || inDeviceRack) return true;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
         try {

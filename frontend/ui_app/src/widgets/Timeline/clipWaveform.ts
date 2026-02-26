@@ -1,5 +1,6 @@
 import * as engine from '@/shared/api/engine';
 import type { PeakPair, WaveformPeaks } from '@/shared/api/engine';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 
 const CLIP_PEAK_CACHE = new Map<string, WaveformPeaks>();
 const CLIP_PEAK_INFLIGHT = new Map<string, Promise<WaveformPeaks>>();
@@ -70,10 +71,16 @@ export function drawClipWaveform(
     ctx.lineTo(width, centerY);
     ctx.stroke();
 
-    const color = isSelected ? WAVEFORM_COLOR_SELECTED : WAVEFORM_COLOR;
+    const waveformStyle = useSettingsStore.getState().settings.waveformStyle;
+    const isClassic = waveformStyle === 'classic';
+    const color = isSelected
+        ? (isClassic ? 'var(--token-color-rgba-0-0-0-0d85)' : WAVEFORM_COLOR_SELECTED)
+        : (isClassic ? 'var(--token-color-rgba-0-0-0-0d65)' : WAVEFORM_COLOR);
+    const rmsColor = isClassic ? 'var(--token-color-rgba-0-0-0-0d6)' : WAVEFORM_RMS_COLOR;
+
     const pixelsPerPeak = width / totalPeaks;
     if (pixelsPerPeak >= 1) {
-        drawDetailedWaveform(ctx, mip.peaks, startPeak, endPeak, width, centerY, color);
+        drawDetailedWaveform(ctx, mip.peaks, startPeak, endPeak, width, centerY, color, rmsColor);
     } else {
         drawOverviewWaveform(ctx, mip.peaks, startPeak, endPeak, width, centerY, color);
     }
@@ -87,6 +94,7 @@ function drawDetailedWaveform(
     width: number,
     centerY: number,
     color: string,
+    rmsColor: string,
 ) {
     const totalPeaks = endPeak - startPeak;
     const barWidth = Math.max(1, width / totalPeaks);
@@ -102,7 +110,7 @@ function drawDetailedWaveform(
         ctx.fillRect(x, yMin, barWidth, barHeight);
     }
 
-    ctx.fillStyle = WAVEFORM_RMS_COLOR;
+    ctx.fillStyle = rmsColor;
     const rmsScale = 0.65;
     for (let i = 0; i < totalPeaks; i += 1) {
         const peak = peaks[startPeak + i];

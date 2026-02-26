@@ -8,37 +8,42 @@ import { smoothMeterSnapshot } from '@/shared/stores/engine/actionsTelemetrySmoo
 import { enqueuePendingStoreUpdate, payloadToUint8Array } from '@/shared/stores/engine/actionsTelemetryQueue';
 import { createPluginEditorActions } from '@/shared/stores/engine/actionsTelemetryEditors';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
+let telemetryStarted = false;
+let telemetryUnlisten: UnlistenFn | null = null;
+let pluginSandboxUnlisten: UnlistenFn | null = null;
+let pluginSandboxCrashUnlisten: UnlistenFn | null = null;
+let pluginSandboxRecoveredUnlisten: UnlistenFn | null = null;
+let pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
+let pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
+let pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
+let telemetryMetersBinaryUnlisten: UnlistenFn | null = null;
+
+let bpmPendingUntil = 0;
+let meterFrameCounter = 0;
+let latestMeters: MeteringSnapshot | null = null;
+let smoothedMeters: MeteringSnapshot | null = null;
+let lastMeterTickMs = 0;
+
+export function resetTelemetryModuleState(): void {
+    bpmPendingUntil = 0;
+    meterFrameCounter = 0;
+    latestMeters = null;
+    smoothedMeters = null;
+    lastMeterTickMs = 0;
+}
+
 interface SandboxSlotUpdateEvent {
     instanceId?: string;
     instanceIds?: string[];
 }
+
 export function createTelemetryActions(
     set: StoreApi<EngineStore>['setState'],
     get: StoreApi<EngineStore>['getState'],
-): Pick<EngineStore, 'startTelemetryLoop' | 'stopTelemetryLoop' | 'reloadCrashedSandboxPlugins' | 'togglePluginEditor' | 'closeAllPluginEditors' | 'readLatestMeters' | 'markBpmPending'> {
-    let telemetryStarted = false;
-    let telemetryUnlisten: UnlistenFn | null = null;
-    let pluginSandboxUnlisten: UnlistenFn | null = null;
-    let pluginSandboxCrashUnlisten: UnlistenFn | null = null;
-    let pluginSandboxRecoveredUnlisten: UnlistenFn | null = null;
-    let pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
-    let pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
-    let pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
-    let telemetryMetersBinaryUnlisten: UnlistenFn | null = null;
-
-    let bpmPendingUntil = 0;
-    let meterFrameCounter = 0;
-    let latestMeters: MeteringSnapshot | null = null;
-    let smoothedMeters: MeteringSnapshot | null = null;
-    let lastMeterTickMs = 0;
-
+): Pick<EngineStore, 'startTelemetryLoop' | 'stopTelemetryLoop' | 'reloadCrashedSandboxPlugins' | 'togglePluginEditor' | 'closeAllPluginEditors'> {
     const pluginEditorActions = createPluginEditorActions(set, get);
 
     return {
-        readLatestMeters: (fallback: MeteringSnapshot): MeteringSnapshot => latestMeters ?? fallback,
-        markBpmPending: (ms: number): void => {
-            bpmPendingUntil = performance.now() + ms;
-        },
         startTelemetryLoop: () => {
             if (telemetryStarted) return;
             telemetryStarted = true;
@@ -304,4 +309,12 @@ export function createTelemetryActions(
         },
         ...pluginEditorActions,
     };
+}
+
+export function getLatestMetersSnapshot(): MeteringSnapshot | null {
+    return latestMeters;
+}
+
+export function setBpmPendingUntil(ms: number): void {
+    bpmPendingUntil = performance.now() + ms;
 }

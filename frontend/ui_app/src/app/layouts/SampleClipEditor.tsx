@@ -4,7 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
@@ -25,7 +25,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const bpm = useEngineStore((s) => resolveBpm(s.projectBpm, s.transport.bpm));
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
-    const beatsPerBar = useGridStore((s) => Math.max(1, Math.round(s.fixedNumerator || 4)));
+    const beatsPerBar = useGridStore((s) => Math.max(1, Math.round(s.fixedNumerator || DEFAULT_TIME_SIG_NUMERATOR)));
 
     const [zoomX, setZoomX] = useState(1);
     const [zoomY, setZoomY] = useState(1);

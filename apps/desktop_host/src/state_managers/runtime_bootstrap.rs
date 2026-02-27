@@ -237,7 +237,6 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         preview_source_sr,
         disk_streamers,
         export_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        export_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clip_pool: clip_pool_for_handle,
         clip_snapshot: clip_snapshot_for_handle,
         midi_snapshot: midi_snapshot_for_handle,

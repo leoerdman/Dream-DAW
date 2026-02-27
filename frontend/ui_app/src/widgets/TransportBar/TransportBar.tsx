@@ -127,6 +127,7 @@ export const TransportBar = ({
 
     // Persist notes panel position
     useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
         try {
             const raw = window.localStorage.getItem(NOTES_POS_KEY);
             if (!raw) return;
@@ -134,12 +135,13 @@ export const TransportBar = ({
             if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
                 const r = parsed.right;
                 const t = parsed.top;
-                setTimeout(() => setNotesPanelPos({
+                timer = setTimeout(() => setNotesPanelPos({
                     right: Math.max(8, Math.min(r, window.innerWidth - 200)),
                     top: Math.max(40, Math.min(t, window.innerHeight - 200)),
                 }), 0);
             }
         } catch { /* ignore */ }
+        return () => { if (timer) clearTimeout(timer); };
     }, []);
     useEffect(() => {
         try { window.localStorage.setItem(NOTES_POS_KEY, JSON.stringify(notesPanelPos)); } catch { /* ignore */ }

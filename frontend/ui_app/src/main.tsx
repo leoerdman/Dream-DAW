@@ -51,7 +51,11 @@ class ErrorBoundary extends Component<
             onClick={async () => {
               try {
                 const engineApi = await import('@/shared/api/engine');
-                await engineApi.saveProject();
+                const status = await engineApi.getProjectStatus();
+                // BUG-E004 FIX: Only auto-save if the project has been saved before and has a file path.
+                if (status.filePath) {
+                  await engineApi.saveProject();
+                }
               } catch { /* Best-effort — proceed with reload even if save fails */ }
               window.location.reload();
             }}

@@ -12,7 +12,7 @@ export interface TrackStatePatch<T> {
     tracks: EntityState<T>;
 }
 
-export const PROJECT_HISTORY_WINDOW = 256;
+export const PROJECT_HISTORY_WINDOW = 1024;
 export const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
 // Keep meter updates at full telemetry rate for responsive real-time VU motion.
 // Throttling this causes visible lag/choppy meter movement in TrackInspector/Mixer.

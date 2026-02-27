@@ -1,7 +1,6 @@
-use std::path::PathBuf;
 use std::sync::Mutex;
 
-use dream_models::project::{DeviceNode, Project};
+use dream_models::project::Project;
 use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
@@ -78,9 +77,6 @@ pub struct ProjectState {
     /// Undo/Redo history.
     pub(crate) undo: Mutex<UndoState>,
     pub(crate) history: Mutex<ProjectHistory>,
-
-    /// Device clipboard — stores a copied DeviceNode for cross-track paste.
-    pub device_clipboard: Mutex<Option<DeviceNode>>,
 }
 
 impl ProjectState {
@@ -93,7 +89,6 @@ impl ProjectState {
             is_dirty: Mutex::new(false),
             undo: Mutex::new(UndoState::new()),
             history: Mutex::new(ProjectHistory::new()),
-            device_clipboard: Mutex::new(None),
         }
     }
 

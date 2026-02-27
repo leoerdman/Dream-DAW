@@ -176,7 +176,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut export_active = false;
     // BUG-C002 FIX: Per-track MIDI queue with bounded capacity.
     // A stuck MIDI device sending continuous events could grow unbounded.
-    const RT_MIDI_QUEUE_CAP: usize = 256;
     let mut plugin_rt_midi_queue: Vec<Vec<MidiEvent>> =
         (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
     let mut rt_midi_uid_counter: u64 = 1;
@@ -497,9 +496,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 }
                                 let track_idx = (node.id.0 - 1) as usize;
                                 if track_idx < render_ctx.track_slots.len() {
-                                    let (left_tracks, right_tracks) =
+                                    let (_left_tracks, right_tracks) =
                                         render_ctx.track_slots.split_at_mut(track_idx);
-                                    let Some((slot, right_tracks_rest)) =
+                                    let Some((slot, _right_tracks_rest)) =
                                         right_tracks.split_first_mut()
                                     else {
                                         return;

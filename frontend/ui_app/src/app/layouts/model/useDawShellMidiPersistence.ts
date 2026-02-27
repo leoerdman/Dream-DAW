@@ -143,6 +143,20 @@ export function useDawShellMidiPersistence({
                 dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
             }
         }
+        // BUG-M002 FIX: Prune clipFadeCurves for deleted clips to prevent memory leak.
+        setClipFadeCurves((prev) => {
+            let changed = false;
+            const next = { ...prev };
+            for (const id in next) {
+                // Fade curves aren't intrinsically tied to MIDI, but in the view they are
+                // mapped over all timelineClips. We'll use the generic timelineClips check.
+                if (!timelineClips.find(c => c.id === id)) {
+                    delete next[id];
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
     }, [timelineClips]);
 
     useEffect(() => {

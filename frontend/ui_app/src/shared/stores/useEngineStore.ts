@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
-import { clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
+import { clampTimeSigNumerator, clampTimeSigDenominator, DEFAULT_BPM, DEFAULT_SAMPLE_RATE } from '@/shared/lib/audioMath';
 import { applyProjectDeltasToState, extractSnapshotProjectMeta } from '@/shared/stores/engine/applyProjectDeltas';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
@@ -104,8 +104,8 @@ const DEFAULT_TRANSPORT: TransportState = {
     position_frames: 0,
     position_seconds: 0,
     position_beats: 0,
-    bpm: 120,
-    sample_rate: 44100,
+    bpm: DEFAULT_BPM,
+    sample_rate: DEFAULT_SAMPLE_RATE,
     loop_enabled: false,
     loop_start: 0,
     loop_end: 0,
@@ -140,6 +140,10 @@ function shouldApplyViewportRestore(reason: string): boolean {
         'project-manager:open',
         'engine:init',
         'engine:open',
+        'keyboard-undo',
+        'keyboard-redo',
+        'undo',
+        'redo',
         'auto-recovery:apply',
         'auto-recovery:resync'
     ];
@@ -233,6 +237,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     closeProjectTab: async (id) => {
         const state = get();
         if (state.openProjects.length <= 1) return; // Cannot close last tab
+        const tab = state.openProjects.find(t => t.id === id);
+        // BUG-E007 FIX: Prompt user if trying to close a dirty tab
+        if (tab && tab.isDirty) {
+            if (!window.confirm(`Project "${tab.name}" has unsaved changes. Are you sure you want to close it?`)) {
+                return;
+            }
+        }
         try {
             const response = await engine.closeProjectTab(id);
             const remaining = state.openProjects.filter(t => t.id !== id);

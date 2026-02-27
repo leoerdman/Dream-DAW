@@ -43,6 +43,7 @@ export interface TrimPreviewState {
 
 export const EDGE_GRIP_PX = 8;
 export const CLIP_HEADER_HEIGHT_PX = 22;
+export const DEFAULT_TRACK_HEIGHT_PX = 80;
 export const MIN_LOOP_BEATS = 4;
 export const FADE_HANDLE_HOTSPOT_PX = 12;
 export const FADE_CURVE_HANDLE_RADIUS_PX = 6;
@@ -88,6 +89,8 @@ export interface DragState {
     deferSingleSelectOnMouseUp?: boolean;
     /** Content-Y at the start of a marquee drag (px in content space, ruler excluded). */
     startContentY?: number;
+    /** BUG-055 FIX: Cached bounding rect to avoid reflows during drag sequences. */
+    canvasRect?: DOMRect;
 }
 
 export function clipDurationFramesFromTimeline(

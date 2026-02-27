@@ -62,6 +62,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     }, []);
     const filePathRef = useRef<string | null>(null);
     filePathRef.current = state.filePath;
+    // BUG-C002 FIX: Guard ref to prevent overlapping concurrent save transactions.
+    const isSavingRef = useRef(false);
     /** Fetches and syncs the project status from the backend. */
     const refreshStatus = useCallback(async () => {
         try {
@@ -87,6 +89,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     }, []);
     /** Save to existing path, or trigger Save As if unsaved. */
     const handleSave = useCallback(async () => {
+        if (isSavingRef.current) return;
+        isSavingRef.current = true;
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
             // BUG-052 FIX: Wrap flush in try/catch so save doesn't fail if flush errors.
@@ -129,11 +133,14 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } catch (err) {
             console.error('[ProjectManager] Save failed:', err);
         } finally {
+            isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
         }
     }, [refreshStatus, syncProjectHistory, syncArrangementViewport, pickSavePath]);
     /** Save As — always shows the dialog. */
     const handleSaveAs = useCallback(async () => {
+        if (isSavingRef.current) return;
+        isSavingRef.current = true;
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
             // BUG-052 FIX: Wrap flush in try/catch so Save As doesn't fail if flush errors.
@@ -155,6 +162,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } catch (err) {
             console.error('[ProjectManager] Save As failed:', err);
         } finally {
+            isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
         }
     }, [refreshStatus, syncProjectHistory, syncArrangementViewport, pickSavePath]);

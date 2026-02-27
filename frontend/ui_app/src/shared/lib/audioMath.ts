@@ -20,7 +20,8 @@
 export function beatToFrame(beat: number, bpm: number, sampleRate: number): number {
     const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
-    return Math.round((beat * 60 * safeSr) / safeBpm);
+    // BUG-Q003 FIX: Use Math.floor to ensure strictly non-overlapping sample intervals
+    return Math.floor((beat * 60 * safeSr) / safeBpm);
 }
 
 /**
@@ -219,7 +220,7 @@ export function vuNorm(peakDb: number): number {
  */
 export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR): string {
     const safeBeatsPerBar = Math.max(1, beatsPerBar);
-    const bars = Math.floor(totalBeats / safeBeatsPerBar);
+    let bars = Math.floor(totalBeats / safeBeatsPerBar);
     const remainingBeats = totalBeats - bars * safeBeatsPerBar;
     let wholeBeats = Math.floor(remainingBeats);
     const fractionalBeat = remainingBeats - wholeBeats;
@@ -228,6 +229,11 @@ export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_
     if (sixteenths >= 4) {
         sixteenths = 0;
         wholeBeats += 1;
+    }
+    // BUG-F009 FIX: When carrying pushes wholeBeats to beatsPerBar, carry into next bar.
+    if (wholeBeats >= safeBeatsPerBar) {
+        wholeBeats -= safeBeatsPerBar;
+        bars += 1;
     }
     // Carry overflow into bars if wholeBeats exceeds beatsPerBar.
     let adjustedBars = bars;

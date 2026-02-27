@@ -35,7 +35,6 @@ pub struct ProjectRegistry {
     pub global_track_clipboard: Mutex<Option<Track>>,
 
     /// Device node for cross-project device copy/paste.
-    /// Replaces the per-project `device_clipboard` in `ProjectState`.
     pub global_device_clipboard: Mutex<Option<DeviceNode>>,
 
     /// Monotonically increasing counter for background swap operations.
@@ -103,16 +102,6 @@ impl ProjectRegistry {
     /// Returns the UUID of the project whose audio is currently rendering.
     pub fn get_audio_active_project_id(&self) -> Option<Uuid> {
         self.audio_active_project_id.load().as_deref().copied()
-    }
-
-    /// Returns the Arc<ProjectState> of the audio-active project.
-    pub fn get_audio_active_project(&self) -> Option<Arc<ProjectState>> {
-        let id_guard = self.audio_active_project_id.load();
-        if let Some(id) = &*id_guard {
-            self.open_projects.get(id).map(|p| p.value().clone())
-        } else {
-            None
-        }
     }
 
     /// Returns the number of open projects.

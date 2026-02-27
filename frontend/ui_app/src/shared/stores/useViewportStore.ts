@@ -176,7 +176,8 @@ export const useViewportStore = create<ViewportStore>((set, get) => ({
 
     pixelsPerBeat: (bpm: number, sampleRate: number) => {
         const { samplesPerPixel } = get();
-        const samplesPerBeat = (sampleRate * 60) / bpm;
+        const safeBpm = bpm > 0 ? bpm : 120;
+        const samplesPerBeat = (sampleRate * 60) / safeBpm;
         return samplesPerBeat / samplesPerPixel;
     },
 }));

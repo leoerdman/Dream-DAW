@@ -28,8 +28,11 @@ export function createAutomationItemMutation(
     lane: AutomationLaneLike,
     startBeat: number,
     lengthBeats: number,
+    options?: { midOffset?: number; minLength?: number },
 ): { itemId: string; breakpoints: AutomationBreakpointLike[] } {
-    const safeLength = Math.max(0.25, lengthBeats);
+    const minLength = options?.minLength ?? 0.25;
+    const midOffset = options?.midOffset ?? 0.2;
+    const safeLength = Math.max(minLength, lengthBeats);
     const itemId = genItemId();
     const localBps = [...lane.breakpoints].sort((a, b) => a.beat - b.beat);
     let candidate = 0.5;
@@ -38,9 +41,7 @@ export function createAutomationItemMutation(
         else break;
     }
     const baseValue = clamp01(candidate);
-    /** Height offset for automation item's mid-point bezier peak. */
-    const AUTOMATION_ITEM_MID_OFFSET = 0.2;
-    const midValue = clamp01(baseValue + AUTOMATION_ITEM_MID_OFFSET);
+    const midValue = clamp01(baseValue + midOffset);
     const nextBps = [
         ...localBps,
         { id: genBpId(), beat: startBeat, value: baseValue, curve: 'linear' as const, itemId },

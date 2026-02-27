@@ -100,6 +100,36 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const tracksEntity = useEngineStore(s => s.tracks);
+
+    // BUG-M003 & BUG-M004 FIX: Prune component state & store dictionaries for deleted tracks.
+    useEffect(() => {
+        setBottomPanelModeByTrack((prev) => {
+            let changed = false;
+            const next = { ...prev };
+            for (const id in next) {
+                if (!tracksEntity.allIds.includes(id)) {
+                    delete next[id];
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+
+        // BUG-M004 FIX: Prune global open plugin editors for deleted tracks.
+        const openEditors = useEngineStore.getState().openEditorsByTrack;
+        let editorsChanged = false;
+        const nextEditors = { ...openEditors };
+        for (const id in nextEditors) {
+            if (!tracksEntity.allIds.includes(id)) {
+                delete nextEditors[id];
+                editorsChanged = true;
+            }
+        }
+        if (editorsChanged) {
+            useEngineStore.setState({ openEditorsByTrack: nextEditors });
+        }
+    }, [tracksEntity.allIds]);
+
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
@@ -267,16 +297,18 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     );
     useEffect(() => {
         if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
-        // Auto-select first real track when tracks load (instead of staying on 'master')
-        if (selectedTrackId === 'master' || !tracksEntity.byId[selectedTrackId]) {
+        // BUG-U001 FIX: Only re-evaluate auto-selection when the actual list of tracks changes
+        // (allIds), rather than on every entity update (rename/color change), avoiding selection fighting.
+        if (selectedTrackId === 'master' || !tracksEntity.allIds.includes(selectedTrackId)) {
             setSelectedTrackId(tracksEntity.allIds[0]);
         }
-    }, [tracksEntity, selectedTrackId]);
+    }, [tracksEntity.allIds, selectedTrackId]);
     useEffect(() => {
         if (selectedTrackIds.length === 0) return;
-        const next = selectedTrackIds.filter((id) => tracksEntity.byId[id] !== undefined);
+        // BUG-U002 FIX: Prune using allIds instead of byId dependency to avoid flicker during undo/redo.
+        const next = selectedTrackIds.filter((id) => tracksEntity.allIds.includes(id));
         if (next.length !== selectedTrackIds.length) setSelectedTrackIds(next);
-    }, [selectedTrackIds, tracksEntity.allIds, tracksEntity.byId]);
+    }, [selectedTrackIds, tracksEntity.allIds]);
     const {
         panelInfo,
         collapsedGroups,
@@ -343,13 +375,14 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         };
     }, [timelineClipsForView, tracksEntity]);
     const prevMissingTotalRef = useRef(0);
+    const closedMissingAssetsTotalRef = useRef(-1);
     useEffect(() => {
         const prev = prevMissingTotalRef.current;
         prevMissingTotalRef.current = missingMediaSummary.total;
-        if (missingMediaSummary.total > 0 && prev === 0) {
+        // BUG-U003 FIX: Only pop open the panel if count > 0 AND it's a new occurrence
+        // (i.e. strictly greater than the count when the user last explicitly closed it).
+        if (missingMediaSummary.total > 0 && missingMediaSummary.total > closedMissingAssetsTotalRef.current && prev === 0) {
             // BUG-049 FIX: Direct setState instead of queueMicrotask.
-            // React 18 batches setState anyway; queueMicrotask adds an
-            // unnecessary async gap that can flash stale UI state.
             setMissingAssetsOpen(true);
         }
     }, [missingMediaSummary.total]);
@@ -585,7 +618,10 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 onSelectClips={setSelectedClipIds}
                 missingAssetsOpen={missingAssetsOpen}
                 missingTotal={missingMediaSummary.total}
-                onCloseMissingAssets={() => setMissingAssetsOpen(false)}
+                onCloseMissingAssets={() => {
+                    setMissingAssetsOpen(false);
+                    closedMissingAssetsTotalRef.current = missingMediaSummary.total;
+                }}
                 exportOpen={exportOpen}
                 onCloseExport={() => setExportOpen(false)}
                 projectName={projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}

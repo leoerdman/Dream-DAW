@@ -1001,8 +1001,8 @@ fn switch_project_tab(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     _clip_pool_state: tauri::State<'_, ClipPoolState>,
     _automation_runtime: tauri::State<'_, AutomationRuntime>,
-    handle: tauri::State<'_, AudioEngineHandle>,
-    plugin_host_state: tauri::State<'_, PluginHostState>,
+    _handle: tauri::State<'_, AudioEngineHandle>,
+    _plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let target_id = uuid::Uuid::parse_str(&id)

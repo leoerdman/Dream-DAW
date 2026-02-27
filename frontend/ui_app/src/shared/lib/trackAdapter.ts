@@ -14,6 +14,7 @@ import type { TrackColor } from '@bindings/TrackColor';
 import type { DeviceNode } from '@bindings/DeviceNode';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 import { clamp01 } from '@/shared/lib/audioMath';
+import { DEFAULT_TRACK_HEIGHT_PX } from '@/shared/lib/TimelineEngine.types';
 
 // ── Track color palette (matches Rust TrackColor enum hex values) ─────────
 
@@ -172,12 +173,25 @@ type RawBackendTrack = Record<string, unknown> & {
 };
 
 /**
+ * Type guard to validate that an unknown payload meets the minimum
+ * requirements to be parsed as a RawBackendTrack.
+ */
+export function isRawBackendTrack(obj: unknown): obj is RawBackendTrack {
+    if (!obj || typeof obj !== 'object') return false;
+    const r = obj as Record<string, unknown>;
+    return typeof r.id === 'string' && typeof r.name === 'string';
+}
+
+/**
  * Convert a raw backend track response into a UI-friendly ProjectTrack.
  *
  * This is the single boundary where Rust model → TS UI conversion happens.
  * All field coercion, default values, and enum→hex resolution live here.
  */
-export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
+export function adaptTrack(raw: unknown): ProjectTrack {
+    if (!isRawBackendTrack(raw)) {
+        throw new Error(`[trackAdapter] Invalid backend track payload: missing id or name. Received: ${typeof raw}`);
+    }
     const color = raw.color_hex || resolveTrackColor(raw.color);
 
     // Flatten effects: DeviceNode[] → FlatPluginSlot[]
@@ -214,7 +228,7 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         is_disabled: Boolean(raw.is_disabled ?? false),
         is_solo: Boolean(raw.is_solo ?? false),
         is_armed: Boolean(raw.is_armed ?? false),
-        height: Number(raw.height ?? 80),
+        height: Number(raw.height ?? DEFAULT_TRACK_HEIGHT_PX),
         output:
             (raw.output_destination_id && raw.output_destination_id.length > 0
                 ? raw.output_destination_id

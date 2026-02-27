@@ -15,10 +15,7 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 // ── Track selectors ──────────────────────────────────────────────────────
 
 /** Select all tracks as an ordered array (same as projectTracks). */
-export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) =>
-    s.tracks.allIds
-        .map((id) => s.tracks.byId[id])
-        .filter((track): track is ProjectTrack => Boolean(track));
+export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => s.projectTracks;
 
 /** Select a single track by ID. Returns undefined if not found. */
 export const selectTrackById = (id: string) =>
@@ -37,22 +34,30 @@ export const selectTrackCount = (s: ReturnType<typeof useEngineStore.getState>) 
 // ── Clip selectors ───────────────────────────────────────────────────────
 
 /** Select all clips as an ordered array (same as timelineClips). */
-export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) =>
-    s.clips.allIds
-        .map((id) => s.clips.byId[id])
-        .filter((clip): clip is TimelineClip => Boolean(clip));
+export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) => s.timelineClips;
 
 /** Select a single clip by ID. Returns undefined if not found. */
 export const selectClipById = (id: string) =>
     (s: ReturnType<typeof useEngineStore.getState>): TimelineClip | undefined =>
         s.clips.byId[id];
 
+/** Memoized cache for track index clip lookups, bound to the timelineClips array reference. */
+const _clipsByTrackCache = new WeakMap<TimelineClip[], Record<number, TimelineClip[]>>();
+
 /** Get clips filtered by track index. */
 export const selectClipsByTrackIndex = (trackIndex: number) =>
-    (s: ReturnType<typeof useEngineStore.getState>): TimelineClip[] =>
-        s.clips.allIds
-            .map((id) => s.clips.byId[id])
-            .filter((clip): clip is TimelineClip => Boolean(clip) && clip.trackIndex === trackIndex);
+    (s: ReturnType<typeof useEngineStore.getState>): TimelineClip[] => {
+        const clips = s.timelineClips;
+        let cache = _clipsByTrackCache.get(clips);
+        if (!cache) {
+            cache = {};
+            _clipsByTrackCache.set(clips, cache);
+        }
+        if (!cache[trackIndex]) {
+            cache[trackIndex] = clips.filter((c) => c.trackIndex === trackIndex);
+        }
+        return cache[trackIndex];
+    };
 
 // ── Imperative helpers (for callbacks, not hooks) ────────────────────────
 

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/shared/hooks/useClickOutside';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { MIN_BPM, MAX_BPM, clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
+import { MIN_BPM, MAX_BPM, clampTimeSigNumerator, clampTimeSigDenominator, DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_DENOMINATOR } from '@/shared/lib/audioMath';
 import * as engineApi from '@/shared/api/engine';
 import { useTransportEngineSlice, usePositionRef } from './model/useTransportEngineSlice';
 import {
@@ -74,8 +74,8 @@ export const TransportBar = ({
         });
         return () => cancelAnimationFrame(rafId);
     }, [bpm, bpmEditing]);
-    const timeSigNum = clampTimeSigNumerator(timeSigNumerator || 4);
-    const timeSigDen = clampTimeSigDenominator(timeSigDenominator || 4);
+    const timeSigNum = clampTimeSigNumerator(timeSigNumerator || DEFAULT_TIME_SIG_NUMERATOR);
+    const timeSigDen = clampTimeSigDenominator(timeSigDenominator || DEFAULT_TIME_SIG_DENOMINATOR);
     const [keyMenuOpen, setKeyMenuOpen] = useState(false);
     const keyMenuRef = useRef<HTMLDivElement | null>(null);
     const [gridOpen, setGridOpen] = useState(false);

@@ -183,9 +183,21 @@ pub(crate) fn start_audio_thread_on_device_impl(
     match std::thread::Builder::new()
         .name("dream-audio-gc".into())
         .spawn(move || {
+            // BUG-005 FIX: Exit the GC thread when the producer side is dropped
+            // (i.e., the audio callback closure is dropped when the stream stops).
+            // Without this, the GC thread runs forever, leaking a thread per
+            // audio engine lifecycle.
             loop {
+                let mut drained_any = false;
                 while let Ok(arc) = gc_consumer.pop() {
                     drop(arc); // Deallocate off the audio thread
+                    drained_any = true;
+                }
+                // If the producer is dropped and queue is empty, the rtrb
+                // consumer.pop() returns Err permanently. We check if we
+                // haven't drained anything AND the producer is gone.
+                if !drained_any && gc_consumer.is_abandoned() {
+                    break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }

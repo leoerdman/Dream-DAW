@@ -26,6 +26,7 @@ export function useEqBandDragEffect({
         let lastGain = Number.NaN;
         let lastQ = Number.NaN;
         let lastQSentAt = 0;
+        let lastFlushAt = 0;
         let rafId: number | null = null;
         let latestEvent: MouseEvent | null = null;
 
@@ -33,6 +34,16 @@ export function useEqBandDragEffect({
             rafId = null;
             const e = latestEvent;
             if (!e) return;
+            // PERF-FIX: Throttle flush to ~30fps to reduce IPC + re-render load.
+            // The previous implementation ran at 60fps which caused visible lag
+            // because each update triggers backend IPC + full SVG curve rebuild.
+            const now = performance.now();
+            if (now - lastFlushAt < 32) {
+                // Re-schedule for next frame if too fast
+                rafId = window.requestAnimationFrame(flushMove);
+                return;
+            }
+            lastFlushAt = now;
             const surface = eqSurfaceRef.current;
             if (!surface) return;
             const rect = surface.getBoundingClientRect();
@@ -56,7 +67,6 @@ export function useEqBandDragEffect({
                 const clampedQNorm = clamp01(qNorm);
                 const q = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
                 const roundedQ = Math.round(q * 10) / 10;
-                const now = performance.now();
                 const qChangedEnough = Number.isNaN(lastQ) || Math.abs(roundedQ - lastQ) >= 0.2;
                 const qSendWindowOpen = now - lastQSentAt >= 80;
                 if (roundedQ !== lastQ && (qChangedEnough || qSendWindowOpen)) {

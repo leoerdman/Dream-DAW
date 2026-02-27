@@ -56,7 +56,7 @@ class ErrorBoundary extends Component<
                 if (status.filePath) {
                   await engineApi.saveProject();
                 }
-              } catch { /* Best-effort — proceed with reload even if save fails */ }
+              } catch (saveErr) { console.warn('[Dream] Best-effort save before reload failed:', saveErr); }
               window.location.reload();
             }}
             style={{
@@ -104,7 +104,8 @@ function App() {
       if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim()
       try {
         return JSON.stringify(raw)
-      } catch {
+      } catch (jsonErr) {
+        console.warn('[Dream] JSON.stringify failed for error object:', jsonErr);
         return String(raw)
       }
     }
@@ -115,8 +116,8 @@ function App() {
         if ('__TAURI_INTERNALS__' in window) {
           engineApi.logFrontendError('AppRuntime', message).catch(() => { })
         }
-      } catch (e) {
-        // Safe fallback for standard browsers
+      } catch (reportErr) {
+        console.warn('[Dream] Tauri reporting failed:', reportErr);
       }
       console.error('[AppRuntime]', message)
     }
@@ -288,7 +289,7 @@ function App() {
               try {
                 const engineApi = await import('@/shared/api/engine');
                 await engineApi.saveProject();
-              } catch { /* Best-effort save before reload */ }
+              } catch (saveErr) { console.warn('[Dream] Best-effort save before reload failed:', saveErr); }
               window.location.reload();
             }}
             style={{
@@ -317,7 +318,10 @@ function App() {
 // instead of non-null assertion that produces cryptic runtime error.
 const rootEl = document.getElementById('root');
 if (!rootEl) {
-  document.body.innerHTML = '<pre style="color:#ff6b6b;padding:40px">Fatal: Missing #root element in index.html</pre>';
+  const fatalEl = document.createElement('pre');
+  fatalEl.textContent = 'Fatal: Missing #root element in index.html';
+  fatalEl.style.cssText = 'color:#ff6b6b;padding:40px';
+  document.body.appendChild(fatalEl);
   throw new Error('Fatal: Missing #root element in index.html');
 }
 createRoot(rootEl).render(

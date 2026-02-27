@@ -110,7 +110,8 @@ struct RenderRoutingCtx<'a> {
     loop_region: Option<ClipLoopRegion>,
     /// Per-track MIDI FX configs for pitch/scale/velocity/random transforms.
     /// Built from project track data, mirroring the RT path's MidiFxRuntimeConfig.
-    midi_fx_configs: Vec<MidiFxRuntimeConfig>,
+    /// EXP-004 FIX: Borrowed slice instead of owned Vec to avoid per-chunk clone.
+    midi_fx_configs: &'a [MidiFxRuntimeConfig],
     /// Pre-built per-track automation states for external plugin parameter automation.
     automation: &'a [TrackAutomationState],
     /// CRACKLE-FIX-4: Pre-allocated VST output scratch buffers (avoids per-chunk alloc).
@@ -1966,7 +1967,7 @@ impl OfflineRenderer {
                 master_device_chain: &mut master_device_chain,
                 midi_clips_per_track: &midi_clips_per_track,
                 loop_region: bounce_loop_region,
-                midi_fx_configs: midi_fx_configs.clone(),
+                midi_fx_configs: &midi_fx_configs,
                 automation: &bounce_automation,
                 bounce_scratch_left: &mut bounce_scratch_left,
                 bounce_scratch_right: &mut bounce_scratch_right,
@@ -2017,7 +2018,10 @@ impl OfflineRenderer {
             };
             let _ = process_ctx_tail; // Silence warning if unused below
 
-            // Apply master device chain on the silence buffer for tail
+            // EXP-003 FIX: Process full master FX chain (internal + VST3) during
+            // tail rendering, mirroring Phase 4.5 of render_routing_aware().
+            // Previously only internal FX (DeviceChain) were processed, causing
+            // VST3 reverbs/limiters/compressors on the master bus to cut off.
             let tail_start = total_frames + tail_rendered;
             let tail_end = (tail_start + chunk_frames).min(total_with_tail);
             let actual = tail_end - tail_start;
@@ -2027,7 +2031,116 @@ impl OfflineRenderer {
             let tail_slice_l = &mut mix_l[tail_start..tail_end];
             let tail_slice_r = &mut mix_r[tail_start..tail_end];
 
-            if !master_device_chain.is_empty() {
+            let master_fx_idx = render_ctx.track_slots.len();
+            let master_slots_opt =
+                crate::driver::resolve_master_runtime_slots(external_fx_map, master_fx_idx);
+
+            if let Some(master_slots) = master_slots_opt {
+                if !master_slots.is_empty() {
+                    let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
+                    if !has_external {
+                        // Internal-only master chain
+                        let pctx = ProcessContext {
+                            sample_rate: project_sr as f32,
+                            playhead_frames: self.config.end_frame + tail_rendered as i64,
+                            tempo: self.config.bpm,
+                            is_playing: false,
+                            time_sig_numerator: project.time_signature.numerator.max(1),
+                            time_sig_denominator: project.time_signature.denominator.max(1),
+                        };
+                        master_device_chain.process_with_context(
+                            tail_slice_l,
+                            tail_slice_r,
+                            &pctx,
+                        );
+                    } else {
+                        // Interleaved internal + external VST3 master chain
+                        for runtime_slot in master_slots.iter() {
+                            if runtime_slot.is_bypassed {
+                                continue;
+                            }
+                            if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                                let pctx = ProcessContext {
+                                    sample_rate: project_sr as f32,
+                                    playhead_frames: self.config.end_frame + tail_rendered as i64,
+                                    tempo: self.config.bpm,
+                                    is_playing: false,
+                                    time_sig_numerator: project.time_signature.numerator.max(1),
+                                    time_sig_denominator: project.time_signature.denominator.max(1),
+                                };
+                                master_device_chain.process_slot_with_sidechain_ctx(
+                                    internal_idx,
+                                    tail_slice_l,
+                                    tail_slice_r,
+                                    None,
+                                    None,
+                                    &pctx,
+                                );
+                                continue;
+                            }
+
+                            if let Some(instance_id) = runtime_slot.instance_id {
+                                let Some(plugin_mtx) = plugin_registry.get(&instance_id) else {
+                                    continue;
+                                };
+                                let mut host = plugin_mtx.lock();
+                                let main_inputs: [&[f32]; 2] =
+                                    [&tail_slice_l[..actual], &tail_slice_r[..actual]];
+                                let transport = dream_plugins::TransportContext {
+                                    sample_rate: project_sr,
+                                    position_samples: self.config.end_frame + tail_rendered as i64,
+                                    tempo: self.config.bpm,
+                                    is_playing: false,
+                                    is_recording: false,
+                                    time_sig_numerator: i32::from(project.time_signature.numerator.max(1)),
+                                    time_sig_denominator: i32::from(project.time_signature.denominator.max(1)),
+                                    cycle_active: false,
+                                    loop_start_samples: 0,
+                                    loop_end_samples: 0,
+                                };
+                                host.set_transport_context(transport);
+
+                                let ext_left = &mut bounce_scratch_left[..actual];
+                                let ext_right = &mut bounce_scratch_right[..actual];
+                                ext_left.fill(0.0);
+                                ext_right.fill(0.0);
+                                let mut out_slices: [&mut [f32]; 2] =
+                                    [&mut ext_left[..], &mut ext_right[..]];
+                                let empty_midi: &[dream_plugins::MidiEvent] = &[];
+                                if let Err(proc_err) = host.process_with_sidechain(
+                                    &main_inputs,
+                                    None,
+                                    &mut out_slices,
+                                    actual,
+                                    empty_midi,
+                                ) {
+                                    log::warn!(
+                                        "[Bounce/Tail/Master] process_with_sidechain failed: {}",
+                                        proc_err
+                                    );
+                                }
+                                // Sanitize plugin output
+                                for i in 0..actual {
+                                    if !ext_left[i].is_finite() {
+                                        ext_left[i] = 0.0;
+                                    }
+                                    if !ext_right[i].is_finite() {
+                                        ext_right[i] = 0.0;
+                                    }
+                                }
+                                tail_slice_l[..actual].copy_from_slice(&ext_left[..actual]);
+                                tail_slice_r[..actual].copy_from_slice(&ext_right[..actual]);
+                            }
+                        }
+                    }
+                } else if !master_device_chain.is_empty() {
+                    master_device_chain.process_stereo(
+                        tail_slice_l,
+                        tail_slice_r,
+                        project_sr as f32,
+                    );
+                }
+            } else if !master_device_chain.is_empty() {
                 master_device_chain.process_stereo(
                     tail_slice_l,
                     tail_slice_r,

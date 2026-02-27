@@ -177,7 +177,10 @@ export function usePianoRollNoteInteractions({
                 }
                 return { ...n, startBeat: newBeat, pitch: newPitch };
             });
-            onNotesChange(enforceNoOverlap(updated, selectedIds));
+            // FIX #5: During drag, only update positions WITHOUT enforceNoOverlap.
+            // This prevents notes from being deleted when dragging through them.
+            // Overlap enforcement is deferred to mouseUp (drop).
+            onNotesChange(updated);
             if (mode === 'move') {
                 const lead = updated.find((n) => n.id === noteId);
                 if (lead && lead.pitch !== lastAuditionPitch) {
@@ -191,6 +194,10 @@ export function usePianoRollNoteInteractions({
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
             dragCleanupRef.current = null;
+            // FIX #5: Apply enforceNoOverlap only on drop (mouseUp),
+            // not during drag. This resolves final note positions.
+            const finalNotes = notesRef.current;
+            onNotesChange(enforceNoOverlap(finalNotes, selectedIds));
             requestAnimationFrame(() => {
                 isDragInProgressRef.current = false;
             });

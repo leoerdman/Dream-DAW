@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { safeStorage } from '@/shared/lib/safeStorage';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getContrastColor } from '@/shared/lib/colorUtils';
@@ -53,7 +54,7 @@ export const SessionWorkspace = ({
     } = useSessionWorkspaceState(tracks, isPlaying, togglePlay);
 
     const [mixerHeight, setMixerHeight] = useState(() => {
-        const saved = localStorage.getItem('dream_daw_session_mixer_height');
+        const saved = safeStorage.getItem('dream_daw_session_mixer_height');
         return saved ? parseInt(saved, 10) : SESSION_MIXER_HEIGHT_PX;
     });
     const resizeRef = useRef<{ startY: number; startH: number; viewportH: number } | null>(null);
@@ -267,7 +268,7 @@ export const SessionWorkspace = ({
                             const deltaY = resizeRef.current.startY - e.clientY;
                             let newH = resizeRef.current.startH + deltaY;
                             newH = Math.max(150, Math.min(newH, resizeRef.current.viewportH - 150));
-                            localStorage.setItem('dream_daw_session_mixer_height', newH.toString());
+                            safeStorage.setItem('dream_daw_session_mixer_height', newH.toString());
                         }
                         resizeRef.current = null;
                         setDraggingMixerEdge(false);

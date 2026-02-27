@@ -12,7 +12,8 @@ function encodeTrackIdForSlot(trackId: string): string {
 function decodeTrackIdFromSlot(encoded: string): string {
     try {
         return decodeURIComponent(encoded);
-    } catch {
+    } catch (decodeErr) {
+        console.warn('[Dream] decodeTrackIdFromSlot failed:', decodeErr);
         return encoded;
     }
 }

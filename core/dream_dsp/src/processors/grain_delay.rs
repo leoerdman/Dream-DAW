@@ -199,8 +199,9 @@ impl DspProcessor for GrainDelayProcessor {
                 }
             }
 
-            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
-            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
+            // BUG-B18-002 FIX: Clamp output to prevent runaway feedback accumulation.
+            left[i] = (dry_l * (1.0 - mix) + wet_l * mix).clamp(-8.0, 8.0);
+            right[i] = (dry_r * (1.0 - mix) + wet_r * mix).clamp(-8.0, 8.0);
         }
     }
 

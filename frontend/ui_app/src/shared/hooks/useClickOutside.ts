@@ -23,7 +23,8 @@ export function useClickOutside(
                 onClose();
             }
         };
-        document.addEventListener('mousedown', onDown);
+        // BUG-025 FIX: passive:true avoids blocking scroll during click-outside detection.
+        document.addEventListener('mousedown', onDown, { passive: true });
         return () => document.removeEventListener('mousedown', onDown);
     }, [ref, onClose, active]);
 }

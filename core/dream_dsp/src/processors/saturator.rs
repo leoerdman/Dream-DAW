@@ -135,7 +135,8 @@ impl DspProcessor for SaturatorProcessor {
             let mix = self.mix_sm.next_value();
 
             // Pre-saturation tilt (colour)
-            let tilt_c = (1.0 - (-std::f32::consts::TAU * (200.0 + colour * 8000.0) / sr).exp()).clamp(0.0, 1.0);
+            // BUG-B18-003 FIX: Use fast_exp instead of per-sample std exp() for tilt coeff.
+            let tilt_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * (200.0 + colour * 8000.0) / sr)).clamp(0.0, 1.0);
             self.tilt_z_l += tilt_c * (dry_l - self.tilt_z_l);
             self.tilt_z_r += tilt_c * (dry_r - self.tilt_z_r);
             let tilted_l = self.tilt_z_l * (1.0 - colour) + dry_l * colour;

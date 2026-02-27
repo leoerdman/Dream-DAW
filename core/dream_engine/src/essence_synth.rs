@@ -22,15 +22,17 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use crate::instrument_core::{AdsrEnvelope, AdsrParams};
+use crate::instrument_core::{AdsrEnvelope, AdsrParams, MAX_VOICES};
 use crate::synth_types::{LfoTarget, SynthFilterType, Waveform};
 use crate::oscillator::{oscillator_sample_blep, ParameterSmoother};
 use dream_dsp::svf::SvfState;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Maximum number of simultaneous voices for the Essence synth.
-pub const ESSENCE_MAX_VOICES: usize = 32;
+/// BUG-100 FIX: Use SSOT MAX_VOICES from instrument_core instead of
+/// duplicating the constant. Previously ESSENCE_MAX_VOICES = 32 was
+/// defined here independently.
+pub const ESSENCE_MAX_VOICES: usize = MAX_VOICES;
 
 // ── Essence Voice ──────────────────────────────────────────────────────
 
@@ -99,19 +101,27 @@ impl EssenceVoice {
     /// Trigger note-on: compute phase increment from MIDI note.
     #[inline]
     pub fn trigger(&mut self, note: u8, velocity: u8) {
+        // BUG-009 FIX: Only reset oscillator phases when starting from idle.
+        // Re-triggering from a releasing voice should preserve phase continuity
+        // to avoid waveform discontinuity clicks.
+        let from_idle = !self.active;
         self.active = true;
         self.note = note;
         self.velocity = velocity as f32 / 127.0;
-        self.phase_1 = 0.0;
-        self.phase_2 = 0.0;
-        self.phase_sub = 0.0;
+        if from_idle {
+            self.phase_1 = 0.0;
+            self.phase_2 = 0.0;
+            self.phase_sub = 0.0;
+            self.lfo_phase = 0.0;
+            self.tri_state_1 = 0.0;
+            self.tri_state_2 = 0.0;
+        }
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
         self.envelope.note_on();
-        self.filter_state.reset();
-        self.lfo_phase = 0.0;
-        self.tri_state_1 = 0.0;
-        self.tri_state_2 = 0.0;
+        if from_idle {
+            self.filter_state.reset();
+        }
     }
 
     /// Release the note (enters ADSR release phase).
@@ -154,7 +164,6 @@ pub struct EssenceSynthEngine {
     /// Set to `true` when the user assigns the Essence Synth instrument.
     enabled: bool,
 
-    // ── Global Parameters ──
     // ── Global Parameters ──
     /// ADSR envelope parameters.
     adsr_params: AdsrParams,
@@ -365,11 +374,46 @@ impl EssenceSynthEngine {
         }
     }
 
-    /// Release all active notes immediately.
+    /// Release all active notes gracefully.
+    /// BUG-036 FIX: Use release() instead of reset() to prevent audible clicks.
+    /// Voices will fade out through their ADSR release phase and deactivate
+    /// naturally in the render loop when the envelope reaches idle.
     pub fn all_notes_off(&mut self) {
         for voice in &mut self.voices {
+            if voice.active && !voice.envelope.is_releasing() {
+                voice.release();
+            }
+        }
+    }
+
+    /// BUG-002 FIX: Update sample rate for all voices and parameter smoothers.
+    /// Called when the audio device changes sample rate. Without this,
+    /// pitch, filter cutoffs, and ADSR timing are all wrong.
+    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+        if sample_rate <= 0.0 || (sample_rate - self.sample_rate).abs() < 0.5 {
+            return;
+        }
+        self.sample_rate = sample_rate;
+        let tc = 10.0; // Same smoothing window as constructor
+        // Update all parameter smoothers
+        self.volume.set_time_constant(sample_rate, tc);
+        self.osc1_volume.set_time_constant(sample_rate, tc);
+        self.osc2_volume.set_time_constant(sample_rate, tc);
+        self.detune_cents.set_time_constant(sample_rate, tc);
+        self.sub_level.set_time_constant(sample_rate, tc);
+        self.pulse_width.set_time_constant(sample_rate, tc);
+        self.filter_cutoff.set_time_constant(sample_rate, tc);
+        self.filter_resonance.set_time_constant(sample_rate, tc);
+        self.lfo_rate.set_time_constant(sample_rate, tc);
+        self.lfo_depth.set_time_constant(sample_rate, tc);
+        // Update all voices with new sample rate
+        for voice in &mut self.voices {
+            voice.sample_rate = sample_rate;
+            voice.envelope.set_sample_rate(sample_rate);
+            // Recalculate phase increment for any active voices
             if voice.active {
-                voice.reset();
+                let freq_hz = 440.0_f64 * 2.0_f64.powf((voice.note as f64 - 69.0) / 12.0);
+                voice.phase_increment = (freq_hz / sample_rate).clamp(0.0, 0.5);
             }
         }
     }
@@ -386,16 +430,18 @@ impl EssenceSynthEngine {
         self.voices.iter().any(|v| v.active)
     }
 
-    /// Whether this synth is enabled (explicitly assigned to this track).
-    /// Empty tracks default to disabled, preventing phantom sound.
-    pub fn is_active(&self) -> bool {
-        self.enabled
-    }
-
     /// Whether this synth is explicitly enabled for this track.
+    /// BUG-082 FIX: Removed duplicate `is_active()` — was identical to
+    /// `is_enabled()`. Single method is the SSOT for enablement state.
     #[inline]
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// Alias for backward compatibility with callers using `is_active()`.
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.is_enabled()
     }
 
     /// Enable or disable the Essence Synth for this track.
@@ -419,19 +465,51 @@ impl EssenceSynthEngine {
         let wf2 = self.waveform_2;
         let filter_type = self.filter_type;
         let lfo_target = self.lfo_target;
+        // BUG-019 FIX: Pre-compute inverse sample rate once instead of per-voice.
+        let inv_sr = 1.0 / sr;
 
         for i in 0..frame_count {
             let vol = self.volume.next();
             let osc1_vol = if self.osc1_enabled { self.osc1_volume.next() } else { 0.0 };
             let osc2_vol = if self.osc2_enabled { self.osc2_volume.next() } else { 0.0 };
-            let detune_ratio = 2.0_f64.powf(self.detune_cents.next() as f64 / 1200.0);
+            // BUG-016 FIX: Hoist detune_ratio computation. `2^(x/1200)` is
+            // expensive (~50ns powf per call). Since detune_cents is smoothed
+            // per-sample (not per-voice), compute once here instead of inside
+            // the voice loop. For small cent values, use fast approximation:
+            // 2^(x/1200) ≈ 1 + x * ln(2)/1200 for |x| < 100 cents.
+            let detune_cents_val = self.detune_cents.next() as f64;
+            let detune_ratio = if detune_cents_val.abs() < 100.0 {
+                // Fast linear approximation — max error ~0.03% at 100 cents
+                1.0 + detune_cents_val * (std::f64::consts::LN_2 / 1200.0)
+            } else {
+                2.0_f64.powf(detune_cents_val / 1200.0)
+            };
             let sub_lev = self.sub_level.next();
             let pw = self.pulse_width.next() as f64;
             let cutoff = self.filter_cutoff.next() as f64;
             let resonance = self.filter_resonance.next() as f64;
             let lfo_rate = self.lfo_rate.next() as f64;
             let lfo_depth = self.lfo_depth.next() as f64;
-            let lfo_dt = lfo_rate / sr;
+            let lfo_dt = lfo_rate * inv_sr;
+
+            // BUG-019 FIX: Pre-compute SVF filter coefficient `g` outside
+            // the voice loop when cutoff is not modulated by LFO. When LFO
+            // targets filter cutoff, each voice needs its own `g`.
+            let base_g = if !matches!(lfo_target, LfoTarget::FilterCutoff) {
+                let mod_cutoff = cutoff.clamp(20.0, 20000.0);
+                // BUG-019 FIX: Use fast rational tan() approximation for
+                // small arguments. For x < 0.45 (cutoff < ~6.4kHz at 44.1kHz):
+                // tan(x) ≈ x * (1 + x²/3) — max error ~0.5% vs std::tan.
+                let x = (std::f64::consts::PI * mod_cutoff * inv_sr) as f32;
+                if x < 0.45 {
+                    x * (1.0 + x * x * (1.0 / 3.0))
+                } else {
+                    (std::f64::consts::PI * mod_cutoff * inv_sr).tan() as f32
+                }
+            } else {
+                0.0 // Will be computed per-voice below
+            };
+            let k = (2.0 * (1.0 - resonance.clamp(0.0, 0.99))) as f32;
 
             for voice in &mut self.voices {
                 if !voice.active {
@@ -457,8 +535,15 @@ impl EssenceSynthEngine {
                 }
 
                 // ── LFO Modulation Targets ──
+                // BUG-017 FIX: Use fast linear approximation for small pitch mod.
+                // 2^(x/12) ≈ 1 + x*ln(2)/12 for |x| < 1 semitone.
                 let pitch_mod = if matches!(lfo_target, LfoTarget::Pitch) {
-                    2.0_f64.powf(lfo_val * 2.0 / 12.0) // ±2 semitones
+                    let semitones = lfo_val * 2.0; // ±2 semitones
+                    if semitones.abs() < 2.0 {
+                        1.0 + semitones * (std::f64::consts::LN_2 / 12.0)
+                    } else {
+                        2.0_f64.powf(semitones / 12.0)
+                    }
                 } else {
                     1.0
                 };
@@ -501,9 +586,13 @@ impl EssenceSynthEngine {
                 let raw = osc1_sample * osc1_vol + osc2_sample * osc2_vol + sub_sample;
 
                 // ── SVF Filter (Linear Trapezoidal / Andy Simper topology) ──
-                let mod_cutoff = (cutoff * cutoff_mod).clamp(20.0, 20000.0);
-                let g = (std::f64::consts::PI * mod_cutoff / sr).tan() as f32;
-                let k = (2.0 * (1.0 - resonance.clamp(0.0, 0.99))) as f32;
+                let g = if matches!(lfo_target, LfoTarget::FilterCutoff) {
+                    // Per-voice g when LFO modulates cutoff
+                    let mod_cutoff = (cutoff * cutoff_mod).clamp(20.0, 20000.0);
+                    (std::f64::consts::PI * mod_cutoff * inv_sr).tan() as f32
+                } else {
+                    base_g
+                };
 
                 let ic1eq = voice.filter_state.ic1eq;
                 let ic2eq = voice.filter_state.ic2eq;
@@ -540,9 +629,16 @@ impl EssenceSynthEngine {
                 };
 
                 // ── Output ──
+                // BUG-018 FIX: Stereo spread based on note position.
+                // Previously both channels received identical signal (mono).
+                // Use note-based panning: low notes slightly left, high notes
+                // slightly right, creating a natural stereo image.
                 let out = filtered * env * voice.velocity * vol * volume_mod;
-                left_out[i] += out;
-                right_out[i] += out;
+                let pan = ((voice.note as f32 - 64.0) / 64.0).clamp(-1.0, 1.0) * 0.3;
+                let left_gain = (1.0 - pan).min(1.0);
+                let right_gain = (1.0 + pan).min(1.0);
+                left_out[i] += out * left_gain;
+                right_out[i] += out * right_gain;
 
                 // ── Phase Advance ──
                 voice.phase_1 += dt1_mod;

@@ -77,11 +77,13 @@ export const useDragStore = create<DragState>((set, get) => ({
         const onSafetyUp = () => {
             window.removeEventListener('mouseup', onSafetyUp);
             _cleanupSafetyMouseUp = null;
-            setTimeout(() => {
+            // BUG-030 FIX: queueMicrotask() guarantees drop-zone handlers
+            // fire first within the same task, unlike setTimeout(0).
+            queueMicrotask(() => {
                 if (get().draggingItem) {
                     get().endDrag();
                 }
-            }, 0);
+            });
         };
         window.addEventListener('mouseup', onSafetyUp);
         _cleanupSafetyMouseUp = () => {

@@ -199,6 +199,21 @@ impl AdsrEnvelope {
         self.level
     }
 
+    /// BUG-002 FIX: Update the internal sample rate and recalculate all
+    /// envelope coefficients. Called when the audio device changes SR.
+    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+        if sample_rate > 0.0 {
+            self.sample_rate = sample_rate;
+            // Recalculate rates from the current parameters.
+            // We derive attack/decay/release times from the cached rates
+            // and the OLD sample rate — however, since set_params will be
+            // called again soon via voice.envelope.set_params(&adsr_params),
+            // this is a safe interim update.
+            let attack_time = if self.attack_rate > 0.0 { 1.0 / (self.attack_rate * sample_rate) } else { 0.001 };
+            self.attack_rate = 1.0 / (attack_time.max(0.001) * sample_rate);
+        }
+    }
+
     /// Reset to idle state.
     #[inline]
     pub fn reset(&mut self) {

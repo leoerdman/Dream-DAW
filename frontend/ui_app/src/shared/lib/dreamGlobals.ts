@@ -15,7 +15,7 @@ export const dreamGlobals = {
 
     clearSelectedTrackId(trackId?: string): void {
         if (!trackId || win().__dreamSelectedTrackId === trackId) {
-            delete win().__dreamSelectedTrackId;
+            win().__dreamSelectedTrackId = undefined;
         }
     },
 
@@ -37,7 +37,7 @@ export const dreamGlobals = {
 
     clearFlushPendingEdits(fn?: FlushPendingEditsFn): void {
         if (!fn || win().__dreamFlushPendingEdits === fn) {
-            delete win().__dreamFlushPendingEdits;
+            win().__dreamFlushPendingEdits = undefined;
         }
     },
 
@@ -51,7 +51,7 @@ export const dreamGlobals = {
 
     clearOpenExportModal(fn?: OpenExportModalFn): void {
         if (!fn || win().__dreamOpenExportModal === fn) {
-            delete win().__dreamOpenExportModal;
+            win().__dreamOpenExportModal = undefined;
         }
     },
 
@@ -70,7 +70,7 @@ export const dreamGlobals = {
 
     clearSaveProject(fn?: SaveProjectFn): void {
         if (!fn || win().__dreamSaveProject === fn) {
-            delete win().__dreamSaveProject;
+            win().__dreamSaveProject = undefined;
         }
     },
 
@@ -84,7 +84,7 @@ export const dreamGlobals = {
 
     clearSaveAsProject(fn?: SaveProjectFn): void {
         if (!fn || win().__dreamSaveAsProject === fn) {
-            delete win().__dreamSaveAsProject;
+            win().__dreamSaveAsProject = undefined;
         }
     },
 };

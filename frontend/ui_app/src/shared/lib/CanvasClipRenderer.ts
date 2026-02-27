@@ -1,7 +1,7 @@
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
-import { clampMidiPitch } from './audioMath';
+import { clampMidiPitch, DEFAULT_BPM } from './audioMath';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
@@ -29,7 +29,7 @@ function snapPhysical(value: number): number {
 
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
-    private _bpm = 120;
+    private _bpm = DEFAULT_BPM;
 
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;

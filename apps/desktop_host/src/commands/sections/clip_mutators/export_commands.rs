@@ -167,7 +167,11 @@ async fn export_mix_cmd(
         start_frame,
         end_frame,
         normalize: settings.normalize,
-        tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
+        // EXP-001 FIX: Calculate tail_frames in project-SR domain.
+        // The render loop runs at project SR, and resampling happens only
+        // at the very end. Using export SR here caused tail to be
+        // (export_sr / project_sr)× too long when project SR ≠ export SR.
+        tail_frames: ((settings.tail_ms as f64 / 1000.0) * project.sample_rate.max(1.0)) as i64,
         format: export_format,
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: export_bpm,

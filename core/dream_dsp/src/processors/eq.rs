@@ -235,14 +235,30 @@ impl DspProcessor for EqProcessor {
             0 => {
                 band.freq = (value as f64).clamp(20.0, 20000.0);
                 band.update(sr);
+                // EQ-FIX: Auto-enable band when user adjusts frequency.
+                // Matches Ableton Live behavior: touching any band param activates it.
+                if !band.enabled {
+                    band.enabled = true;
+                }
             }
             1 => {
                 band.gain_db = (value as f64).clamp(-24.0, 24.0);
                 band.update(sr);
+                // EQ-FIX: Auto-enable band when user adjusts gain.
+                // This is the primary fix for "EQ doesn't work" — without this,
+                // bands 1-6 default to disabled and the user sees curves in the UI
+                // but hears no audio change because the backend band is disabled.
+                if !band.enabled && band.gain_db.abs() > 0.01 {
+                    band.enabled = true;
+                }
             }
             2 => {
                 band.q = (value as f64).clamp(0.1, 18.0);
                 band.update(sr);
+                // EQ-FIX: Auto-enable band when user adjusts Q.
+                if !band.enabled {
+                    band.enabled = true;
+                }
             }
             3 => {
                 band.enabled = value > 0.5;

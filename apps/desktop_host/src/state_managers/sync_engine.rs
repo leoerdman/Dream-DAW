@@ -24,6 +24,24 @@ mod sampler_snapshot;
 pub use runtime_device_chains::rebuild_runtime_device_chains_from_project;
 pub use sampler_snapshot::rebuild_sampler_snapshot_from_project;
 
+/// Public helper for persisting a device param to the project model's slot.params.
+/// Used by `set_device_param_runtime_cmd` to ensure runtime-only param changes
+/// survive device chain rebuilds (triggered by track move, group, undo/redo).
+pub fn persist_param_to_slot_pub(slot: &mut dream_models::project::PluginSlot, param_index: u8, value: f32) {
+    if slot.params.is_none() {
+        slot.params = Some(vec![0.0; 32]);
+    }
+    if let Some(params) = &mut slot.params {
+        let p_idx = param_index as usize;
+        if p_idx < params.len() {
+            params[p_idx] = value;
+        } else if p_idx < 128 {
+            params.resize(p_idx + 1, 0.0);
+            params[p_idx] = value;
+        }
+    }
+}
+
 /// BUG-063 FIX: Macro for best-effort command pushes that logs failures
 /// instead of silently dropping them with `let _ =`.
 /// Use this in restore/rebuild functions where individual parameter

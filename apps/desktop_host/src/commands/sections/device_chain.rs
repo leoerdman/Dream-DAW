@@ -278,11 +278,17 @@ fn set_device_param_cmd(
     Ok(())
 }
 
-/// Sets a device parameter for realtime monitoring only (no project mutation).
+/// Sets a device parameter for realtime monitoring AND persists to project model.
 ///
-/// This command is used during high-frequency UI gestures (e.g. EQ drag) to
-/// avoid project lock/dirty churn per mouse event. Persistence/undo is handled
-/// separately by with_deltas commit commands at gesture end.
+/// STATE-PERSIST FIX: Previously this was "runtime only" (no project mutation),
+/// meaning params changed during UI gestures (e.g. EQ drag) were NOT saved to
+/// the project model. If a device chain rebuild happened (track move, group,
+/// undo/redo), all runtime param changes were silently lost.
+///
+/// Now we also persist to the model — the persist_param_to_slot call is a
+/// lightweight Vec index write under the same mutex already held for resolution.
+/// We still skip mark_dirty and undo push for performance during high-frequency
+/// gestures; those are handled by the commit call at gesture end.
 #[tauri::command]
 fn set_device_param_runtime_cmd(
     track_index: u16,
@@ -294,8 +300,30 @@ fn set_device_param_runtime_cmd(
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+
     let resolved_slot = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        // STATE-PERSIST FIX: Persist to model so rebuild doesn't lose values.
+        let persist_result = if track_index == MASTER_TRACK_INDEX {
+            project.master_track.effects
+                .get_mut(slot_index as usize)
+                .and_then(|n| n.as_single_mut())
+                .map(|slot| {
+                    crate::state_managers::sync_engine::persist_param_to_slot_pub(slot, param_index, value);
+                })
+        } else {
+            project.tracks
+                .get_mut(track_index as usize)
+                .and_then(|track| {
+                    track.effects
+                        .get_mut(slot_index as usize)
+                        .and_then(|n| n.as_single_mut())
+                })
+                .map(|slot| {
+                    crate::state_managers::sync_engine::persist_param_to_slot_pub(slot, param_index, value);
+                })
+        };
+        let _ = persist_result;
         resolve_internal_runtime_slot(&project, track_index, slot_index)
     };
 
@@ -331,7 +359,26 @@ fn set_device_params_runtime_cmd(
         return Ok(());
     }
     let resolved_slot = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        // STATE-PERSIST FIX: Persist batch params to model (same fix as single variant).
+        let slot_opt = if track_index == MASTER_TRACK_INDEX {
+            project.master_track.effects
+                .get_mut(slot_index as usize)
+                .and_then(|n| n.as_single_mut())
+        } else {
+            project.tracks
+                .get_mut(track_index as usize)
+                .and_then(|track| {
+                    track.effects
+                        .get_mut(slot_index as usize)
+                        .and_then(|n| n.as_single_mut())
+                })
+        };
+        if let Some(slot) = slot_opt {
+            for update in &updates {
+                crate::state_managers::sync_engine::persist_param_to_slot_pub(slot, update.param_index, update.value);
+            }
+        }
         resolve_internal_runtime_slot(&project, track_index, slot_index)
     };
     if let Some(resolved_slot) = resolved_slot {

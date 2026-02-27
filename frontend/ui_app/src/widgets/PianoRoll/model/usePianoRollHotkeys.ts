@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import {
     genNoteId,
     HIGHEST_PITCH,
@@ -94,6 +95,53 @@ export function usePianoRollHotkeys({
                 e.stopImmediatePropagation();
                 onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
                 setSelectedNotes(new Set());
+                return;
+            }
+
+            // FIX #4: Bare P key toggles pencil mode
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.code === 'KeyP') {
+                e.preventDefault();
+                e.stopPropagation();
+                useGridStore.getState().togglePianoPencilMode();
+                return;
+            }
+
+            // FIX #1: Cmd+J joins selected MIDI notes on same pitch into one note
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyJ') {
+                if (!hasSelected || selectedNotes.size < 2) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const selected = notes.filter((n) => selectedNotes.has(n.id));
+                // Group by pitch
+                const byPitch = new Map<number, MidiNote[]>();
+                for (const n of selected) {
+                    const arr = byPitch.get(n.pitch) ?? [];
+                    arr.push(n);
+                    byPitch.set(n.pitch, arr);
+                }
+                const mergedIds = new Set<string>();
+                const newNotes: MidiNote[] = [];
+                for (const [, group] of byPitch) {
+                    if (group.length < 2) continue;
+                    group.sort((a, b) => a.startBeat - b.startBeat);
+                    const minStart = group[0].startBeat;
+                    const maxEnd = Math.max(...group.map((n) => n.startBeat + n.durationBeats));
+                    const maxVel = Math.max(...group.map((n) => n.velocity));
+                    for (const n of group) mergedIds.add(n.id);
+                    newNotes.push({
+                        ...group[0],
+                        id: genNoteId(),
+                        startBeat: minStart,
+                        durationBeats: Math.min(clipBeats - minStart, maxEnd - minStart),
+                        velocity: maxVel,
+                    });
+                }
+                if (mergedIds.size > 0) {
+                    const remaining = notes.filter((n) => !mergedIds.has(n.id));
+                    const merged = [...remaining, ...newNotes];
+                    onNotesChange(enforceNoOverlap(merged, new Set(newNotes.map((n) => n.id))));
+                    setSelectedNotes(new Set(newNotes.map((n) => n.id)));
+                }
                 return;
             }
 

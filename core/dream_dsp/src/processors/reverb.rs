@@ -411,6 +411,15 @@ impl ReverbProcessor {
             self.density_sm.set_sample_rate(sr);
             self.input_low_cut_sm.set_sample_rate(sr);
             self.input_high_cut_sm.set_sample_rate(sr);
+            // BUG-012 FIX: Clamp predelay_pos and clear stale predelay data.
+            // Without this, predelay_pos could exceed the new logical range
+            // after SR decrease, causing OOB reads or stale audio artifacts.
+            self.update_predelay();
+            if self.predelay_pos >= self.predelay_samples.max(1) {
+                self.predelay_pos = 0;
+            }
+            self.predelay_buf_l.fill(0.0);
+            self.predelay_buf_r.fill(0.0);
         }
     }
 }
@@ -530,7 +539,10 @@ impl DspProcessor for ReverbProcessor {
             let fast_sin = crate::processors::fast_sin_phase(self.lfo_phase as f32);
             let lfo = fast_sin * mod_depth * voicing_mod_mul * (0.008 + chorus_amt * 0.02);
             self.lfo_phase += lfo_inc;
-            self.lfo_phase = self.lfo_phase.fract();
+            // BUG-023 FIX: Use rem_euclid for robust phase wrapping.
+            // fract() accumulates floating point error over millions
+            // of samples; rem_euclid guarantees [0, 1) range.
+            self.lfo_phase = self.lfo_phase.rem_euclid(1.0);
 
             // BUG-H06 FIX: Right channel gets inverted LFO for true stereo
             // movement. Previously both channels used `(1.0 + lfo)`, producing

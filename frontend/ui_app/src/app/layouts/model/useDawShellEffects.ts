@@ -129,7 +129,7 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
         const setup = async () => {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
-            if (!(window as any).__TAURI_INTERNALS__) return;
+            if (!window.__TAURI_INTERNALS__) return;
             const unlistenHover = await listen('tauri://drag-over', () => {
                 if (!dreamGlobals.isInAppDrag()) {
                     // no-op
@@ -202,7 +202,7 @@ export function useAudioFailoverRecovery(args: {
         const setup = async () => {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
-            if (!(window as any).__TAURI_INTERNALS__) return;
+            if (!window.__TAURI_INTERNALS__) return;
             const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
                 const now = Date.now();
                 if (recoveringAudioRef.current) return;
@@ -264,7 +264,7 @@ export function useAlsImportSummaryStatus(): void {
         const setup = async () => {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
-            if (!(window as any).__TAURI_INTERNALS__) return;
+            if (!window.__TAURI_INTERNALS__) return;
             const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
                 const p = event.payload;
                 const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;

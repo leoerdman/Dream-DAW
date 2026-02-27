@@ -717,19 +717,22 @@ pub fn rebuild_runtime_device_chains_from_project(
             // SSOT FIX: Restore persisted params from project file.
             // Previously only master track effects had their saved params
             // restored; regular track effects lost knob positions on reload.
+            // STATE-RESTORE FIX: Restore ALL persisted params on rebuild.
+            // Previous code had `if value != 0.0 || param_idx < 33` which
+            // silently skipped EQ filter-type params (indices 33-40) when
+            // their value was 0 (= Highpass type). This corrupted EQ state
+            // whenever tracks were moved, grouped, or undo/redo was invoked.
             if let Some(ref params) = entry.params {
                 for (param_idx, &value) in params.iter().enumerate() {
-                    if value != 0.0 || param_idx < 33 {
-                        push_command(
-                            handle,
-                            EngineCommand::SetDeviceParam {
-                                track_index: ti,
-                                slot_index: si,
-                                param_index: param_idx.min(u8::MAX as usize) as u8,
-                                value,
-                            },
-                        )?;
-                    }
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index: ti,
+                            slot_index: si,
+                            param_index: param_idx.min(u8::MAX as usize) as u8,
+                            value,
+                        },
+                    )?;
                 }
             }
             apply_static_imported_params_for_slot(handle, ti, si, &entry.plugin_id, track)?;
@@ -824,19 +827,18 @@ pub fn rebuild_runtime_device_chains_from_project(
                     },
                 )?;
             }
+            // STATE-RESTORE FIX: Same fix as for regular tracks (see above).
             if let Some(ref params) = entry.params {
                 for (param_idx, &value) in params.iter().enumerate() {
-                    if value != 0.0 || param_idx < 33 {
-                        push_command(
-                            handle,
-                            EngineCommand::SetDeviceParam {
-                                track_index: MASTER_TRACK_INDEX,
-                                slot_index: slot_index.min(u8::MAX as usize) as u8,
-                                param_index: param_idx.min(u8::MAX as usize) as u8,
-                                value,
-                            },
-                        )?;
-                    }
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index: MASTER_TRACK_INDEX,
+                            slot_index: slot_index.min(u8::MAX as usize) as u8,
+                            param_index: param_idx.min(u8::MAX as usize) as u8,
+                            value,
+                        },
+                    )?;
                 }
             }
         }

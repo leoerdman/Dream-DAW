@@ -170,8 +170,18 @@ impl ClipScheduler {
         let mut current_playhead = playhead_pos;
         let mut frames_remaining = buffer_size;
         let mut current_buffer_offset = 0;
+        // BUG-C004 FIX: Safety limit prevents infinite loop when loop region
+        // is corrupt (e.g. start >= end). Normal processing never exceeds 2
+        // iterations; 16 is a generous safety margin.
+        let mut safety_iterations = 0u32;
+        const MAX_LOOP_ITERATIONS: u32 = 16;
 
         while frames_remaining > 0 {
+            safety_iterations += 1;
+            if safety_iterations > MAX_LOOP_ITERATIONS {
+                break;
+            }
+
             let frames_to_end_i64 = (loop_region.end - current_playhead).max(0);
             let frames_to_end = usize::try_from(frames_to_end_i64).unwrap_or(usize::MAX);
             let chunk_frames = frames_remaining.min(frames_to_end);

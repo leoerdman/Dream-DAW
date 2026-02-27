@@ -414,21 +414,17 @@ impl DeviceGroupSlot {
         let clamped = value.clamp(0.0, 1.0);
         self.macros[macro_index].value = clamped;
 
-        // Apply all mappings for this macro.
-        // We need to collect mappings first to avoid borrow issues.
-        let mappings: Vec<(usize, usize, u32, f64)> = self.macros[macro_index]
-            .mappings
-            .iter()
-            .map(|m| {
-                let param_value = m.min_value + clamped * (m.max_value - m.min_value);
-                (m.chain_index, m.slot_index, m.param_index, param_value)
-            })
-            .collect();
-
-        for (chain_idx, slot_idx, param_idx, param_val) in mappings {
-            if let Some(chain) = self.chains.get_mut(chain_idx)
-                && let Some(device) = chain.devices.get_mut(slot_idx) {
-                    device.set_param(param_idx, param_val);
+        // BUG-C001 FIX: Zero-alloc index-based iteration (matches apply_macros).
+        // Previous code used `collect::<Vec<_>>()` which allocated on every call.
+        for mapping_idx in 0..self.macros[macro_index].mappings.len() {
+            let m = &self.macros[macro_index].mappings[mapping_idx];
+            let param_value = m.min_value + clamped * (m.max_value - m.min_value);
+            let ci = m.chain_index;
+            let si = m.slot_index;
+            let pi = m.param_index;
+            if ci < self.chains.len()
+                && si < self.chains[ci].devices.len() {
+                    self.chains[ci].devices[si].set_param(pi, param_value);
                 }
         }
     }

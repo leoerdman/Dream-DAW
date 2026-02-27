@@ -812,7 +812,7 @@ async function executeToolInner(
         }
         case 'generate_beat_pattern': {
             const genre = ((args.genre as string) || 'house').toLowerCase();
-            const bars = Math.max(1, Math.min(64, (args.bars as number) || 4));
+            const bars = Math.max(1, Math.min(64, (args.bars as number) || DEFAULT_TIME_SIG_NUMERATOR));
             const swing = Math.max(0, Math.min(0.5, (args.swing as number) || 0));
             const oneBar = BEAT_PATTERNS[genre] || BEAT_PATTERNS.house;
             const notes: { pitch: number; startBeat: number; velocity: number; durationBeats: number }[] = [];

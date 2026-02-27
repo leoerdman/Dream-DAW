@@ -50,6 +50,12 @@ pub(super) fn oscillator_sample_blep(
     tri_state: &mut f64,
     pulse_width: f64,
 ) -> f32 {
+    // BUG-020 FIX: When dt > 0.5 (frequency > Nyquist/2), PolyBLEP
+    // corrections become invalid and produce aliasing artifacts.
+    // Return silence for super-Nyquist frequencies.
+    if dt >= 0.5 || dt <= 0.0 {
+        return 0.0;
+    }
     let p = phase.fract().max(0.0);
     match waveform {
         Waveform::Sine => (p * std::f64::consts::TAU).sin() as f32,
@@ -71,7 +77,13 @@ pub(super) fn oscillator_sample_blep(
             let blep1 = poly_blep(p, dt);
             let blep2 = poly_blep((p + 0.5) % 1.0, dt);
             let sq = naive_sq + blep1 - blep2;
-            *tri_state = 0.999 * *tri_state + 4.0 * dt * sq;
+            // BUG-021 FIX: Leak coefficient was hardcoded at 0.999 which is
+            // sample-rate-dependent. At 96kHz it leaks too fast (DC offset),
+            // at 22kHz too slow (bandwidth loss). Use `1.0 - 4*dt` for
+            // rate-independent leaky integration. `dt` = freq/sr is already
+            // normalized, so this adapts automatically.
+            let leak = (1.0 - 4.0 * dt).clamp(0.99, 0.9999);
+            *tri_state = leak * *tri_state + 4.0 * dt * sq;
             (*tri_state).clamp(-1.0, 1.0) as f32
         }
     }
@@ -111,8 +123,18 @@ impl ParameterSmoother {
     }
 
     pub fn set_time_constant(&mut self, sample_rate: f64, time_constant_ms: f32) {
-        self.a = 1.0 - std::f32::consts::E.powf(-1.0 / (time_constant_ms * 0.001 * sample_rate as f32));
-        self.b = 1.0 - self.a;
+        // BUG-C003 FIX: Guard against division by zero when sample_rate or
+        // time_constant_ms is 0. powf(-1.0 / 0.0) produces NaN which
+        // propagates through the entire smoother chain, corrupting output.
+        let time_samples = time_constant_ms * 0.001 * sample_rate as f32;
+        if time_samples > 0.0 {
+            self.a = 1.0 - std::f32::consts::E.powf(-1.0 / time_samples);
+            self.b = 1.0 - self.a;
+        } else {
+            // Instant smoothing: next() returns target immediately.
+            self.a = 1.0;
+            self.b = 0.0;
+        }
     }
 
     #[inline]
@@ -139,7 +161,9 @@ impl ParameterSmoother {
 
 /// A single-pole IIR lowpass filter for smoothing high-precision parameter
 /// changes (e.g., phase increment, pitch) to prevent audible zipper noise.
-#[allow(dead_code)]
+/// BUG-081 FIX: Removed `#[allow(dead_code)]` — this type IS used by
+/// EssenceSynthEngine for high-precision pitch smoothing. Suppressing the
+/// warning hid legitimate unused code detection in other modules.
 #[derive(Debug, Clone)]
 pub struct ParameterSmootherF64 {
     value: f64,
@@ -162,8 +186,19 @@ impl ParameterSmootherF64 {
     }
 
     pub fn set_time_constant(&mut self, sample_rate: f64, time_constant_ms: f64) {
-        self.a = 1.0 - std::f64::consts::E.powf(-1.0 / (time_constant_ms * 0.001 * sample_rate));
-        self.b = 1.0 - self.a;
+        // BUG-001 FIX: Guard against division by zero when sample_rate or
+        // time_constant_ms is 0. powf(-1.0 / 0.0) produces NaN which
+        // propagates through the entire smoother chain, corrupting output.
+        // Mirrors the identical guard in ParameterSmoother (f32 version).
+        let time_samples = time_constant_ms * 0.001 * sample_rate;
+        if time_samples > 0.0 {
+            self.a = 1.0 - std::f64::consts::E.powf(-1.0 / time_samples);
+            self.b = 1.0 - self.a;
+        } else {
+            // Instant smoothing: next() returns target immediately.
+            self.a = 1.0;
+            self.b = 0.0;
+        }
     }
 
     #[inline]

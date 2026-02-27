@@ -87,7 +87,13 @@ export function PluginGuiSurfaceEq({
 
     const out = effectiveParams.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
-    const { curvePath, fillPath } = useMemo(() => buildEqCurvePaths(bands, projectSampleRate), [bands, projectSampleRate]);
+    const { curvePath, fillPath } = useMemo(
+        // PERF-FIX: Reduce curve resolution to 80 steps during drag for 60% fewer
+        // biquad evaluations per frame. 80 is visually indistinguishable during
+        // fast mouse movement. Full 200-step resolution restores on drag end.
+        () => buildEqCurvePaths(bands, projectSampleRate, dragEqBand !== null ? 80 : 200),
+        [bands, projectSampleRate, dragEqBand !== null],
+    );
 
     const bi = activeBandIdx;
     const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);

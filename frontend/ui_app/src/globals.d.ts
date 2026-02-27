@@ -12,6 +12,8 @@ interface Window {
     __dreamOpenExportModal?: () => void;
     __dreamSaveProject?: () => Promise<void>;
     __dreamSaveAsProject?: () => Promise<void>;
+    // BUG-056 FIX: Declared here so Tauri guards don't need `as any` casts.
+    __TAURI_INTERNALS__?: unknown;
 }
 
 declare module 'lodash.throttle' {

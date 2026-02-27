@@ -700,7 +700,14 @@ export async function getWaveformPeaksBinary(filePath: string): Promise<Waveform
         { filePath },
     );
     const bytes = new Uint8Array(raw.peaks_bytes);
-    const floats = new Float32Array(bytes.buffer);
+    // BUG-042 FIX: Ensure 4-byte alignment for Float32Array construction.
+    // If the Uint8Array is a view of a sub-buffer, its byteOffset may not
+    // be 4-byte aligned, causing RangeError. .slice() creates a fresh,
+    // properly aligned ArrayBuffer copy.
+    const aligned = bytes.buffer.byteLength === bytes.length
+        ? bytes.buffer
+        : bytes.slice().buffer;
+    const floats = new Float32Array(aligned);
     const mip_levels: PeakMipLevel[] = raw.mip_levels.map((meta) => {
         const peaks: PeakPair[] = new Array(meta.peak_count);
         for (let i = 0; i < meta.peak_count; i++) {

@@ -252,6 +252,14 @@ impl RecordingSession {
 
         let sample_rate = supported_config.sample_rate();
         let channels = supported_config.channels() as usize;
+        // BUG-003 FIX: Guard against 0-channel device configuration.
+        // `data.chunks(0)` panics with division by zero, and downstream
+        // `total_samples_written / channels` also divides by zero.
+        if channels == 0 {
+            return Err(RecordingError::ConfigError(
+                "Audio input device reported 0 channels".to_string(),
+            ));
+        }
         let config: cpal::StreamConfig = supported_config.into();
 
         info!("[Recording] Config: {}Hz, {}ch", sample_rate, channels);
@@ -554,6 +562,11 @@ fn recording_worker(
 
     write_wav_header(&mut file, sample_rate, ch, bits_per_sample, 0)
         .map_err(|e| RecordingError::IoError(format!("Failed to write WAV header: {e}")))?;
+    // BUG-046 FIX: Flush initial header to disk immediately.
+    // Without this, a crash before the first HEADER_FLUSH_INTERVAL
+    // leaves a file with no valid WAV header, making recovery impossible.
+    file.sync_all()
+        .map_err(|e| RecordingError::IoError(format!("Failed to sync WAV header: {e}")))?;
 
     info!(
         "[RecordingWorker] Writing to {} (crash-safe mode)",

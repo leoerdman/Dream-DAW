@@ -158,14 +158,20 @@ impl FadeCache {
     /// never allocates for any supported sample rate.
     pub fn rebuild_in_place(&mut self, sample_rate: f64) {
         let length = fade_length_for_sample_rate(sample_rate);
-        // AUD-201: Assert that the new length fits within pre-allocated capacity.
-        // If this fires, MAX_FADE_LENGTH needs to be increased.
-        debug_assert!(
-            length <= self.fade_in.capacity(),
-            "AUD-201: fade length {length} exceeds pre-allocated capacity {}. \
-             Increase MAX_FADE_LENGTH.",
+        // BUG-015 FIX: Replace debug_assert with proper clamp to prevent
+        // RT-thread allocation if a future sample rate exceeds 192kHz.
+        // debug_assert is stripped in release builds, leaving no protection.
+        let length = if length > self.fade_in.capacity() {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[FadeCache] WARNING: fade length {length} exceeds pre-allocated capacity {}. \
+                 Clamping to capacity. Increase MAX_FADE_LENGTH.",
+                self.fade_in.capacity()
+            );
             self.fade_in.capacity()
-        );
+        } else {
+            length
+        };
         self.fade_length = length;
         // Resize within existing capacity (Vec::resize never shrinks capacity)
         self.fade_in.resize(length, 0.0);
@@ -206,6 +212,10 @@ impl FadeCache {
 #[inline]
 pub fn apply_microfades(buffer: &mut [f32], channels: usize, cache: &FadeCache) {
     let total_samples = buffer.len();
+    // BUG-010 FIX: Guard against channels=0 which causes division by zero.
+    if channels == 0 {
+        return;
+    }
     let total_frames = total_samples / channels;
     let fade_len = cache.fade_length;
 

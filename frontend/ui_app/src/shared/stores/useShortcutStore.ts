@@ -29,7 +29,8 @@ function loadStoredBindings(): Record<ShortcutActionId, string> {
             }
         }
         return merged;
-    } catch {
+    } catch (parseErr) {
+        console.warn('[Dream] loadBindings failed, using defaults:', parseErr);
         return { ...DEFAULT_SHORTCUT_BINDINGS };
     }
 }

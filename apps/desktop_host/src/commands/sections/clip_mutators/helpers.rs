@@ -113,6 +113,32 @@ pub(super) fn build_local_pool_for_project(
                 }
             }
         }
+
+        // EXP-008 FIX: Load SampleRack pad samples for MIDI drum tracks.
+        // Without this, drum pads using individual samples are silent during export.
+        if let Some(ref rack) = track.sample_rack {
+            for pad in &rack.pads {
+                if pad.sample_path.is_empty() || local_pool.get(&pad.sample_path).is_some() {
+                    continue;
+                }
+                let path = PathBuf::from(&pad.sample_path);
+                if path.exists() {
+                    if let Ok(decoded) = AudioReader::read(path) {
+                        let _ = local_pool.insert(ClipAudio {
+                            source_path: pad.sample_path.clone(),
+                            channels: decoded.channels,
+                            sample_rate: decoded.sample_rate,
+                            num_frames: decoded.num_frames,
+                        });
+                        log::info!(
+                            "[ExportPool] Loaded SampleRack pad '{}' for track '{}'",
+                            pad.sample_path,
+                            track.name
+                        );
+                    }
+                }
+            }
+        }
     }
     Ok(local_pool)
 }

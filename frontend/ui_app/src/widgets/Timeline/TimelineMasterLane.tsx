@@ -71,7 +71,7 @@ export function TimelineMasterLane({
                     key={`master-sub-${x}`}
                     style={{
                         position: 'absolute',
-                        left: Math.round(x),
+                        left: x,
                         top: 0,
                         bottom: 0,
                         width: 1,
@@ -86,7 +86,7 @@ export function TimelineMasterLane({
                     key={`master-bar-${x}`}
                     style={{
                         position: 'absolute',
-                        left: Math.round(x),
+                        left: x,
                         top: 0,
                         bottom: 0,
                         width: 1,

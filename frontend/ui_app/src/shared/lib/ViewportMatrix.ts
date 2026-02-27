@@ -11,6 +11,11 @@ import {
 import { buildTrackOffsets, trackIndexAtOffsetY } from './viewportTrackMath';
 export { DEFAULT_PPB, MAX_PPB, MIN_PPB, type ViewportConfig, type ViewportSnapshot, type VisibleRange } from './viewportTypes';
 
+function snapPhysical(value: number): number {
+    const dpr = window.devicePixelRatio || 1;
+    return Math.round(value * dpr) / dpr;
+}
+
 export class ViewportMatrix {
     private _scrollX = 0;
     private _scrollY = 0;
@@ -278,8 +283,8 @@ export class ViewportMatrix {
         const maxScrollX = Math.max(0, this.canvasContentWidth - this._viewportW);
         const scrollableContentHeight = this.canvasContentHeight + this._bottomPaddingPx;
         const maxScrollY = Math.max(0, scrollableContentHeight - (this._viewportH - this._rulerHeight));
-        this._scrollX = Math.max(0, Math.min(maxScrollX, this._scrollX));
-        this._scrollY = Math.max(0, Math.min(maxScrollY, this._scrollY));
+        this._scrollX = snapPhysical(Math.max(0, Math.min(maxScrollX, this._scrollX)));
+        this._scrollY = snapPhysical(Math.max(0, Math.min(maxScrollY, this._scrollY)));
         if (Math.abs(this._scrollY - this._lastNotifiedScrollY) > 0.25) {
             this._lastNotifiedScrollY = this._scrollY;
             this._onScrollYChange?.(this._scrollY);

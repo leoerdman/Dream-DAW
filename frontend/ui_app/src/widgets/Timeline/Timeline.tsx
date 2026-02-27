@@ -267,7 +267,8 @@ export const Timeline = (props: TimelineProps) => {
         engine.onFrameDrawn = (snapshot) => {
             const lane = masterLaneRef.current;
             if (!lane) return;
-            const x = Math.round(snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
+            const dpr = window.devicePixelRatio || 1;
+            const x = Math.round((snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX) * dpr) / dpr;
             const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
             lane.style.setProperty('--master-playhead-x', `${x}px`);
             lane.style.setProperty('--master-playhead-visible', visible);

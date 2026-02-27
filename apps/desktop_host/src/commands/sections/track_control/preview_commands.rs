@@ -12,11 +12,8 @@ fn preview_sampler_note_on_cmd(
     velocity: u8,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let resolved_track_index = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -40,11 +37,8 @@ fn preview_sampler_note_off_cmd(
     pitch: u8,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let resolved_track_index = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;

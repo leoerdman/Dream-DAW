@@ -24,11 +24,8 @@ fn add_plugin_to_track_impl(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<AddedPluginOutcome, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<AddedPluginOutcome, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_id = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -196,12 +193,7 @@ fn add_plugin_to_track_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<(), String> {
     let _ = add_plugin_to_track_impl(
         payload,
         project_registry.clone(),
@@ -221,12 +213,7 @@ fn add_plugin_to_track_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<PluginMutationDeltaResponse, String> {
     let result = add_plugin_to_track_impl(
         payload,
         project_registry.clone(),
@@ -256,12 +243,7 @@ fn remove_plugin_from_track_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<PluginMutationDeltaResponse, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -293,11 +275,8 @@ fn remove_plugin_from_track_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
         .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
@@ -345,11 +324,8 @@ fn set_internal_plugin_param_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -498,12 +474,7 @@ fn set_internal_plugin_param_with_deltas_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<PluginMutationDeltaResponse, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)

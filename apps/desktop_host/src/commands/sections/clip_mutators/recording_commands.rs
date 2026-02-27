@@ -5,11 +5,8 @@ async fn start_recording_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     recording_runtime: tauri::State<'_, RecordingRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if recording_runtime
         .session
@@ -86,11 +83,8 @@ async fn stop_recording_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     recording_runtime: tauri::State<'_, RecordingRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let session = recording_runtime
         .session

@@ -8,11 +8,8 @@ fn set_external_plugin_param_cmd(
     value: f64,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let normalized = value.clamp(0.0, 1.0);
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
@@ -68,11 +65,8 @@ fn set_external_plugin_param_for_slot_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let should_commit_snapshot = push_undo_step.unwrap_or(true);
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
@@ -177,12 +171,7 @@ fn set_external_plugin_param_for_slot_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<DeltaMutationResponse, String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let normalized = value.clamp(0.0, 1.0);

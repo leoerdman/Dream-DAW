@@ -822,7 +822,7 @@ impl PluginSandboxSupervisor {
                     }
                 }
             }
-            let _ = fs::remove_file(&instance.heartbeat_file);
+            // NOTE: heartbeat_file cleanup is handled by PluginSandboxInstance::Drop
             let _ = fs::remove_file(&instance.shared_region.map_name);
         }
     }

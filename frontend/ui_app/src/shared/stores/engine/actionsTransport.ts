@@ -8,7 +8,7 @@ export function createTransportActions(
     markBpmPending: (ms: number) => void,
 ): Pick<
     EngineStore,
-    'togglePlay' | 'play' | 'stop' | 'setBpm' | 'setTimeSignature' | 'seekSeconds' | 'seekToBeat' | 'setLoop' | 'setFrequency' | 'expandWindow'
+    'togglePlay' | 'play' | 'stop' | 'setBpm' | 'setTimeSignature' | 'seekSeconds' | 'seekToBeat' | 'setLoop' | 'setFrequency'
 > {
     return {
         togglePlay: async () => {
@@ -126,16 +126,6 @@ export function createTransportActions(
         setFrequency: async (freq: number) => {
             try {
                 await engine.setFrequency(freq);
-                set({ lastError: null });
-            } catch (e) {
-                set({ lastError: String(e) });
-            }
-        },
-
-        expandWindow: async () => {
-            try {
-                await engine.expandWindow();
-                // BUG-035: Clear lastError on success, consistent with other actions.
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

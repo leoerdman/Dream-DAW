@@ -8,12 +8,7 @@ fn import_ableton_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<DeltaMutationResponse, String> {
     open_project(
         path,
         project_registry.clone(),
@@ -34,11 +29,8 @@ fn new_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut new = dream_models::project::Project::default();
     new.normalize_invariants();
@@ -110,11 +102,8 @@ async fn save_project(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, path, project_name, legacy_path_to_remove) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -197,11 +186,8 @@ async fn save_project_as(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
@@ -284,11 +270,8 @@ fn open_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let file_path = PathBuf::from(&path);
 
@@ -525,11 +508,8 @@ fn get_recent_projects(
 #[tauri::command]
 fn get_project_status(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<serde_json::Value, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<serde_json::Value, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
     let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
@@ -549,11 +529,8 @@ fn auto_resolve_missing_plugins_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -612,11 +589,8 @@ fn auto_resolve_missing_plugins_report_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<AutoResolveMissingPluginsReportResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<AutoResolveMissingPluginsReportResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -678,11 +652,8 @@ fn set_arrangement_viewport_cmd(
     scroll_left: f64,
     scroll_top: Option<f64>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let ppb = pixels_per_beat.clamp(0.5, 2000.0);
@@ -701,11 +672,8 @@ fn set_arrangement_viewport_cmd(
 #[tauri::command]
 fn get_arrangement_viewport_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<ArrangementViewportPayload, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<ArrangementViewportPayload, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let pixels_per_beat = project.view_zoom_scale.or(project.sequencer_navigator_zoom);
@@ -730,11 +698,8 @@ fn set_arrangement_grid_cmd(
     fixed: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
@@ -764,11 +729,8 @@ fn set_arrangement_grid_with_deltas_cmd(
     fixed: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
@@ -804,11 +766,8 @@ fn set_key_signature_cmd(
     mode: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
@@ -834,11 +793,8 @@ fn set_key_signature_with_deltas_cmd(
     mode: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
@@ -881,11 +837,8 @@ async fn auto_save_if_dirty(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<serde_json::Value, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<serde_json::Value, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // ── Gate 1: Check dirty flag ──
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;

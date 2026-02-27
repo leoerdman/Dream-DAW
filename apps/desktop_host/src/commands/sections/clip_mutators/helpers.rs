@@ -13,7 +13,7 @@ pub(super) fn rebuild_clip_views_and_mark_dirty(
     app: &tauri::AppHandle,
     mode: ClipRebuildMode,
 ) -> Result<(), String>  {
-    let project = project_state.project.lock().map_err(|_| "Failed".to_string())?;
+    let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     match mode {
         ClipRebuildMode::ClipsOnly => clip_pool_state.rebuild_clips_only(&project),
         ClipRebuildMode::FullSnapshot => clip_pool_state.rebuild_snapshot(&project),
@@ -29,7 +29,7 @@ pub(super) fn rebuild_clips_only_and_mark_dirty(
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
 ) -> Result<(), String>  {
-    let project = project_state.project.lock().map_err(|_| "Failed".to_string())?;
+    let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
     project_state.mark_dirty_current(Some(app))?;
@@ -41,7 +41,7 @@ pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
 ) -> Result<(), String>  {
-    let project = project_state.project.lock().map_err(|_| "Failed".to_string())?;
+    let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);
     project_state.mark_dirty_current(Some(app))?;
@@ -53,7 +53,7 @@ pub(super) fn rebuild_automation_and_mark_dirty(
     automation_runtime: &tauri::State<'_, AutomationRuntime>,
     app: &tauri::AppHandle,
 ) -> Result<(), String>  {
-    let project = project_state.project.lock().map_err(|_| "Failed".to_string())?;
+    let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     rebuild_automation_snapshot_from_project(&project, automation_runtime);
     drop(project);
     project_state.mark_dirty_current(Some(app))?;

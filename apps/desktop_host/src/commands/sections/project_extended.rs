@@ -6,11 +6,8 @@
 #[tauri::command]
 fn create_backup_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
@@ -34,11 +31,8 @@ fn create_backup_cmd(
 fn mark_dirty_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let name = project.name.clone();
@@ -55,11 +49,8 @@ fn mark_dirty_cmd(
 fn sync_title_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let name = project.name.clone();
@@ -80,11 +71,8 @@ fn sync_title_cmd(
 #[tauri::command]
 fn get_project_notes(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     Ok(project.annotation.clone())
@@ -96,11 +84,8 @@ fn set_project_notes(
     text: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;

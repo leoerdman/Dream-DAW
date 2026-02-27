@@ -7,11 +7,8 @@ async fn split_track_to_stems_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state
         .project
@@ -194,11 +191,8 @@ async fn split_track_to_stems_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let before_project = project_state
         .project

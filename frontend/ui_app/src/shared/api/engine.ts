@@ -510,9 +510,8 @@ export const stopPreview = () =>
     invoke<void>('stop_preview_cmd');
 export const getAudioFileDuration = (path: string) =>
     invoke<number>('get_audio_file_duration', { path });
-export const expandWindow = () => invoke<void>('expand_window');
-export const maximizeWindow = () => invoke<void>('maximize_window');
 export const closeSplashscreen = () => invoke<void>('close_splashscreen');
+export const getActiveProjectId = () => invoke<string>('get_active_project_id');
 export const newProject = () => invoke<DeltaMutationResponse>('new_project');
 export const saveProject = () => invoke<string>('save_project');
 export const saveProjectAs = (path: string) =>

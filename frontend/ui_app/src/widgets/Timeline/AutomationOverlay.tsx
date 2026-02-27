@@ -68,24 +68,28 @@ export const AutomationOverlay = memo(function AutomationOverlay({
 
     const addLane = useAutomationStore((s) => s.addLane);
 
-    // Auto-initialize Volume lanes for every track when Automation is opened
+    // Auto-initialize Volume lanes for every track when Automation is opened.
+    // NOTE: We read tracksById lazily inside the effect to avoid re-triggering
+    // on every track state mutation (volume, pan, solo, etc.).
     useEffect(() => {
         if (!visible) return;
         const state = useAutomationStore.getState();
         const currentLanes = Object.values(state.lanes);
+        const currentTracksById = useEngineStore.getState().tracks.byId;
 
         for (let i = 0; i < trackCount; i++) {
             const trackId = trackIds[i];
             if (!trackId) continue;
             const hasVolume = currentLanes.some((l) => l.trackId === trackId && l.paramKey === 'volume');
             if (!hasVolume) {
-                const track = tracksById[trackId];
+                const track = currentTracksById[trackId];
                 if (track) {
                     addLane(trackId, 'Volume', 'volume', track.color);
                 }
             }
         }
-    }, [visible, trackCount, trackIds, tracksById, addLane]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visible, trackCount]);
 
     // Build per-track lane groups
     const trackLanes = useMemo(() => {

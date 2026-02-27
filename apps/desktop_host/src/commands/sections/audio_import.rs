@@ -38,11 +38,8 @@ async fn import_audio_file(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<ImportAudioResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<ImportAudioResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     log::info!("[IPC] import_audio_file: path='{}' track={} pos={:?}", path, track_index, position_frames);
     let file_path = PathBuf::from(&path);
@@ -238,11 +235,8 @@ async fn import_audio_file_with_deltas(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<ImportAudioWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<ImportAudioWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let response = import_audio_file(
         path,

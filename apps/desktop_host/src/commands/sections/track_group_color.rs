@@ -18,11 +18,8 @@ async fn set_track_color_cmd(
     color_hex: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let normalized = normalize_track_color_hex(&color_hex)?;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
@@ -63,11 +60,8 @@ async fn set_track_color_with_deltas_cmd(
     color_hex: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let normalized = normalize_track_color_hex(&color_hex)?;
@@ -143,11 +137,8 @@ async fn create_group_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
@@ -191,11 +182,8 @@ async fn create_group_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<CreateGroupWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<CreateGroupWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
@@ -259,11 +247,8 @@ async fn set_group_expanded_cmd(
     expanded: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetGroupExpandedCommand::from_str_group_id(
         &group_id, expanded,
@@ -284,12 +269,7 @@ async fn set_group_expanded_with_deltas_cmd(
     expanded: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<DeltaMutationResponse, String> {
     let track_uuid =
         Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group id: {e}"))?;
     set_group_expanded_cmd(group_id, expanded, project_registry.clone(), app).await?;

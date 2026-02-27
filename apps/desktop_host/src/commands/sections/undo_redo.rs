@@ -11,11 +11,8 @@ async fn undo_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -53,11 +50,8 @@ async fn undo_with_deltas_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
@@ -108,11 +102,8 @@ async fn redo_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -152,11 +143,8 @@ async fn redo_with_deltas_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;

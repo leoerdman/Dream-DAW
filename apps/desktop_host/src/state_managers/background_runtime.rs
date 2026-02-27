@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::plugin_sandbox_recovery::{
     bypass_plugin_slots_in_project, set_plugin_slots_bypass_in_project,
 };
-use crate::state_managers::{AudioEngineHandle, ClipPoolState, PluginHostState, ProjectState};
+use crate::state_managers::{AudioEngineHandle, ClipPoolState, PluginHostState};
 
 #[derive(Clone, Serialize)]
 struct TransportTelemetryPayload {

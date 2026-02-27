@@ -105,6 +105,7 @@ pub(crate) fn invoke_handler()
         get_meters_binary,
         get_project_history,
         get_project_snapshot_delta,
+        get_active_project_id,
         get_audio_chain_audit,
         get_pdc_debug_snapshot,
         get_rt_debug_snapshot,
@@ -144,7 +145,6 @@ pub(crate) fn invoke_handler()
         save_project_dialog,
         // Splash
         close_splashscreen,
-        maximize_window,
         // Legacy
         set_frequency,
         // Audio Import

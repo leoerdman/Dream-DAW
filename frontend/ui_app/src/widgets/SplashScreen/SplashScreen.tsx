@@ -76,6 +76,26 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
                 startTelemetryLoop()
                 if (isDev) console.debug('[StartupManager] step 2: startTelemetryLoop DONE')
 
+                // 2.5. Sync the frontend tab bar with the real backend project UUID.
+                // The store starts with a placeholder 'default' ID — replace it now.
+                try {
+                    const realId = await withTimeout(engineApi.getActiveProjectId(), 2000, 'getActiveProjectId')
+                    const store = useEngineStore.getState()
+                    if (store.openProjects.length === 1 && store.openProjects[0].id === 'default') {
+                        store.setActiveProject(realId)
+                        // Replace the placeholder tab with the real ID
+                        useEngineStore.setState({
+                            activeProjectId: realId,
+                            openProjects: store.openProjects.map(t =>
+                                t.id === 'default' ? { ...t, id: realId } : t
+                            ),
+                        })
+                    }
+                    if (isDev) console.debug('[StartupManager] step 2.5: synced project ID =', realId)
+                } catch (e) {
+                    console.warn('[StartupManager] step 2.5: getActiveProjectId failed:', e)
+                }
+
                 // 3. Honor startup behavior: open last project on launch if selected.
                 if (settings.startupBehavior === 'last') {
                     if (isDev) console.debug('[StartupManager] step 3: startupBehavior=last, loading recent...')

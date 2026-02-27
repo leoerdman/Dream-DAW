@@ -6,11 +6,8 @@ async fn paint_track_clips_with_track_color_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 
@@ -39,11 +36,8 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
@@ -96,11 +90,8 @@ async fn resolve_missing_file_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
@@ -139,11 +130,8 @@ async fn resolve_missing_file_with_deltas_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
@@ -194,11 +182,8 @@ async fn set_automation_points_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let persistent_points = points
         .iter()
@@ -242,12 +227,7 @@ async fn set_automation_points_with_deltas_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<DeltaMutationResponse, String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let normalized_param_id = param_id.trim().to_string();
 
@@ -288,11 +268,8 @@ async fn arm_track_cmd(
     armed: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
@@ -307,12 +284,7 @@ async fn arm_track_with_deltas_cmd(
     armed: bool,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+) -> Result<DeltaMutationResponse, String> {
     arm_track_cmd(track_index, armed, project_registry, app).await?;
 
     Ok(DeltaMutationResponse {

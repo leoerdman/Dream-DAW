@@ -220,6 +220,20 @@ function App() {
     }
   }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
 
+  // CRITICAL FIX: Fallback to force-close splash if engineConnected never arrives.
+  // This handles the case where Tauri event listeners fail to register
+  // (e.g., IPC race during dev mode startup), which leaves `connected` as false
+  // and the native splash window stuck showing "Ready" forever.
+  useEffect(() => {
+    if (!workspaceMounted) return
+    if (engineConnected) return // Already handled by the effect above
+    const fallbackTimer = window.setTimeout(() => {
+      console.warn('[App] Forced splash close: engine did not connect within 4s after workspace mount')
+      attemptCloseSplashscreen().catch(console.error)
+    }, 4000)
+    return () => window.clearTimeout(fallbackTimer)
+  }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
+
   return (
     <>
       {/* BUG-029: Show visual warning if window expansion failed */}

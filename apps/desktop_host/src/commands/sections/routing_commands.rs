@@ -4,10 +4,7 @@ fn get_routing_targets(
     track_id: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<Vec<RoutingTarget>, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let source_id =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
@@ -38,11 +35,8 @@ fn set_track_routing_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
         &track_id, &target_id,
@@ -81,11 +75,8 @@ fn set_track_routing_with_deltas_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<RoutingDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<RoutingDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
@@ -139,11 +130,8 @@ fn set_track_input_cmd(
     input_id: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd =
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
@@ -177,11 +165,8 @@ fn set_track_input_with_deltas_cmd(
     input_id: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
@@ -236,11 +221,8 @@ fn set_plugin_sidechain_source_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids(
         &track_id,
@@ -297,11 +279,8 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<RoutingDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<RoutingDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;

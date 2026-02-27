@@ -224,29 +224,31 @@ unsafe extern "C" fn plug_frame_resize_view(
 
 // ── IRunLoop Implementation ──────────────────────────────────────────────────
 
+/// Recover the enclosing `HostPlugFrame` pointer from a `vtbl_run_loop` pointer.
+/// Uses `offset_of!` so layout changes to `HostPlugFrame` cannot silently break this.
+#[inline(always)]
+unsafe fn frame_from_run_loop_ptr(this: *mut c_void) -> *mut HostPlugFrame {
+    let vtbl_run_loop_offset = std::mem::offset_of!(HostPlugFrame, vtbl_run_loop);
+    unsafe { (this as *mut u8).sub(vtbl_run_loop_offset) as *mut HostPlugFrame }
+}
+
 unsafe extern "C" fn run_loop_query_interface(
     this: *mut c_void,
     iid: *const Tuid,
     obj: *mut *mut c_void,
 ) -> Tresult {
-    unsafe {
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
-        plug_frame_query_interface(frame_ptr as *mut c_void, iid, obj)
-    }
+    let frame_ptr = unsafe { frame_from_run_loop_ptr(this) };
+    unsafe { plug_frame_query_interface(frame_ptr as *mut c_void, iid, obj) }
 }
 
 unsafe extern "C" fn run_loop_add_ref(this: *mut c_void) -> u32 {
-    unsafe {
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
-        plug_frame_add_ref(frame_ptr as *mut c_void)
-    }
+    let frame_ptr = unsafe { frame_from_run_loop_ptr(this) };
+    unsafe { plug_frame_add_ref(frame_ptr as *mut c_void) }
 }
 
 unsafe extern "C" fn run_loop_release(this: *mut c_void) -> u32 {
-    unsafe {
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
-        plug_frame_release(frame_ptr as *mut c_void)
-    }
+    let frame_ptr = unsafe { frame_from_run_loop_ptr(this) };
+    unsafe { plug_frame_release(frame_ptr as *mut c_void) }
 }
 
 extern "C" fn run_loop_timer_callback(_timer: *mut c_void, info: *mut c_void) {
@@ -266,7 +268,7 @@ unsafe extern "C" fn run_loop_register_timer(
 ) -> Tresult {
     unsafe {
         if handler.is_null() { return K_RESULT_FALSE; }
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame_ptr = frame_from_run_loop_ptr(this);
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
@@ -285,8 +287,12 @@ unsafe extern "C" fn run_loop_register_timer(
         if !timer.is_null() {
             let rl = CFRunLoopGetCurrent();
             CFRunLoopAddTimer(rl, timer, kCFRunLoopCommonModes);
-            let mut timers = frame.timers.lock().unwrap();
-            timers.insert(handler_addr, timer);
+            // Use .ok() instead of .unwrap() — poisoned mutex must not crash the host.
+            if let Some(mut timers) = frame.timers.lock().ok() {
+                timers.insert(handler_addr, timer);
+            } else {
+                log::error!("[IRunLoop] timers mutex poisoned during register_timer");
+            }
             K_RESULT_OK
         } else {
             K_RESULT_FALSE
@@ -299,15 +305,18 @@ unsafe extern "C" fn run_loop_unregister_timer(
     handler: *mut c_void,
 ) -> Tresult {
     unsafe {
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame_ptr = frame_from_run_loop_ptr(this);
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
-        let mut timers = frame.timers.lock().unwrap();
-        if let Some(timer) = timers.remove(&handler_addr) {
-            let rl = CFRunLoopGetCurrent();
-            CFRunLoopRemoveTimer(rl, timer, kCFRunLoopCommonModes);
-            CFRelease(timer);
+        if let Some(mut timers) = frame.timers.lock().ok() {
+            if let Some(timer) = timers.remove(&handler_addr) {
+                let rl = CFRunLoopGetCurrent();
+                CFRunLoopRemoveTimer(rl, timer, kCFRunLoopCommonModes);
+                CFRelease(timer);
+            }
+        } else {
+            log::error!("[IRunLoop] timers mutex poisoned during unregister_timer");
         }
         K_RESULT_OK
     }
@@ -337,7 +346,7 @@ unsafe extern "C" fn run_loop_register_event_handler(
 ) -> Tresult {
     unsafe {
         if handler.is_null() { return K_RESULT_FALSE; }
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame_ptr = frame_from_run_loop_ptr(this);
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
@@ -354,8 +363,11 @@ unsafe extern "C" fn run_loop_register_event_handler(
         dispatch_source_set_cancel_handler_f(source, run_loop_cancel_callback);
         dispatch_resume(source);
         
-        let mut handlers = frame.event_handlers.lock().unwrap();
-        handlers.insert(handler_addr, source);
+        if let Some(mut handlers) = frame.event_handlers.lock().ok() {
+            handlers.insert(handler_addr, source);
+        } else {
+            log::error!("[IRunLoop] event_handlers mutex poisoned during register");
+        }
         
         K_RESULT_OK
     }
@@ -366,14 +378,17 @@ unsafe extern "C" fn run_loop_unregister_event_handler(
     handler: *mut c_void,
 ) -> Tresult {
     unsafe {
-        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame_ptr = frame_from_run_loop_ptr(this);
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
-        let mut handlers = frame.event_handlers.lock().unwrap();
-        if let Some(source) = handlers.remove(&handler_addr) {
-            dispatch_source_cancel(source);
-            dispatch_release(source); // Will trigger cancel handler which frees FdInfo
+        if let Some(mut handlers) = frame.event_handlers.lock().ok() {
+            if let Some(source) = handlers.remove(&handler_addr) {
+                dispatch_source_cancel(source);
+                dispatch_release(source); // Will trigger cancel handler which frees FdInfo
+            }
+        } else {
+            log::error!("[IRunLoop] event_handlers mutex poisoned during unregister");
         }
         K_RESULT_OK
     }

@@ -43,17 +43,3 @@ fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Maximizes the main window to fill the screen.
-#[tauri::command]
-fn maximize_window(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("Main window not found")?;
-
-    window
-        .maximize()
-        .map_err(|e| format!("Failed to maximize: {e}"))?;
-
-    log::info!("[Splash] Window maximized");
-    Ok(())
-}

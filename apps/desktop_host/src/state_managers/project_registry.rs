@@ -56,3 +56,20 @@ impl ProjectRegistry {
         self.active_project_id.store(Some(Arc::new(id)));
     }
 }
+
+/// Resolves the active project from a `ProjectRegistry`, returning an `Err`
+/// if no project is currently active. Returns `Arc<ProjectState>`.
+///
+/// Usage inside any `#[tauri::command]` function:
+/// ```ignore
+/// let project = active_project!(project_registry);
+/// // `project` is `Arc<ProjectState>`, use `&*project` for `&ProjectState`.
+/// ```
+macro_rules! active_project {
+    ($registry:expr) => {{
+        $registry
+            .get_active_project()
+            .ok_or_else(|| "No active project".to_string())?
+    }};
+}
+pub(crate) use active_project;

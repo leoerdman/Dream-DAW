@@ -23,13 +23,22 @@ fn get_project_history(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     limit: Option<usize>,
     since_seq: Option<u64>,
-) -> Result<Vec<ProjectHistoryEvent>, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<Vec<ProjectHistoryEvent>, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     project_state.history_snapshot(limit, since_seq)
+}
+
+/// Returns the UUID of the currently active project.
+///
+/// The frontend uses this to sync its tab bar with the real backend project ID
+/// on startup, replacing the placeholder 'default' ID.
+#[tauri::command]
+fn get_active_project_id(
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
+    Ok(active_project_arc.id.to_string())
 }
 
 /// Legacy compatibility endpoint.
@@ -39,13 +48,8 @@ fn get_project_history(
 /// silent state desynchronization when old clients call this command.
 #[tauri::command]
 fn get_project_snapshot_delta(
-    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    _project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<DeltaMutationResponse, String> {
     Err("get_project_snapshot_delta is disabled in strict delta mode".to_string())
 }
 
@@ -55,11 +59,8 @@ fn get_project_snapshot_delta(
 fn get_audio_chain_audit(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<AudioChainAuditPayload, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<AudioChainAuditPayload, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     use std::collections::{HashMap, HashSet};
 

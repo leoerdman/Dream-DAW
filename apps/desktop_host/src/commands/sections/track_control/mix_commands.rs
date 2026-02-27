@@ -11,11 +11,8 @@ fn set_track_volume(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -48,11 +45,8 @@ fn set_track_volume_with_deltas(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<TrackDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -87,11 +81,8 @@ fn set_track_pan(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -124,11 +115,8 @@ fn set_track_pan_with_deltas(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<TrackDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -162,11 +150,8 @@ fn set_master_volume(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetMasterVolumeCommand { volume };
     let clamped = execute_orchestrator_command(&project_state, &cmd)?;
@@ -191,11 +176,8 @@ fn set_track_disabled(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
@@ -219,11 +201,8 @@ fn set_track_disabled_with_deltas(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<TrackDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -252,11 +231,8 @@ fn set_track_solo(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
@@ -286,11 +262,8 @@ fn set_track_solo_with_deltas(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<TrackDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -325,11 +298,8 @@ fn set_track_send_level(
     value: f32,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,
@@ -352,11 +322,8 @@ fn set_track_send_level_with_deltas(
     value: f32,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<TrackDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,

@@ -7,11 +7,8 @@ async fn move_track_to_index_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackToIndexCommand::from_str_track_id(
         &track_id,
@@ -46,11 +43,8 @@ async fn move_track_to_index_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<TrackManagementDeltaResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<TrackManagementDeltaResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackToIndexCommand::from_str_track_id(
         &track_id,
@@ -93,11 +87,8 @@ async fn move_track_with_parent_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackWithParentCommand::from_str_ids(
         &track_id,
@@ -133,11 +124,8 @@ async fn move_track_with_parent_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackWithParentCommand::from_str_ids(
         &track_id,

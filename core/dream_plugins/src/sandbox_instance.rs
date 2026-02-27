@@ -55,7 +55,8 @@ pub struct SandboxedPluginInstance {
     bypass_ramp_remaining: u32,
     was_crashed_last_block: bool,
     /// Cache of last sent parameter values to prevent IPC flooding from automation curves.
-    param_cache: std::collections::HashMap<u32, f64>,
+    /// Pre-allocated Vec instead of HashMap to avoid RT-unsafe heap allocation.
+    param_cache: Vec<(u32, f64)>,
 }
 
 /// Number of samples over which to ramp bypass→active after crash recovery.
@@ -116,7 +117,7 @@ impl SandboxedPluginInstance {
             is_crashed: Arc::new(AtomicBool::new(false)),
             bypass_ramp_remaining: 0,
             was_crashed_last_block: false,
-            param_cache: std::collections::HashMap::new(),
+            param_cache: Vec::with_capacity(64),
         })
     }
 

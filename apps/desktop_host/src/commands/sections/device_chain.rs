@@ -180,11 +180,8 @@ fn bypass_device_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     const INSTRUMENT_SLOT_INDEX: u8 = 255;
 
@@ -245,11 +242,8 @@ fn set_device_param_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetInternalDeviceParamByTrackIndexCommand {
         track_index,
@@ -297,11 +291,8 @@ fn set_device_param_runtime_cmd(
     value: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let resolved_slot = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -333,11 +324,8 @@ fn set_device_params_runtime_cmd(
     updates: Vec<RuntimeParamUpdate>,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if updates.is_empty() {
         return Ok(());
@@ -369,11 +357,8 @@ fn update_track(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     if let Some(vol) = update.volume {
         let result = execute_orchestrator_command(

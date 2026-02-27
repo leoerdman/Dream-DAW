@@ -7,11 +7,8 @@ async fn move_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo_coalesced(&project_state)?;
 
@@ -44,11 +41,8 @@ async fn move_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo_coalesced(&project_state)?;
 
@@ -91,11 +85,8 @@ async fn resize_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // CQRS: coalesced undo + delegate to orchestrator + snapshot rebuild
     push_undo_coalesced(&project_state)?;
@@ -131,11 +122,8 @@ async fn resize_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo_coalesced(&project_state)?;
 
@@ -244,11 +232,8 @@ async fn split_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<SplitClipResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<SplitClipResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
@@ -280,11 +265,8 @@ async fn split_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<SplitClipWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<SplitClipWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 
@@ -326,11 +308,8 @@ async fn delete_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
@@ -360,11 +339,8 @@ async fn delete_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 
@@ -401,11 +377,8 @@ async fn duplicate_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DuplicateClipResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DuplicateClipResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
@@ -439,11 +412,8 @@ async fn duplicate_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DuplicateClipWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DuplicateClipWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 
@@ -485,11 +455,8 @@ async fn merge_clips_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<MergeClipsResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<MergeClipsResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
@@ -519,11 +486,8 @@ async fn merge_clips_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<MergeClipsWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<MergeClipsWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
 

@@ -91,7 +91,6 @@ export interface EngineStore {
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
     syncProjectHistory: () => Promise<void>;
-    expandWindow: () => Promise<void>;
     startTelemetryLoop: () => void;
     stopTelemetryLoop: () => void;
     reloadCrashedSandboxPlugins: () => Promise<void>;

@@ -27,11 +27,8 @@ fn create_rack_from_devices_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::CreateRackFromDevicesCommand {
@@ -66,11 +63,8 @@ fn add_chain_to_rack_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddChainToRackCommand {
@@ -104,11 +98,8 @@ fn add_device_to_rack_chain_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddDeviceToRackChainCommand {
@@ -150,11 +141,8 @@ fn remove_device_from_rack_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::RemoveDeviceFromRackCommand {
@@ -186,11 +174,8 @@ fn remove_device_from_rack_cmd(
 fn save_device_preset_cmd(
     payload: SaveDevicePresetPayload,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -249,11 +234,8 @@ fn load_device_preset_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     // Read and deserialize preset file.
     let json = std::fs::read_to_string(&payload.preset_path)

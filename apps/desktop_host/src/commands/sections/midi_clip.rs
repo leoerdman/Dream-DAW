@@ -31,11 +31,8 @@ async fn create_midi_clip_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<CreateMidiClipResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<CreateMidiClipResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let clip_name = name.unwrap_or_else(|| "MIDI Clip".to_string());
     log::info!("[IPC] create_midi_clip_cmd: '{}' track={} pos={} dur={}", clip_name, track_index, position_frames, duration_frames);
@@ -88,11 +85,8 @@ async fn create_midi_clip_with_deltas_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<CreateMidiClipWithDeltasResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<CreateMidiClipWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let response = create_midi_clip_cmd(
         track_index,
@@ -504,11 +498,8 @@ async fn update_midi_clip_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
 
@@ -605,11 +596,8 @@ async fn update_midi_clip_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     update_midi_clip_cmd(
         clip_id.clone(),
@@ -644,11 +632,8 @@ async fn set_midi_clip_envelopes_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
         .iter()

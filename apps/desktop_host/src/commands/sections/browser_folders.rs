@@ -431,10 +431,7 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
     }
 
     let project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = app.state();
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
 
     let default_dir = preferred_project_dialog_dir(&project_state);
@@ -465,10 +462,7 @@ async fn save_project_dialog(
     app: tauri::AppHandle,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<Option<String>, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
+    let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     use tauri_plugin_dialog::DialogExt;
 

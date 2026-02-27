@@ -1,15 +1,24 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import * as engineApi from '@/shared/api/engine';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { useShallow } from 'zustand/react/shallow';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
-import { resolveBpm } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import {
+    BOTTOM_PANEL_HEIGHT_DEFAULT_PX,
+    BOTTOM_PANEL_HEIGHT_MAX_PX,
+    BOTTOM_PANEL_HEIGHT_MIN_PX,
+    BROWSER_WIDTH_DEFAULT_PX,
+    BROWSER_WIDTH_MAX_PX,
+    BROWSER_WIDTH_MIN_PX,
 
+} from '@/shared/config/layoutConstants';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
-import { useDawShellState } from './model/useDawShellState';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
 import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
 import { usePendingMidiFlush } from './model/usePendingMidiFlush';
@@ -31,49 +40,59 @@ import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
 import { useDawShellUiPreferences } from './model/useDawShellUiPreferences';
-import { writeAssistantOpenPref } from './model/assistantUiPrefs';
+import { readAssistantOpenPref, writeAssistantOpenPref } from './model/assistantUiPrefs';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
-import { useDawShellViewModel } from './model/useDawShellViewModel';
-import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
 import { cancelIdle, scheduleIdle } from './model/idleWarmup';
+import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
-export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
-    const {
-        settingsOpen, setSettingsOpen,
-        selectedTrackId, setSelectedTrackId,
-        selectedTrackIds, setSelectedTrackIds,
-        selectedTrackIdRef, selectedTrackIdsRef,
-        selectedClipIds, setSelectedClipIds, selectedClipId,
-        editCursorBeat, setEditCursorBeat,
-        editCursorTrackIndex, setEditCursorTrackIndex,
-        editCursorTrackIndexEnd, setEditCursorTrackIndexEnd,
-        exportOpen, setExportOpen,
-        assistantOpen, setAssistantOpen,
-        bottomPanelMode, setBottomPanelMode,
-        bottomPanelModeByTrack, setBottomPanelModeByTrack,
-        mainViewMode, setMainViewMode,
-        recordingState, setRecordingState,
-        followPlayhead, setFollowPlayhead,
-        missingAssetsOpen, setMissingAssetsOpen,
-        browserWidth, setBrowserWidth,
-        fitTimelineToken, setFitTimelineToken,
-        bottomPanelHeightPx, setBottomPanelHeightPx,
-        marqueeSelection, setMarqueeSelection,
-        recoveringAudioRef, lastAudioRecoverAtRef, importingRef,
-        timelineRef, mainSplitRef, queuedStartBeatRef,
-        projectSampleRate,
-        automationVisible, toggleAutomation,
-        gridDivision, gridTriplet, gridSnapEnabled, pianoPencilMode,
-        settingsLoaded, settings,
-    } = useDawShellState();
+type BottomPanelMode = 'rack' | 'clip';
+type MainViewMode = 'arrangement' | 'session';
 
+export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [selectedTrackId, setSelectedTrackId] = useState('master');
+    const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
+    const selectedTrackIdRef = useRef(selectedTrackId);
+    const selectedTrackIdsRef = useRef(selectedTrackIds);
+    selectedTrackIdRef.current = selectedTrackId;
+    selectedTrackIdsRef.current = selectedTrackIds;
+    const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
+    const selectedClipId = useMemo(
+        () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
+        [selectedClipIds],
+    );
+    const [editCursorBeat, setEditCursorBeat] = useState(-1);
+    const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
+    const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
+    const [exportOpen, setExportOpen] = useState(false);
+    const [assistantOpen, setAssistantOpen] = useState(readAssistantOpenPref);
+    const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
+    const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
+    const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
+    const [recordingState, setRecordingState] = useState<{ active: boolean; trackIndex: number }>({
+        active: false,
+        trackIndex: 0,
+    });
+    const [followPlayhead, setFollowPlayhead] = useState(true);
+    const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
+    const [browserWidth, setBrowserWidth] = useState(
+        () => Math.max(BROWSER_WIDTH_MIN_PX, Math.min(BROWSER_WIDTH_MAX_PX, BROWSER_WIDTH_DEFAULT_PX)),
+    );
+    const [fitTimelineToken, setFitTimelineToken] = useState(0);
+    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(
+        () => Math.max(BOTTOM_PANEL_HEIGHT_MIN_PX, Math.min(BOTTOM_PANEL_HEIGHT_MAX_PX, BOTTOM_PANEL_HEIGHT_DEFAULT_PX)),
+    );
+    const recoveringAudioRef = useRef(false);
+    const lastAudioRecoverAtRef = useRef(0);
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const storeTogglePlay = useEngineStore(s => s.togglePlay);
     const storeStop = useEngineStore(s => s.stop);
 
     // ENTERPRISE FIX: Ref-stable wrapper for atomic toggle play.
+    // Declared early so `useKeyboardShortcuts` can reference it.
+    // The actual implementation is assigned later after `resolveAnchorBeat` is available.
     const atomicTogglePlayRef = useRef<() => Promise<void>>(storeTogglePlay);
     const atomicTogglePlay = useCallback(() => atomicTogglePlayRef.current(), []);
     const applyProjectDeltas = useEngineStore(s => s.applyProjectDeltas);
@@ -81,6 +100,25 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const tracksEntity = useEngineStore(s => s.tracks);
+    const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
+    const automationVisible = useAutomationStore(s => s.globalVisible);
+    const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const gridSnapEnabled = useGridStore((s) => s.snapEnabled);
+    const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
+    const settingsLoaded = useSettingsStore((s) => s.loaded);
+    const settings = useSettingsStore((s) => s.settings);
+    const importingRef = useRef(false);
+    const timelineRef = useRef<HTMLDivElement>(null);
+    const mainSplitRef = useRef<HTMLElement>(null);
+    const queuedStartBeatRef = useRef<number | null>(null);
+    const [marqueeSelection, setMarqueeSelection] = useState<{
+        startBeat: number;
+        endBeat: number;
+        startTrack: number;
+        endTrack: number;
+    } | null>(null);
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
@@ -89,35 +127,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     useEffect(() => {
         onMounted?.();
     }, [onMounted]);
-
-    // BUG-M003 & BUG-M004 FIX: Prune component state & store dictionaries for deleted tracks.
-    useEffect(() => {
-        setBottomPanelModeByTrack((prev) => {
-            let changed = false;
-            const next = { ...prev };
-            for (const id in next) {
-                if (!tracksEntity.allIds.includes(id)) {
-                    delete next[id];
-                    changed = true;
-                }
-            }
-            return changed ? next : prev;
-        });
-
-        // BUG-M004 FIX: Prune global open plugin editors for deleted tracks.
-        const openEditors = useEngineStore.getState().openEditorsByTrack;
-        let editorsChanged = false;
-        const nextEditors = { ...openEditors };
-        for (const id in nextEditors) {
-            if (!tracksEntity.allIds.includes(id)) {
-                delete nextEditors[id];
-                editorsChanged = true;
-            }
-        }
-        if (editorsChanged) {
-            useEngineStore.setState({ openEditorsByTrack: nextEditors });
-        }
-    }, [tracksEntity.allIds]);
 
     useDawShellUiPreferences({
         settingsLoaded,
@@ -165,21 +174,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     }), []);
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
     useEffect(() => {
-        if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
-
-        // BUG-M003 FIX: Prevent getting stuck on a deleted track or random ID.
-        if (selectedTrackId === 'master' || !tracksEntity.allIds.includes(selectedTrackId)) {
-            setSelectedTrackId(tracksEntity.allIds[0]);
-        }
-    }, [tracksEntity.allIds, selectedTrackId]);
-    useEffect(() => {
-        // BUG-M003 FIX: Clean up selectedTrackIds when tracks are deleted.
-        // This prevents the track multiselection logic from throwing when looping over missing IDs.
-        const next = selectedTrackIds.filter((id) => tracksEntity.allIds.includes(id));
-        if (next.length !== selectedTrackIds.length) setSelectedTrackIds(next);
-    }, [selectedTrackIds, tracksEntity.allIds]);
-
-    useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
         document.addEventListener('dream:open-export', onOpenExport as EventListener);
@@ -212,21 +206,11 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         });
         return () => cancelIdle(idleHandle);
     }, [settingsLoaded]);
-    const {
-        bpm: transportBpm,
-        is_playing: transportIsPlaying,
-        loop_start: transportLoopStart,
-        loop_end: transportLoopEnd,
-        loop_enabled: transportLoopEnabled,
-    } = useEngineStore(
-        useShallow(s => ({
-            bpm: s.transport.bpm,
-            is_playing: s.transport.is_playing,
-            loop_start: s.transport.loop_start,
-            loop_end: s.transport.loop_end,
-            loop_enabled: s.transport.loop_enabled,
-        }))
-    );
+    const transportBpm = useEngineStore(s => s.transport.bpm);
+    const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
+    const transportLoopStart = useEngineStore(s => s.transport.loop_start);
+    const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
+    const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
     const projectBpm = useEngineStore(s => s.projectBpm);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const {
@@ -252,26 +236,47 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         projectSampleRate,
         applyProjectDeltas,
     });
-    const {
-        timelineClipsForView,
-        selectedClipIdsForView,
-        selectedClipIdForView,
-        loopStartBeat,
-        loopEndBeat,
-        missingMediaSummary,
-    } = useDawShellViewModel({
-        projectBpm,
-        transportBpm,
-        projectSampleRate,
-        transportLoopStart,
-        transportLoopEnd,
-        timelineClips,
-        selectedClipIds,
-        clipFadeCurves,
-        midiNotesByClip,
-        tracksEntity,
-    });
-
+    const timelineClipsForView = useMemo(
+        () =>
+            timelineClips.map((clip) => {
+                const curve = clipFadeCurves[clip.id];
+                const withCurve = curve
+                    ? {
+                        ...clip,
+                        fadeInCurve: curve.fadeInCurve,
+                        fadeOutCurve: curve.fadeOutCurve,
+                    }
+                    : clip;
+                if (clip.type !== 'midi') return withCurve;
+                const localNotes = midiNotesByClip[clip.id];
+                if (!localNotes) return withCurve;
+                return {
+                    ...withCurve,
+                    midiNotes: localNotes,
+                };
+            }),
+        [timelineClips, midiNotesByClip, clipFadeCurves],
+    );
+    const selectedClipIdsForView = useMemo(() => {
+        const existingIds = new Set(timelineClips.map((clip) => clip.id));
+        return selectedClipIds.filter((id) => existingIds.has(id));
+    }, [selectedClipIds, timelineClips]);
+    const selectedClipIdForView = useMemo(
+        () => selectedClipIdsForView.length > 0 ? selectedClipIdsForView[selectedClipIdsForView.length - 1] : null,
+        [selectedClipIdsForView],
+    );
+    useEffect(() => {
+        if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
+        // Auto-select first real track when tracks load (instead of staying on 'master')
+        if (selectedTrackId === 'master' || !tracksEntity.byId[selectedTrackId]) {
+            setSelectedTrackId(tracksEntity.allIds[0]);
+        }
+    }, [tracksEntity, selectedTrackId]);
+    useEffect(() => {
+        if (selectedTrackIds.length === 0) return;
+        const next = selectedTrackIds.filter((id) => tracksEntity.byId[id] !== undefined);
+        if (next.length !== selectedTrackIds.length) setSelectedTrackIds(next);
+    }, [selectedTrackIds, tracksEntity.allIds, tracksEntity.byId]);
     const {
         panelInfo,
         collapsedGroups,
@@ -280,41 +285,19 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         trackCountRaw,
         selectedTrackIndex,
         selectedTrackIndices,
-        selectedTimelineClip: newSelectedTimelineClip,
+        selectedTimelineClip,
         toggleGroupCollapse,
     } = useArrangementTrackViewModel({
         tracksEntity,
         selectedTrackId,
         selectedTrackIds,
         selectedClipId: selectedClipIdForView,
-        timelineClipsForView, // using the one from useDawShellViewModel
+        timelineClipsForView,
         bottomPanelModeByTrack,
         setSelectedTrackId,
         setBottomPanelMode,
         applyProjectDeltas,
     });
-
-    const selectedMidiTotalBars = useMemo(() => {
-        if (!newSelectedTimelineClip || newSelectedTimelineClip.type !== 'midi') return 8;
-        const timeSig = useEngineStore.getState().transport.time_sig_numerator;
-        const beatsPerBar = timeSig > 0 && isFinite(timeSig) ? timeSig : 4;
-        return Math.max(1, Math.ceil(newSelectedTimelineClip.durationBeats / beatsPerBar));
-    }, [newSelectedTimelineClip]);
-    useEffect(() => {
-        if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
-        // BUG-U001 FIX: Only re-evaluate auto-selection when the actual list of tracks changes
-        // (allIds), rather than on every entity update (rename/color change), avoiding selection fighting.
-        if (selectedTrackId === 'master' || !tracksEntity.allIds.includes(selectedTrackId)) {
-            setSelectedTrackId(tracksEntity.allIds[0]);
-        }
-    }, [tracksEntity.allIds, selectedTrackId]);
-    useEffect(() => {
-        if (selectedTrackIds.length === 0) return;
-        // BUG-U002 FIX: Prune using allIds instead of byId dependency to avoid flicker during undo/redo.
-        const next = selectedTrackIds.filter((id) => tracksEntity.allIds.includes(id));
-        if (next.length !== selectedTrackIds.length) setSelectedTrackIds(next);
-    }, [selectedTrackIds, tracksEntity.allIds]);
-
     const {
         handleSelectTrack,
         handleSelectTracks,
@@ -332,20 +315,52 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         setMarqueeSelection,
         queuedStartBeatRef,
     });
-
+    const _loopBpm = useMemo(
+        () => resolveBpm(projectBpm, transportBpm),
+        [projectBpm, transportBpm],
+    );
+    const loopStartBeat = useMemo(
+        () => frameToBeat(transportLoopStart, _loopBpm, projectSampleRate),
+        [transportLoopStart, _loopBpm, projectSampleRate],
+    );
+    const loopEndBeat = useMemo(
+        () => frameToBeat(transportLoopEnd, _loopBpm, projectSampleRate),
+        [transportLoopEnd, _loopBpm, projectSampleRate],
+    );
+    const missingMediaSummary = useMemo(() => {
+        const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
+        let missingPluginCount = 0;
+        for (const trackId of tracksEntity.allIds) {
+            const track = tracksEntity.byId[trackId];
+            if (!track) continue;
+            if (track.instrument?.plugin_id?.startsWith('missing://')) missingPluginCount += 1;
+            missingPluginCount += (track.effects ?? []).filter((fx) => fx.plugin_id?.startsWith('missing://')).length;
+        }
+        return {
+            offlineClipCount,
+            missingPluginCount,
+            total: offlineClipCount + missingPluginCount,
+        };
+    }, [timelineClipsForView, tracksEntity]);
     const prevMissingTotalRef = useRef(0);
-    const closedMissingAssetsTotalRef = useRef(-1);
     useEffect(() => {
         const prev = prevMissingTotalRef.current;
         prevMissingTotalRef.current = missingMediaSummary.total;
-        // BUG-U003 FIX: Only pop open the panel if count > 0 AND it's a new occurrence
-        // (i.e. strictly greater than the count when the user last explicitly closed it).
-        if (missingMediaSummary.total > 0 && missingMediaSummary.total > closedMissingAssetsTotalRef.current && prev === 0) {
+        if (missingMediaSummary.total > 0 && prev === 0) {
             // BUG-049 FIX: Direct setState instead of queueMicrotask.
+            // React 18 batches setState anyway; queueMicrotask adds an
+            // unnecessary async gap that can flash stale UI state.
             setMissingAssetsOpen(true);
         }
     }, [missingMediaSummary.total]);
-
+    const selectedMidiTotalBars = useMemo(() => {
+        if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
+        // BUG-U004 FIX: Use timeSigNumerator for beatsPerBar, not grid division numerator.
+        // Grid division (e.g. "1/8") is for snap resolution, not measures.
+        const timeSig = useEngineStore.getState().timeSigNumerator;
+        const beatsPerBar = timeSig > 0 && isFinite(timeSig) ? timeSig : 4;
+        return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / beatsPerBar));
+    }, [selectedTimelineClip]);
     // BUG-U005 FIX: hasResizableClipEditor removed — always false, dead code path.
     usePointerUpFinalizer({
         flushTrackControlFinals,
@@ -469,7 +484,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         [setClipFadeCurves],
     );
     const timelineProps = useDawShellTimelineProps({
-        bpm: resolveBpm(transportBpm),
+        bpm: resolveBpm(projectBpm, transportBpm),
         clips: timelineClipsForView,
         editCursorBeat,
         editCursorTrackIndex,
@@ -540,9 +555,9 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 bottomPanelHeightPx={bottomPanelHeightPx}
                 setBottomPanelHeightPx={setBottomPanelHeightPx}
                 beginBottomPanelResize={beginBottomPanelResize}
-                selectedTimelineClip={newSelectedTimelineClip ?? undefined}
-                clipColor={newSelectedTimelineClip?.color ?? tracksEntity.byId[selectedTrackId]?.color ?? 'var(--color-accent-primary)'}
-                midiNotes={newSelectedTimelineClip?.type === 'midi' ? (midiNotesByClip[newSelectedTimelineClip.id] ?? newSelectedTimelineClip.midiNotes ?? []) : []}
+                selectedTimelineClip={selectedTimelineClip ?? undefined}
+                clipColor={selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)'}
+                midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? selectedTimelineClip.midiNotes ?? []) : []}
                 aiVariationBusy={aiVariationBusy}
                 selectedMidiTotalBars={selectedMidiTotalBars}
                 dropPluginOnTrack={dropPluginOnTrack}
@@ -559,21 +574,28 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 settingsOpen={settingsOpen}
                 onCloseSettings={() => setSettingsOpen(false)}
                 assistantOpen={assistantOpen}
+                onAssistantClose={() => {
+                    setAssistantOpen(false);
+                    writeAssistantOpenPref(false);
+                }}
+                onAssistantOpen={() => {
+                    setAssistantOpen(true);
+                    writeAssistantOpenPref(true);
+                }}
+                onSelectClips={setSelectedClipIds}
                 missingAssetsOpen={missingAssetsOpen}
                 missingTotal={missingMediaSummary.total}
-                onCloseMissingAssets={() => {
-                    setMissingAssetsOpen(false);
-                    closedMissingAssetsTotalRef.current = missingMediaSummary.total;
-                }}
+                onCloseMissingAssets={() => setMissingAssetsOpen(false)}
                 exportOpen={exportOpen}
                 onCloseExport={() => setExportOpen(false)}
                 projectName={projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
                 selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
-                bpm={resolveBpm(transportBpm)}
+                bpm={resolveBpm(projectBpm, transportBpm)}
                 sampleRate={projectSampleRate}
                 loopStartBeat={loopStartBeat}
                 loopEndBeat={loopEndBeat}
+                marqueeSelection={marqueeSelection}
             />
         </div>
     );

@@ -140,7 +140,6 @@ export const Timeline = (props: TimelineProps) => {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const masterLaneRef = useRef<HTMLDivElement | null>(null);
-    const playheadRef = useRef<HTMLDivElement | null>(null);
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
     const callbacks = useMemo(() => ({
         onPlayheadChange,
@@ -266,21 +265,11 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
         engine.onFrameDrawn = (snapshot) => {
             const lane = masterLaneRef.current;
-            const playhead = playheadRef.current;
+            if (!lane) return;
             const x = snapPhysical((snapshot.playheadBeat * snapshot.pixelsPerBeat) - snapshot.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
-            const visible = x >= -10 && x <= snapshot.viewportWidth + 10;
-
-            if (lane) {
-                lane.style.setProperty('--master-playhead-x', `${x}px`);
-                lane.style.setProperty('--master-playhead-visible', visible ? '1' : '0');
-            }
-
-            if (playhead) {
-                // BUG-112 FIX: DOM-based playhead uses GPU-accelerated transforms
-                // This decouples playhead animation from 60FPS canvas redraws
-                playhead.style.transform = `translateX(${x}px)`;
-                playhead.style.display = visible ? 'block' : 'none';
-            }
+            const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
+            lane.style.setProperty('--master-playhead-x', `${x}px`);
+            lane.style.setProperty('--master-playhead-visible', visible);
         };
         return () => {
             if (engine.onFrameDrawn) engine.onFrameDrawn = undefined;
@@ -430,23 +419,6 @@ export const Timeline = (props: TimelineProps) => {
                         height: '100%',
                         display: 'block',
                         zIndex: 'var(--z-timeline-canvas)',
-                    }}
-                />
-                <div
-                    ref={playheadRef}
-                    className="timeline-dom-playhead"
-                    style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: RULER_HEIGHT,
-                        bottom: 0,
-                        width: 1,
-                        background: 'var(--color-timeline-playhead)',
-                        zIndex: 'var(--z-timeline-overlays)',
-                        pointerEvents: 'none',
-                        willChange: 'transform',
-                        display: 'none', // Set by onFrameDrawn
-                        transformOrigin: '0 0',
                     }}
                 />
                 {/* ── Loop bracket lines above clips ── */}

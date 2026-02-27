@@ -1,11 +1,9 @@
-/* eslint-disable no-restricted-syntax */
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
-import { DEFAULT_BPM, clampMidiPitch } from './audioMath';
+import { clampMidiPitch } from './audioMath';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import { DEFAULT_FADE_CURVE } from './TimelineEngine.types';
 import {
     applyAlphaMultiplier,
     CLIP_LABEL_FONT,
@@ -31,10 +29,10 @@ function snapPhysical(value: number): number {
 
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
-    private _bpm = DEFAULT_BPM;
+    private _bpm = 120;
 
     private _theme: TimelineTheme | null = null;
-    private _lastThemeKey: string = '';
+    private _lastThemeSync = 0;
     private _waveformStyle: 'default' | 'classic' = 'default';
 
     // (removed: _editCursorPlacedMs / _prevEditCursorBeat — replaced by quantized blink P4)
@@ -75,12 +73,8 @@ export class CanvasClipRenderer {
     }
 
     private _syncTheme(): void {
-        const themeAttr = document.documentElement.getAttribute('data-theme') || 'dark';
-        const waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic';
-        const cacheKey = `${themeAttr}:${waveformStyle}`;
-
-        if (this._theme && this._lastThemeKey === cacheKey) return;
-        this._lastThemeKey = cacheKey;
+        const now = performance.now();
+        if (this._theme && now - this._lastThemeSync < 1000) return; // Sync once per second max
 
         const s = getComputedStyle(document.documentElement);
         const gridIntensityRaw = Number.parseFloat(s.getPropertyValue('--timeline-grid-intensity') || '100');
@@ -104,7 +98,8 @@ export class CanvasClipRenderer {
             trackDivider: s.getPropertyValue('--color-border-subtle').trim() || rgba(255, 255, 255, 0.08),
         };
         // BUG-061 FIX: Cache waveformStyle here (max 1x/sec) instead of per-clip in _drawWaveform
-        this._waveformStyle = waveformStyle;
+        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic';
+        this._lastThemeSync = now;
     }
 
     drawFrame(
@@ -159,6 +154,7 @@ export class CanvasClipRenderer {
         this._drawMarquee(ctx, vp, marquee);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
+        this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
 
         const hasClipSelection = clips.some(c => c.selected);
         if (!hasClipSelection) {
@@ -185,42 +181,21 @@ export class CanvasClipRenderer {
         ctx.fillRect(0, rulerH, vp.viewportWidth, vp.viewportHeight - rulerH);
 
         const list = (selectedTracks && selectedTracks.length > 0) ? selectedTracks : (selectedTrack >= 0 ? [selectedTrack] : []);
-        if (list.length === 0) return;
-
-        // BUG-113 FIX: Batch track background rendering into two loops (primary and secondary selected)
-        // to avoid heavy context save/restore per track, massively reducing 60FPS overhead.
-
-        ctx.fillStyle = theme.trackSelected;
-
-        // Draw secondary selected tracks
-        ctx.beginPath();
         for (const t of list) {
-            if (t < 0 || t === selectedTrack) continue;
+            if (t < 0) continue;
             const y = rulerH + vp.trackOffsetY(t) - vp.scrollY;
             const h = vp.trackHeightAt(t);
             if (y + h < rulerH || y > vp.viewportHeight) continue;
             const clippedTop = Math.max(rulerH, y);
             const clippedBottom = Math.min(vp.viewportHeight, y + h);
             const clippedH = clippedBottom - clippedTop;
-            if (clippedH > 0) ctx.rect(0, clippedTop, vp.viewportWidth, clippedH);
+            if (clippedH <= 0) continue;
+            ctx.save();
+            ctx.globalAlpha = (t === selectedTrack) ? 1.0 : 0.55;
+            ctx.fillStyle = theme.trackSelected;
+            ctx.fillRect(0, clippedTop, vp.viewportWidth, clippedH);
+            ctx.restore();
         }
-        ctx.globalAlpha = 0.55;
-        ctx.fill();
-
-        // Draw primary selected track
-        ctx.beginPath();
-        for (const t of list) {
-            if (t < 0 || t !== selectedTrack) continue;
-            const y = rulerH + vp.trackOffsetY(t) - vp.scrollY;
-            const h = vp.trackHeightAt(t);
-            if (y + h < rulerH || y > vp.viewportHeight) continue;
-            const clippedTop = Math.max(rulerH, y);
-            const clippedBottom = Math.min(vp.viewportHeight, y + h);
-            const clippedH = clippedBottom - clippedTop;
-            if (clippedH > 0) ctx.rect(0, clippedTop, vp.viewportWidth, clippedH);
-        }
-        ctx.globalAlpha = 1.0;
-        ctx.fill();
     }
 
     private _drawGrid(
@@ -572,7 +547,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeIn,
                 bodyH,
                 'in',
-                clip.fadeInCurve ?? DEFAULT_FADE_CURVE,
+                clip.fadeInCurve ?? 0.5,
             );
         }
         if (showFadeUi && clip.fadeOut && clip.fadeOut > 0) {
@@ -583,7 +558,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeOut,
                 bodyH,
                 'out',
-                clip.fadeOutCurve ?? DEFAULT_FADE_CURVE,
+                clip.fadeOutCurve ?? 0.5,
             );
         }
 
@@ -685,8 +660,8 @@ export class CanvasClipRenderer {
             ctx.fill();
             ctx.stroke();
 
-            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? DEFAULT_FADE_CURVE));
-            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? DEFAULT_FADE_CURVE));
+            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
+            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
             const bodyBottom = bodyY + bodyH - 2;
 
             if (clip.showFadeInCurvePoint && fadeInWidth > 0) {
@@ -866,7 +841,26 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
+    private _drawPlayhead(
+        ctx: CanvasRenderingContext2D,
+        vp: ViewportMatrix,
+        playheadBeat: number,
+        canvasH: number,
+        theme: TimelineTheme,
+    ): void {
+        const x = snapPhysical(playheadBeat * vp.pixelsPerBeat - vp.scrollX);
+        if (x < -10 || x > vp.viewportWidth + 10) return;
 
+        const rulerH = vp.rulerHeight;
+
+        // Single clean 1px playhead line — no glow
+        // snapPhysical ensures the line sits perfectly on the physical device pixel grid.
+        ctx.save();
+        ctx.fillStyle = theme.playhead;
+        const finalX = snapPhysical(x);
+        ctx.fillRect(finalX, rulerH, 1, Math.max(0, canvasH - rulerH));
+        ctx.restore();
+    }
 
     private _drawEditCursor(
         ctx: CanvasRenderingContext2D,

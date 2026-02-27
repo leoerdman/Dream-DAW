@@ -1,6 +1,6 @@
 import { type CSSProperties } from 'react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
-import { formatBeatsAsBBS } from '@/shared/lib/audioMath';
+import { DEFAULT_BPM, DEFAULT_TIME_SIG_NUMERATOR, formatBeatsAsBBS, clampPitchShift, MIN_PITCH_SHIFT, MAX_PITCH_SHIFT } from '@/shared/lib/audioMath';
 
 type Props = {
     clipDurationBeats: number;
@@ -25,7 +25,7 @@ type Props = {
 export const SampleClipEditorSidebar = (props: Props) => {
     const {
         clipDurationBeats,
-        beatsPerBar = 4,
+        beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR,
         filePath,
         draftWarpEnabled,
         draftWarpMode,
@@ -43,7 +43,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
         onTogglePreview,
     } = props;
 
-    const clampPitch = (value: number) => Math.max(-48, Math.min(48, Math.round(value || 0)));
+    const clampPitch = (value: number) => clampPitchShift(Math.round(value || 0));
     const nudgePitch = (delta: number) => {
         const next = clampPitch(draftPitch + delta);
         setDraftPitch(next);
@@ -74,7 +74,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         max={300}
                         value={draftWarpBaseBpm}
                         disabled={!draftWarpEnabled}
-                        onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || 120)}
+                        onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || DEFAULT_BPM)}
                         onBlur={() => onCommitWarp({ enabled: draftWarpEnabled, mode: draftWarpMode, baseBpm: draftWarpBaseBpm })}
                         style={{ width: 68, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}
                     />
@@ -103,8 +103,8 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         </button>
                         <input
                             type="range"
-                            min={-48}
-                            max={48}
+                            min={MIN_PITCH_SHIFT}
+                            max={MAX_PITCH_SHIFT}
                             step={1}
                             value={draftPitch}
                             onChange={(e) => setDraftPitch(Number(e.target.value))}
@@ -135,8 +135,8 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         </button>
                         <input
                             type="number"
-                            min={-48}
-                            max={48}
+                            min={MIN_PITCH_SHIFT}
+                            max={MAX_PITCH_SHIFT}
                             step={1}
                             value={draftPitch}
                             onChange={(e) => setDraftPitch(clampPitch(Number(e.target.value)))}

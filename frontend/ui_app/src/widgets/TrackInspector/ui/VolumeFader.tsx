@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 
 export type VolumeFaderProps = {
@@ -52,7 +53,7 @@ export const VolumeFader = ({
             const deltaY = e.clientY - dragStart.y;
             const dragRangePx = compact ? 120 : 144;
             const delta = (deltaX - deltaY) / dragRangePx;
-            const nextPos = Math.max(0, Math.min(1, dragStart.startPos + delta));
+            const nextPos = clamp01(dragStart.startPos + delta);
             const nextDb = faderToDb(nextPos);
             onVolumeChange(dbToGain(nextDb));
         };

@@ -1,7 +1,7 @@
 import { memo, useCallback, useLayoutEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { vuNorm } from '@/shared/lib/audioMath';
+import { clamp01, vuNorm } from '@/shared/lib/audioMath';
 import { formatDb } from '@/widgets/TrackInspector/model/faderMath';
 
 type MixerChannelMetersProps = {
@@ -20,8 +20,8 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
     const peakDbR = meterPair?.[1]?.peak ?? -96;
     const rmsDbL = meterPair?.[0]?.rms ?? -96;
     const rmsDbR = meterPair?.[1]?.rms ?? -96;
-    const meterL = Math.max(0, Math.min(1, vuNorm((peakDbL * 0.7) + (rmsDbL * 0.3))));
-    const meterR = Math.max(0, Math.min(1, vuNorm((peakDbR * 0.7) + (rmsDbR * 0.3))));
+    const meterL = clamp01(vuNorm((peakDbL * 0.7) + (rmsDbL * 0.3)));
+    const meterR = clamp01(vuNorm((peakDbR * 0.7) + (rmsDbR * 0.3)));
 
     return (
         <>

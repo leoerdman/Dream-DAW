@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { vuNorm } from '@/shared/lib/audioMath';
+import { clamp01, vuNorm } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 export { TriColorVU, type TriColorVUProps } from './TriColorVU';
 
@@ -30,17 +30,16 @@ export const VerticalMixerStrip = ({
     const [isDragging, setIsDragging] = useState(false);
     const activePointerId = useRef<number | null>(null);
 
-    const volNorm = Math.max(0, Math.min(1, dbToFader(gainToDb(volumeLinear))));
-    const meterNormL = Math.max(0, Math.min(1, vuNorm(peakDbL ?? peakDb)));
-    const meterNormR = Math.max(0, Math.min(1, vuNorm(peakDbR ?? peakDb)));
-    const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
+    const volNorm = clamp01(dbToFader(gainToDb(volumeLinear)));
+    const meterNormL = clamp01(vuNorm(peakDbL ?? peakDb));
+    const meterNormR = clamp01(vuNorm(peakDbR ?? peakDb));
+    const panNorm = clamp01((pan + 1) / 2);
     const [peakHoldNorm, setPeakHoldNorm] = useState(0);
     const [clipLatched, setClipLatched] = useState(false);
     const holdTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
         let rafId: number | null = null;
-        let clipLatchTimer: number | null = null;
         const meterNorm = Math.max(meterNormL, meterNormR);
         if (meterNorm > peakHoldNorm) {
             rafId = window.requestAnimationFrame(() => {
@@ -48,7 +47,9 @@ export const VerticalMixerStrip = ({
             });
         }
         if (peakDb >= 0) {
-            clipLatchTimer = window.setTimeout(() => setClipLatched(true), 0);
+            // BUG-R4-050 FIX: Direct state set — React batches this within the effect.
+            // No need for setTimeout(0) or queueMicrotask for a simple boolean update.
+            setClipLatched(true);
         }
         if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
         holdTimerRef.current = window.setTimeout(() => {
@@ -56,7 +57,6 @@ export const VerticalMixerStrip = ({
         }, 650);
         return () => {
             if (rafId !== null) window.cancelAnimationFrame(rafId);
-            if (clipLatchTimer !== null) window.clearTimeout(clipLatchTimer);
             if (holdTimerRef.current !== null) {
                 window.clearTimeout(holdTimerRef.current);
                 holdTimerRef.current = null;
@@ -68,7 +68,7 @@ export const VerticalMixerStrip = ({
         const el = stripRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
-        const pos = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+        const pos = clamp01(1 - (clientY - rect.top) / rect.height);
         const nextDb = faderToDb(pos);
         onVolumeChange(dbToGain(nextDb));
     }, [onVolumeChange]);

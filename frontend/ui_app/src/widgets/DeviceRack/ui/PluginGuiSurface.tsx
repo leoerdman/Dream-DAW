@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
+import { downsamplePeaks, selectFinestMipLevel } from '@/shared/lib/waveformUtils';
 import { SampleRack } from '@/widgets/SampleRack/SampleRack';
 import { EssenceSynth } from '@/widgets/DeviceRack/EssenceSynth';
 import { renderStandardPluginGuiSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandard';
@@ -84,32 +85,12 @@ export const PluginGuiSurface = ({
         engineApi.getWaveformPeaksBinary(samplePath)
             .then((wf) => {
                 if (cancelled) return;
-                const level = wf.mip_levels[0] ?? wf.mip_levels[wf.mip_levels.length - 1];
-                const peaks = level?.peaks ?? [];
-                if (peaks.length === 0) {
+                const rawPeaks = selectFinestMipLevel(wf.mip_levels);
+                if (rawPeaks.length === 0) {
                     setWaveformPeaks(null);
                     return;
                 }
-                const targetPointCount = 960;
-                if (peaks.length <= targetPointCount) {
-                    setWaveformPeaks(peaks);
-                    return;
-                }
-                const reduced: engineApi.PeakPair[] = [];
-                const bucket = peaks.length / targetPointCount;
-                for (let i = 0; i < targetPointCount; i++) {
-                    const start = Math.floor(i * bucket);
-                    const end = Math.min(peaks.length, Math.max(start + 1, Math.floor((i + 1) * bucket)));
-                    let min = 1;
-                    let max = -1;
-                    for (let j = start; j < end; j++) {
-                        const p = peaks[j];
-                        if (p.min < min) min = p.min;
-                        if (p.max > max) max = p.max;
-                    }
-                    reduced.push({ min, max });
-                }
-                setWaveformPeaks(reduced);
+                setWaveformPeaks(downsamplePeaks(rawPeaks, 960));
             })
             .catch((err) => {
                 if (!cancelled) {

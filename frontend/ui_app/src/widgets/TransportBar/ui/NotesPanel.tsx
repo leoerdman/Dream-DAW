@@ -62,7 +62,10 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
         return () => {
             if (saveTimerRef.current) {
                 clearTimeout(saveTimerRef.current);
-                engineApi.setProjectNotes(latestTextRef.current).catch(() => { });
+                engineApi.setProjectNotes(latestTextRef.current).catch((err) => {
+                    // BUG-R4-002 FIX: Log error instead of silently swallowing.
+                    console.warn('[NotesPanel] Failed to save notes on unmount:', err);
+                });
             }
         };
     }, []);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import {
     knobDialStyle,
     knobDragValueBadgeStyle,
@@ -44,7 +45,7 @@ export const PluginKnob = ({
         return (Math.log(Math.max(param.min, Math.min(param.max, value))) - lo) / Math.max(1e-9, hi - lo);
     }, [param.max, param.min, useLogScale]);
     const unitToValue = useCallback((unit: number): number => {
-        const clampedUnit = Math.max(0, Math.min(1, unit));
+        const clampedUnit = clamp01(unit);
         if (!useLogScale) return param.min + clampedUnit * (param.max - param.min);
         const ratio = Math.log(param.max / param.min);
         return param.min * Math.exp(clampedUnit * ratio);
@@ -63,7 +64,7 @@ export const PluginKnob = ({
     const displayRoundedValue = roundPluginParamForDisplay(param, safeValue);
     const visualValue = quantizeValue(displayRoundedValue);
     const rawPct = valueToUnit(visualValue);
-    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
+    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : clamp01(rawPct);
     const [isEditingValue, setIsEditingValue] = useState(false);
     const [editValueText, setEditValueText] = useState('');
 

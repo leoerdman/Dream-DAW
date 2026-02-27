@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
@@ -295,7 +295,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
         }
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
-        const beatsPerBar = store.timeSigNumerator ?? 4;
+        const beatsPerBar = store.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         if (endBeat - startBeat < beatsPerBar) endBeat = startBeat + beatsPerBar;
         store.setLoop(true, beatToFrame(startBeat, bpm, sr), beatToFrame(endBeat, bpm, sr));
         return true;

@@ -1,6 +1,7 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { METER_WIDTH, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
 import { MixerChannelMeters, MixerChannelPeakLabel } from './MixerChannelMeters';
@@ -70,7 +71,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const activePointerId = useRef<number | null>(null);
     const wheelFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const volumeDb = gainToDb(track.volume ?? 1);
-    const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
+    const volNorm = clamp01(dbToFader(volumeDb));
     const panVal = track.pan ?? 0;
 
     const trackColor = track.color || 'var(--color-accent-primary)';
@@ -84,7 +85,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
         const el = faderRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
-        const pos = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+        const pos = clamp01(1 - (clientY - rect.top) / rect.height);
         onVolumeChange(trackIndex, dbToGain(faderToDb(pos)));
     }, [onVolumeChange, trackIndex]);
 
@@ -101,6 +102,9 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             wheelFlushTimer.current = null;
         }, 150);
     }, []);
+
+    // BUG-U004 FIX: Clear pending timer on unmount to prevent stale ref callbacks.
+    useEffect(() => () => { if (wheelFlushTimer.current) clearTimeout(wheelFlushTimer.current); }, []);
 
     return (
         <div

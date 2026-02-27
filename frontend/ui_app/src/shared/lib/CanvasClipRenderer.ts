@@ -1,6 +1,7 @@
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
+import { clampMidiPitch } from './audioMath';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
@@ -828,7 +829,7 @@ export class CanvasClipRenderer {
         // BUG-C10 FIX: save/restore to prevent globalAlpha leak on exception.
         ctx.save();
         for (const note of clip.midiNotes) {
-            const clampedPitch = Math.max(0, Math.min(127, note.pitch));
+            const clampedPitch = clampMidiPitch(note.pitch);
             const noteX = clipX + note.startBeat * ppb;
             const noteW = Math.max(1, note.durationBeats * ppb);
             const pitchIndexFromTop = 127 - clampedPitch;

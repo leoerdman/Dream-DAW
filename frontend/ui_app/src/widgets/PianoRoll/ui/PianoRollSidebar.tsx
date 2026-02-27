@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 import { miniBtnStyle } from '@/widgets/PianoRoll/ui/styles';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
+import { clampMidiVelocity } from '@/shared/lib/audioMath';
 import type { GridDivision } from '@/shared/lib/gridSnap';
 
 interface PianoRollSidebarProps {
@@ -46,7 +47,7 @@ export const PianoRollSidebarPanel = memo(function PianoRollSidebarPanel({
                         if (selectedNotes.size === 0) return;
                         const nudged = notes.map((note) => (
                             selectedNotes.has(note.id)
-                                ? { ...note, velocity: Math.max(1, Math.min(127, note.velocity + 8)) }
+                                ? { ...note, velocity: clampMidiVelocity(note.velocity + 8) }
                                 : note
                         ));
                         onNotesChange(nudged);

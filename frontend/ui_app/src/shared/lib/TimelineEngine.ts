@@ -1136,9 +1136,10 @@ export class TimelineEngine {
             } else if (hit.type === 'clip' && hit.fadeHandle) {
                 canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.edge === 'left') {
-                canvas.style.cursor = 'default';
+                // BUG-U005 FIX: Show resize cursor so user knows edges are draggable.
+                canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.edge === 'right') {
-                canvas.style.cursor = 'default';
+                canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
             } else if (hit.type === 'clip' && hit.region === 'body') {

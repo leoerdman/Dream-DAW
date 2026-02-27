@@ -1,3 +1,4 @@
+import { clamp01 } from '@/shared/lib/audioMath';
 export const HEADER_HEIGHT = 20;
 export const CLIP_RADIUS = 4;
 export const FADE_GRAB_RADIUS = 3;
@@ -30,6 +31,6 @@ export function applyAlphaMultiplier(color: string, multiplier: number): string 
     const g = Number(m[2]);
     const b = Number(m[3]);
     const baseA = m[4] != null ? Number(m[4]) : 1;
-    const a = Math.max(0, Math.min(1, baseA * multiplier));
+    const a = clamp01(baseA * multiplier);
     return rgba(r, g, b, a);
 }

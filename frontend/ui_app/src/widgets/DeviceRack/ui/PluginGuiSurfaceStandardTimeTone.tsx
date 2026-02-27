@@ -1,4 +1,5 @@
 import React from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
@@ -24,7 +25,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
     const rate = readSurfaceParam(device, 'rate', 1.2, 'Hz');
     const depth = readSurfaceParam(device, 'depth', 40, '%');
     const mix = readMixSurfaceParam(device, 35);
-    const depthNorm = Math.max(0, Math.min(1, depth.value / 100));
+    const depthNorm = clamp01(depth.value / 100);
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-chorus)' }}>

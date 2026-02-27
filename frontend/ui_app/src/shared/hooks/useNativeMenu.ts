@@ -97,6 +97,22 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         text: 'Save',
         accelerator: 'CmdOrCtrl+S',
         action: async () => {
+            // SSOT FIX: Delegate to the React-managed save function registered
+            // by useProjectManager. This is critical because Tauri intercepts
+            // Cmd+S at OS level — the DOM keydown event never fires, so this
+            // native menu action is the ONLY code path for Cmd+S.
+            const globalSave = dreamGlobals.getSaveProject();
+            if (typeof globalSave === 'function') {
+                try {
+                    await globalSave();
+                } catch (err) {
+                    console.error('[NativeMenu] Save (via global bridge) failed:', err);
+                    useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+                return;
+            }
+            // Fallback: inline save logic for early-boot scenario (before
+            // useProjectManager mounts and registers the global).
             try {
                 const flush = dreamGlobals.getFlushPendingEdits();
                 if (typeof flush === 'function') await flush();
@@ -121,7 +137,21 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         id: 'file_save_as',
         text: 'Save As…',
         accelerator: 'CmdOrCtrl+Shift+S',
-        action: handleSaveAs,
+        action: async () => {
+            // SSOT FIX: Delegate to React-managed Save As function.
+            const globalSaveAs = dreamGlobals.getSaveAsProject();
+            if (typeof globalSaveAs === 'function') {
+                try {
+                    await globalSaveAs();
+                } catch (err) {
+                    console.error('[NativeMenu] Save As (via global bridge) failed:', err);
+                    useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+                return;
+            }
+            // Fallback: inline Save As for early-boot scenario.
+            await handleSaveAs();
+        },
     });
     const exportAudioItem = await MenuItem.new({
         id: 'file_export_audio',

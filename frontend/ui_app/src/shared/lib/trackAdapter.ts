@@ -13,6 +13,7 @@
 import type { TrackColor } from '@bindings/TrackColor';
 import type { DeviceNode } from '@bindings/DeviceNode';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
+import { clamp01 } from '@/shared/lib/audioMath';
 
 // ── Track color palette (matches Rust TrackColor enum hex values) ─────────
 
@@ -198,7 +199,7 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         const last = lane.points[lane.points.length - 1];
         const v = Number(last?.value ?? 0);
         if (!Number.isFinite(v)) return 0;
-        return Math.max(0, Math.min(1, v));
+        return clamp01(v);
     };
 
     return {

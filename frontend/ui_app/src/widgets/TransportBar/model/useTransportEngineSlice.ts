@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { resolveBpm } from '@/shared/lib/audioMath';
+import { resolveBpm, DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_DENOMINATOR } from '@/shared/lib/audioMath';
 import { useShallow } from 'zustand/react/shallow';
 import { computeTransportPosition } from './transportBarDomain';
 
@@ -38,8 +38,8 @@ export const useTransportEngineSlice = () =>
             engineSetBpm: s.setBpm,
             engineSetTimeSignature: s.setTimeSignature,
             engineSetLoop: s.setLoop,
-            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || 4,
-            timeSigDenominator: s.timeSigDenominator || s.transport.time_sig_denominator || 4,
+            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || DEFAULT_TIME_SIG_NUMERATOR,
+            timeSigDenominator: s.timeSigDenominator || s.transport.time_sig_denominator || DEFAULT_TIME_SIG_DENOMINATOR,
             trackCount: s.tracks.allIds.length,
             armedTrackIndex,
             telemetryRunning: s.telemetryRunning,

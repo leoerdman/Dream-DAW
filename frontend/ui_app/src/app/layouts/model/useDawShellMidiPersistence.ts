@@ -3,7 +3,7 @@ import throttle from 'lodash.throttle';
 import * as engineApi from '@/shared/api/engine';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import { beatDurationToFrames, beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 
@@ -74,7 +74,7 @@ export function useDawShellMidiPersistence({
     const dirtyMidiEnvelopeClipIdsRef = useRef<Set<string>>(new Set());
 
     const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = resolveBpm(projectBpm, transportBpm);
         const sampleRate = resolveSampleRate(projectSampleRate);
         return notes.map((note) => ({
             pitch: note.pitch,
@@ -166,7 +166,7 @@ export function useDawShellMidiPersistence({
         const notes = midiNotesByClip[clip.id] ?? [];
         const trackId = trackIds[clip.trackIndex];
         const track = trackId ? tracksById[trackId] : undefined;
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = resolveBpm(projectBpm, transportBpm);
         const sampleRate = resolveSampleRate(projectSampleRate);
         const settingsModel = useSettingsStore.getState().settings.openRouterModel;
         const variationModel = (settingsModel && settingsModel !== 'openai/gpt-4o-mini')

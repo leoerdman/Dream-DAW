@@ -390,7 +390,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             });
             // BUG-001: Mark project dirty for any mutation-type delta.
             // Snapshot replacements (project open) reset dirty; everything else marks dirty.
-            const isSnapshotReason = reason.startsWith('open') || reason.startsWith('last-project') || reason.endsWith(':new') || reason.includes(':new-project') || reason.startsWith('multi-project:');
+            // BUG-F015 FIX: Explicit allow-set instead of fragile prefix/suffix matching.
+            const SNAPSHOT_REASONS = new Set([
+                'open', 'open-project', 'last-project', 'last-project:restore',
+                'engine:new', 'keyboard:new', 'native-menu:new', 'multi-project:new',
+                'auto-recovery:restore', 'project-manager:new-project',
+                'multi-project:switch',
+            ]);
+            const isSnapshotReason = SNAPSHOT_REASONS.has(reason) || reason.startsWith('multi-project:');
             if (!isSnapshotReason) {
                 get().markDirty();
             } else {

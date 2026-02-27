@@ -76,7 +76,8 @@ export function usePianoRollState({
 
     useEffect(() => {
         if (selectedNotes === selectedNoteIds) return;
-        setTimeout(() => setSelectedNoteIds(selectedNotes), 0);
+        // BUG-R4-044 FIX: queueMicrotask for guaranteed microtask-level deferral.
+        queueMicrotask(() => setSelectedNoteIds(selectedNotes));
     }, [selectedNoteIds, selectedNotes]);
 
     const setSelectedNotes = useCallback<Dispatch<SetStateAction<Set<string>>>>((next) => {

@@ -11,6 +11,7 @@ import { usePluginKnobDrag } from '@/widgets/DeviceRack/usePluginKnobDrag';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { resolveMixParam } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import { KnobArcSvg } from '@/shared/ui/KnobArcSvg';
+import { clamp01 } from '@/shared/lib/audioMath';
 
 export interface DryWetKnobProps {
     device: DeviceSlot;
@@ -61,14 +62,14 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     const displayRoundedValue = Math.round(safeValue * displayFactor) / displayFactor;
     const visualValue = quantize(displayRoundedValue);
     const rawPct = (visualValue - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min);
-    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
+    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : clamp01(rawPct);
 
     const valueToUnit = useCallback((v: number) =>
         (v - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min),
         [resolvedParam.max, resolvedParam.min]);
 
     const unitToValue = useCallback((u: number) =>
-        resolvedParam.min + Math.max(0, Math.min(1, u)) * (resolvedParam.max - resolvedParam.min),
+        resolvedParam.min + clamp01(u) * (resolvedParam.max - resolvedParam.min),
         [resolvedParam.max, resolvedParam.min]);
 
     const { isDragging, dialRef, onKnobPointerDown, onKnobPointerMove, endKnobDrag, beginMouseDrag } =

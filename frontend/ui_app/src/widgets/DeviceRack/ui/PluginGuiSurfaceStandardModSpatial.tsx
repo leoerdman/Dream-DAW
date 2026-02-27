@@ -1,4 +1,5 @@
 import React from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
@@ -22,7 +23,7 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 1, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
-    const depthNorm = Math.max(0, Math.min(1, modDepth.value / 100));
+    const depthNorm = clamp01(modDepth.value / 100);
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
@@ -117,7 +118,7 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     const modRate = readSurfaceParam(device, 'rate', 0.3, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
     const fb = readSurfaceParam(device, ['fb', 'feedback'], 40, '%');
-    const fbNorm = Math.max(0, Math.min(1, Math.abs(fb.value) / 100));
+    const fbNorm = clamp01(Math.abs(fb.value) / 100);
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>

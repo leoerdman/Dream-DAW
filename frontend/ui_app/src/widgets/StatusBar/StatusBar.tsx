@@ -18,6 +18,7 @@ import { useStatusEngineSlice } from './model/useStatusEngineSlice';
 import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
 import { panelModeBtnStyle } from './ui/statusBarStyles';
 import { HistorySection, InlineMessage } from './ui/statusBarSections';
+import { DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 
 
 interface StatusBarProps {
@@ -64,7 +65,7 @@ export const StatusBar = ({
     const [historyOpen, setHistoryOpen] = useState(false);
     const historyRef = useRef<HTMLDivElement | null>(null);
 
-    const effectiveTimeSigNum = timeSigNum ?? timeSigNumerator ?? 4;
+    const effectiveTimeSigNum = timeSigNum ?? timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
     // BUG-32 FIX: Use store/project time signature instead of hardcoded 4.
     const totalBeats = positionBeats;
     const beatsPerBar = Math.max(1, effectiveTimeSigNum);

@@ -1,5 +1,5 @@
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { resolveBpm } from '@/shared/lib/audioMath';
+import { resolveBpm, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { useShallow } from 'zustand/react/shallow';
 
 export const useStatusEngineSlice = () =>
@@ -9,7 +9,7 @@ export const useStatusEngineSlice = () =>
             isPlaying: s.transport.is_playing,
             positionBeats: s.transport.position_beats ?? 0,
             bpm: resolveBpm(s.projectBpm, s.transport.bpm),
-            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || 4,
+            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || DEFAULT_TIME_SIG_NUMERATOR,
             timelineClips: s.timelineClips,
             connected: s.connected,
             projectSampleRate: s.projectSampleRate,

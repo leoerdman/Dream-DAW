@@ -1,4 +1,4 @@
-import { frameToBeat, resolveBpm, resolveSampleRate, clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveBpm, resolveSampleRate, clampTimeSigNumerator, clampTimeSigDenominator, DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_DENOMINATOR } from '@/shared/lib/audioMath';
 import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
@@ -94,8 +94,8 @@ export function extractSnapshotProjectMeta(
     return {
         bpm,
         sampleRate,
-        timeSigNumerator: clampTimeSigNumerator(toFiniteNumber(project.time_signature?.numerator ?? 4, 4)),
-        timeSigDenominator: clampTimeSigDenominator(toFiniteNumber(project.time_signature?.denominator ?? 4, 4)),
+        timeSigNumerator: clampTimeSigNumerator(toFiniteNumber(project.time_signature?.numerator ?? DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_NUMERATOR)),
+        timeSigDenominator: clampTimeSigDenominator(toFiniteNumber(project.time_signature?.denominator ?? DEFAULT_TIME_SIG_DENOMINATOR, DEFAULT_TIME_SIG_DENOMINATOR)),
         keySigEnabled: Boolean(project.key_sig_enabled ?? false),
         keySigTonic: String(project.key_sig_tonic ?? 'C'),
         keySigMode: String(project.key_sig_mode ?? 'Major'),

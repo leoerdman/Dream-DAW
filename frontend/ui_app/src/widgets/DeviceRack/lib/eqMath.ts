@@ -11,6 +11,7 @@ export {
     eqFilterTypeFromIndex,
 } from './eqConstants';
 import { DEFAULT_BAND_FREQS, EQ_BAND_COLORS, eqFilterTypeFromIndex } from './eqConstants';
+import { clampEqGainDb, clamp01, DEFAULT_SAMPLE_RATE } from '@/shared/lib/audioMath';
 
 export interface BiquadCoeffs { b0: number; b1: number; b2: number; a1: number; a2: number; }
 
@@ -51,7 +52,7 @@ export function freqToX(freq: number): number {
 }
 
 export function xToFreq(x: number): number {
-    const norm = Math.max(0, Math.min(1, (x - MARGIN_L) / PLOT_W));
+    const norm = clamp01((x - MARGIN_L) / PLOT_W);
     return Math.pow(10, MIN_F + norm * (MAX_F - MIN_F));
 }
 
@@ -81,12 +82,12 @@ export function bandDotY(band: EqBand8): number {
 export function computeBiquadCoeffs(
     filterType: string, freq: number, q: number, gainDb: number, sr: number,
 ): BiquadCoeffs {
-    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : 44100;
+    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : DEFAULT_SAMPLE_RATE;
     const nyquist = safeSampleRate * 0.5;
     const maxFreq = Math.max(40, Math.min(20000, nyquist * 0.98));
     const clampedFreq = Math.max(20, Math.min(maxFreq, freq));
     const clampedQ = Math.max(0.1, Math.min(18, q));
-    const clampedGain = Math.max(-24, Math.min(24, gainDb));
+    const clampedGain = clampEqGainDb(gainDb);
     const omega = 2 * Math.PI * clampedFreq / safeSampleRate;
     const cosW = Math.cos(omega);
     const sinW = Math.sin(omega);
@@ -140,7 +141,7 @@ export function computeBiquadCoeffs(
 }
 
 export function biquadMagnitudeDb(c: BiquadCoeffs, freq: number, sr: number): number {
-    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : 44100;
+    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : DEFAULT_SAMPLE_RATE;
     const nyquist = safeSampleRate * 0.5;
     const clampedFreq = Math.max(20, Math.min(Math.max(40, nyquist * 0.98), freq));
     const w = 2 * Math.PI * clampedFreq / safeSampleRate;
@@ -165,7 +166,7 @@ export function buildEqCurvePaths(
     sampleRate: number,
     steps = 200,
 ): { curvePath: string; fillPath: string } {
-    const safeSampleRate = Number.isFinite(sampleRate) ? Math.max(8000, sampleRate) : 44100;
+    const safeSampleRate = Number.isFinite(sampleRate) ? Math.max(8000, sampleRate) : DEFAULT_SAMPLE_RATE;
     const bandCoeffs: (BiquadCoeffs | null)[] = bands.map((band) =>
         band.enabled
             ? computeBiquadCoeffs(band.filterType, band.freq, band.q, band.gain, safeSampleRate)
@@ -237,7 +238,7 @@ export function parseBandsFromParams(
         const rawQ = params.find((p) => p.name.toLowerCase() === `b${i}q`)?.value;
         const rawEn = params.find((p) => p.name.toLowerCase() === `b${i}en`)?.value;
         const freq = Number.isFinite(rawFreq) ? Math.max(20, Math.min(20000, rawFreq as number)) : DEFAULT_BAND_FREQS[i];
-        const gain = Number.isFinite(rawGain) ? Math.max(-24, Math.min(24, rawGain as number)) : 0;
+        const gain = Number.isFinite(rawGain) ? clampEqGainDb(rawGain as number) : 0;
         const q = Number.isFinite(rawQ) ? Math.max(0.1, Math.min(18, rawQ as number)) : 0.71;
         const en = Number.isFinite(rawEn) ? (rawEn as number) : DEFAULT_BAND_ENABLED[i];
         bands.push({

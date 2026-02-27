@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate, DEFAULT_BPM, DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_DENOMINATOR } from '@/shared/lib/audioMath';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -29,8 +29,8 @@ const TRAILING_EMPTY_TRACK_SLOTS = 1;
 const MASTER_LANE_ALIGNMENT_OFFSET_PX = 0;
 export const Timeline = (props: TimelineProps) => {
     const {
-        bpm = 120,
-        timeSignature = [4, 4],
+        bpm = DEFAULT_BPM,
+        timeSignature = [DEFAULT_TIME_SIG_NUMERATOR, DEFAULT_TIME_SIG_DENOMINATOR],
         totalBars = 128,
         trackCount = 8,
         trackHeight = DEFAULT_TRACK_HEIGHT,
@@ -43,7 +43,7 @@ export const Timeline = (props: TimelineProps) => {
         selectedTrackIndices,
         trackIds = [],
         loopStart = 0,
-        loopEnd = 4,
+        loopEnd = DEFAULT_TIME_SIG_NUMERATOR,
         loopEnabled = false,
         selectedClipIds = [],
         onPlayheadChange,

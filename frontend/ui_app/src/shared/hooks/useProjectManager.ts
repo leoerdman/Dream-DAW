@@ -253,6 +253,19 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
         };
     }, [handleSave, handleSaveAs]);
+
+    // ── SSOT Bridge: Register save functions as dreamGlobals ─────────
+    // The native menu (useNativeMenu) intercepts Cmd+S at OS level before
+    // the DOM keydown event fires. It delegates to these globals to call
+    // the same React-managed save logic with proper state and dirty tracking.
+    useEffect(() => {
+        dreamGlobals.setSaveProject(handleSave);
+        dreamGlobals.setSaveAsProject(handleSaveAs);
+        return () => {
+            dreamGlobals.clearSaveProject(handleSave);
+            dreamGlobals.clearSaveAsProject(handleSaveAs);
+        };
+    }, [handleSave, handleSaveAs]);
     // Use refs for volatile state so the interval doesn't have to be
     // torn down and recreated every time isDirty or projectFolder changes.
     const isDirtyRef = useRef(state.isDirty);

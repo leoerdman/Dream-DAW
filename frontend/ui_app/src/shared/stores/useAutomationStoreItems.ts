@@ -1,3 +1,5 @@
+import { clamp01 } from '@/shared/lib/audioMath';
+
 type CurveType = 'linear' | 'bezier' | 'step';
 
 interface AutomationBreakpointLike {
@@ -35,8 +37,10 @@ export function createAutomationItemMutation(
         if (bp.beat <= startBeat + 1e-9) candidate = bp.value;
         else break;
     }
-    const baseValue = Math.max(0, Math.min(1, candidate));
-    const midValue = Math.max(0, Math.min(1, baseValue + 0.2));
+    const baseValue = clamp01(candidate);
+    /** Height offset for automation item's mid-point bezier peak. */
+    const AUTOMATION_ITEM_MID_OFFSET = 0.2;
+    const midValue = clamp01(baseValue + AUTOMATION_ITEM_MID_OFFSET);
     const nextBps = [
         ...localBps,
         { id: genBpId(), beat: startBeat, value: baseValue, curve: 'linear' as const, itemId },

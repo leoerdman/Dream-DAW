@@ -97,7 +97,10 @@ export function createAdaptiveRuntimeBatchSenderFactory(
                 const startedAt = performance.now();
                 lastSentAt = startedAt;
                 void Promise.resolve(emit(payload))
-                    .catch(() => { /* errors handled by caller */ })
+                    .catch((err) => {
+                        // BUG-R4-030 FIX: Log error — caller cannot observe async rejections in this chain.
+                        console.warn('[DeviceRack] runtime batch param send failed:', err);
+                    })
                     .finally(() => {
                         const elapsed = Math.max(1, performance.now() - startedAt);
                         const target = Math.max(

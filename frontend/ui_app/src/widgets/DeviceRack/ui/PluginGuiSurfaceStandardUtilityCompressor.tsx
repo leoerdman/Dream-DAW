@@ -1,4 +1,5 @@
 import React from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
@@ -33,7 +34,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const width = getParamValue(device, ['width', 'stereo'], 100);
         const mono = getParamValue(device, ['mono'], 0) > 0.5;
         const panPct = Math.max(-1, Math.min(1, pan / 100));
-        const widthPct = Math.max(0, Math.min(1, width / 200));
+        const widthPct = clamp01(width / 200);
         const hasUtilityCoreParams = device.params.some((p) => ['gain', 'pan', 'width', 'mono'].includes(p.name.toLowerCase()));
         const showCoreUtilityPanel = hasUtilityCoreParams && !isUtilityVariant;
         const showDryWet = shouldShowDryWet(device);
@@ -204,8 +205,8 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const relParam = readSurfaceParam(device, ['rel', 'release'], 80, 'ms');
         const atkMs = atkParam.value;
         const relMs = relParam.value;
-        const attackNorm = Math.max(0, Math.min(1, Math.log10(Math.max(0.1, atkMs)) / Math.log10(200)));
-        const releaseNorm = Math.max(0, Math.min(1, Math.log10(Math.max(1, relMs)) / Math.log10(1000)));
+        const attackNorm = clamp01(Math.log10(Math.max(0.1, atkMs)) / Math.log10(200));
+        const releaseNorm = clamp01(Math.log10(Math.max(1, relMs)) / Math.log10(1000));
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>

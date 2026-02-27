@@ -1,6 +1,7 @@
 import throttle from 'lodash.throttle';
 import type { StoreApi } from 'zustand';
 import * as engine from '@/shared/api/engine';
+import { clamp01 } from '@/shared/lib/audioMath';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
@@ -147,7 +148,7 @@ export function createTrackProjectActions(
         // with 60+ IPC calls/second during fader drag.
         setTrackSendLevel: async (trackIndex: number, send: 'A' | 'B', value: number) => {
             try {
-                const clamped = Math.max(0, Math.min(1, value));
+                const clamped = clamp01(value);
                 set((s) => {
                     const trackId = s.tracks.allIds[trackIndex];
                     const track = trackId ? s.tracks.byId[trackId] : null;

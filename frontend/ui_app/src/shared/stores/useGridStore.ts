@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import {
     type GridDivision,
     divisionToInterval,
@@ -213,13 +214,13 @@ export const useGridStore = create<GridStore>((set, get) => ({
     snapBeat: (rawBeat: number, beatsPerBar?: number, ppb?: number) => {
         const { division, triplet, snapEnabled } = get();
         if (!snapEnabled) return Math.max(0, rawBeat);
-        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? 4;
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         const interval = Math.max(0.001, divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb));
         return snapToGrid(rawBeat, interval);
     },
     gridInterval: (beatsPerBar?: number, ppb?: number) => {
         const { division, triplet } = get();
-        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? 4;
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         return divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb);
     },
     setPianoPencilMode: (enabled: boolean) => {

@@ -2,8 +2,7 @@ import { memo, useCallback, useRef, useState } from 'react';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-
-const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+import { clamp01 } from '@/shared/lib/audioMath';
 
 const FADER_SCALE_VALS = [12, 6, 0, -6, -12, -24, -36, -48, -60];
 const FADER_SCALE_NODES = FADER_SCALE_VALS.map(val => (

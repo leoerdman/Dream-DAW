@@ -1,5 +1,6 @@
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { safeStorage } from '@/shared/lib/safeStorage';
+import { DEFAULT_SAMPLE_RATE, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 
 export type ExportFormat = 'wav' | 'mp3';
 export type SampleRate = number;
@@ -73,22 +74,22 @@ export function formatDuration(seconds: number): string {
     return `${mins}:${String(secs).padStart(2, '0')}.${tenths}`;
 }
 
-export function beatsToBar(beats: number): number {
-    return Math.floor(beats / 4) + 1;
+export function beatsToBar(beats: number, beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR): number {
+    return Math.floor(beats / beatsPerBar) + 1;
 }
 
 export function loadExportPrefs(): ExportPrefs {
     try {
         const raw = safeStorage.getItem(EXPORT_PREFS_KEY);
         if (!raw) {
-            return { format: 'wav', sampleRate: 48000, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
+            return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
         }
         const parsed = JSON.parse(raw) as Partial<ExportPrefs>;
         return {
             format: (['wav', 'mp3'] as ExportFormat[]).includes(parsed.format as ExportFormat)
                 ? (parsed.format as ExportFormat) : 'wav',
             sampleRate: ([44100, 48000, 88200, 96000, 192000] as SampleRate[]).includes(parsed.sampleRate as SampleRate)
-                ? (parsed.sampleRate as SampleRate) : 48000,
+                ? (parsed.sampleRate as SampleRate) : DEFAULT_SAMPLE_RATE,
             bitDepth: ([16, 24, 32] as BitDepth[]).includes(parsed.bitDepth as BitDepth)
                 ? (parsed.bitDepth as BitDepth) : 24,
             range: (['full', 'loop', 'selected'] as ExportRange[]).includes(parsed.range as ExportRange)
@@ -97,7 +98,7 @@ export function loadExportPrefs(): ExportPrefs {
             tailMs: typeof parsed.tailMs === 'number' ? Math.max(0, Math.min(5000, parsed.tailMs)) : 0,
         };
     } catch {
-        return { format: 'wav', sampleRate: 48000, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
+        return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
     }
 }
 

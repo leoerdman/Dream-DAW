@@ -123,6 +123,54 @@ export function clampTimeSigDenominator(d: number): number {
     return Math.pow(2, Math.round(Math.log2(raw)));
 }
 
+// ── SSOT Round 2 Constants ──────────────────────────────────────────────
+
+/** Default time-signature numerator (beats per bar). */
+export const DEFAULT_TIME_SIG_NUMERATOR = 4;
+/** Default time-signature denominator (beat unit). */
+export const DEFAULT_TIME_SIG_DENOMINATOR = 4;
+
+/** Minimum pitch-shift in semitones. */
+export const MIN_PITCH_SHIFT = -48;
+/** Maximum pitch-shift in semitones. */
+export const MAX_PITCH_SHIFT = 48;
+/** Clamp pitch shift to the valid range [MIN_PITCH_SHIFT, MAX_PITCH_SHIFT]. */
+export function clampPitchShift(semitones: number): number {
+    return Math.max(MIN_PITCH_SHIFT, Math.min(MAX_PITCH_SHIFT, semitones));
+}
+
+/** Minimum MIDI pitch (note number). */
+export const MIN_MIDI_PITCH = 0;
+/** Maximum MIDI pitch (note number). */
+export const MAX_MIDI_PITCH = 127;
+/** Clamp a MIDI pitch to the valid range [0, 127]. */
+export function clampMidiPitch(pitch: number): number {
+    return Math.max(MIN_MIDI_PITCH, Math.min(MAX_MIDI_PITCH, Math.round(pitch)));
+}
+
+/** Minimum MIDI velocity. */
+export const MIN_MIDI_VELOCITY = 1;
+/** Maximum MIDI velocity. */
+export const MAX_MIDI_VELOCITY = 127;
+/** Clamp a MIDI velocity to the valid range [1, 127]. */
+export function clampMidiVelocity(velocity: number): number {
+    return Math.max(MIN_MIDI_VELOCITY, Math.min(MAX_MIDI_VELOCITY, Math.round(velocity)));
+}
+
+/** Clamp a normalized value to [0, 1]. Used for automation, fader positions, etc. */
+export function clamp01(value: number): number {
+    return value <= 0 ? 0 : value >= 1 ? 1 : value;
+}
+
+/** Minimum EQ band gain in dB. */
+export const MIN_EQ_GAIN_DB = -24;
+/** Maximum EQ band gain in dB. */
+export const MAX_EQ_GAIN_DB = 24;
+/** Clamp EQ band gain to the valid range [MIN_EQ_GAIN_DB, MAX_EQ_GAIN_DB]. */
+export function clampEqGainDb(gainDb: number): number {
+    return Math.max(MIN_EQ_GAIN_DB, Math.min(MAX_EQ_GAIN_DB, gainDb));
+}
+
 /**
  * Resolve effective sample-rate from primary/secondary candidates.
  *
@@ -169,7 +217,7 @@ export function vuNorm(peakDb: number): number {
  *
  * Sixteenths = 4 per beat (each beat is divided into 4).
  */
-export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = 4): string {
+export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR): string {
     const safeBeatsPerBar = Math.max(1, beatsPerBar);
     const bars = Math.floor(totalBeats / safeBeatsPerBar);
     const remainingBeats = totalBeats - bars * safeBeatsPerBar;

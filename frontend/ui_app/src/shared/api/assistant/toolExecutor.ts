@@ -2,7 +2,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
-import { resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import { resolveBpm, resolveSampleRate, clamp01, clampMidiVelocity, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
 import { AUTO_CLEANUP_TRACK_NAME_HINTS, ARRANGEMENT_TEMPLATES } from '@/shared/api/assistant/toolExecutor.constants.arrangement';
 import { BEAT_PATTERNS, CHORD_INTERVALS, SCALE_INTERVALS } from '@/shared/api/assistant/toolExecutor.constants.music';
@@ -148,7 +148,7 @@ async function executeToolInner(
             await engineApi.seekToBeat(args.beat as number);
             return JSON.stringify({ seekedTo: args.beat });
         case 'set_track_volume': {
-            const vol = Math.max(0, Math.min(1, args.volume as number));
+            const vol = clamp01(args.volume as number);
             const response = await engineApi.setTrackVolumeWithDeltas(args.trackIndex as number, vol);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-volume');
             return JSON.stringify({ trackIndex: args.trackIndex, volume: vol });
@@ -590,7 +590,7 @@ async function executeToolInner(
             const fpbH = (60.0 / resolveBpm(stH.projectBpm, stH.transport.bpm)) * (resolveSampleRate(stH.projectSampleRate));
             const humanized = clip.midiNotes.map(n => {
                 const delta = Math.round((Math.random() * 2 - 1) * range);
-                return { pitch: n.pitch, velocity: Math.max(1, Math.min(127, n.velocity + delta)), startFrames: Math.round(n.startBeat * fpbH), durationFrames: Math.round(n.durationBeats * fpbH) };
+                return { pitch: n.pitch, velocity: clampMidiVelocity(n.velocity + delta), startFrames: Math.round(n.startBeat * fpbH), durationFrames: Math.round(n.durationBeats * fpbH) };
             });
             const response = await engineApi.updateMidiClipWithDeltas(clipId, humanized);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-humanize-velocity');
@@ -727,7 +727,9 @@ async function executeToolInner(
             const globals = globalThis as GlobalWithPreviewTimer;
             if (globals.__dreamPreviewTimer) clearTimeout(globals.__dreamPreviewTimer);
             globals.__dreamPreviewTimer = setTimeout(() => {
-                engineApi.previewSamplerNoteOff(tIdx, pitch).catch(() => { });
+                engineApi.previewSamplerNoteOff(tIdx, pitch).catch((err) => {
+                    console.warn('[ToolExecutor] previewSamplerNoteOff failed:', err);
+                });
                 globals.__dreamPreviewTimer = null;
             }, 500);
             return JSON.stringify({ success: true, pitch, velocity: vel });
@@ -770,7 +772,7 @@ async function executeToolInner(
         case 'suggest_arrangement': {
             const genre = (args.genre as string).toLowerCase();
             const durBars = (args.durationBars as number) || 64;
-            const beatsPerBar = 4;
+            const beatsPerBar = useEngineStore.getState().timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
             const template = ARRANGEMENT_TEMPLATES[genre] || ARRANGEMENT_TEMPLATES.house;
             const scaleFactor = durBars / (template[template.length - 1]?.endBar || 64);
             const sections = template.map(s => ({

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { clamp01 } from '@/shared/lib/audioMath';
 import {
     createAutomationItemMutation,
     deleteNearestAutomationItemMutation,
@@ -164,8 +165,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             if (!lane) return s;
             const bp: AutomationBreakpoint = {
                 id: genBpId(),
-                beat,
-                value,
+                beat: Math.max(0, beat),
+                value: clamp01(value),
                 curve,
                 tension: curve === 'bezier' ? 0.5 : undefined,
             };
@@ -179,7 +180,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             const lane = s.lanes[laneId];
             if (!lane) return s;
             const bps = lane.breakpoints
-                .map((bp) => (bp.id === bpId ? { ...bp, beat, value: Math.max(0, Math.min(1, value)) } : bp))
+                .map((bp) => (bp.id === bpId ? { ...bp, beat, value: clamp01(value) } : bp))
                 .sort((a, b) => a.beat - b.beat);
             return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
         });

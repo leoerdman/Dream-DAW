@@ -11,6 +11,7 @@ import {
     bandDotY,
     type EqBand8,
 } from '@/widgets/DeviceRack/lib/eqMath';
+import { clamp01, clampEqGainDb } from '@/shared/lib/audioMath';
 import {
     EqBandContextMenu,
     EqBandOverlays,
@@ -155,12 +156,12 @@ export function PluginGuiSurfaceEqCanvas({
                     const newBandFilterOnly = newBandFilterType === 'lowpass' || newBandFilterType === 'highpass' || newBandFilterType === 'notch';
                     if (newBandFilterOnly) {
                         const clickQNorm = ((VB_H - 10) - svgY) / (VB_H - 20);
-                        const clampedQNorm = Math.max(0, Math.min(1, clickQNorm));
+                        const clampedQNorm = clamp01(clickQNorm);
                         const clickQ = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
                         onParamChange(`B${bestBand.idx}Q`, Math.round(clickQ * 100) / 100);
                     } else {
                         const clickGain = ((VB_H / 2 - svgY) / (VB_H / 2 - 10)) * 24;
-                        const clampedGain = Math.max(-24, Math.min(24, clickGain));
+                        const clampedGain = clampEqGainDb(clickGain);
                         onParamChange(`B${bestBand.idx}Gain`, Math.round(clampedGain * 10) / 10);
                     }
                     onParamChange(`B${bestBand.idx}En`, 1);

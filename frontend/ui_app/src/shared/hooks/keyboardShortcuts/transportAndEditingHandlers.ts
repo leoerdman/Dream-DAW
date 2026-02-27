@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import { clamp01, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
@@ -14,12 +14,10 @@ type ShortcutCtx = KeyboardShortcutHandlerEnv['ctx'];
 async function flushLaneToEngine(laneId: string, tag: string): Promise<void> {
     const lane = useAutomationStore.getState().lanes[laneId];
     if (!lane) return;
-    const store = useEngineStore.getState();
-    const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
-    const currentSampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const points = lane.breakpoints.map((bp) => ({
-        beat: Math.max(0, frameToBeat(beatToFrame(bp.beat, currentBpm, currentSampleRate), currentBpm, currentSampleRate)),
-        value: Math.max(0, Math.min(1, bp.value)),
+        // BUG-E005 FIX: Keep beats as-is — no beat→frame→beat round-trip that causes drift.
+        beat: Math.max(0, bp.beat),
+        value: clamp01(bp.value),
         curveType: bp.curve === 'bezier' ? 'bezier' as const : bp.curve === 'step' ? 'step' as const : 'linear' as const,
     }));
     const response = await engine.setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points);
@@ -190,7 +188,8 @@ export async function handleAutomationShortcuts(
         const cursorBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
             ? editCursorBeat
             : frameToBeat(playheadFrames, bpm, sampleRate);
-        const beatsPerBar = (store as typeof store & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
+        // BUG-A002 FIX: Use actual store property instead of phantom type-cast that always returned 4.
+        const beatsPerBar = store.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         if (lane) {
             autoStore.createAutomationItem(lane.id, cursorBeat, beatsPerBar);
             await flushLaneToEngine(lane.id, 'shortcut:create-automation-item');
@@ -243,7 +242,7 @@ export async function handlePitchShortcuts(
             const responses = await Promise.all(
                 targetClips.map((clip) => {
                     const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
-                    const nextPitch = Math.max(-48, Math.min(48, currentPitch + 12));
+                    const nextPitch = clampPitchShift(currentPitch + 12);
                     return engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
                 }),
             );
@@ -266,7 +265,7 @@ export async function handlePitchShortcuts(
             const responses = await Promise.all(
                 targetClips.map((clip) => {
                     const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
-                    const nextPitch = Math.max(-48, Math.min(48, currentPitch - 12));
+                    const nextPitch = clampPitchShift(currentPitch - 12);
                     return engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
                 }),
             );

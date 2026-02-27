@@ -1,4 +1,5 @@
 import React from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
@@ -95,7 +96,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
         const reverbSize = readSurfaceParam(device, ['size', 'decay'], 50, '%');
         const reverbDamp = readSurfaceParam(device, ['damp', 'tone'], 40, '%');
         const mix = readMixSurfaceParam(device, 28);
-        const sizeNorm = Math.max(0, Math.min(1, reverbSize.value / 100));
+        const sizeNorm = clamp01(reverbSize.value / 100);
         const tailEnd = 60 + sizeNorm * 200;
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>

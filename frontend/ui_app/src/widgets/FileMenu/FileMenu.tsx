@@ -120,6 +120,17 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);
+        // SSOT: Delegate to the canonical Save As function registered by useProjectManager.
+        const globalSaveAs = dreamGlobals.getSaveAsProject();
+        if (typeof globalSaveAs === 'function') {
+            try {
+                await globalSaveAs();
+            } catch (err) {
+                console.error('[FileMenu] Save As (via global bridge) failed:', err);
+            }
+            return;
+        }
+        // Fallback: inline Save As for edge cases.
         try {
             const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
@@ -127,7 +138,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             }
             await syncArrangementViewport();
             const path = await engineApi.saveProjectDialog();
-            if (!path) return; // Cancelled
+            if (!path) return;
             await engineApi.saveProjectAs(path);
             await syncProjectHistory();
 
@@ -138,6 +149,17 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
 
     const handleSave = useCallback(async () => {
         setOpen(false);
+        // SSOT: Delegate to the canonical save function registered by useProjectManager.
+        const globalSave = dreamGlobals.getSaveProject();
+        if (typeof globalSave === 'function') {
+            try {
+                await globalSave();
+            } catch (err) {
+                console.error('[FileMenu] Save (via global bridge) failed:', err);
+            }
+            return;
+        }
+        // Fallback: inline save for edge cases where globals aren't registered.
         try {
             const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
@@ -148,10 +170,6 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncProjectHistory();
 
         } catch (err: unknown) {
-            // ENTERPRISE FIX (BUG-R05): Previously caught ALL errors silently,
-            // including network errors, serialization failures, and permission errors.
-            // Now logs the error for diagnostics and only falls back to Save As
-            // if the error indicates "no path set" (the expected case).
             const msg = err instanceof Error ? err.message : String(err);
             const isNoPath = /no.*(path|file|save)/i.test(msg) || /not.*saved/i.test(msg);
             if (isNoPath) {

@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
-import { formatBeatsAsBBS } from '@/shared/lib/audioMath';
+import { DEFAULT_BPM, DEFAULT_TIME_SIG_NUMERATOR, formatBeatsAsBBS } from '@/shared/lib/audioMath';
 
 interface SampleClipSidebarProps {
     clipDurationBeats: number;
@@ -24,7 +24,7 @@ interface SampleClipSidebarProps {
 
 export function SampleClipSidebar({
     clipDurationBeats,
-    beatsPerBar = 4,
+    beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR,
     hasFilePath,
     draftWarpEnabled,
     setDraftWarpEnabled,
@@ -89,7 +89,7 @@ export function SampleClipSidebar({
                         max={300}
                         value={draftWarpBaseBpm}
                         disabled={!draftWarpEnabled}
-                        onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || 120)}
+                        onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || DEFAULT_BPM)}
                         onBlur={() => {
                             void commitWarp({
                                 enabled: draftWarpEnabled,

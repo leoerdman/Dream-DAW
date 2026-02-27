@@ -1,4 +1,5 @@
 import React from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
@@ -26,7 +27,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     const ceilParam = readSurfaceParam(device, 'ceil', -0.1, 'dB');
     const thr = thrParam.value;
     const ceil = ceilParam.value;
-    const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
+    const safety = clamp01(1 - Math.abs(thr - ceil) / 30);
     const limGr = Math.max(0, Math.abs(thr) * 0.8);
     const grBarH = Math.max(0, Math.min(100, (limGr / 24) * 100));
     return (
@@ -70,7 +71,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
     const rangeParam = readSurfaceParam(device, 'range', -80, 'dB');
     const gateAtkParam = readSurfaceParam(device, ['atk', 'attack'], 0.1, 'ms');
     const gateRelParam = readSurfaceParam(device, ['rel', 'release'], 50, 'ms');
-    const thrNorm = Math.max(0, Math.min(1, (thrParam.value + 60) / 60));
+    const thrNorm = clamp01((thrParam.value + 60) / 60);
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-gate)' }}>
@@ -114,7 +115,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
     const modRate = readSurfaceParam(device, 'rate', 0, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 0, '%');
     const modFreq = readSurfaceParam(device, ['freq', 'frequency', 'cutoff', 'center'], 1000, 'Hz');
-    const freqNorm = Math.max(0, Math.min(1, (Math.log10(Math.max(20, modFreq.value)) - Math.log10(20)) / (Math.log10(20000) - Math.log10(20))));
+    const freqNorm = clamp01((Math.log10(Math.max(20, modFreq.value)) - Math.log10(20)) / (Math.log10(20000) - Math.log10(20)));
     const peakX = 20 + freqNorm * 260;
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>

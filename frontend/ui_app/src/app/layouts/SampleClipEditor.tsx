@@ -4,7 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
@@ -62,7 +62,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const toolbarColor = clip.color || 'var(--color-accent-primary)';
 
     const commitPitch = useCallback(async (val: number) => {
-        const nextPitch = Math.max(-48, Math.min(48, val));
+        const nextPitch = clampPitchShift(val);
         const previousClips = useEngineStore.getState().timelineClips;
         useEngineStore.setState((state) => ({
             ...(() => {
@@ -248,6 +248,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                             gridStep={gridStep}
                             waveHeightScale={zoomY}
                             color={toolbarColor}
+                            beatsPerBar={beatsPerBar}
                         />
                     ) : (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: 'var(--space-px) dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>

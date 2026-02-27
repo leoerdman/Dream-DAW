@@ -268,7 +268,11 @@ export function createTelemetryActions(
                                     last_error: null,
                                 }),
                             );
-                            enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: null });
+                            // BUG-C004 FIX: Only clear lastError if it was set by a plugin crash.
+                            // Previously cleared errors from unrelated subsystems.
+                            const currentError = get().lastError;
+                            const clearError = currentError?.startsWith('Plugin crashed:') ? null : currentError;
+                            enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: clearError });
                         },
                     );
                     pluginSandboxReloadedUnlisten = await listen<SandboxSlotUpdateEvent>(

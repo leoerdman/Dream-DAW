@@ -277,6 +277,8 @@ export class ViewportMatrix {
 
     destroy(): void {
         this._onFlush = null;
+        // BUG-A010 FIX: Also clear scroll-Y callback to prevent memory leak.
+        this._onScrollYChange = null;
     }
 
     private _clampScroll(): void {

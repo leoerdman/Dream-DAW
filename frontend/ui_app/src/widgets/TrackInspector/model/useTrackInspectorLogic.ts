@@ -90,14 +90,15 @@ export function useTrackInspectorLogic({
     }, []);
     useEffect(() => {
         const valid = new Set(['master', ...trackIds]);
-        setTimeout(() => setHeaderSelectedTrackIdSet((prev) => {
+        // BUG-R4-020 FIX: queueMicrotask for guaranteed microtask ordering.
+        queueMicrotask(() => setHeaderSelectedTrackIdSet((prev) => {
             if (prev.size === 0) return prev;
             const next = new Set<string>();
             for (const id of prev) {
                 if (valid.has(id)) next.add(id);
             }
             return next.size === prev.size ? prev : next;
-        }), 0);
+        }));
     }, [trackIds]);
     const trackSelectionSyncSignature = useMemo(
         () => `${selectedTrackId}|${effectiveSelectedTrackIds.join(',')}`,
@@ -108,7 +109,8 @@ export function useTrackInspectorLogic({
             keepHeaderSelectionOnNextTrackSelectionSyncRef.current = false;
             return;
         }
-        setTimeout(() => clearHeaderSelection(), 0);
+        // BUG-R4-045 FIX: queueMicrotask for guaranteed microtask ordering.
+        queueMicrotask(() => clearHeaderSelection());
     }, [trackSelectionSyncSignature, clearHeaderSelection]);
     useEffect(() => {
         const onWindowPointerDown = (e: PointerEvent) => {

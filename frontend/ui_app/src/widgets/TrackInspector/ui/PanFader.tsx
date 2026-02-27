@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { clamp01 } from '@/shared/lib/audioMath';
 
 export type PanFaderProps = {
     pan: number;
@@ -20,7 +21,7 @@ export const PanFader = ({
     const isDraggingRef = useRef(false);
     const activePointerId = useRef<number | null>(null);
     const dragStartRef = useRef<{ x: number; y: number; startNorm: number } | null>(null);
-    const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
+    const panNorm = clamp01((pan + 1) / 2);
 
     const endDrag = useCallback(() => {
         isDraggingRef.current = false;
@@ -39,7 +40,7 @@ export const PanFader = ({
             const deltaY = e.clientY - dragStart.y;
             const dragRangePx = compact ? 120 : 144;
             const delta = (deltaX - deltaY) / dragRangePx;
-            const nextNorm = Math.max(0, Math.min(1, dragStart.startNorm + delta));
+            const nextNorm = clamp01(dragStart.startNorm + delta);
             onPanChange(nextNorm * 2 - 1);
         };
 

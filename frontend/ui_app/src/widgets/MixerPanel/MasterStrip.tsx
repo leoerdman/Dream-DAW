@@ -1,7 +1,7 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { vuNorm } from '@/shared/lib/audioMath';
+import { clamp01, vuNorm } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { METER_WIDTH, STRIP_WIDTH } from './MixerPanel.constants';
 
@@ -13,8 +13,8 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
     const peakR = masterRight?.peak ?? -60;
     const rmsL = masterLeft?.rms ?? -60;
     const rmsR = masterRight?.rms ?? -60;
-    const meterL = Math.max(0, Math.min(1, vuNorm((peakL * 0.7) + (rmsL * 0.3))));
-    const meterR = Math.max(0, Math.min(1, vuNorm((peakR * 0.7) + (rmsR * 0.3))));
+    const meterL = clamp01(vuNorm((peakL * 0.7) + (rmsL * 0.3)));
+    const meterR = clamp01(vuNorm((peakR * 0.7) + (rmsR * 0.3)));
 
     return (
         <div style={{ display: 'flex', flexDirection: 'row', gap: 1 }}>
@@ -57,7 +57,7 @@ export const MasterStrip = memo(function MasterStrip() {
 
     const vol = masterVolume ?? 1;
     const volumeDb = gainToDb(vol);
-    const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
+    const volNorm = clamp01(dbToFader(volumeDb));
 
     const masterWidth = STRIP_WIDTH;
     const masterMeterW = METER_WIDTH + 2;
@@ -67,7 +67,7 @@ export const MasterStrip = memo(function MasterStrip() {
         const el = faderRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
-        const pos = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+        const pos = clamp01(1 - (clientY - rect.top) / rect.height);
         setMasterVolume(dbToGain(faderToDb(pos)));
     }, [setMasterVolume]);
 
@@ -84,6 +84,9 @@ export const MasterStrip = memo(function MasterStrip() {
             wheelFlushTimer.current = null;
         }, 150);
     }, []);
+
+    // BUG-U004 FIX: Clear pending timer on unmount to prevent stale ref callbacks.
+    useEffect(() => () => { if (wheelFlushTimer.current) clearTimeout(wheelFlushTimer.current); }, []);
 
     return (
         <div style={{

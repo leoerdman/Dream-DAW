@@ -106,6 +106,9 @@ export class ViewportMachine {
         if (this._flushTimer) {
             clearTimeout(this._flushTimer);
             this._flushTimer = null;
+            // BUG-R4-001 FIX: Fire pending flush before detach to prevent data loss.
+            // Without this, any viewport state changes in the debounce window are silently lost.
+            this._onFlush?.(this.snapshot);
         }
     }
 

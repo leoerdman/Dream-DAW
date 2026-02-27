@@ -42,6 +42,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { clamp01 } from '@/shared/lib/audioMath';
+
 // ─── Range Constants ─────────────────────────────────────────────────────
 
 /** Minimum displayable level in dBFS.  Anything below this reads as silence. */
@@ -241,6 +243,6 @@ export function formatDb(db: number, dp = 1): string {
  * @returns     dB value (clamped to DB_FLOOR..DB_CEILING).
  */
 export function meterNormToDb(norm: number): number {
-    const clamped = Math.max(0, Math.min(1, norm));
+    const clamped = clamp01(norm);
     return clamped * DB_RANGE + DB_FLOOR;
 }

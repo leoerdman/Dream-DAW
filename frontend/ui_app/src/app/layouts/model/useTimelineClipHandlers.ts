@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import { beatDurationToFrames, beatToFrame } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, beatToFrame, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -83,7 +83,7 @@ export function useTimelineClipHandlers({
         const sampleRate = projectSampleRate;
         const storeState = useEngineStore.getState();
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
-        const beatsPerBar = storeState.timeSigNumerator ?? 4;
+        const beatsPerBar = storeState.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         const positionFrames = beatToFrame(beat, bpm, sampleRate);
         const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sampleRate);
         void createMidiClip(trackIndex, positionFrames, durationFrames);

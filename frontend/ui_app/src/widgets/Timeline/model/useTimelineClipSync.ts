@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { clamp01 } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import type { TimelineEngine } from '@/shared/lib/TimelineEngine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -29,10 +30,10 @@ export function useTimelineClipSync({
         if (!engine) return;
         const clipData: TimelineClipData[] = clips.map((c) => ({
             fadeIn: (c.durationSamples && c.durationSamples > 0)
-                ? Math.max(0, Math.min(1, (c.fadeIn ?? 0) / c.durationSamples))
+                ? clamp01((c.fadeIn ?? 0) / c.durationSamples)
                 : 0,
             fadeOut: (c.durationSamples && c.durationSamples > 0)
-                ? Math.max(0, Math.min(1, (c.fadeOut ?? 0) / c.durationSamples))
+                ? clamp01((c.fadeOut ?? 0) / c.durationSamples)
                 : 0,
             id: c.id,
             name: c.name,

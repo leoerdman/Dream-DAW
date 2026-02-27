@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { clamp01, clampMidiPitch, clampMidiVelocity } from '@/shared/lib/audioMath';
 import type { Dispatch, SetStateAction } from 'react';
 import {
     MIN_NOTE_BEATS,
@@ -75,7 +76,7 @@ export function usePianoRollTransforms({
             if (!targets.has(n.id)) return n;
             return {
                 ...n,
-                pitch: Math.max(0, Math.min(127, n.pitch + delta)),
+                pitch: clampMidiPitch(n.pitch + delta),
             };
         });
         setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
@@ -84,7 +85,7 @@ export function usePianoRollTransforms({
 
     const quantizeAllNotesToGrid = useCallback((amountPct = quantizeAmount) => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const amt = Math.max(0, Math.min(1, amountPct / 100));
+        const amt = clamp01(amountPct / 100);
         const targetIds = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
         const next = notes.map((n) => {
             if (!targetIds.has(n.id)) return n;
@@ -147,7 +148,7 @@ export function usePianoRollTransforms({
             return {
                 ...n,
                 startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
-                velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
+                velocity: clampMidiVelocity(n.velocity + velocity),
             };
         });
         onNotesChange(enforceNoOverlap(next, targets));

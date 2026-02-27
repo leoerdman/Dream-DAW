@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { clamp01, clampMidiVelocity } from '@/shared/lib/audioMath';
 import { VELOCITY_LANE_HEIGHT, type MidiNote, type PianoLaneType } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 interface UsePianoRollLaneValuesArgs {
@@ -84,7 +85,7 @@ export function usePianoRollLaneValues({
             const byBeat = new Map<number, { sum: number; count: number }>();
             for (const note of notes) {
                 const beat = note.startBeat;
-                const value = Math.max(0, Math.min(1, (values[note.id] ?? 0) / 127));
+                const value = clamp01((values[note.id] ?? 0) / 127);
                 const existing = byBeat.get(beat);
                 if (existing) byBeat.set(beat, { sum: existing.sum + value, count: existing.count + 1 });
                 else byBeat.set(beat, { sum: value, count: 1 });
@@ -134,7 +135,7 @@ export function usePianoRollLaneValues({
         let moved = false;
         const applyAbsoluteFromY = (clientY: number) => {
             const y = Math.max(0, Math.min(VELOCITY_LANE_HEIGHT, clientY - laneRect.top));
-            const absolute = Math.round(Math.max(1, Math.min(127, (1 - y / VELOCITY_LANE_HEIGHT) * 127)));
+            const absolute = clampMidiVelocity((1 - y / VELOCITY_LANE_HEIGHT) * 127);
             if (activeLane === 'velocity') {
                 onNotesChange(notes.map((note) => (targets.has(note.id) ? { ...note, velocity: absolute } : note)));
             } else {
@@ -157,14 +158,14 @@ export function usePianoRollLaneValues({
                 onNotesChange(notes.map((note) => {
                     if (!targets.has(note.id)) return note;
                     const base = startedValues.get(note.id) ?? note.velocity;
-                    return { ...note, velocity: Math.max(1, Math.min(127, base + delta)) };
+                    return { ...note, velocity: clampMidiVelocity(base + delta) };
                 }));
             } else {
                 setLaneValuesByNote((prev) => {
                     const next = { ...prev, [activeLane]: { ...prev[activeLane] } };
                     targets.forEach((id) => {
                         const base = startedValues.get(id) ?? 0;
-                        next[activeLane][id] = Math.max(1, Math.min(127, base + delta));
+                        next[activeLane][id] = clampMidiVelocity(base + delta);
                     });
                     return next;
                 });

@@ -191,7 +191,9 @@ export function useDeviceRackLogic(
 
     // BUG-FIX: Ensure context menu clears when switching tracks to prevent cross-track ID corruption
     useEffect(() => {
-        setTimeout(() => setAutoCtxMenu(null), 0);
+        // BUG-R4-019 FIX: queueMicrotask guarantees execution before next paint,
+        // preventing 1-frame flash of stale context menu position.
+        queueMicrotask(() => setAutoCtxMenu(null));
     }, [selectedTrackId]);
 
     const {

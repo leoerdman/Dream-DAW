@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { downsamplePeaks, selectFinestMipLevel } from '@/shared/lib/waveformUtils';
 
 export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePath: string }) {
     const [peaks, setPeaks] = useState<engineApi.PeakPair[] | null>(null);
@@ -20,29 +21,12 @@ export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePat
         engineApi.getWaveformPeaksBinary(samplePath)
             .then((wf) => {
                 if (cancelled) return;
-                const level = wf.mip_levels[0] ?? wf.mip_levels[wf.mip_levels.length - 1];
-                const rawPeaks = level?.peaks ?? [];
-                const target = 20;
-                if (rawPeaks.length <= target) {
-                    setPeaks(rawPeaks);
-                    return;
-                }
-                const reduced: engineApi.PeakPair[] = [];
-                const bucket = rawPeaks.length / target;
-                for (let i = 0; i < target; i += 1) {
-                    const s = Math.floor(i * bucket);
-                    const e = Math.min(rawPeaks.length, Math.max(s + 1, Math.floor((i + 1) * bucket)));
-                    let mn = 1;
-                    let mx = -1;
-                    for (let j = s; j < e; j += 1) {
-                        if (rawPeaks[j].min < mn) mn = rawPeaks[j].min;
-                        if (rawPeaks[j].max > mx) mx = rawPeaks[j].max;
-                    }
-                    reduced.push({ min: mn, max: mx });
-                }
-                setPeaks(reduced);
+                const rawPeaks = selectFinestMipLevel(wf.mip_levels);
+                setPeaks(downsamplePeaks(rawPeaks, 20));
             })
-            .catch(() => {
+            .catch((err) => {
+                // BUG-R4-035b FIX: Log instead of silently swallowing.
+                console.warn('[PadWaveform] waveform peaks load failed:', err);
                 if (!cancelled) setPeaks(null);
             });
         return () => {

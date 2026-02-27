@@ -19,6 +19,7 @@
 
 import React from 'react';
 import type { CSSProperties } from 'react';
+import { clamp01 } from '@/shared/lib/audioMath';
 import {
     DB_ZERO_NORM,
     METER_GRADIENT_VERTICAL,
@@ -67,7 +68,7 @@ const ChannelBar: React.FC<{
 }> = React.memo(({ level, align, chWidth, fillBg }) => {
     // BUG-95 FIX: NaN guard — prevents clip-path: inset(NaN% 0 0 0).
     const safeLevel = Number.isNaN(level) ? 0 : level;
-    const scale = Math.max(0, Math.min(1, safeLevel));
+    const scale = clamp01(safeLevel);
 
     return (
         <div

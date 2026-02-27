@@ -9,6 +9,7 @@ import type {
     SplitClipResponse,
     SplitClipWithDeltasResponse,
 } from './projectDelta';
+import { clampMidiPitch, clampMidiVelocity, clamp01 } from '@/shared/lib/audioMath';
 import type {
     AppSettings,
     EngineState,
@@ -97,13 +98,13 @@ export const setTrackSendLevelWithDeltas = (trackIndex: number, send: 'A' | 'B',
 export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
     invoke<void>('preview_sampler_note_on_cmd', {
         trackIndex: Math.max(0, Math.round(trackIndex)),
-        pitch: Math.max(0, Math.min(127, Math.round(pitch))),
-        velocity: Math.max(1, Math.min(127, Math.round(velocity))),
+        pitch: clampMidiPitch(pitch),
+        velocity: clampMidiVelocity(velocity),
     });
 export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
     invoke<void>('preview_sampler_note_off_cmd', {
         trackIndex: Math.max(0, Math.round(trackIndex)),
-        pitch: Math.max(0, Math.min(127, Math.round(pitch))),
+        pitch: clampMidiPitch(pitch),
     });
 export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34;
 export const BuiltinEffectType: {
@@ -454,8 +455,8 @@ export const updateMidiClip = (
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         notes: notes.map((n) => ({
-            pitch: Math.max(0, Math.min(127, Math.round(n.pitch))),
-            velocity: Math.max(1, Math.min(127, Math.round(n.velocity))),
+            pitch: clampMidiPitch(n.pitch),
+            velocity: clampMidiVelocity(n.velocity),
             start_frames: Math.max(0, Math.round(n.startFrames)),
             duration_frames: Math.max(1, Math.round(n.durationFrames)),
         })),
@@ -469,8 +470,8 @@ export const updateMidiClipWithDeltas = (
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         notes: notes.map((n) => ({
-            pitch: Math.max(0, Math.min(127, Math.round(n.pitch))),
-            velocity: Math.max(1, Math.min(127, Math.round(n.velocity))),
+            pitch: clampMidiPitch(n.pitch),
+            velocity: clampMidiVelocity(n.velocity),
             start_frames: Math.max(0, Math.round(n.startFrames)),
             duration_frames: Math.max(1, Math.round(n.durationFrames)),
         })),
@@ -495,7 +496,7 @@ export const setMidiClipEnvelopes = (
             paramId: env.paramId,
             points: env.points.map((p) => ({
                 beat: Math.max(0, Number(p.beat ?? 0)),
-                value: Math.max(0, Math.min(1, Number(p.value ?? 0))),
+                value: clamp01(Number(p.value ?? 0)),
             })),
         })),
     });

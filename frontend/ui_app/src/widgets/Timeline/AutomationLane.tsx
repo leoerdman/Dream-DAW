@@ -4,6 +4,7 @@ import {
     type AutomationLane as LaneData,
     type AutomationBreakpoint,
 } from '@/shared/stores/useAutomationStore';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { AutomationLaneSvg } from './AutomationLaneSvg';
 import { useAutomationLaneSync } from './AutomationLaneSync';
 import { useAutomationLaneItemHandlers } from './AutomationLaneItems';
@@ -70,7 +71,7 @@ export const AutomationLane = memo(function AutomationLane({
             const x = clientX - rect.left;
             const y = clientY - rect.top;
             const beat = x / pixelsPerBeat + scrollOffsetBeats;
-            const value = Math.max(0, Math.min(1, 1 - y / height));
+            const value = clamp01(1 - y / height);
             return { beat: Math.max(0, beat), value };
         },
         [pixelsPerBeat, scrollOffsetBeats, height],

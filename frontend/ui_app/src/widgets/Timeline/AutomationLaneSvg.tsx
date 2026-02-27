@@ -1,4 +1,5 @@
 import type { AutomationBreakpoint, AutomationLane as LaneData } from '@/shared/stores/useAutomationStore';
+import { clamp01 } from '@/shared/lib/audioMath';
 import type { MouseEvent, RefObject } from 'react';
 
 interface AutomationLaneSvgProps {
@@ -123,7 +124,7 @@ export function AutomationLaneSvg({
                             const t = Math.abs(x2 - x1) < 1e-6 ? 0 : (localX - x1) / (x2 - x1);
                             const y1 = valueToPxY(bps[i].value);
                             const y2 = valueToPxY(bps[i + 1].value);
-                            const y = y1 + (y2 - y1) * Math.max(0, Math.min(1, t));
+                            const y = y1 + (y2 - y1) * clamp01(t);
                             const dist = Math.abs(localY - y);
                             if (dist < bestDist) {
                                 bestDist = dist;

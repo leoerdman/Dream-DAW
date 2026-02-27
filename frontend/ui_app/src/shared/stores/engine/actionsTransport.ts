@@ -122,8 +122,10 @@ export function createTransportActions(
         },
 
         setFrequency: async (freq: number) => {
+            // BUG-F008 FIX: Validate input — reject NaN, Infinity, clamp to audible range.
+            const safe = Number.isFinite(freq) ? Math.max(20, Math.min(20000, freq)) : 440;
             try {
-                await engine.setFrequency(freq);
+                await engine.setFrequency(safe);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

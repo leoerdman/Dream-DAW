@@ -91,7 +91,7 @@ export const useDragStore = create<DragState>((set, get) => ({
 
     endDrag: () => {
         set(() => {
-            return { draggingItem: null };
+            return { draggingItem: null, cursorX: 0, cursorY: 0 };
         });
         _cleanupMouseMove?.();
         _cleanupMouseMove = null;

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { MARGIN_L, PLOT_W, VB_H, VB_W } from '@/widgets/DeviceRack/lib/eqMath';
+import { clamp01, clampEqGainDb } from '@/shared/lib/audioMath';
 
 type Args = {
     dragEqBand: number | null;
@@ -35,11 +36,11 @@ export function useEqBandDragEffect({
             const surface = eqSurfaceRef.current;
             if (!surface) return;
             const rect = surface.getBoundingClientRect();
-            const xNorm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+            const xNorm = clamp01((e.clientX - rect.left) / Math.max(1, rect.width));
             const yNorm = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
             const svgY = (yNorm / rect.height) * VB_H;
             const svgX = xNorm * VB_W;
-            const freqNorm = Math.max(0, Math.min(1, (svgX - MARGIN_L) / PLOT_W));
+            const freqNorm = clamp01((svgX - MARGIN_L) / PLOT_W);
             const minF = Math.log10(20);
             const maxF = Math.log10(20000);
             const freq = Math.pow(10, minF + freqNorm * (maxF - minF));
@@ -52,7 +53,7 @@ export function useEqBandDragEffect({
             const filterOnly = filterType === 'lowpass' || filterType === 'highpass' || filterType === 'notch';
             if (filterOnly) {
                 const qNorm = ((VB_H - 10) - svgY) / (VB_H - 20);
-                const clampedQNorm = Math.max(0, Math.min(1, qNorm));
+                const clampedQNorm = clamp01(qNorm);
                 const q = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
                 const roundedQ = Math.round(q * 10) / 10;
                 const now = performance.now();
@@ -66,7 +67,7 @@ export function useEqBandDragEffect({
                 return;
             }
             const gainValue = ((VB_H / 2 - svgY) / (VB_H / 2 - 10)) * 24;
-            const roundedGain = Math.max(-24, Math.min(24, gainValue));
+            const roundedGain = clampEqGainDb(gainValue);
             const quantizedGain = Math.round(roundedGain * 10) / 10;
             if (quantizedGain !== lastGain) {
                 lastGain = quantizedGain;

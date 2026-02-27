@@ -1,6 +1,7 @@
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
+import { clamp01 } from '@/shared/lib/audioMath';
 import { colorForTrackIndex, normalizeTrackType } from './trackDeltaUtils';
 import {
     findTrackIndexById,
@@ -181,9 +182,9 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         const nextPatch: Partial<ProjectTrack> = { automation_lanes: nextLanes };
         const param = (delta.data.param_id ?? '').toLowerCase();
         if (param === 'send.a') {
-            nextPatch.send_a = Math.max(0, Math.min(1, delta.data.points.at(-1)?.value ?? 0));
+            nextPatch.send_a = clamp01(delta.data.points.at(-1)?.value ?? 0);
         } else if (param === 'send.b') {
-            nextPatch.send_b = Math.max(0, Math.min(1, delta.data.points.at(-1)?.value ?? 0));
+            nextPatch.send_b = clamp01(delta.data.points.at(-1)?.value ?? 0);
         }
         patchTrack(state, delta.data.track_id, nextPatch);
         return true;

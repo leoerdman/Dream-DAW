@@ -41,16 +41,10 @@ export function useDawShellGlobalShortcuts(args: {
                 window.__dreamOpenExportModal();
                 return;
             }
+            // Single dispatch + rAF fallback for async listener registration.
             window.dispatchEvent(new CustomEvent('dream:open-export'));
-            document.dispatchEvent(new CustomEvent('dream:open-export'));
-            // Extra async dispatch for cases where listener attaches in the same tick.
             requestAnimationFrame(() => {
                 window.dispatchEvent(new CustomEvent('dream:open-export'));
-                document.dispatchEvent(new CustomEvent('dream:open-export'));
-            });
-            setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('dream:open-export'));
-                document.dispatchEvent(new CustomEvent('dream:open-export'));
             });
         };
         const isEditableTarget = (target: EventTarget | null): boolean => {

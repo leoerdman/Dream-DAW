@@ -31,7 +31,9 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             return;
         }
         pitches.forEach((pitch) => {
-            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+                console.warn('[PianoRoll] previewSamplerNoteOff(stopAll) failed:', err);
+            });
         });
         pitches.clear();
     }, [trackIndex]);
@@ -45,7 +47,9 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         }
         if (activePitchesRef.current.has(pitch)) {
             activePitchesRef.current.delete(pitch);
-            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+                console.warn('[PianoRoll] previewSamplerNoteOff(re-trigger) failed:', err);
+            });
         }
 
         activePitchesRef.current.add(pitch);
@@ -74,7 +78,9 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             timers.clear();
             if (trackIndex != null) {
                 activePitches.forEach((pitch) => {
-                    void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
+                    void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+                        console.warn('[PianoRoll] previewSamplerNoteOff(cleanup) failed:', err);
+                    });
                 });
             }
             activePitches.clear();

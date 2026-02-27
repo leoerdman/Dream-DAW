@@ -4,7 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatDurationToFrames, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, frameToBeat, resolveSampleRate, formatBeatsAsBBS } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
@@ -51,12 +51,15 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
 
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));
+    const visualDurationSamples = (clip.isWarped && clip.warpSourceDurationFrames) ? clip.warpSourceDurationFrames : durationSamples;
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
     /** BUG-016 FIX: Named constant for sample editor's own base pixels-per-beat.
      *  This is independent of the arrangement timeline's zoom — the sample editor
      *  uses its own zoom context via `zoomX`. */
     const SAMPLE_EDITOR_BASE_PPB = 82;
     const pxPerBeat = SAMPLE_EDITOR_BASE_PPB * zoomX;
+
+    const toolbarColor = clip.color || 'var(--color-accent-primary)';
 
     const commitPitch = useCallback(async (val: number) => {
         const nextPitch = Math.max(-48, Math.min(48, val));
@@ -179,10 +182,41 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     }, []);
 
     return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)' }}>
-            <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 var(--space-2-5)', borderBottom: 'var(--space-px) solid var(--color-divider)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clip.name}</span>
-                <span style={{ fontFamily: 'var(--font-role-data)' }}>{clipDurationBeats.toFixed(2)} beats</span>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)', outline: 'none' }}>
+            <div style={{
+                height: 'var(--daw-transport-height)',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 var(--space-2)',
+                gap: 'var(--space-1)',
+                background: 'var(--color-bg-elevated)',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
+                flexShrink: 0,
+            }}>
+                <span style={{
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-primary)',
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    marginLeft: 4,
+                }}>{clip.name || 'Audio Clip'}</span>
+
+                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
+                <div style={{
+                    padding: 'var(--space-0-5) var(--space-2)',
+                    background: `color-mix(in srgb, ${toolbarColor} 14%, transparent)`,
+                    border: `var(--space-px) solid color-mix(in srgb, ${toolbarColor} 32%, transparent)`,
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: 'var(--font-size-2xs)',
+                    color: toolbarColor,
+                    fontWeight: 'var(--font-weight-semibold)',
+                    fontFamily: 'var(--font-role-data)',
+                    letterSpacing: 'var(--letter-spacing-normal)',
+                }}>
+                    Length: {formatBeatsAsBBS(clipDurationBeats, beatsPerBar)}
+                </div>
             </div>
 
             <ClipEditorShell sidebar={<SampleClipEditorSidebar
@@ -204,15 +238,16 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 onTogglePreview={() => { void togglePreview(); }}
             />}>
                 <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
-                    {clip.filePath && durationSamples > 0 && !clip.isOffline ? (
+                    {clip.filePath && visualDurationSamples > 0 && !clip.isOffline ? (
                         <SampleClipWaveformPane
                             filePath={clip.filePath}
-                            durationSamples={durationSamples}
+                            durationSamples={visualDurationSamples}
                             sourceOffset={clip.sourceOffset}
                             clipDurationBeats={clipDurationBeats}
                             pxPerBeat={pxPerBeat}
                             gridStep={gridStep}
                             waveHeightScale={zoomY}
+                            color={toolbarColor}
                         />
                     ) : (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: 'var(--space-px) dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>

@@ -425,6 +425,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 render_frames,
                                 snapshot.as_ref(),
                                 &pool_snap,
+                                bpm,
                             );
                             render_ctx.advance_playhead_by_frames(render_frames);
                             playhead_advanced_in_render = true;
@@ -487,7 +488,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             n,
                             &mut graph_out_left[..n],
                             &mut graph_out_right[..n],
-                            |node, left, right, count| {
+                            |node, left, right, count, sidechain_resolver| {
                                 // AUD-077 FIX: Named constant for master output node ID.
                                 const MASTER_OUTPUT_ID: u64 = 0;
                                 if node.id.0 == MASTER_OUTPUT_ID {
@@ -582,25 +583,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 if runtime_slot.is_bypassed {
                                                     continue;
                                                 }
-                                                let source_slot = runtime_slot
+                                                let source_ptrs = runtime_slot
                                                     .sidechain_track_index
-                                                    .and_then(|src_idx| {
-                                                        if src_idx < track_idx {
-                                                            left_tracks.get(src_idx)
-                                                        } else if src_idx == track_idx {
-                                                            None
-                                                        } else {
-                                                            right_tracks_rest.get(src_idx - track_idx - 1)
-                                                        }
-                                                    });
-                                                let (sc_l, sc_r) = source_slot
-                                                    .map(|src_slot| {
+                                                    .and_then(|src_idx| sidechain_resolver(src_idx + 1));
+                                                
+                                                let (sc_l, sc_r) = if let Some((ptr_l, ptr_r)) = source_ptrs {
+                                                    unsafe {
                                                         (
-                                                            Some(&src_slot.buf_left[..c]),
-                                                            Some(&src_slot.buf_right[..c]),
+                                                            Some(std::slice::from_raw_parts(ptr_l, c)),
+                                                            Some(std::slice::from_raw_parts(ptr_r, c))
                                                         )
-                                                    })
-                                                    .unwrap_or((None, None));
+                                                    }
+                                                } else {
+                                                    (None, None)
+                                                };
 
                                                 if let Some(internal_idx) = runtime_slot.internal_slot_index {
                                                     slot.device_chain.process_slot_with_sidechain_ctx(
@@ -644,29 +640,50 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             playhead_pos,
                                                         );
                                                         let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
-                                                        let sc_pair = source_slot.map(|src| {
-                                                            [&src.buf_left[..c], &src.buf_right[..c]]
-                                                        });
+                                                        let sc_pair: Option<[&[f32]; 2]> = if let Some((ptr_l, ptr_r)) = source_ptrs {
+                                                            unsafe {
+                                                                Some([
+                                                                    std::slice::from_raw_parts(ptr_l, c),
+                                                                    std::slice::from_raw_parts(ptr_r, c),
+                                                                ])
+                                                            }
+                                                        } else {
+                                                            None
+                                                        };
+
+                                                        let device_playhead_pos = if render_ctx.timeline_sample_rate > 0.0 {
+                                                            (playhead_pos as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
+                                                        } else {
+                                                            playhead_pos
+                                                        };
+
+                                                        let device_loop_start = render_ctx.loop_region.as_ref()
+                                                            .map(|r| if render_ctx.timeline_sample_rate > 0.0 {
+                                                                (r.start as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
+                                                            } else {
+                                                                r.start
+                                                            })
+                                                            .unwrap_or(0);
+
+                                                        let device_loop_end = render_ctx.loop_region.as_ref()
+                                                            .map(|r| if render_ctx.timeline_sample_rate > 0.0 {
+                                                                (r.end as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
+                                                            } else {
+                                                                r.end
+                                                            })
+                                                            .unwrap_or(0);
 
                                                         let transport = TransportContext {
                                                             sample_rate: sample_rate_f64,
-                                                            position_samples: playhead_pos,
+                                                            position_samples: device_playhead_pos,
                                                             tempo: bpm,
                                                             is_playing,
                                                             is_recording: false,
                                                             time_sig_numerator: i32::from(time_sig_numerator),
                                                             time_sig_denominator: i32::from(time_sig_denominator),
                                                             cycle_active: render_ctx.loop_region.is_some(),
-                                                            loop_start_samples: render_ctx
-                                                                .loop_region
-                                                                .as_ref()
-                                                                .map(|r| r.start)
-                                                                .unwrap_or(0),
-                                                            loop_end_samples: render_ctx
-                                                                .loop_region
-                                                                .as_ref()
-                                                                .map(|r| r.end)
-                                                                .unwrap_or(0),
+                                                            loop_start_samples: device_loop_start,
+                                                            loop_end_samples: device_loop_end,
                                                         };
                                                         host.set_transport_context(transport);
 
@@ -1018,7 +1035,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     slot.buf_right[..c].copy_from_slice(&right[..c]);
                                 }
                             },
-                            |_node, _left, _right, _count| {},
+                            |_node, _left, _right, _count, _resolver| {},
                         );
                         // BUG-012 FIX: Clear per-track flush flags after processing.
                         // AUD-009 FIX: Only clear flags for tracks that were actually

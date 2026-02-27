@@ -141,6 +141,7 @@ fn import_external_plugin_device(
 
     let vst3_name = extract_plugin_info_field(device, "Vst3PluginInfo", "Name");
     let vst2_name = extract_plugin_info_field(device, "VstPluginInfo", "PlugName");
+    let au_name = extract_plugin_info_field(device, "AuPluginInfo", "Name");
     let vst3_path = extract_plugin_info_field(device, "Vst3PluginInfo", "Path");
     let vst2_path = extract_plugin_info_field(device, "VstPluginInfo", "Path");
 
@@ -152,7 +153,7 @@ fn import_external_plugin_device(
         .unwrap_or(false);
 
     let preferred_name = resolve_preferred_plugin_name(
-        &user_name, &vst3_name, &vst2_name, &vst3_path, &vst2_path, device,
+        &user_name, &vst3_name, &vst2_name, &au_name, &vst3_path, &vst2_path, device,
     );
 
     let dev_idx = device
@@ -178,6 +179,7 @@ fn import_external_plugin_device(
         &vst3_path,
         &vst3_name,
         &vst2_name,
+        &au_name,
         &preferred_name,
         meta.uid.as_deref(),
         external_plugins,
@@ -356,6 +358,7 @@ fn resolve_preferred_plugin_name(
     user_name: &str,
     vst3_name: &str,
     vst2_name: &str,
+    au_name: &str,
     vst3_path: &str,
     vst2_path: &str,
     device: roxmltree::Node<'_, '_>,
@@ -366,6 +369,8 @@ fn resolve_preferred_plugin_name(
         vst3_name.trim().to_string()
     } else if !vst2_name.trim().is_empty() {
         vst2_name.trim().to_string()
+    } else if !au_name.trim().is_empty() {
+        au_name.trim().to_string()
     } else if !vst2_path.trim().is_empty() {
         Path::new(vst2_path.trim())
             .file_stem()
@@ -389,6 +394,7 @@ fn resolve_plugin_id(
     vst3_path: &str,
     vst3_name: &str,
     vst2_name: &str,
+    au_name: &str,
     preferred_name: &str,
     plugin_uid: Option<&str>,
     external_plugins: &ExternalPluginIndex,
@@ -454,6 +460,7 @@ fn resolve_plugin_id(
     push_candidate(&mut candidates, preferred_name);
     push_candidate(&mut candidates, vst3_name);
     push_candidate(&mut candidates, vst2_name);
+    push_candidate(&mut candidates, au_name);
     push_from_path(&mut candidates, v3_path);
     push_from_path(&mut candidates, v2_path);
 

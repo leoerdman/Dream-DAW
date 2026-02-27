@@ -265,10 +265,6 @@ unsafe fn sum_node_inputs_raw(
 
     if idx < edge_inputs_by_dst.len() && !edge_inputs_by_dst[idx].is_empty() {
         for &(src_idx, edge_runtime_idx, edge_kind) in &edge_inputs_by_dst[idx] {
-            if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
-                continue;
-            }
-
             if src_idx == idx {
                 continue;
             }
@@ -285,6 +281,10 @@ unsafe fn sum_node_inputs_raw(
                 &mut edge_rt.scratch_right[..copy_n],
                 copy_n,
             );
+
+            if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
+                continue;
+            }
 
             let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
             let edge_rt_ref = unsafe { &*edge_pdc_ptr.add(edge_runtime_idx) };
@@ -456,10 +456,6 @@ impl GraphRenderer {
 
         if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
             for &(src_idx, edge_runtime_idx, edge_kind) in &self.edge_inputs_by_dst[idx] {
-                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
-                    continue;
-                }
-
                 if src_idx >= self.node_buffers.len()
                     || src_idx == idx
                     || edge_runtime_idx >= self.edge_pdc_delays.len()
@@ -483,6 +479,10 @@ impl GraphRenderer {
                     );
                     copy_n
                 };
+
+                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
+                    continue;
+                }
 
                 let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
                 let edge_rt = unsafe { &*self.edge_pdc_delays.as_ptr().add(edge_runtime_idx) };
@@ -552,8 +552,8 @@ impl GraphRenderer {
         track_processor: &mut FTrack,
         effect_processor: &mut FEffect,
     ) where
-        FTrack: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
-        FEffect: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
+        FTrack: FnMut(&AudioNode, &mut [f32], &mut [f32], usize, &dyn Fn(usize) -> Option<(*const f32, *const f32)>),
+        FEffect: FnMut(&AudioNode, &mut [f32], &mut [f32], usize, &dyn Fn(usize) -> Option<(*const f32, *const f32)>),
     {
         let idx = node_idx.index();
         if idx >= self.node_buffers.len() {
@@ -565,6 +565,15 @@ impl GraphRenderer {
         let node = dag.node(node_idx);
         let buf = &mut self.node_buffers[idx];
 
+        let sidechain_resolver = |src_idx: usize| -> Option<(*const f32, *const f32)> {
+            if idx >= self.edge_inputs_by_dst.len() {
+                return None;
+            }
+            let edge = self.edge_inputs_by_dst[idx].iter().find(|e| e.0 == src_idx && e.2 == crate::dag::AudioEdgeKind::Sidechain)?;
+            let rt = self.edge_pdc_delays.get(edge.1)?;
+            Some((rt.scratch_left.as_ptr(), rt.scratch_right.as_ptr()))
+        };
+
         match &node.kind {
             NodeKind::Track { .. } => {
                 track_processor(
@@ -572,6 +581,7 @@ impl GraphRenderer {
                     &mut buf.left[..frame_count],
                     &mut buf.right[..frame_count],
                     frame_count,
+                    &sidechain_resolver,
                 );
             }
             NodeKind::Effect { .. } => {
@@ -580,6 +590,7 @@ impl GraphRenderer {
                     &mut buf.left[..frame_count],
                     &mut buf.right[..frame_count],
                     frame_count,
+                    &sidechain_resolver,
                 );
             }
             NodeKind::Bus { .. } => {}
@@ -614,7 +625,7 @@ impl GraphRenderer {
         output_right: &mut [f32],
         processor: FProcessor,
     ) where
-        FProcessor: Fn(&AudioNode, &mut [f32], &mut [f32], usize) + Sync + Send,
+        FProcessor: Fn(&AudioNode, &mut [f32], &mut [f32], usize, &dyn Fn(usize) -> Option<(*const f32, *const f32)>) + Sync + Send,
     {
         let n = frame_count.min(self.max_frames);
         let out_n = n.min(output_left.len()).min(output_right.len());
@@ -647,9 +658,18 @@ impl GraphRenderer {
                                 edge_inputs_by_dst,
                             );
                         }
+                        let sidechain_resolver = |src_idx: usize| -> Option<(*const f32, *const f32)> {
+                            if idx >= edge_inputs_by_dst.len() || src_idx >= capacity {
+                                return None;
+                            }
+                            let edge = edge_inputs_by_dst[idx].iter().find(|e| e.0 == src_idx && e.2 == crate::dag::AudioEdgeKind::Sidechain)?;
+                            let rt = unsafe { &*edge_pdc_ptr.0.add(edge.1) };
+                            Some((rt.scratch_left.as_ptr(), rt.scratch_right.as_ptr()))
+                        };
+                        
                         let node = dag.node(node_idx);
                         let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
-                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
 
                         if matches!(&node.kind, NodeKind::MasterOutput) {
                             let master_n = n.min(output_left.len()).min(output_right.len());
@@ -673,22 +693,44 @@ impl GraphRenderer {
                                 edge_inputs_by_dst,
                             );
                         }
+                        let sidechain_resolver = |src_idx: usize| -> Option<(*const f32, *const f32)> {
+                            if idx >= edge_inputs_by_dst.len() || src_idx >= capacity {
+                                return None;
+                            }
+                            let edge = edge_inputs_by_dst[idx].iter().find(|e| e.0 == src_idx && e.2 == crate::dag::AudioEdgeKind::Sidechain)?;
+                            let rt = unsafe { &*edge_pdc_ptr.0.add(edge.1) };
+                            Some((rt.scratch_left.as_ptr(), rt.scratch_right.as_ptr()))
+                        };
+                        
                         let node = dag.node(node_idx);
                         let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
-                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
                     }
                 }
             }
         } else {
+            let node_buffers_ptr = SendPtr(self.node_buffers.as_mut_ptr());
+            let capacity = self.node_buffers.len();
             for &node_idx in &plan.processing_order {
                 let idx = node_idx.index();
-                if idx >= self.node_buffers.len() {
+                if idx >= capacity {
                     continue;
                 }
                 self.sum_node_inputs(dag, node_idx, n);
+                
+                let edge_pdc_ptr = SendPtr(self.edge_pdc_delays.as_mut_ptr());
+                let sidechain_resolver = |src_idx: usize| -> Option<(*const f32, *const f32)> {
+                    if idx >= self.edge_inputs_by_dst.len() || src_idx >= capacity {
+                        return None;
+                    }
+                    let edge = self.edge_inputs_by_dst[idx].iter().find(|e| e.0 == src_idx && e.2 == crate::dag::AudioEdgeKind::Sidechain)?;
+                    let rt = unsafe { &*edge_pdc_ptr.0.add(edge.1) };
+                    Some((rt.scratch_left.as_ptr(), rt.scratch_right.as_ptr()))
+                };
+                
                 let node = dag.node(node_idx);
-                let buf = &mut self.node_buffers[idx];
-                processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+                let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
+                processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
                 if matches!(&node.kind, NodeKind::MasterOutput) {
                     self.copy_master_output(node_idx, output_left, output_right, n);
                 }
@@ -713,12 +755,14 @@ impl GraphRenderer {
             &mut [f32], // left channel buffer
             &mut [f32], // right channel buffer
             usize,      // frame count
+            &dyn Fn(usize) -> Option<(*const f32, *const f32)>, // sidechain resolver
         ),
         FEffect: FnMut(
             &AudioNode, // node metadata
             &mut [f32], // left channel buffer (in-place)
             &mut [f32], // right channel buffer (in-place)
             usize,      // frame count
+            &dyn Fn(usize) -> Option<(*const f32, *const f32)>, // sidechain resolver
         ),
     {
         let n = frame_count.min(self.max_frames);

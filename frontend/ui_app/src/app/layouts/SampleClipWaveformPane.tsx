@@ -9,6 +9,7 @@ type Props = {
     pxPerBeat: number;
     gridStep: number;
     waveHeightScale: number;
+    color: string;
 };
 
 export const SampleClipWaveformPane = ({
@@ -19,6 +20,7 @@ export const SampleClipWaveformPane = ({
     pxPerBeat,
     gridStep,
     waveHeightScale,
+    color,
 }: Props) => {
     const bodyRef = useRef<HTMLDivElement>(null);
     const [bodyHeight, setBodyHeight] = useState(120);
@@ -55,31 +57,61 @@ export const SampleClipWaveformPane = ({
                         position: 'absolute',
                         left: 0,
                         top: 0,
-                        right: 0,
-                        height: 20,
-                        borderBottom: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
-                        background: 'color-mix(in srgb, var(--color-bg-elevated) 86%, transparent)',
+                        width: waveformWidth,
+                        height: 24,
+                        background: 'var(--color-bg-tertiary)',
+                        borderBottom: 'var(--space-px) solid var(--color-divider)',
+                        overflow: 'hidden',
+                        zIndex: 'var(--z-sticky)'
                     }}>
+                        <div style={{ position: 'absolute', top: 0, left: 0, width: clipDurationBeats * pxPerBeat, height: 3, background: color, opacity: 0.65 }} />
                         {Array.from({ length: gridLineCount }).map((_, i) => {
                             const beat = i * gridStep;
                             const x = beat * pxPerBeat;
-                            const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < 1e-6;
+                            const barFraction = beat / beatsPerBar;
+                            const isBar = Math.abs(barFraction - Math.round(barFraction)) < 1e-6;
+                            const isMainBeat = Math.abs(beat - Math.round(beat)) < 1e-6;
+
+                            const showLabel = isBar || (isMainBeat && pxPerBeat > 30);
+                            const labelText = isBar
+                                ? `${Math.floor(beat / beatsPerBar) + 1}`
+                                : `${Math.floor(beat / beatsPerBar) + 1}.${Math.floor(beat % beatsPerBar) + 1}`;
+
                             return (
-                                <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'color-mix(in srgb, var(--color-accent-primary) 58%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 15%, transparent)' }}>
-                                    {isBar && (
-                                        <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-role-data)' }}>
-                                            {Math.floor(beat / beatsPerBar) + 1}
+                                <div key={`audio-ruler-${i}`}>
+                                    {showLabel && (
+                                        <span style={{
+                                            position: 'absolute',
+                                            left: x + 5,
+                                            top: 6,
+                                            fontSize: 'var(--font-size-2xs)',
+                                            color: isBar ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                            fontWeight: isBar ? 700 : 500,
+                                            fontFamily: 'var(--font-role-data)',
+                                            pointerEvents: 'none',
+                                            userSelect: 'none'
+                                        }}>
+                                            {labelText}
                                         </span>
                                     )}
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: x,
+                                        bottom: 0,
+                                        width: 1,
+                                        height: isBar ? 10 : 5,
+                                        background: isBar ? 'var(--color-grid-line-major)' : 'var(--color-grid-line)'
+                                    }} />
                                 </div>
                             );
                         })}
+                        <div style={{ position: 'absolute', top: 0, left: (clipDurationBeats * pxPerBeat) - 2, width: 2, height: 24, background: color, opacity: 0.85 }} />
                     </div>
                     <div
                         ref={bodyRef}
                         style={{
                             position: 'absolute',
-                            top: 20,
+                            top: 24,
                             left: 0,
                             right: 0,
                             bottom: 0,

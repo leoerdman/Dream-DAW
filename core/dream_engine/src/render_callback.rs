@@ -354,8 +354,9 @@ impl RenderContext {
         frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
+        current_bpm: f64,
     ) {
-        self.read_audio_clips_into_tracks(frame_count, clips_per_track, clip_pool);
+        self.read_audio_clips_into_tracks(frame_count, clips_per_track, clip_pool, current_bpm);
     }
 
     /// Reads all tracks.
@@ -365,6 +366,7 @@ impl RenderContext {
         frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
+        current_bpm: f64,
     ) {
         let playhead_pos = self.playhead.position();
 
@@ -430,7 +432,6 @@ impl RenderContext {
                 if clip.is_disabled {
                     continue;
                 }
-                let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
                 // AUD-089 FIX: Count zero-duration clips via RT-safe atomic counter.
                 // Previously used log::warn! which acquires a global Mutex in the
                 // log backend — forbidden on the audio thread.
@@ -450,7 +451,11 @@ impl RenderContext {
                 let pitch_multiplier = 2.0_f64.powf(clamped_pitch / 12.0);
 
                 let mut playback_rate = if is_warped {
-                    let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
+                    // BUG-110 FIX (Enterprise): Audio warping playback rate MUST be computed using
+                    // the tempo ratio (`current_bpm / clip.warp_base_bpm`), NOT the clip duration
+                    // ratio (`clip_source_len / clip_timeline_len`). The duration ratio caused clips
+                    // to mistakenly speed up identically when they were merely trimmed at the end.
+                    let rate = (current_bpm / clip.warp_base_bpm.max(1.0)).clamp(0.125, 8.0);
                     // If true time-pitch independence is required, rubberband must be integrated.
                     // For now, Warp mode pitch shift also accelerates read rate (like tape).
                     rate * pitch_multiplier
@@ -714,11 +719,12 @@ impl RenderContext {
         output: &mut [f32],
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
+        current_bpm: f64,
     ) {
         let frame_count = output.len() / self.channels.max(1);
 
         // Phase 1: Fill track slots with Audio Clips.
-        self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
+        self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool, current_bpm);
 
         // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
         let decay = peak_decay_for_block(self.sample_rate, frame_count);
@@ -885,7 +891,7 @@ mod tests {
         let mut output = vec![1.0_f32; 512]; // Fill with 1.0 first
         let no_clips: Vec<Vec<dream_models::project::AudioClip>> = Vec::new();
 
-        ctx.render(&mut output, &no_clips, &pool);
+        ctx.render(&mut output, &no_clips, &pool, 120.0);
 
         // All output should be zero (no clips = silence)
         assert!(

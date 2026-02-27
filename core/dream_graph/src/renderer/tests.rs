@@ -95,14 +95,14 @@ fn renderer_processes_simple_graph() {
         256,
         &mut out_l,
         &mut out_r,
-        |_node, left, right, n| {
+        |_node, left, right, n, _resolver| {
             // Track processor: fill with 1.0 (test signal)
             for i in 0..n {
                 left[i] = 1.0;
                 right[i] = 0.5;
             }
         },
-        |_node, _left, _right, _n| {
+        |_node, _left, _right, _n, _resolver| {
             // No effects in this graph
         },
     );
@@ -130,13 +130,13 @@ fn renderer_processes_effect_chain() {
         256,
         &mut out_l,
         &mut out_r,
-        |_node, left, right, n| {
+        |_node, left, right, n, _resolver| {
             for i in 0..n {
                 left[i] = 0.8;
                 right[i] = 0.8;
             }
         },
-        |_node, left, right, n| {
+        |_node, left, right, n, _resolver| {
             // Effect: halve the signal (simulating gain reduction)
             for i in 0..n {
                 left[i] *= 0.5;
@@ -269,8 +269,8 @@ fn render_silences_output_when_plan_has_no_nodes() {
         8,
         &mut out_l,
         &mut out_r,
-        |_node, _left, _right, _n| {},
-        |_node, _left, _right, _n| {},
+        |_node, _left, _right, _n, _resolver| {},
+        |_node, _left, _right, _n, _resolver| {},
     );
 
     assert!(out_l.iter().all(|&x| x == 0.0));
@@ -318,7 +318,7 @@ fn renderer_handles_bus_summing() {
         64,
         &mut out_l,
         &mut out_r,
-        |node, left, right, n| {
+        |node, left, right, n, _resolver| {
             // T1 outputs 0.3, T2 outputs 0.7
             let val = if node.display_name() == "T1" {
                 0.3
@@ -330,7 +330,7 @@ fn renderer_handles_bus_summing() {
                 right[i] = val;
             }
         },
-        |_node, _left, _right, _n| {},
+        |_node, _left, _right, _n, _resolver| {},
     );
 
     // Bus sums T1 + T2 = 0.3 + 0.7 = 1.0
@@ -357,13 +357,13 @@ fn renderer_can_execute_from_stage_plan_without_processing_order() {
         64,
         &mut out_l,
         &mut out_r,
-        |_node, left, right, n| {
+        |_node, left, right, n, _resolver| {
             for i in 0..n {
                 left[i] = 0.25;
                 right[i] = 0.25;
             }
         },
-        |_node, _left, _right, _n| {},
+        |_node, _left, _right, _n, _resolver| {},
     );
 
     assert!((out_l[0] - 0.25).abs() < 0.001);
@@ -448,7 +448,7 @@ fn renderer_applies_edge_level_pdc() {
         8,
         &mut out_l,
         &mut out_r,
-        |node, left, right, n| {
+        |node, left, right, n, _resolver| {
             // Impulses from both tracks at sample 0.
             if node.display_name() == "T1" || node.display_name() == "T2" {
                 left[..n].fill(0.0);
@@ -457,7 +457,7 @@ fn renderer_applies_edge_level_pdc() {
                 right[0] = 1.0;
             }
         },
-        |_node, _left, _right, _n| {},
+        |_node, _left, _right, _n, _resolver| {},
     );
 
     // At master: T1 impulse at t=0, T2 delayed by 2 samples.

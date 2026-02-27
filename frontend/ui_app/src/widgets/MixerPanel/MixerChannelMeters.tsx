@@ -39,7 +39,7 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
  * Peak hold label: shows the maximum peak dB reached.
  * Decays after PEAK_HOLD_MS of inactivity. Click to reset.
  */
-const PEAK_HOLD_MS = 2000;
+const PEAK_HOLD_MS = 4000;
 
 export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     trackIndex,
@@ -59,17 +59,17 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     // Update hold values on every meter tick
     useEffect(() => {
         const now = performance.now();
-        const elapsed = now - holdTs.current;
+        const currentLiveMax = Math.max(liveL, liveR);
+        const currentHoldMax = Math.max(holdL.current, holdR.current);
 
-        // If new peak is higher, or hold expired → update
-        if (liveL > holdL.current || liveR > holdR.current || elapsed > PEAK_HOLD_MS) {
-            if (liveL > holdL.current) holdL.current = liveL;
-            if (liveR > holdR.current) holdR.current = liveR;
+        // If we hit a new absolute peak (or equal to keep timer refreshing while sustaining)
+        if (currentLiveMax >= currentHoldMax) {
+            holdL.current = liveL;
+            holdR.current = liveR;
             holdTs.current = now;
         }
-
-        // Decay: if hold expired and live signal is lower, reset to live
-        if (elapsed > PEAK_HOLD_MS) {
+        // If 2 seconds have passed since the last absolute peak, drop to current live signal
+        else if (now - holdTs.current > PEAK_HOLD_MS) {
             holdL.current = liveL;
             holdR.current = liveR;
             holdTs.current = now;
@@ -82,10 +82,15 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
             const text = Number.isFinite(maxDb) && maxDb > -90
                 ? formatDb(maxDb)
                 : '-∞';
-            displayRef.current.textContent = text;
-            displayRef.current.style.color = hasClipped
-                ? 'var(--color-status-error)'
-                : 'var(--color-text-secondary)';
+
+            if (displayRef.current.textContent !== text) {
+                displayRef.current.textContent = text;
+            }
+
+            const color = hasClipped ? 'var(--color-status-error)' : 'var(--color-text-secondary)';
+            if (displayRef.current.style.color !== color) {
+                displayRef.current.style.color = color;
+            }
         }
     });
 

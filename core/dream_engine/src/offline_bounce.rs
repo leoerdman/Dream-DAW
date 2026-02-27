@@ -857,7 +857,7 @@ impl OfflineRenderer {
         let frame_count = output.len() / channels;
 
         // Phase 1: Fill source track slots with audio clips
-        render_ctx.read_audio_clips_into_tracks(frame_count, ctx.clips_per_track, ctx.clip_pool);
+        render_ctx.read_audio_clips_into_tracks(frame_count, ctx.clips_per_track, ctx.clip_pool, ctx.bpm);
 
         // ── CRITICAL: Capture playhead BEFORE advancing for MIDI scheduling.
         // MIDI events need to be scheduled at the CURRENT buffer's position,

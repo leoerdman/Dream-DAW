@@ -238,9 +238,9 @@ pub(super) fn interleave_graph_output(
             break;
         }
         if channels == 1 {
-            // BUG-014 FIX: Use 0.5 (-6dB) for mono fold-down instead of FRAC_1_SQRT_2 (-3dB).
-            // -3dB causes clipping with correlated stereo signals; -6dB is the standard.
-            data[base] = (graph_out_left[i] + graph_out_right[i]) * 0.5;
+            // User explicit request: Do not attenuate mono fold-down by -6dB or -3dB.
+            // Output raw summed Left + Right.
+            data[base] = graph_out_left[i] + graph_out_right[i];
             continue;
         }
         data[base] = graph_out_left[i];
@@ -328,7 +328,7 @@ pub(super) fn mix_preview_audio(
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * 0.5);
+                                soft_clip(p_left + p_right);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {
@@ -365,11 +365,9 @@ pub(super) fn mix_preview_audio(
                     let d_idx = f * channels;
                     if d_idx < data.len() {
                         if channels == 1 {
-                            // ENT-B2: Use 0.5 (-6dB) for mono fold-down, matching
-                            // the 1:1 preview path. FRAC_1_SQRT_2 (-3dB) clips
-                            // correlated stereo signals.
+                            // User requested no attenuation on mono output.
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * 0.5);
+                                soft_clip(p_left + p_right);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {

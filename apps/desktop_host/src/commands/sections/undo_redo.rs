@@ -15,8 +15,8 @@ async fn undo_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // Keep lock order consistent with push_undo(): project -> undo
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let previous = undo.undo_stack.pop_back()
         .ok_or_else(|| "Nothing to undo".to_string())?;
 
@@ -53,8 +53,8 @@ async fn undo_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let previous = undo
         .undo_stack
         .pop_back()
@@ -106,8 +106,8 @@ async fn redo_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // Keep lock order consistent with push_undo(): project -> undo
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let next = undo.redo_stack.pop_back()
         .ok_or_else(|| "Nothing to redo".to_string())?;
 
@@ -146,8 +146,8 @@ async fn redo_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let next = undo
         .redo_stack
         .pop_back()

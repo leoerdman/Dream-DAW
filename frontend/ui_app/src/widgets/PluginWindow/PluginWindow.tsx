@@ -44,6 +44,7 @@ export const PluginWindow = memo(function PluginWindow({
     initialY = 150,
     width = 480,
     height = 320,
+    pluginType = 'effect',
     presetName = 'Default',
     onNextPreset,
     onPrevPreset,
@@ -78,8 +79,12 @@ export const PluginWindow = memo(function PluginWindow({
         window.addEventListener('mouseup', onUp);
     }, [position]);
 
-    const headerGradient = 'var(--plugin-header-effect)'; // Unified dark header
-    const accentColor = 'var(--color-accent-primary)';    // Unified blue accent
+    const headerGradient = pluginType === 'instrument'
+        ? 'var(--plugin-header-instrument)'
+        : 'var(--plugin-header-effect)';
+    const accentColor = pluginType === 'instrument'
+        ? 'var(--plugin-accent-instrument)'
+        : 'var(--plugin-accent-effect)';
 
     return (
         <div

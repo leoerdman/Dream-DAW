@@ -69,7 +69,7 @@ fn open_plugin_window(
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
     app.run_on_main_thread(move || {
         let result = (|| {
-            let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let mut host = host_arc.lock();
             host.open_editor(instance_id)
                 .map_err(|e| format!("Failed to open plugin editor: {e}"))
         })();
@@ -135,7 +135,6 @@ fn open_plugin_window_for_slot(
         let sandbox_result = plugin_host_state
             .sandbox_supervisor
             .lock()
-            .map_err(|e| e.to_string())?
             .send_open_editor(bound_instance)
             .is_ok();
         log::info!(
@@ -156,7 +155,6 @@ fn open_plugin_window_for_slot(
     let sandbox_result = plugin_host_state
         .sandbox_supervisor
         .lock()
-        .map_err(|e| e.to_string())?
         .send_open_editor(instance_id)
         .is_ok();
     if sandbox_result {
@@ -171,7 +169,8 @@ fn open_plugin_window_for_slot(
 
     // Restore per-slot saved state (preset, knob positions, etc.)
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
-        if let Ok(mut host) = plugin_host_state.host.lock() {
+        {
+            let mut host = plugin_host_state.host.lock();
             let mut slot_restore =
                 dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
             slot_restore.id = slot.slot_id;
@@ -203,7 +202,7 @@ fn open_plugin_window_for_slot(
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
-                let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
+                let mut host = host_arc.lock();
                 host.open_editor(instance_id)
                     .map_err(|e| e.to_string())
             })();
@@ -266,7 +265,7 @@ fn open_plugin_window_for_slot(
         // (bypassing sandbox entirely — if the sandbox was healthy we would
         // not be here), then retry the editor open once.
         {
-            let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let mut host = plugin_host_state.host.lock();
             let _ = host.remove(instance_id);
         }
         plugin_host_state.unbind_slot_instance(slot.slot_id);
@@ -274,14 +273,13 @@ fn open_plugin_window_for_slot(
         // Load the plugin in-process using the resolved format loader.
         let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
         let recovered_instance = {
-            let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let mut host = plugin_host_state.host.lock();
             load_descriptor_in_process(&mut host, &descriptor)?
         };
         plugin_host_state.bind_slot_instance(slot.slot_id, recovered_instance);
         plugin_host_state
             .loaded_by_key
             .lock()
-            .map_err(|e| e.to_string())?
             .insert(slot.plugin_id.clone(), recovered_instance);
 
         {
@@ -289,7 +287,7 @@ fn open_plugin_window_for_slot(
             let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
             app.run_on_main_thread(move || {
                 let result = (|| {
-                    let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
+                    let mut host = host_arc.lock();
                     host.open_editor(recovered_instance)
                         .map_err(|e| e.to_string())
                 })();

@@ -76,7 +76,7 @@ pub fn sync_external_fx_snapshot_from_state(
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     sync_external_fx_snapshot(&project, clip_pool_state, plugin_host_state);
     Ok(())
 }
@@ -86,7 +86,7 @@ pub fn sync_routing_and_mark_dirty(
     clip_pool_state: &State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -110,34 +110,23 @@ pub fn load_external_slots_best_effort(
                 // If ALS/native import provided processor state or preset blobs,
                 // restore them immediately so playback/export starts with correct sound.
                 if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
-                    match plugin_host_state.host.lock() {
-                        Ok(mut host) => {
-                            if let Err(err) =
-                                apply_imported_external_state_blob(&mut host, instance_id, slot)
-                            {
-                                log::warn!(
-                                    "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
-                                    slot.name,
-                                    slot.id,
-                                    err
-                                );
-                                if first_error.is_none() {
-                                    first_error = Some(format!(
-                                        "Plugin '{}' failed to restore state: {}",
-                                        slot.name, err
-                                    ));
-                                }
-                            } else {
-                                restored_state_count = restored_state_count.saturating_add(1);
-                            }
-                        }
-                        Err(err) => {
+                    {
+                        let mut host = plugin_host_state.host.lock();
+                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
                             log::warn!(
-                                "[IPC] {log_context}: host lock failed for state restore '{}' (slot={}): {}",
+                                "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
                                 slot.name,
                                 slot.id,
                                 err
                             );
+                            if first_error.is_none() {
+                                first_error = Some(format!(
+                                    "Plugin '{}' failed to restore state: {}",
+                                    slot.name, err
+                                ));
+                            }
+                        } else {
+                            restored_state_count = restored_state_count.saturating_add(1);
                         }
                     }
                 }
@@ -180,20 +169,11 @@ pub fn load_external_slot_best_effort(
             if let Some(slot) = slot_state
                 && (slot.external_state_blob.is_some() || slot.external_preset_blob.is_some())
             {
-                match plugin_host_state.host.lock() {
-                    Ok(mut host) => {
-                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
-                            log::warn!(
-                                "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
-                                slot.name,
-                                slot.id,
-                                err
-                            );
-                        }
-                    }
-                    Err(err) => {
+                {
+                    let mut host = plugin_host_state.host.lock();
+                    if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
                         log::warn!(
-                            "[IPC] {log_context}: host lock failed for state restore '{}' (slot={}): {}",
+                            "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
                             slot.name,
                             slot.id,
                             err
@@ -223,7 +203,7 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     app: &tauri::AppHandle,
     rebuild_routing: bool,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     if rebuild_routing {
         clip_pool_state.rebuild_routing_only(&project);
@@ -333,12 +313,12 @@ pub fn finalize_external_param_update(
     app: &tauri::AppHandle,
     should_commit_snapshot: bool,
 ) -> Result<(), String> {
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = true;
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = true;
     if !should_commit_snapshot {
         return Ok(());
     }
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
     plugin_host_state.publish_registry();
@@ -357,7 +337,7 @@ pub fn finalize_internal_param_update(
     should_commit_snapshot: bool,
 ) -> Result<(), String> {
     if should_commit_snapshot {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let project_name = project.name.clone();
         clip_pool_state.rebuild_routing_only(&project);
         crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);

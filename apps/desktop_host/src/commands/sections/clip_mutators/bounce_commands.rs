@@ -117,7 +117,7 @@ async fn bounce_selection_to_track_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm,
+        bpm: handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm,
     };
 
     crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
@@ -297,7 +297,7 @@ async fn bounce_track_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm,
+        bpm: handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm,
     };
 
     crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
@@ -545,7 +545,7 @@ async fn bounce_group_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm,
+        bpm: handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm,
     };
 
     crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
@@ -665,4 +665,249 @@ async fn bounce_group_with_deltas_cmd(
     Ok(DeltaMutationResponse {
         deltas,
     })
+}
+
+/// Consolidates selected clips on a per-track basis.
+/// Bounces the selected clips on a track (pre-effects) down into a single new audio file,
+/// then replaces the existing clips on that track with the single new clip.
+#[tauri::command]
+pub async fn consolidate_selection_cmd(
+    payload: BounceSelectionPayload,
+    app: tauri::AppHandle,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+
+    let clip_ids: std::collections::HashSet<Uuid> = payload
+        .clip_ids
+        .iter()
+        .filter_map(|id| Uuid::parse_str(id).ok())
+        .collect();
+
+    if clip_ids.is_empty() {
+        return Err("Nothing selected to consolidate".to_string());
+    }
+
+    let mut tracks_to_consolidate = Vec::new();
+    for (idx, track) in project.tracks.iter().enumerate() {
+        let has_selected_audio = track.clips.iter().any(|c| clip_ids.contains(&c.id));
+        let has_selected_midi = track.midi_clips.iter().any(|c| clip_ids.contains(&c.id));
+        
+        if has_selected_audio || has_selected_midi {
+            let mut start = i64::MAX;
+            let mut end = i64::MIN;
+            let mut track_clip_ids = Vec::new();
+
+            for c in &track.clips {
+                if clip_ids.contains(&c.id) {
+                    start = start.min(c.position.sample_frame);
+                    end = end.max(c.position.sample_frame + c.duration.sample_frame);
+                    track_clip_ids.push(c.id);
+                }
+            }
+            for c in &track.midi_clips {
+                if clip_ids.contains(&c.id) {
+                    start = start.min(c.position.sample_frame);
+                    end = end.max(c.position.sample_frame + c.duration.sample_frame);
+                    track_clip_ids.push(c.id);
+                }
+            }
+
+            if start != i64::MAX && end != i64::MIN && end > start {
+                tracks_to_consolidate.push((idx, start, end, track_clip_ids));
+            }
+        }
+    }
+
+    if tracks_to_consolidate.is_empty() {
+        return Err("Nothing selected to consolidate".to_string());
+    }
+
+    let bpm = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm;
+    let (job_id, job_cancel) = start_job(&app, "consolidate_clips", true)?;
+    
+    handle.export_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    let cancel_flag = std::sync::Arc::clone(&job_cancel);
+
+    let mut success_count = 0;
+    
+    // Push undo state once for the entire consolidate action
+    push_undo(project_state)?; 
+
+    for (track_idx, start_frame, end_frame, track_clip_ids) in tracks_to_consolidate {
+        let mut bounce_project = project.clone();
+        
+        for (i, track) in bounce_project.tracks.iter_mut().enumerate() {
+            if i == track_idx {
+                track.clips.retain(|c| track_clip_ids.contains(&c.id));
+                track.midi_clips.retain(|c| track_clip_ids.contains(&c.id));
+                track.volume = 1.0;
+                track.pan = 0.0;
+                track.effects.clear();
+                // Ensure no automation envelopes modify the mix during consolidate
+                track.automation_lanes.clear(); 
+            } else {
+                track.clips.clear();
+                track.midi_clips.clear();
+            }
+        }
+        
+        let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
+        let output_path = dream_importers::stem_separation::make_bounce_output_path(
+            &format!("consolidated_track_{}", track_idx)
+        )?;
+        
+        let cfg = BounceConfig {
+            output_path: output_path.clone(),
+            sample_rate: project.sample_rate.max(1.0).round() as u32,
+            bit_depth: 32,
+            start_frame,
+            end_frame,
+            normalize: false,
+            tail_frames: 0,
+            format: "wav".to_string(),
+            project_sample_rate: project.sample_rate.max(1.0),
+            bpm,
+        };
+
+        crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
+            &bounce_project,
+            &clip_pool_state,
+            &plugin_host_state,
+            project.sample_rate,
+            "Consolidate",
+        )?;
+
+        let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+        let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
+
+        let track_cancel_flag = std::sync::Arc::clone(&cancel_flag);
+
+        let bounce_res = tauri::async_runtime::spawn_blocking(move || {
+            let mut bouncer = OfflineRenderer::new(cfg);
+            bouncer.cancel_flag = track_cancel_flag;
+            bouncer
+                .bounce(
+                    &mut bounce_project,
+                    &mut local_pool.clone(),
+                    None,
+                    &plugin_registry_snapshot,
+                    &external_fx_snapshot,
+                    |_| {}, // No granular progress for each isolated track consolidate
+                )
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("Bounce worker failed: {e}"))?;
+
+        if let Err(e) = bounce_res {
+            let cancelled = job_cancel.load(std::sync::atomic::Ordering::SeqCst);
+            let _ = finish_job(&app, &job_id, false, cancelled, Some(e.clone()));
+            return Err(e);
+        }
+
+        if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = finish_job(&app, &job_id, false, true, Some("Consolidate cancelled".to_string()));
+            return Err("Consolidate cancelled".to_string());
+        }
+
+        // Add the bounced file to the pool and replace the clips via orchestrator command
+        let decoded = AudioReader::read(PathBuf::from(&output_path))
+            .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
+            
+        {
+            let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+            pool.insert(ClipAudio {
+                source_path: output_path.clone(),
+                channels: decoded.channels,
+                sample_rate: decoded.sample_rate,
+                num_frames: decoded.num_frames,
+            })?;
+        }
+
+        let project_sr = execute_orchestrator_query(
+            project_state,
+            &dream_orchestrator::queries::ResolveProjectSampleRateQuery,
+        )?.max(1.0);
+
+        let source_sr = decoded.sample_rate.max(1) as f64;
+        let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
+
+        let cmd = dream_orchestrator::commands::clip_bounce::ConsolidateClipsCommand {
+            file_path: output_path.clone(),
+            clip_name: "Consolidated".to_string(),
+            start_frame,
+            timeline_duration_frames: timeline_frames,
+            source_duration_frames: decoded.num_frames as i64,
+            track_index: track_idx,
+            clips_to_remove: track_clip_ids,
+        };
+
+        let cmd_res = execute_orchestrator_command(project_state, &cmd);
+        if let Err(err) = cmd_res {
+            let _ = finish_job(&app, &job_id, false, false, Some(err.clone()));
+            return Err(err);
+        }
+        
+        success_count += 1;
+    }
+
+    if success_count > 0 {
+        rebuild_clip_views_and_mark_dirty(
+            project_state,
+            &clip_pool_state,
+            &handle,
+            &app,
+            ClipRebuildMode::FullSnapshot,
+        )?;
+    }
+
+    let _ = finish_job(&app, &job_id, true, false, None);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn consolidate_selection_with_deltas_cmd(
+    payload: BounceSelectionPayload,
+    app: tauri::AppHandle,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let before_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+        
+    consolidate_selection_cmd(
+        payload,
+        app,
+        project_registry.clone(),
+        clip_pool_state,
+        handle,
+        plugin_host_state,
+    )
+    .await?;
+
+    let after_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+        
+    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    Ok(DeltaMutationResponse { deltas })
 }

@@ -137,7 +137,7 @@ fn track_color_16_variants() {
 #[test]
 fn track_color_for_index_cycles() {
     assert_eq!(TrackColor::for_index(0), TrackColor::Coral);
-    assert_eq!(TrackColor::for_index(15), TrackColor::Slate);
+    assert_eq!(TrackColor::for_index(15), TrackColor::Blue);
     assert_eq!(TrackColor::for_index(16), TrackColor::Coral); // Wraps around
 }
 
@@ -260,7 +260,7 @@ fn track_total_latency() {
 fn track_with_type() {
     let track = Track::with_type("Synth Lead", TrackType::Midi, 5);
     assert_eq!(track.track_type, TrackType::Midi);
-    assert_eq!(track.color, TrackColor::Green); // Index 5
+    assert_eq!(track.color, TrackColor::Yellow); // 5 * 7 % 16 = 3 (Yellow)
 }
 
 #[test]

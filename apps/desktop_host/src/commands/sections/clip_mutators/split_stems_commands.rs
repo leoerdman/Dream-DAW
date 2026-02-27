@@ -46,7 +46,7 @@ async fn split_track_to_stems_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm,
+        bpm: handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm,
     };
 
     crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(

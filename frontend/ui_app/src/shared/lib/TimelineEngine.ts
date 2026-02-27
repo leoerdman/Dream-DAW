@@ -2,7 +2,7 @@
 import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
 import { WaveformCache } from './WaveformCache';
-import { beatDurationToFrames } from './audioMath';
+import { beatDurationToFrames, framesToBeatDuration } from './audioMath';
 import { normalizeTimelineClips } from './clipNormalization';
 import { cancelIdle, scheduleIdle, type IdleHandle } from './idleScheduler';
 import {
@@ -467,6 +467,18 @@ export class TimelineEngine {
                     startBeat: preview.startBeat,
                     durationBeats: preview.durationBeats,
                 };
+                if (clip.type === 'midi') {
+                    if (preview.edge === 'left' && !preview.allowStretch) {
+                        const trimmedBeats = preview.startBeat - preview.originalStartBeat;
+                        if (trimmedBeats !== 0 && clip.midiNotes) {
+                            nextClip.midiNotes = clip.midiNotes.map((note) => ({
+                                ...note,
+                                startBeat: note.startBeat - trimmedBeats,
+                            })).filter(note => note.startBeat + note.durationBeats > 0);
+                        }
+                    }
+                    return nextClip;
+                }
 
                 if (clip.type !== 'audio' || !clip.durationSamples) {
                     return nextClip;
@@ -497,16 +509,38 @@ export class TimelineEngine {
                         nextClip.sourceOffset = nextSourceOffset;
                         nextClip.warpSourceDurationFrames = nextSourceOffset + consumedSource;
                     } else {
-                        nextClip.durationSamples = previewFrames;
+                        let trimmedBeats = preview.edge === 'left' ? preview.startBeat - preview.originalStartBeat : 0;
+                        let trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
+
+                        // Prevent expanding left beyond the beginning of the audio source
+                        if (trimmedFrames < -clipSourceOffset) {
+                            trimmedFrames = -clipSourceOffset;
+                            trimmedBeats = framesToBeatDuration(trimmedFrames, this._bpm, this._sampleRate);
+                        }
+
+                        const nextSourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
+                        const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
+                        const availableFrames = Math.max(1, sourceTotal - nextSourceOffset);
+
+                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, availableFrames));
+
+                        nextClip.durationSamples = clampedPreviewFrames;
+                        nextClip.sourceOffset = nextSourceOffset;
+
                         if (preview.edge === 'left') {
-                            const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
-                            const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
-                            nextClip.sourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
+                            nextClip.startBeat = preview.originalStartBeat + trimmedBeats;
+                            nextClip.durationBeats = preview.originalDurationBeats - trimmedBeats;
+                        } else {
+                            nextClip.durationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
                         }
                     }
                 } else {
                     const ratio = preview.durationBeats / (clip.durationBeats || 1);
                     nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
+                    if (!clip.isWarped) {
+                        nextClip.isWarped = true;
+                        nextClip.warpSourceDurationFrames = clip.durationSamples;
+                    }
                 }
 
                 return nextClip;
@@ -948,9 +982,7 @@ export class TimelineEngine {
 
                 if (hit.edge === 'left') {
                     this.onClipClick?.(hit.clipId, false, false);
-                    // WARP-004 FIX: Only allow stretch if clip has warp enabled.
-                    // Non-warped clips should trim, not stretch.
-                    const allowStretch = e.shiftKey && (clip.isWarped === true);
+                    const allowStretch = e.shiftKey;
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -976,8 +1008,7 @@ export class TimelineEngine {
                 }
                 if (hit.edge === 'right') {
                     this.onClipClick?.(hit.clipId, false, false);
-                    // WARP-004 FIX: Only allow stretch if clip has warp enabled.
-                    const allowStretch = e.shiftKey && (clip.isWarped === true);
+                    const allowStretch = e.shiftKey;
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,

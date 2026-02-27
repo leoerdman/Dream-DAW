@@ -25,7 +25,7 @@ async fn add_track_cmd(
     };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     let track_count = project.tracks.len();
     refresh_runtime_after_track_topology_change(
@@ -77,7 +77,7 @@ async fn add_track_with_deltas_cmd(
     }
     .to_string();
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     let inserted_track = project
         .tracks
@@ -129,7 +129,7 @@ async fn delete_track_cmd(
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     let track_count = project.tracks.len();
     refresh_runtime_after_track_topology_change(
@@ -165,7 +165,7 @@ async fn delete_track_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -207,7 +207,7 @@ async fn delete_tracks_cmd(
         return Ok(());
     }
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,

@@ -47,7 +47,7 @@ async fn create_midi_clip_cmd(
     let clip_id = clip.id.to_string();
 
     {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
         let idx = track_index as usize;
         while project.tracks.len() <= idx {
@@ -102,7 +102,7 @@ async fn create_midi_clip_with_deltas_cmd(
     let clip_uuid = Uuid::parse_str(&response.clip_id)
         .map_err(|_| format!("Invalid MIDI clip UUID: {}", response.clip_id))?;
     let resolved_track_index = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project
             .tracks
             .iter()
@@ -327,7 +327,7 @@ async fn generate_midi_variation_cmd(
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<GenerateMidiVariationResponse, String> {
     let (api_key, default_model) = {
-        let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let settings = settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         (
             settings.open_router_api_key.trim().to_string(),
             settings.open_router_model.trim().to_string(),
@@ -505,7 +505,7 @@ async fn update_midi_clip_cmd(
 
     // 1. Get clip duration for normalization, and check for Noop
     let (clip_duration_frames, is_noop, is_legacy, project_name) = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let mut dur = 0;
         let mut is_noop = false;
         let mut is_legacy = false;
@@ -543,7 +543,7 @@ async fn update_midi_clip_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     if is_legacy {
         clip_pool_state.rebuild_snapshot(&project);
     }
@@ -612,7 +612,7 @@ async fn update_midi_clip_with_deltas_cmd(
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     let note_deltas = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         collect_midi_note_deltas_for_clip(&project, clip_uuid)
     };
 
@@ -672,7 +672,7 @@ async fn set_midi_clip_envelopes_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);

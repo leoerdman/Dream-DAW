@@ -4,6 +4,7 @@ import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentAction
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
+import { FlowSynthOverlay } from '@/widgets/FlowSynth/ui/FlowSynthOverlay';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 const SettingsPanel = lazy(async () => ({
@@ -102,6 +103,10 @@ export function DawShellOverlays({
             </Suspense>
 
             <DragOverlay />
+
+            <ErrorBoundary module="FlowSynth">
+                <FlowSynthOverlay />
+            </ErrorBoundary>
         </>
     );
 }

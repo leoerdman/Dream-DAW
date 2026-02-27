@@ -109,13 +109,13 @@ async fn resolve_missing_file_cmd(
     let decoded = AudioReader::read(PathBuf::from(&new_path))
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-        let _ = pool.insert(ClipAudio {
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        pool.insert(ClipAudio {
             source_path: new_path.clone(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
             num_frames: decoded.num_frames,
-        });
+        })?;
     }
 
     rebuild_clip_snapshot_and_mark_dirty(project_state, &clip_pool_state, &app)?;
@@ -148,13 +148,13 @@ async fn resolve_missing_file_with_deltas_cmd(
     let decoded = AudioReader::read(PathBuf::from(&new_path))
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-        let _ = pool.insert(ClipAudio {
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        pool.insert(ClipAudio {
             source_path: new_path.clone(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
             num_frames: decoded.num_frames,
-        });
+        })?;
     }
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;

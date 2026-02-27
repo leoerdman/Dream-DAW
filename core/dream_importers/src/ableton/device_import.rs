@@ -389,6 +389,7 @@ fn resolve_preferred_plugin_name(
 }
 
 /// Resolves VST plugin ID from paths/names via the external plugin index.
+#[allow(clippy::too_many_arguments)]
 fn resolve_plugin_id(
     vst2_path: &str,
     vst3_path: &str,

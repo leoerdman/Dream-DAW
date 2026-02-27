@@ -47,7 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     darkThemeTintPercent: 0,
     forestThemeCanopyPercent: 100,
     forestThemeFogPercent: 100,
-    lightThemeTexturePercent: 72,
+    lightThemeTexturePercent: 56,
     themeDetailPercent: 100,
     themePanelsDetailPercent: 100,
     themeTimelineDetailPercent: 100,

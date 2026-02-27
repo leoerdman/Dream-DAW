@@ -9,8 +9,8 @@ fn create_backup_cmd(
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let folder = project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let folder = project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     let folder = folder
         .as_ref()
@@ -34,7 +34,7 @@ fn mark_dirty_cmd(
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&name, Some(&app))?;
@@ -52,9 +52,9 @@ fn sync_title_cmd(
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let name = project.name.clone();
-    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     drop(project);
 
     if is_dirty {
@@ -74,7 +74,7 @@ fn get_project_notes(
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(project.annotation.clone())
 }
 
@@ -88,7 +88,7 @@ fn set_project_notes(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         // Only mutate if the text actually changed.
         if project.annotation == text {
             return Ok(());
@@ -97,7 +97,7 @@ fn set_project_notes(
     }
     // Mark project dirty so autosave picks up the change.
     let name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&name, Some(&app))?;

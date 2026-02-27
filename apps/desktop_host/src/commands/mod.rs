@@ -17,7 +17,7 @@ fn execute_orchestrator_command<C: dream_orchestrator::Command>(
             .clone(),
     );
     let result = ctx.execute(cmd).map_err(|e| e.to_string())?;
-    *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? =
+    *project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? =
         ctx.lock_project().map_err(|e| e.to_string())?.clone();
     Ok(result)
 }
@@ -254,6 +254,8 @@ pub(crate) fn invoke_handler()
         bounce_group_with_deltas_cmd,
         split_track_to_stems_cmd,
         split_track_to_stems_with_deltas_cmd,
+        consolidate_selection_cmd,
+        consolidate_selection_with_deltas_cmd,
         // Undo/Redo
         undo_cmd,
         redo_cmd,

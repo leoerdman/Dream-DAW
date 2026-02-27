@@ -32,7 +32,7 @@ fn close_plugin_window_cmd(
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
-                let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
+                let mut host = host_arc.lock();
                 host.close_editor(instance_id).map_err(|e| e.to_string())
             })();
             let _ = tx.send(result);
@@ -96,7 +96,7 @@ fn close_plugin_window_for_slot(
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
-                let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
+                let mut host = host_arc.lock();
                 host.close_editor(instance_id).map_err(|e| e.to_string())
             })();
             let _ = tx.send(result);
@@ -116,7 +116,8 @@ fn close_plugin_window_for_slot(
         }
 
         // State comparison: detect silent preset changes.
-        if let Ok(host) = plugin_host_state.host.lock() {
+        {
+            let host = plugin_host_state.host.lock();
             if let Some(live_bytes) = host.save_instance_state(instance_id) {
                 use base64::Engine;
                 let live_b64 = base64::engine::general_purpose::STANDARD.encode(&live_bytes);
@@ -146,8 +147,7 @@ fn close_plugin_window_for_slot(
     if let Some(instance_id) = instance_id_opt {
         let mut supervisor = plugin_host_state
             .sandbox_supervisor
-            .lock()
-            .map_err(|e| e.to_string())?;
+            .lock();
         if let Err(err) = supervisor.send_close_editor(instance_id) {
             log::warn!(
                 "[IPC] close_plugin_window_for_slot(track={}, slot={}) failed to close sandbox editor for {}: {}",

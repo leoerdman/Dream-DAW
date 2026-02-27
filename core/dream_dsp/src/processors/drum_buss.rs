@@ -122,6 +122,7 @@ impl DrumBussProcessor {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn boom_filter(
         input: f32,
         z1: &mut f32,

@@ -48,7 +48,7 @@ pub(super) struct CommandProcessingContext<'a> {
     /// PREVIEW-FIX: When `true`, the track has an external VST instrument loaded.
     /// Preview note-on/off will skip the built-in sampler/rack engines to prevent
     /// buzzing from the internal wave synth layered on top of the VST.
-    pub track_has_external_instrument: &'a [bool; MAX_TRACKS],
+    pub track_has_external_instrument: &'a [bool],
     pub last_loop_region: &'a mut Option<LoopRegion>,
     pub loop_enabled: &'a mut bool,
     pub test_tone_phase: &'a mut f64,
@@ -57,6 +57,10 @@ pub(super) struct CommandProcessingContext<'a> {
     pub midi_chase_needed: &'a mut bool,
     pub deferred_topology: &'a mut VecDeque<DeferredDeviceChainCmd>,
     pub master_device_chain: &'a mut DeviceChain,
+    pub pending_track_volume: &'a mut [Option<f32>; MAX_TRACKS],
+    pub pending_track_pan: &'a mut [Option<f32>; MAX_TRACKS],
+    pub pending_track_disabled: &'a mut [Option<bool>; MAX_TRACKS],
+    pub pending_track_solo: &'a mut [Option<bool>; MAX_TRACKS],
     pub routing_snapshot: &'a Arc<SharedRoutingSnapshot>,
     pub rt_debug_stats: &'a SharedRtDebugStats,
     /// When true, skip all external VST plugin try_lock() calls.
@@ -71,10 +75,11 @@ pub(super) fn drain_commands(
 ) -> usize {
     let max_commands = (frame_count * 4).clamp(64, 512);
     let mut commands_processed = 0usize;
-    let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_disabled: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
+
+    ctx.pending_track_volume.fill(None);
+    ctx.pending_track_pan.fill(None);
+    ctx.pending_track_disabled.fill(None);
+    ctx.pending_track_solo.fill(None);
 
     for _ in 0..max_commands {
         let Ok(cmd) = consumer.pop() else {
@@ -94,6 +99,13 @@ pub(super) fn drain_commands(
                 // BUG-D005 FIX: Reset test tone when clearing engine state for a new project.
                 *ctx.test_tone_enabled = false;
                 *ctx.test_tone_phase = 0.0;
+                
+                // BUG-A025 FIX: Reset diagnostic pool-miss counters on project change.
+                crate::render_callback::reset_diagnostic_counters();
+
+                // BUG-A034 FIX: Reset executor-level diagnostic counters (topology / GC) on project change.
+                crate::driver::executor::audio_thread_runner::reset_runner_counters();
+                crate::driver::executor::audio_thread_track_pass::reset_track_pass_counters();
             }
             EngineCommand::SetPlay(play) => {
                 *ctx.is_playing = play;
@@ -195,14 +207,14 @@ pub(super) fn drain_commands(
                 volume,
             } => {
                 let idx = track_index as usize;
-                if idx < MAX_TRACKS {
-                    pending_track_volume[idx] = Some(volume);
+                if idx < ctx.pending_track_volume.len() {
+                    ctx.pending_track_volume[idx] = Some(volume);
                 }
             }
             EngineCommand::SetTrackPan { track_index, pan } => {
                 let idx = track_index as usize;
-                if idx < MAX_TRACKS {
-                    pending_track_pan[idx] = Some(pan);
+                if idx < ctx.pending_track_pan.len() {
+                    ctx.pending_track_pan[idx] = Some(pan);
                 }
             }
             EngineCommand::SetMasterVolume { volume } => {
@@ -210,8 +222,8 @@ pub(super) fn drain_commands(
             }
             EngineCommand::SetTrackDisabled { track_index, disabled } => {
                 let idx = track_index as usize;
-                if idx < MAX_TRACKS {
-                    pending_track_disabled[idx] = Some(disabled);
+                if idx < ctx.pending_track_disabled.len() {
+                    ctx.pending_track_disabled[idx] = Some(disabled);
                 }
             }
             EngineCommand::SetTrackSolo {
@@ -219,8 +231,8 @@ pub(super) fn drain_commands(
                 soloed,
             } => {
                 let idx = track_index as usize;
-                if idx < MAX_TRACKS {
-                    pending_track_solo[idx] = Some(soloed);
+                if idx < ctx.pending_track_solo.len() {
+                    ctx.pending_track_solo[idx] = Some(soloed);
                 }
             }
             EngineCommand::SamplerNoteOn {
@@ -544,7 +556,7 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    let _ = ctx.deferred_topology.pop_front();
+                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
                 }
                 ctx.deferred_topology.push_back(DeferredDeviceChainCmd::AddInternal {
                     track_index,
@@ -558,7 +570,7 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    let _ = ctx.deferred_topology.pop_front();
+                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
                 }
                 ctx.deferred_topology
                     .push_back(DeferredDeviceChainCmd::Remove {
@@ -573,7 +585,7 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    let _ = ctx.deferred_topology.pop_front();
+                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
                 }
                 ctx.deferred_topology
                     .push_back(DeferredDeviceChainCmd::Reorder {
@@ -624,10 +636,10 @@ pub(super) fn drain_commands(
 
     apply_pending_track_mixer_state(
         ctx.render_ctx,
-        &pending_track_volume,
-        &pending_track_pan,
-        &pending_track_disabled,
-        &pending_track_solo,
+        ctx.pending_track_volume,
+        ctx.pending_track_pan,
+        ctx.pending_track_disabled,
+        ctx.pending_track_solo,
         ctx.track_disabled,
         ctx.track_soloed,
         ctx.any_solo,

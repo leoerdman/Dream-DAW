@@ -35,12 +35,12 @@ fn new_project(
     let mut new = dream_models::project::Project::default();
     new.normalize_invariants();
     refresh_offline_flags(&mut new);
-    *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = new.clone();
-    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = None;
-    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = None;
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
-    *project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())? = UndoState::new();
-    *project_state.history.lock().map_err(|_| "Mutex poisoned".to_string())? = ProjectHistory::new();
+    *project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = new.clone();
+    *project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = None;
+    *project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = None;
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = false;
+    *project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = ProjectHistory::new();
     project_state.record_history("new_project", format!("created '{}'", new.name))?;
     let _ = plugin_host_state.unload_all_instances();
     clip_pool_state.rebuild_snapshot(&new);
@@ -106,7 +106,7 @@ async fn save_project(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, path, project_name, legacy_path_to_remove) = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
         // ── Capture live plugin state into the project model ──
         // This ensures all knob positions, preset selections, and internal
@@ -115,7 +115,7 @@ async fn save_project(
             log::warn!("[Save] Plugin state capture failed (non-fatal): {e}");
         }
 
-        let file_path_guard = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let file_path_guard = project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let path = file_path_guard
             .as_ref()
             .ok_or("No file path set. Use Save As first.")?
@@ -162,14 +162,14 @@ async fn save_project(
     }
 
     {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name = project_name.clone();
     }
-    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(path.clone());
-    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? =
+    *project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? =
         path.parent().map(|p| p.to_path_buf());
 
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = false;
     project_state.record_history("save", format!("saved to {}", path.display()))?;
 
     // Update window title (safe — absorbs ObjC crashes from VST plugins)
@@ -192,7 +192,7 @@ async fn save_project_as(
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
         // ── Capture live plugin state ──
         if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
@@ -236,13 +236,13 @@ async fn save_project_as(
     .map_err(|e| format!("Save As task join error: {e}"))??;
 
     {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name = project_name.clone();
     }
 
-    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(actual_file_path.clone());
-    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(folder);
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
+    *project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(actual_file_path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(folder);
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = false;
     project_state.record_history("save_as", format!("saved as {}", actual_file_path.display()))?;
 
     // Track in recent projects
@@ -376,15 +376,15 @@ fn open_project(
     sync_transport_from_project(&loaded, &handle)?;
     sync_track_mix_state_from_project(&loaded, &handle)?;
 
-    *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = loaded.clone();
-    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = if importing_als {
+    *project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = loaded.clone();
+    *project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = if importing_als {
         None
     } else {
         Some(file_path.clone())
     };
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = importing_als;
-    *project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())? = UndoState::new();
-    *project_state.history.lock().map_err(|_| "Mutex poisoned".to_string())? = ProjectHistory::new();
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = importing_als;
+    *project_state.undo.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = ProjectHistory::new();
     let source_kind = if importing_als { "als_import" } else { "project_open" };
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
     if normalized_empty_tracks_on_load {
@@ -411,7 +411,7 @@ fn open_project(
     } else {
         ProjectManager::folder_from_file(&file_path)
     };
-    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = folder;
+    *project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = folder;
 
     // Track in recent projects
     if let Ok(app_data_dir) = app.path().app_data_dir() {
@@ -512,12 +512,12 @@ fn get_project_status(
 ) -> Result<serde_json::Value, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let file_path = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
-    let project_folder = project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let file_path = project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let project_folder = project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     // BUG-A003 FIX: Include project name so frontend can sync tab names from
     // the single source of truth (backend project state) instead of parsing paths.
-    let project_name = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?.name.clone();
+    let project_name = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.name.clone();
     Ok(serde_json::json!({
         "isDirty": is_dirty,
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
@@ -538,7 +538,7 @@ fn auto_resolve_missing_plugins_with_deltas_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
         let stats = auto_resolve_missing_external_plugin_slots(&mut project);
         normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
@@ -598,7 +598,7 @@ fn auto_resolve_missing_plugins_report_with_deltas_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
         let stats = auto_resolve_missing_external_plugin_slots(&mut project);
         normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
@@ -660,7 +660,7 @@ fn set_arrangement_viewport_cmd(
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let ppb = pixels_per_beat.clamp(0.5, 2000.0);
     let scroll = scroll_left.max(0.0);
     let scroll_top = scroll_top.map(|v| v.max(0.0)).unwrap_or(0.0);
@@ -680,7 +680,7 @@ fn get_arrangement_viewport_cmd(
 ) -> Result<ArrangementViewportPayload, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let pixels_per_beat = project.view_zoom_scale.or(project.sequencer_navigator_zoom);
     let scroll_left = project
         .view_scroll_position
@@ -846,14 +846,14 @@ async fn auto_save_if_dirty(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // ── Gate 1: Check dirty flag ──
-    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     if !is_dirty {
         return Ok(serde_json::json!({ "saved": false, "reason": "clean" }));
     }
 
     // ── Gate 2: Check file path exists (skip unsaved/new projects) ──
     let raw_path = {
-        let fp = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let fp = project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         match fp.as_ref() {
             Some(p) => p.clone(),
             None => return Ok(serde_json::json!({ "saved": false, "reason": "no_path" })),
@@ -874,7 +874,7 @@ async fn auto_save_if_dirty(
 
     // ── Gate 3: Capture plugin states + serialize ──
     let snapshot = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
         if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
             log::warn!("[AutoSave] Plugin state capture failed (non-fatal): {e}");
@@ -901,15 +901,15 @@ async fn auto_save_if_dirty(
     }
 
     // ── Gate 5: Clear dirty flag ──
-    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(path.clone());
-    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? =
+    *project_state.file_path.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? =
         path.parent().map(|p| p.to_path_buf());
-    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
+    *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = false;
     project_state.record_history("auto_save", format!("auto-saved to {}", path.display()))?;
 
     // Update window title (safe — absorbs ObjC crashes from VST plugins)
     {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", project.name));
     }
 
@@ -942,7 +942,7 @@ fn create_project_tab(
     let mut new_project = dream_models::project::Project::default();
     new_project.normalize_invariants();
     refresh_offline_flags(&mut new_project);
-    *new_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = new_project.clone();
+    *new_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = new_project.clone();
     new_state.record_history("create_tab", "created new project tab".to_string())?;
 
     // 3. Register in the registry and switch to it (both visual + audio).
@@ -1028,7 +1028,7 @@ fn switch_project_tab(
         .clone();
 
     // Update window title immediately.
-    let is_dirty = *target_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let is_dirty = *target_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let title_suffix = if is_dirty { "*" } else { "" };
     crate::state_managers::project_state::safe_set_window_title(
         &app,
@@ -1242,7 +1242,7 @@ fn close_project_tab(
             sync_track_mix_state_from_project(&project, &handle)?;
         }
 
-        let is_dirty = *new_active.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let is_dirty = *new_active.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let title_suffix = if is_dirty { "*" } else { "" };
         crate::state_managers::project_state::safe_set_window_title(
             &app,
@@ -1334,7 +1334,7 @@ fn copy_clips_to_global_clipboard(
 ) -> Result<usize, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     let source_project_id = active_project_arc.id.to_string();
     let mut clips = Vec::new();
@@ -1368,7 +1368,7 @@ fn copy_clips_to_global_clipboard(
         midi_clips,
     };
 
-    let mut cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     *cb = Some(clipboard_data);
 
     log::info!("[GlobalClipboard] Copied {} clip(s) to global clipboard", total);
@@ -1392,7 +1392,7 @@ fn paste_clips_from_global_clipboard(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     // Read clipboard (don't consume — allow multiple pastes).
-    let cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let clipboard_data = cb.as_ref().ok_or("Global clip clipboard is empty")?;
 
     // Find the earliest position to compute relative offsets.
@@ -1408,7 +1408,7 @@ fn paste_clips_from_global_clipboard(
     }
 
     push_undo(project_state)?;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     // Ensure the target track exists.
     if track_index >= project.tracks.len() {
@@ -1462,7 +1462,7 @@ fn paste_clips_from_global_clipboard(
     project_state.mark_dirty(&project_name, None)?;
     drop(project); // Ensure lock is released before invoking engine rebuilds
 
-    let rebuilt_project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?.clone();
+    let rebuilt_project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.clone();
 
     // Rebuild the engine snapshot so the backend audio systems are aware of the new clips!
     crate::commands::helpers::rebuild_clip_views_and_mark_dirty(
@@ -1495,7 +1495,7 @@ fn copy_track_to_global_clipboard(
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     if track_index >= project.tracks.len() {
         return Err(format!(
@@ -1508,7 +1508,7 @@ fn copy_track_to_global_clipboard(
     let track = project.tracks[track_index].clone();
     let track_name = track.name.clone();
 
-    let mut cb = project_registry.global_track_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut cb = project_registry.global_track_clipboard.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     *cb = Some(track);
 
     log::info!("[GlobalClipboard] Copied track '{}' (index={}) to global clipboard", track_name, track_index);
@@ -1533,7 +1533,7 @@ fn paste_track_from_global_clipboard(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     // Read clipboard (don't consume — allow multiple pastes).
-    let cb = project_registry.global_track_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let cb = project_registry.global_track_clipboard.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let source_track = cb.as_ref().ok_or("Global track clipboard is empty")?.clone();
     drop(cb);
 
@@ -1560,7 +1560,7 @@ fn paste_track_from_global_clipboard(
 
 
     push_undo(project_state)?;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     let idx = insert_index.unwrap_or(project.tracks.len());
     let clamped_idx = idx.min(project.tracks.len());

@@ -66,6 +66,10 @@ export function beatDurationToFrames(durationBeats: number, bpm: number, sampleR
     return Math.round(durationBeats * getSamplesPerBeat(bpm, sampleRate));
 }
 
+export function framesToBeatDuration(durationFrames: number, bpm: number, sampleRate: number): number {
+    return durationFrames / getSamplesPerBeat(bpm, sampleRate);
+}
+
 // Ensure 0 is avoided for playback rates
 export function speedRatioToSemitone(speedRatio: number): number {
     if (speedRatio <= 0) return -100; // arbitrary very low bound

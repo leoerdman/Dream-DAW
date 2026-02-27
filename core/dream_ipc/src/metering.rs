@@ -49,11 +49,28 @@ const METER_FALL_TIME_SECS: f64 = 0.3;
 ///
 /// # Real-Time Safety
 /// Pure arithmetic. Can be called per-buffer but ideally cached.
+use std::sync::atomic::AtomicU64;
+
+static PEAK_DECAY_CACHE_SR: AtomicU32 = AtomicU32::new(0);
+static PEAK_DECAY_CACHE_BLOCK: AtomicU32 = AtomicU32::new(0);
+static PEAK_DECAY_CACHE_VAL: AtomicU32 = AtomicU32::new(0);
+
 #[inline]
 pub fn peak_decay_for_block(sample_rate: f64, block_size: usize) -> f32 {
     if block_size == 0 || sample_rate <= 0.0 {
         return DEFAULT_PEAK_DECAY;
     }
+
+    // BUG-A037 FIX: Fast lock-free caching to avoid recalculating costly exp()
+    // every callback for every track.
+    let sr_u32 = sample_rate as u32;
+    let block_u32 = block_size as u32;
+    
+    if PEAK_DECAY_CACHE_SR.load(Ordering::Relaxed) == sr_u32 &&
+       PEAK_DECAY_CACHE_BLOCK.load(Ordering::Relaxed) == block_u32 {
+        return f32::from_bits(PEAK_DECAY_CACHE_VAL.load(Ordering::Relaxed));
+    }
+
     let blocks_per_sec = sample_rate / block_size as f64;
     let total_blocks_in_fall = METER_FALL_TIME_SECS * blocks_per_sec;
     if total_blocks_in_fall < 1.0 {
@@ -62,7 +79,13 @@ pub fn peak_decay_for_block(sample_rate: f64, block_size: usize) -> f32 {
     // decay^total_blocks = 0.001 (i.e., -60dB)
     // decay = 0.001^(1/total_blocks) = exp(-ln(1000)/total_blocks)
     let decay = (-6.907_755_278_982_137_f64 / total_blocks_in_fall).exp();
-    (decay as f32).clamp(0.9, 0.9999)
+    let clamped = (decay as f32).clamp(0.9, 0.9999);
+
+    PEAK_DECAY_CACHE_SR.store(sr_u32, Ordering::Relaxed);
+    PEAK_DECAY_CACHE_BLOCK.store(block_u32, Ordering::Relaxed);
+    PEAK_DECAY_CACHE_VAL.store(clamped.to_bits(), Ordering::Relaxed);
+
+    clamped
 }
 
 // ── LockFreeLevel ──────────────────────────────────────────────────────────

@@ -22,6 +22,10 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppSettings {
+    /// BUG-A036 FIX: Added schema versioning for clean config migrations.
+    #[serde(default = "default_settings_version")]
+    pub(crate) settings_version: u32,
+
     #[serde(default = "default_language")]
     pub(crate) language: String,
     #[serde(default = "default_startup_behavior")]
@@ -137,6 +141,10 @@ pub(crate) struct AppSettings {
     /// Browser auto-preview toggle.
     #[serde(default = "default_true", alias = "browserAutoPreview")]
     pub(crate) browser_auto_preview: bool,
+}
+
+pub(crate) fn default_settings_version() -> u32 {
+    1 // Current schema version
 }
 
 pub(crate) fn default_language() -> String {
@@ -274,6 +282,7 @@ impl Default for AppSettings {
         let home = dirs::home_dir().unwrap_or_default();
         let music_dir = home.join("Music").join("Dream DAW");
         Self {
+            settings_version: 1,
             language: "English".into(),
             startup_behavior: "new".into(),
             theme: default_theme(),
@@ -342,6 +351,7 @@ impl AppSettings {
 /// Thread-safe settings state.
 pub(crate) struct SettingsState {
     pub(crate) settings: Mutex<AppSettings>,
+    pub(crate) save_tx: std::sync::mpsc::Sender<AppSettings>,
 }
 
 impl SettingsState {
@@ -354,23 +364,78 @@ impl SettingsState {
         let defaults = AppSettings::default();
         let user_info_path = defaults.settings_file_path();
 
+        let (tx, rx) = std::sync::mpsc::channel::<AppSettings>();
+
+        // BUG-A019 FIX: Spawn a background thread to debounce settings persistence (500ms).
+        std::thread::spawn(move || {
+            let mut latest_settings = None;
+            loop {
+                // Wait for the first settings update
+                if latest_settings.is_none() {
+                    match rx.recv() {
+                        Ok(s) => latest_settings = Some(s),
+                        Err(_) => break, // Channel closed
+                    }
+                }
+
+                // Debounce loop: wait 500ms for any subsequent updates
+                let mut quiet = false;
+                while !quiet {
+                    match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                        Ok(s) => latest_settings = Some(s),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { quiet = true; }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+
+                // 500ms quiet period reached. Persist to disk!
+                if let Some(s) = latest_settings.take() {
+                    let user_info_dir = s.user_info_dir();
+                    let settings_path = s.settings_file_path();
+                    if std::fs::create_dir_all(&user_info_dir).is_ok() {
+                        if let Ok(json) = serde_json::to_string_pretty(&s) {
+                            if let Err(e) = std::fs::write(&settings_path, &json) {
+                                log::error!("Failed to debounce-save settings: {}", e);
+                            } else {
+                                log::debug!("Settings auto-saved (debounced) to: {}", settings_path.display());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         // Primary: load from user folder's User Info directory
         if user_info_path.exists()
             && let Ok(json) = std::fs::read_to_string(&user_info_path)
-            && let Ok(settings) = serde_json::from_str::<AppSettings>(&json)
+            && let Ok(mut settings) = serde_json::from_str::<AppSettings>(&json)
         {
+            // BUG-A036 FIX: Run schema migrations if the version is older than current
+            if settings.settings_version < 1 {
+                settings.settings_version = 1;
+                // Add future v1 -> v2 migration logic here
+            }
+
             log::info!("Settings loaded from: {}", user_info_path.display());
-            return Self {
+            let state = Self {
                 settings: Mutex::new(settings),
+                save_tx: tx,
             };
+            // Force-save if we migrated
+            let _ = state.save_to_user_folder();
+            return state;
         }
 
         // Fallback: load from app_data_dir (legacy Tauri location)
         let legacy_path = app_data_dir.join("settings.json");
         if legacy_path.exists()
             && let Ok(json) = std::fs::read_to_string(&legacy_path)
-            && let Ok(settings) = serde_json::from_str::<AppSettings>(&json)
+            && let Ok(mut settings) = serde_json::from_str::<AppSettings>(&json)
         {
+            if settings.settings_version < 1 {
+                settings.settings_version = 1;
+            }
+
             log::info!(
                 "Settings loaded from legacy path: {}",
                 legacy_path.display()
@@ -378,6 +443,7 @@ impl SettingsState {
             // Migrate: save to user folder and clean up
             let state = Self {
                 settings: Mutex::new(settings),
+                save_tx: tx,
             };
             if let Err(e) = state.save_to_user_folder() {
                 log::warn!("Failed to migrate settings: {}", e);
@@ -388,13 +454,21 @@ impl SettingsState {
         log::info!("No settings found, using defaults");
         Self {
             settings: Mutex::new(defaults),
+            save_tx: tx,
+        }
+    }
+
+    /// Fast-path to queue an async Debounce persistence save
+    pub(crate) fn request_save(&self) {
+        if let Ok(settings) = self.settings.lock() {
+            let _ = self.save_tx.send(settings.clone());
         }
     }
 
     /// Save settings to `{user_folder_path}/User Info/settings.json`.
     /// Creates the directory structure if it doesn't exist.
     pub(crate) fn save_to_user_folder(&self) -> Result<(), String> {
-        let settings = self.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let settings = self.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let user_info_dir = settings.user_info_dir();
         let settings_path = settings.settings_file_path();
 

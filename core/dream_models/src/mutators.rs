@@ -808,8 +808,8 @@ mod tests {
             .iter()
             .find(|c| c.id == result.right_id)
             .unwrap();
-        assert!((left.gain - 0.75).abs() < f64::EPSILON);
-        assert!((right.gain - 0.75).abs() < f64::EPSILON);
+        assert!((left.gain - 0.75_f32).abs() < f32::EPSILON);
+        assert!((right.gain - 0.75_f32).abs() < f32::EPSILON);
     }
     // ── Delete Clip Tests ────────────────────────────────────────────
     #[test]
@@ -1075,7 +1075,7 @@ mod tests {
         let clip_a_id = project.tracks[0].clips[0].id;
         // Duplicate Clip A to position [2.5s, 3.5s] -> Should trim Clip B
         let target_pos = AbsoluteTime::new(110250); // 2.5s
-        let dup = duplicate_clip(&mut project, clip_a_id, Some(target_pos)).unwrap();
+        let dup = duplicate_clip(&mut project, clip_a_id, Some(target_pos), None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 3);
         // Clip B should now be [2s, 2.5s]
         let clip_b = project.tracks[0]
@@ -1104,7 +1104,7 @@ mod tests {
         let midi_b = MidiClip::new("MIDI B", AbsoluteTime::new(22050), AbsoluteTime::new(44100));
         project.tracks[0].midi_clips.push(midi_b);
         // Duplicate MIDI A to the same position -> Should delete MIDI B (fully covered)
-        duplicate_midi_clip(&mut project, clip_id, Some(AbsoluteTime::new(22050))).unwrap();
+        duplicate_midi_clip(&mut project, clip_id, Some(AbsoluteTime::new(22050)), None).unwrap();
         // We expect MIDI B to be deleted
         assert_eq!(project.tracks[0].midi_clips.len(), 2);
         assert!(

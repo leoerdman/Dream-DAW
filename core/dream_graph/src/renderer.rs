@@ -239,6 +239,7 @@ pub struct GraphRenderer {
     node_buffers: Vec<NodeBuffer>,
 
     edge_pdc_delays: Vec<EdgeDelayRuntime>,
+    active_edge_pdc_count: usize,
 
     edge_inputs_by_dst: Vec<Vec<(usize, usize, crate::dag::AudioEdgeKind)>>,
 
@@ -359,6 +360,7 @@ impl GraphRenderer {
         Self {
             node_buffers,
             edge_pdc_delays: Vec::new(),
+            active_edge_pdc_count: 0,
             edge_inputs_by_dst: vec![Vec::new(); node_count.max(1)],
             runtime_dependencies,
             max_frames: frame_count,
@@ -400,7 +402,8 @@ impl GraphRenderer {
         edge_plan: &[EdgeDelayCompensation],
         dag: &crate::dag::AudioDag,
     ) {
-        self.edge_pdc_delays.clear();
+        // BUG-A020 FIX: Do not clear/reallocate EdgeDelayRuntimes. Recycle them!
+        self.active_edge_pdc_count = 0;
         for dst in &mut self.edge_inputs_by_dst {
             dst.clear();
         }
@@ -425,15 +428,21 @@ impl GraphRenderer {
                 .map(|e| e.weight().kind)
                 .unwrap_or(crate::dag::AudioEdgeKind::Routing);
 
-            let mut delay = PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES);
-            delay.set_delay(edge.delay_samples as usize);
+            let runtime_idx = self.active_edge_pdc_count;
+            if runtime_idx >= self.edge_pdc_delays.len() {
+                let mut delay = PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES);
+                delay.set_delay(edge.delay_samples as usize);
+                self.edge_pdc_delays.push(EdgeDelayRuntime {
+                    delay,
+                    scratch_left: vec![0.0; self.max_frames],
+                    scratch_right: vec![0.0; self.max_frames],
+                });
+            } else {
+                self.edge_pdc_delays[runtime_idx].delay.reset(); // Clear history of recycled delay
+                self.edge_pdc_delays[runtime_idx].delay.set_delay(edge.delay_samples as usize);
+            }
+            self.active_edge_pdc_count += 1;
 
-            let runtime_idx = self.edge_pdc_delays.len();
-            self.edge_pdc_delays.push(EdgeDelayRuntime {
-                delay,
-                scratch_left: vec![0.0; self.max_frames],
-                scratch_right: vec![0.0; self.max_frames],
-            });
             self.edge_inputs_by_dst[dst_idx].push((src_idx, runtime_idx, edge_kind));
         }
     }

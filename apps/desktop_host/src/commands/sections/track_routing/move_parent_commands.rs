@@ -21,7 +21,7 @@ async fn move_track_to_index_cmd(
     if !result.changed {
         return Ok(());
     }
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -58,7 +58,7 @@ async fn move_track_to_index_with_deltas_cmd(
         return Ok(TrackManagementDeltaResponse { deltas: vec![] });
     }
     let moving_id = cmd.track_id;
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -100,7 +100,7 @@ async fn move_track_with_parent_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -137,7 +137,7 @@ async fn move_track_with_parent_with_deltas_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);

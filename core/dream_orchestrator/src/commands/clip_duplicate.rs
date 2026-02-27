@@ -124,15 +124,13 @@ impl Command for DuplicateMultipleClipsCommand {
                         track_index: dest_track.unwrap_or(track_index),
                     });
                 }
-            } else {
-                if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
-                    results.push(DuplicateClipResult {
-                        new_id: dup.id,
-                        new_position_frames: dup.position.sample_frame,
-                        track_index: dest_track.unwrap_or(track_index),
-                    });
-                }
-            };
+            } else if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
+                results.push(DuplicateClipResult {
+                    new_id: dup.id,
+                    new_position_frames: dup.position.sample_frame,
+                    track_index: dest_track.unwrap_or(track_index),
+                });
+            }
         }
 
         Ok(results)

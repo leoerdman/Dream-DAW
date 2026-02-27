@@ -1,4 +1,11 @@
 use std::collections::HashMap;
+
+/// BUG-A034 FIX: Moved static out of closure for explicit reset capability.
+pub static PLUGIN_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn reset_track_pass_counters() {
+    PLUGIN_MISS_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
 use uuid::Uuid;
 
 use dream_clip_engine::midi_scheduler::ScheduledNote;
@@ -15,8 +22,8 @@ use crate::driver::{
     midi_dispatcher::PluginNoteTracker,
 };
 use crate::frame_domain::FrameDomainConverter;
-use crate::driver::executor::render_context::TrackSlot;
-use crate::driver::snapshots::{ExternalPluginRuntimeSlot, MidiSnapshot, MidiTrack, TrackAutomationState};
+use crate::render_callback::TrackSlot;
+use crate::driver::{ExternalPluginRuntimeSlot, MidiTrackRuntime, TrackAutomationState};
 
 use crate::driver::executor::audio_thread_process::process_midi_events;
 
@@ -25,6 +32,8 @@ pub(crate) struct TrackPassContext<'a> {
     pub track_idx: usize,
     pub post_sum_processed: bool,
     pub slot: &'a mut TrackSlot,
+    pub left_tracks: &'a [TrackSlot],
+    pub right_tracks: &'a [TrackSlot],
     pub external_fx_map: &'a [Vec<ExternalPluginRuntimeSlot>],
     pub automation: &'a [TrackAutomationState],
     pub playhead_pos: i64,
@@ -33,7 +42,7 @@ pub(crate) struct TrackPassContext<'a> {
     pub plugin_registry_ref: &'a HashMap<Uuid, PluginInstanceArc>,
     pub external_left: &'a mut [f32],
     pub external_right: &'a mut [f32],
-    pub midi_snap: &'a MidiSnapshot,
+    pub midi_snap: &'a [MidiTrackRuntime],
     pub midi_playhead_pos: i64,
     pub timeline_frame_count: usize,
     pub frame_converter: &'a FrameDomainConverter,
@@ -55,7 +64,7 @@ pub(crate) fn process_track_graph_node(
     left: &mut [f32],
     right: &mut [f32],
     ctx: &mut TrackPassContext,
-    sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
+    _sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
 ) {
     let c = ctx.c;
     // 1. Unify Working Buffer
@@ -100,17 +109,23 @@ pub(crate) fn process_track_graph_node(
             } else {
                 for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                     if runtime_slot.is_bypassed { continue; }
-                    let source_ptrs = runtime_slot
+                    let safe_source_ptrs = runtime_slot
                         .sidechain_track_index
-                        .and_then(|src_idx| sidechain_resolver(src_idx + 1));
+                        .and_then(|src_idx| {
+                            if src_idx < ctx.track_idx {
+                                let target_slot = &ctx.left_tracks[src_idx];
+                                Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                            } else if src_idx > ctx.track_idx {
+                                let offset_idx = src_idx - ctx.track_idx - 1;
+                                if offset_idx < ctx.right_tracks.len() {
+                                    let target_slot = &ctx.right_tracks[offset_idx];
+                                    Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                } else { None }
+                            } else { None }
+                        });
                     
-                    let (sc_l, sc_r) = if let Some((ptr_l, ptr_r)) = source_ptrs {
-                        unsafe {
-                            (
-                                Some(std::slice::from_raw_parts(ptr_l, c)),
-                                Some(std::slice::from_raw_parts(ptr_r, c))
-                            )
-                        }
+                    let (sc_l, sc_r) = if let Some((sl, sr)) = safe_source_ptrs {
+                        (Some(sl), Some(sr))
                     } else {
                         (None, None)
                     };
@@ -129,8 +144,7 @@ pub(crate) fn process_track_graph_node(
 
                     if let Some(instance_id) = runtime_slot.instance_id {
                         let Some(plugin_mtx) = ctx.plugin_registry_ref.get(&instance_id) else {
-                            static MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                            MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            PLUGIN_MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             continue;
                         };
 
@@ -146,14 +160,7 @@ pub(crate) fn process_track_graph_node(
                                 ctx.playhead_pos,
                             );
                             let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
-                            let sc_pair: Option<[&[f32]; 2]> = if let Some((ptr_l, ptr_r)) = source_ptrs {
-                                unsafe {
-                                    Some([
-                                        std::slice::from_raw_parts(ptr_l, c),
-                                        std::slice::from_raw_parts(ptr_r, c),
-                                    ])
-                                }
-                            } else { None };
+                            let sc_pair: Option<[&[f32]; 2]> = safe_source_ptrs.map(|(sl, sr)| [sl, sr]);
 
                             let device_playhead_pos = if ctx.timeline_sample_rate > 0.0 {
                                 (ctx.playhead_pos as f64 / ctx.timeline_sample_rate * ctx.sample_rate_f64).round() as i64

@@ -50,17 +50,20 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.preventDefault();
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-        if (targets.length < 2) return true;
+        if (targets.length === 0) return true;
         const selected = timelineClips.filter((c) => targets.includes(c.id));
-        if (selected.length < 2 || !selected.every((c) => c.trackIndex === selected[0].trackIndex)) return true;
+        if (selected.length === 0) return true;
         try {
             const hasAudio = selected.some((c) => c.type === 'audio');
             if (hasAudio) {
-                const response = await engine.bounceSelectionToTrackWithDeltas({ clipIds: selected.map(c => c.id) });
-                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-bounce-clips');
+                const response = await engine.consolidateSelectionWithDeltas({ clipIds: selected.map(c => c.id) });
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-consolidate-clips');
             } else {
-                const response = await engine.mergeClipsWithDeltas(selected.map((c) => c.id));
-                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-merge');
+                // For MIDI, we keep the existing merge logic if they are on same track for now
+                if (selected.length >= 2 && selected.every((c) => c.trackIndex === selected[0].trackIndex)) {
+                    const response = await engine.mergeClipsWithDeltas(selected.map((c) => c.id));
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-merge');
+                }
             }
         } catch (err) {
             console.error('[Shortcuts] Merge/Bounce clips failed:', err);

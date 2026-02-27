@@ -302,7 +302,7 @@ fn set_device_param_runtime_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     let resolved_slot = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         // STATE-PERSIST FIX: Persist to model so rebuild doesn't lose values.
         let persist_result = if track_index == MASTER_TRACK_INDEX {
             project.master_track.effects
@@ -359,7 +359,7 @@ fn set_device_params_runtime_cmd(
         return Ok(());
     }
     let resolved_slot = {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         // STATE-PERSIST FIX: Persist batch params to model (same fix as single variant).
         let slot_opt = if track_index == MASTER_TRACK_INDEX {
             project.master_track.effects
@@ -484,7 +484,7 @@ fn update_track(
     }
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
 

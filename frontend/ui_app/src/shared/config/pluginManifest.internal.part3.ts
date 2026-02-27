@@ -221,4 +221,15 @@ export const INTERNAL_PLUGINS_PART_3: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
+    {
+        id: 'internal://instrument/flow',
+        name: 'Flow',
+        category: 'instrument',
+        effectType: 'instrument',
+        format: 'INT',
+        hasEditor: true,
+        cardWidth: 520,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
 ];

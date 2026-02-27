@@ -123,7 +123,7 @@ fn parse_audio_clip(
         .as_deref()
         .and_then(parse_f64_value)
     {
-        clip.gain = sample_volume.clamp(0.0, 8.0);
+        clip.gain = sample_volume.clamp(0.0, 8.0) as f32;
     }
 
     // Fades

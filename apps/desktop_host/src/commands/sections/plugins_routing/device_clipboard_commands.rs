@@ -15,10 +15,8 @@ fn copy_device_from_track_cmd(
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {track_id}"))?;
-    let device_uuid = Uuid::parse_str(&device_id)
-        .map_err(|_| format!("Invalid device_id: {device_id}"))?;
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let device_uuid = Uuid::parse_str(&device_id).map_err(|_| format!("Invalid device_id: {device_id}"))?;
 
     let device_node = execute_orchestrator_query(
         project_state,
@@ -30,7 +28,7 @@ fn copy_device_from_track_cmd(
 
     let device_name = device_node.name().to_owned();
     // Use GLOBAL device clipboard (cross-project capable).
-    let mut clipboard = project_registry.global_device_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut clipboard = project_registry.global_device_clipboard.lock().unwrap();
     *clipboard = Some(device_node);
 
     log::info!("[IPC] copy_device_from_track_cmd(track={track_id}, device={device_id}, name='{device_name}')");
@@ -55,7 +53,7 @@ fn paste_device_to_track_impl(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // Read GLOBAL clipboard (don't consume — allow multiple pastes).
-    let clipboard = project_registry.global_device_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let clipboard = project_registry.global_device_clipboard.lock().unwrap();
     let Some(ref source_node) = *clipboard else {
         return Err("Device clipboard is empty".to_string());
     };

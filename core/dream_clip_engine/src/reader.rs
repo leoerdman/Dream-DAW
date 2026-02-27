@@ -179,11 +179,16 @@ impl ClipReader {
             return;
         }
 
+        let valid_gain = if gain.is_finite() && gain >= 0.0 { gain } else { 0.0 };
+        if valid_gain == 0.0 {
+            return; // Pure additive mixing, + 0.0 does nothing.
+        }
+
         // Pure additive mixing — no fades, no coloration
         for i in 0..write_frames {
             let src_idx = source_start + i;
             let out_idx = output_offset + i;
-            output[out_idx] += source[src_idx] * gain;
+            output[out_idx] += source[src_idx] * valid_gain;
         }
     }
 
@@ -255,7 +260,7 @@ impl ClipReader {
         let gain = if gain.is_finite() && gain >= 0.0 {
             gain
         } else {
-            1.0
+            0.0
         };
 
         // AUD-10X FIX: By default, Standard warp mode previously used linear interpolation,

@@ -78,7 +78,7 @@ async fn import_audio_file(
     // into a 48kHz project. Here, we completely eliminate RT aliasing by pre-rendering
     // the audio clip to the project's sample rate using a polyphase Sinc resampler.
     let target_sample_rate = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.sample_rate as u32
     };
 
@@ -145,12 +145,12 @@ async fn import_audio_file(
 
     // Insert into pool
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-        if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        pool.insert(clip_audio)?;
     }
     // Publish updated pool snapshot to audio thread
     {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         clip_pool_state.rebuild_snapshot(&project);
     }
 
@@ -166,7 +166,7 @@ async fn import_audio_file(
         // Snapshot for undo BEFORE mutation
         push_undo(&project_state)?;
 
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let project_sr = target_sample_rate as f64;
         let source_sr = sample_rate.max(1) as f64;
         let timeline_frames = ((num_frames as f64) * (project_sr / source_sr)).round() as i64;
@@ -252,7 +252,7 @@ async fn import_audio_file_with_deltas(
     let clip_uuid = Uuid::parse_str(&response.clip_id)
         .map_err(|_| format!("Invalid imported clip UUID: {}", response.clip_id))?;
     let (resolved_track_index, position, duration, file_path, clip_name) = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let mut found: Option<(usize, i64, i64, String, String)> = None;
         for (idx, track) in project.tracks.iter().enumerate() {
             if let Some(clip) = track.clips.iter().find(|c| c.id == clip_uuid) {

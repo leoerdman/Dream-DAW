@@ -50,9 +50,19 @@ const itemTypeToIcon: Record<AssetBrowserItemLike['type'], BrowserGlyphName> = {
     other: 'grid',
 };
 
-// BUG-95 FIX: simplified — all types use primary except 'other'
-const itemTypeColor = (type: AssetBrowserItemLike['type']) =>
-    type === 'other' ? 'var(--color-text-secondary)' : 'var(--color-text-primary)';
+// BUG-95 FIX: simplified — all types use primary except 'other' and plugins use their respective format tokens
+const itemTypeColor = (type: AssetBrowserItemLike['type'], item?: AssetBrowserItemLike) => {
+    if (type === 'plugin') {
+        if (!item) return 'var(--color-text-primary)';
+        if (item.pluginSource === 'internal') return 'var(--color-plugin-internal)';
+        if (item.pluginSource === 'vst3') return 'var(--color-plugin-vst3)';
+        if (item.pluginSource === 'vst2') return 'var(--color-plugin-vst2)';
+        if (item.pluginSource === 'au') return 'var(--color-plugin-au)';
+        if (item.pluginSource === 'clap') return 'var(--color-plugin-clap)';
+        return 'var(--color-text-primary)';
+    }
+    return type === 'other' ? 'var(--color-text-secondary)' : 'var(--color-text-primary)';
+};
 
 // BUG-94 FIX: use pluginSource from schema (single source of truth) instead of re-detecting
 const pluginVersionBadge = (item?: AssetBrowserItemLike): '2' | '3' | null => {
@@ -67,7 +77,7 @@ const pluginVersionBadge = (item?: AssetBrowserItemLike): '2' | '3' | null => {
 export const TypeIcon = memo(({ type, item }: { type: AssetBrowserItemLike['type']; item?: AssetBrowserItemLike }) => {
     const badge = pluginVersionBadge(item);
     return (
-        <span style={{ position: 'relative', display: 'inline-flex', color: itemTypeColor(type) }}>
+        <span style={{ position: 'relative', display: 'inline-flex', color: itemTypeColor(type, item) }}>
             <BrowserGlyph name={itemTypeToIcon[type]} size={11} />
             {badge && (
                 <span style={{

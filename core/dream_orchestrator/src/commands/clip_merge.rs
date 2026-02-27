@@ -5,7 +5,7 @@
 use uuid::Uuid;
 
 use dream_models::midi::MidiClip;
-use dream_models::project::AudioClip;
+
 use dream_models::time::AbsoluteTime;
 
 use crate::context::{Command, OrchestratorContext};

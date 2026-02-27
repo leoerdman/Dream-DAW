@@ -50,7 +50,7 @@ async fn set_clip_source_offset_cmd(
     {
         let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
         let clip_file_path = resolve_audio_clip_state(&project_state, clip_uuid)?.file_path;
-        let pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         if let Some(audio) = pool.get(&clip_file_path) {
             let max_offset = (audio.num_frames as i64).saturating_sub(1).max(0);
             let clamp_cmd = dream_orchestrator::commands::ClampClipSourceOffsetCommand::from_str_id(

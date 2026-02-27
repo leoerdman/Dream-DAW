@@ -5,7 +5,7 @@
 fn get_settings(
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<AppSettings, String> {
-    let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let settings = settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(settings.clone())
 }
 
@@ -50,7 +50,7 @@ fn update_settings(
 ) -> Result<(), String> {
     // Check if user_folder_path changed (need to migrate)
     let old_folder_path = {
-        let current = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let current = settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         current.user_folder_path.clone()
     };
 
@@ -58,13 +58,13 @@ fn update_settings(
     let new_folder_path = new_settings.user_folder_path.clone();
 
     // Update in-memory state
-    *settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())? = new_settings;
+    *settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = new_settings;
 
     // Persist to disk
     if folder_changed {
         settings_state.migrate_to_new_folder(&old_folder_path, &new_folder_path)?;
     } else {
-        settings_state.save_to_user_folder()?;
+        settings_state.request_save();
     }
 
     log::info!("Settings updated and persisted");

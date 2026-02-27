@@ -19,7 +19,7 @@ fn set_sampler_sample_cmd(
     let clip_audio = ClipAudio::new(sample_path.clone(), decoded.channels, decoded.sample_rate);
 
     let sample_arc = {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         if let Err(e) = pool.insert(clip_audio) {
             log::error!("ClipPool: {}", e);
         }
@@ -141,18 +141,8 @@ fn eager_activate_external_plugins(
 
                 // Restore the per-slot saved state (preset, knob positions, etc.)
                 if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
-                    let mut host = match plugin_host_state.host.lock() {
-                        Ok(h) => h,
-                        Err(e) => {
-                            log::warn!(
-                                "[EagerActivate] Host lock failed for state restore of '{}': {}",
-                                slot.plugin_id, e
-                            );
-                            continue;
-                        }
-                    };
-                    let mut slot_restore =
-                        dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
+                    let mut host = plugin_host_state.host.lock();
+                    let mut slot_restore = dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
                     slot_restore.id = slot.slot_id;
                     slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
                     slot_restore.external_parameter_count = slot.external_parameter_count;

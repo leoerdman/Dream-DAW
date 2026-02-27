@@ -33,7 +33,7 @@ async fn cancel_export_cmd(
 
 #[tauri::command]
 async fn list_background_jobs_cmd() -> Result<Vec<BackgroundJobSnapshot>, String> {
-    let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     prune_finished_jobs_locked(&mut jobs);
     let mut out: Vec<BackgroundJobSnapshot> = jobs.values().map(|j| j.snapshot.clone()).collect();
     out.sort_by_key(|j| j.started_at_ms);
@@ -42,7 +42,7 @@ async fn list_background_jobs_cmd() -> Result<Vec<BackgroundJobSnapshot>, String
 
 #[tauri::command]
 async fn cancel_background_job_cmd(job_id: String, app: tauri::AppHandle) -> Result<(), String> {
-    let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let Some(job) = jobs.get_mut(&job_id) else {
         return Err("Job not found".to_string());
     };
@@ -70,7 +70,7 @@ async fn cancel_background_job_cmd(job_id: String, app: tauri::AppHandle) -> Res
 
 #[tauri::command]
 async fn clear_finished_background_jobs_cmd() -> Result<usize, String> {
-    let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let before = jobs.len();
     jobs.retain(|_, job| job.snapshot.status == "running");
     Ok(before.saturating_sub(jobs.len()))

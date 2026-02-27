@@ -36,9 +36,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("com.dreamdaw.desktop");
     let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
-    if let Err(e) = settings_state.save_to_user_folder() {
-        log::warn!("Failed to create initial settings file: {}", e);
-    }
+    settings_state.request_save();
     let (host_sample_rate, host_buffer_size) = settings_state
         .settings
         .lock()
@@ -218,8 +216,8 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
             should_persist_resolved_output = true;
         }
     }
-    if should_persist_resolved_output && let Err(e) = settings_state.save_to_user_folder() {
-        log::warn!("Failed to persist resolved output device: {}", e);
+    if should_persist_resolved_output {
+        settings_state.request_save();
     }
 
     let playback_state = PlaybackState {

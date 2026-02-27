@@ -18,6 +18,8 @@ pub(crate) fn midi_sort_priority(status: u8) -> u8 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::collapsible_if)]
 pub(crate) fn process_midi_events(
     midi_track: &MidiTrackRuntime,
     midi_playhead_pos: i64,

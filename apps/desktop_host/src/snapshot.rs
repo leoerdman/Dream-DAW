@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use serde::Serialize;
-use dream_models::project::{AudioClip, Project, Track};
+use dream_models::project::{AudioClip, Project, Track, MidiClip, DeviceNode, AutomationLane};
 
 // ── Track Snapshot ──────────────────────────────────────────────────────
 
@@ -17,6 +17,9 @@ use dream_models::project::{AudioClip, Project, Track};
 pub(crate) struct SharedTrackSnapshot {
     pub(crate) base: Track,
     clips: Vec<Arc<AudioClip>>,
+    midi_clips: Vec<Arc<MidiClip>>,
+    effects: Vec<Arc<DeviceNode>>,
+    automation_lanes: Vec<Arc<AutomationLane>>,
 }
 
 impl SharedTrackSnapshot {
@@ -33,29 +36,89 @@ impl SharedTrackSnapshot {
             clips.push(reused.unwrap_or_else(|| Arc::new(clip.clone())));
         }
 
+        let mut midi_clips = Vec::with_capacity(track.midi_clips.len());
+        for clip in &track.midi_clips {
+            let reused = prev.and_then(|previous| {
+                previous
+                    .midi_clips
+                    .iter()
+                    .find(|p| p.id == clip.id && ***p == *clip)
+                    .cloned()
+            });
+            midi_clips.push(reused.unwrap_or_else(|| Arc::new(clip.clone())));
+        }
+
+        let mut effects = Vec::with_capacity(track.effects.len());
+        for fx in &track.effects {
+            let reused = prev.and_then(|previous| {
+                previous
+                    .effects
+                    .iter()
+                    .find(|p| p.id() == fx.id() && ***p == *fx)
+                    .cloned()
+            });
+            effects.push(reused.unwrap_or_else(|| Arc::new(fx.clone())));
+        }
+
+        let mut automation_lanes = Vec::with_capacity(track.automation_lanes.len());
+        for lane in &track.automation_lanes {
+            let reused = prev.and_then(|previous| {
+                previous
+                    .automation_lanes
+                    .iter()
+                    .find(|p| ***p == *lane)
+                    .cloned()
+            });
+            automation_lanes.push(reused.unwrap_or_else(|| Arc::new(lane.clone())));
+        }
+
         // BUG-A002 FIX: SSOT inheritance. Store the base track and clear the unshared nested items.
         let mut base = track.clone();
         base.clips.clear();
+        base.midi_clips.clear();
+        base.effects.clear();
+        base.automation_lanes.clear();
 
-        Self { base, clips }
+        Self {
+            base,
+            clips,
+            midi_clips,
+            effects,
+            automation_lanes,
+        }
     }
 
     pub(crate) fn equals_track(&self, track: &Track) -> bool {
-        if self.clips.len() != track.clips.len() {
+        if self.clips.len() != track.clips.len() || self.midi_clips.len() != track.midi_clips.len() || self.effects.len() != track.effects.len() || self.automation_lanes.len() != track.automation_lanes.len() {
             return false;
         }
         if !self.clips.iter().zip(track.clips.iter()).all(|(a, b)| **a == *b) {
             return false;
         }
+        if !self.midi_clips.iter().zip(track.midi_clips.iter()).all(|(a, b)| **a == *b) {
+            return false;
+        }
+        if !self.effects.iter().zip(track.effects.iter()).all(|(a, b)| **a == *b) {
+            return false;
+        }
+        if !self.automation_lanes.iter().zip(track.automation_lanes.iter()).all(|(a, b)| **a == *b) {
+            return false;
+        }
 
         let mut track_base = track.clone();
         track_base.clips.clear();
+        track_base.midi_clips.clear();
+        track_base.effects.clear();
+        track_base.automation_lanes.clear();
         self.base == track_base
     }
 
     pub(crate) fn to_track(&self) -> Track {
         let mut track = self.base.clone();
         track.clips = self.clips.iter().map(|c| (**c).clone()).collect();
+        track.midi_clips = self.midi_clips.iter().map(|c| (**c).clone()).collect();
+        track.effects = self.effects.iter().map(|c| (**c).clone()).collect();
+        track.automation_lanes = self.automation_lanes.iter().map(|c| (**c).clone()).collect();
         track
     }
 }
@@ -201,18 +264,17 @@ impl ProjectHistory {
     ) -> Vec<ProjectHistoryEvent> {
         // BUG-FIX: Previous implementation did double-collect (first into a Vec,
         // then skip+collect into another Vec). Refactored to single allocation.
-        let iter: Box<dyn Iterator<Item = &ProjectHistoryEvent>> = if let Some(since) = since_seq {
+        // BUG-A018 FIX: Removed Box<dyn Iterator> heap allocation overhead.
+        let mut selected: Vec<ProjectHistoryEvent> = if let Some(since) = since_seq {
             let tail_seq = self.events.back().map(|e| e.seq).unwrap_or(0);
             if since > tail_seq {
-                Box::new(self.events.iter())
+                self.events.iter().cloned().collect()
             } else {
-                Box::new(self.events.iter().filter(move |e| e.seq > since))
+                self.events.iter().filter(|e| e.seq > since).cloned().collect()
             }
         } else {
-            Box::new(self.events.iter())
+            self.events.iter().cloned().collect()
         };
-        // Collect once, then truncate from the front to apply the limit.
-        let mut selected: Vec<ProjectHistoryEvent> = iter.cloned().collect();
         if let Some(max) = limit {
             let len = selected.len();
             if len > max {

@@ -46,7 +46,7 @@ async fn move_clip_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
-    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let _clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
 
     let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
         &clip_id,
@@ -55,13 +55,7 @@ async fn move_clip_with_deltas_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipMoved {
-        clip_id: clip_uuid,
-        old_track_index: result.old_track_index,
-        new_track_index,
-        new_position: new_position_frames,
-    }];
+    let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
         &project_state,
@@ -70,6 +64,11 @@ async fn move_clip_with_deltas_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
+
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    }];
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -101,20 +100,7 @@ async fn move_multiple_clips_with_deltas_cmd(
     }
 
     let cmd = dream_orchestrator::commands::MoveMultipleClipsCommand { clips: valid_clips };
-    let results = execute_orchestrator_command(&project_state, &cmd)?;
-
-    let mut deltas = Vec::with_capacity(results.len());
-    for (clip_id, res) in results {
-        // Find matching request to push delta new track & pos
-        if let Some((_, new_track, new_pos)) = cmd.clips.iter().find(|(id, _, _)| *id == clip_id) {
-            deltas.push(dream_models::delta::ProjectDelta::ClipMoved {
-                clip_id,
-                old_track_index: res.old_track_index,
-                new_track_index: *new_track,
-                new_position: *new_pos,
-            });
-        }
-    }
+    let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
         &project_state,
@@ -123,6 +109,11 @@ async fn move_multiple_clips_with_deltas_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
+
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    }];
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -182,7 +173,7 @@ async fn resize_clip_with_deltas_cmd(
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let before_audio_state = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project
             .tracks
             .iter()
@@ -211,7 +202,7 @@ async fn resize_clip_with_deltas_cmd(
     execute_orchestrator_command(&project_state, &cmd)?;
 
     let after_audio_state = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project
             .tracks
             .iter()
@@ -473,8 +464,6 @@ async fn duplicate_clip_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
-    let source_clip_uuid =
-        Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
         &clip_id,
         new_position_frames,
@@ -484,12 +473,6 @@ async fn duplicate_clip_with_deltas_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipDuplicated {
-        source_clip_id: source_clip_uuid,
-        new_clip_id: result.new_id,
-        new_position: result.new_position_frames,
-    }];
-
     rebuild_clip_views_and_mark_dirty(
         &project_state,
         &clip_pool_state,
@@ -497,6 +480,11 @@ async fn duplicate_clip_with_deltas_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
+
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    }];
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: result.new_id.to_string(),
@@ -532,20 +520,9 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
 
     let cmd = dream_orchestrator::commands::DuplicateMultipleClipsCommand { clips: valid_clips };
     let results = execute_orchestrator_command(&project_state, &cmd)?;
-
-    let mut deltas = Vec::with_capacity(results.len());
     let mut last_new_id = String::new();
-
-    // Map the new IDs relative to their input source parent
-    for (idx, res) in results.into_iter().enumerate() {
-        if let Some((src_id, _, _)) = cmd.clips.get(idx) {
-            deltas.push(dream_models::delta::ProjectDelta::ClipDuplicated {
-                source_clip_id: *src_id,
-                new_clip_id: res.new_id,
-                new_position: res.new_position_frames,
-            });
-            last_new_id = res.new_id.to_string();
-        }
+    for res in results {
+        last_new_id = res.new_id.to_string();
     }
 
     rebuild_clip_views_and_mark_dirty(
@@ -555,6 +532,11 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
+
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    }];
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: last_new_id,

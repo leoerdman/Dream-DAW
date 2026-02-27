@@ -16,7 +16,7 @@ fn preview_sampler_note_on_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let resolved_track_index = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         resolve_preview_track_index(&project, track_index)
     };
     push_command(
@@ -41,7 +41,7 @@ fn preview_sampler_note_off_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let resolved_track_index = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         resolve_preview_track_index(&project, track_index)
     };
     push_command(

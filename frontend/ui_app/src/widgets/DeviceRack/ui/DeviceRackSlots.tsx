@@ -169,7 +169,10 @@ export function DeviceSlot({
                     logic.selectDevice(device.id, false);
                     if (!selectedTrack) return;
                     try {
-                        if (device.source !== 'internal') {
+                        if (device.pluginId === 'internal://instrument/flow') {
+                            const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                            useFlowSynthStore.getState().openFlowEditor(device.id, selectedTrack.id);
+                        } else if (device.source !== 'internal') {
                             await logic.ensureSlotRuntimeActive(device.id);
                             await logic.togglePluginEditor(selectedTrack.id, device.id);
                         } else {

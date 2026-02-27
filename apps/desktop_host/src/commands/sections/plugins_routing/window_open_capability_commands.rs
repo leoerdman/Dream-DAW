@@ -19,7 +19,7 @@ fn can_open_plugin_editor(
         );
     }
     if let Some(instance_id) = instance_id {
-        let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut host = plugin_host_state.host.lock();
         let supported = host
             .supports_editor(instance_id)
             .map_err(|e| format!("Failed to check editor capability: {e}"))?;

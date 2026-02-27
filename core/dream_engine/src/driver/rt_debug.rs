@@ -18,6 +18,7 @@ pub struct SharedRtDebugStats {
     queue_full_reject_total: AtomicU64,
     deferred_topology_len_last: AtomicU64,
     topology_overflow_total: AtomicU64,
+    gc_overflow_total: AtomicU64,
     /// Audio thread utilization percentage (0–100). Stored as f32 bits in AtomicU32.
     /// This is THE critical metric for DAW users — shows how close the session is
     /// to dropout. Computed as (callback_duration / buffer_budget) × 100.
@@ -41,6 +42,7 @@ impl SharedRtDebugStats {
             queue_full_reject_total: AtomicU64::new(0),
             deferred_topology_len_last: AtomicU64::new(0),
             topology_overflow_total: AtomicU64::new(0),
+            gc_overflow_total: AtomicU64::new(0),
             dsp_load_percent: AtomicU32::new(0),
             dsp_load_smoothed: AtomicU32::new(0),
         }
@@ -94,6 +96,11 @@ impl SharedRtDebugStats {
         self.topology_overflow_total.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// RT-SAFE GC queue overflow counter.
+    pub(crate) fn record_gc_overflow(&self) {
+        self.gc_overflow_total.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Records the DSP load percentage from the audio callback.
     /// Called unconditionally every callback — the ~20ns `Instant::now()` overhead
     /// is negligible vs. the typical 200–2000µs render budget.
@@ -133,6 +140,7 @@ impl SharedRtDebugStats {
             queue_full_reject_total: self.queue_full_reject_total.load(Ordering::Relaxed),
             deferred_topology_len_last: self.deferred_topology_len_last.load(Ordering::Relaxed),
             topology_overflow_total: self.topology_overflow_total.load(Ordering::Relaxed),
+            gc_overflow_total: self.gc_overflow_total.load(Ordering::Relaxed),
             dsp_load_percent: self.dsp_load_percent(),
             dsp_load_instant: self.dsp_load_instant(),
         }
@@ -159,6 +167,7 @@ pub struct RtDebugSnapshot {
     pub queue_full_reject_total: u64,
     pub deferred_topology_len_last: u64,
     pub topology_overflow_total: u64,
+    pub gc_overflow_total: u64,
     /// Smoothed DSP load percentage (0–100) for UI display.
     pub dsp_load_percent: f32,
     /// Raw instantaneous DSP load (0–100) — last callback only.

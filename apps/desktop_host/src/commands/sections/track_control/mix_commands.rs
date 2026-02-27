@@ -26,7 +26,7 @@ fn set_track_volume(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -60,7 +60,7 @@ fn set_track_volume_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -96,7 +96,7 @@ fn set_track_pan(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -130,7 +130,7 @@ fn set_track_pan_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -159,7 +159,7 @@ fn set_master_volume(
     push_command(&handle, EngineCommand::SetMasterVolume { volume: clamped })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -185,7 +185,7 @@ fn set_track_disabled(
     push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -210,7 +210,7 @@ fn set_track_disabled_with_deltas(
     push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -246,7 +246,7 @@ fn set_track_solo(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -277,7 +277,7 @@ fn set_track_solo_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -308,7 +308,7 @@ fn set_track_send_level(
     };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -332,7 +332,7 @@ fn set_track_send_level_with_deltas(
     };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;

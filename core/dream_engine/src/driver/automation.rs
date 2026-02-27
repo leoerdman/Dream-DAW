@@ -299,6 +299,85 @@ pub(crate) fn apply_track_mixer_automation_sample_accurate(
     }
 }
 
+pub(crate) fn apply_midi_fx_automation_block(
+    config: &mut crate::driver::MidiFxRuntimeConfig,
+    lane: Option<&TrackAutomationState>,
+    playhead_pos: i64,
+) {
+    let Some(lane) = lane else {
+        return;
+    };
+    if lane.plugin_params.is_empty() {
+        return;
+    }
+
+    fn norm(raw: &str) -> String {
+        let lowered = raw.to_ascii_lowercase();
+        let unscoped = if let Some(rest) = lowered.strip_prefix("slot:") {
+            if let Some(at) = rest.find(':') { &rest[at+1..] } else { lowered.as_str() }
+        } else { lowered.as_str() };
+        unscoped.chars().filter(|c| c.is_ascii_alphanumeric()).collect()
+    }
+
+    let get_val = |keys: &[&str]| -> Option<f32> {
+        let normalized: Vec<String> = keys.iter().map(|&k| norm(k)).collect();
+        for (lane_key_raw, points) in &lane.plugin_params {
+            let lane_key = norm(lane_key_raw);
+            if normalized.iter().any(|key| lane_key == *key || lane_key.ends_with(key.as_str())) {
+                let mut cursor = 0usize;
+                return eval_automation_with_cursor(points, playhead_pos, &mut cursor);
+            }
+        }
+        None
+    };
+
+    if let Some(v) = get_val(&["midi.pitch.semitones", "midifx.pitch.semitones", "midiPitch.semitones"]) {
+        config.pitch_semitones = v.round().clamp(-48.0, 48.0) as i8;
+    }
+    if let Some(v) = get_val(&["midi.scale.root", "midifx.scale.root", "midiScale.root"]) {
+        config.scale_root = v.round().rem_euclid(12.0) as u8;
+    }
+    if let Some(v) = get_val(&["midi.scale.mask", "midifx.scale.mask", "midiScale.mask"]) {
+        config.scale_mask = v.round().clamp(1.0, 4095.0) as u16;
+    }
+    if let Some(v) = get_val(&["midi.velocity.gain", "midifx.velocity.gain", "midiVelocity.gain"]) {
+        config.velocity_gain = v.clamp(0.0, 4.0);
+    }
+    if let Some(v) = get_val(&["midi.velocity.offset", "midifx.velocity.offset", "midiVelocity.offset"]) {
+        config.velocity_offset = v.round().clamp(-127.0, 127.0) as i8;
+    }
+    if let Some(v) = get_val(&["midi.random.semitones", "midifx.random.semitones", "midiRandom.semitones"]) {
+        config.random_semitones = v.round().clamp(-24.0, 24.0) as i8;
+    }
+    if let Some(v) = get_val(&["midi.random.chance", "midifx.random.chance", "midiRandom.chance"]) {
+        config.random_chance = v.clamp(0.0, 1.0);
+    }
+}
+
+pub(crate) fn apply_native_device_automation_sample_accurate_block(
+    device_chain: &mut dream_dsp::device_chain::DeviceChain,
+    lane: Option<&TrackAutomationState>,
+    playhead_pos: i64,
+) {
+    let Some(lane) = lane else {
+        return;
+    };
+    if lane.plugin_params.is_empty() {
+        return;
+    }
+
+    for (key, points) in &lane.plugin_params {
+        if let Some(target) = parse_external_param_target(key) {
+            if let Some(slot_index) = target.slot_index {
+                let mut cursor = 0usize;
+                if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
+                    device_chain.set_param(slot_index, target.param_index, value);
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn apply_external_plugin_param_automation_block(
     host: &mut Box<dyn dream_plugins::PluginInstance>,
     lane: Option<&TrackAutomationState>,

@@ -13,25 +13,24 @@ use super::render_pipeline::{
     process_master_bus, render_test_tone_if_needed, sync_sample_rack_engines,
     sync_sampler_samples,
 };
-use crate::driver::executor::audio_thread_process::process_midi_events;
-
-use crate::driver::automation::{
-    apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
-};
-pub(crate) mod audio_thread_track_pass;
-use audio_thread_track_pass::{TrackPassContext, process_track_graph_node};
+use super::audio_thread_track_pass::{TrackPassContext, process_track_graph_node};
 use crate::driver::midi_dispatcher::PluginNoteTracker;
-use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
+use dream_clip_engine::midi_scheduler::ScheduledNote;
 use dream_graph::GraphRenderer;
 use dream_ipc::metering::{METER_FLOOR_DB, compute_peak, compute_rms};
-use dream_plugins::TransportContext;
 
 /// Safe test tone amplitude: -10 dBFS to avoid clipping during development.
 const TEST_TONE_AMPLITUDE: f32 = 0.316_227_76;
 
 // BUG-088, BUG-099 FIX: Moved static diagnostic counters out of function scopes
-static GC_OVERFLOW_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 static TOPOLOGY_OVERFLOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn reset_runner_counters() {
+
+    TOPOLOGY_OVERFLOW.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+#[allow(dead_code)]
 static PANIC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[allow(clippy::too_many_arguments)]
@@ -116,14 +115,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // Historically this path was bypassed; now it is active in the master FX stage.
     let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
-    let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
-    let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
+    let mut track_disabled = [false; MAX_TRACKS];
+    let mut track_soloed = [false; MAX_TRACKS];
     let mut any_solo: bool = false;
     // PREVIEW-FIX: Per-track flag indicating an external VST instrument is loaded.
     // When true, preview note-on/off skips the built-in sampler/rack engines
     // (they would produce a buzzing waveform layered on top of the VST).
     // Updated every callback from external_fx_snapshot.
-    let mut track_has_external_instrument: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
+    let mut track_has_external_instrument = [false; MAX_TRACKS];
+
+    // UI state mutations are accumulated here to avoid mid-buffer discontinuities
+    let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
+    let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
+    let mut pending_track_disabled: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
+    let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
     // BUG-026 FIX: Persist the last loop region so SetLoopEnabled(true) can restore it.
     let mut last_loop_region: Option<LoopRegion> = None;
     let mut loop_enabled = false;
@@ -330,6 +335,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 track_soloed: &mut track_soloed,
                                 any_solo: &mut any_solo,
                                 track_has_external_instrument: &track_has_external_instrument,
+                                pending_track_volume: &mut pending_track_volume,
+                                pending_track_pan: &mut pending_track_pan,
+                                pending_track_disabled: &mut pending_track_disabled,
+                                pending_track_solo: &mut pending_track_solo,
                                 last_loop_region: &mut last_loop_region,
                                 loop_enabled: &mut loop_enabled,
                                 test_tone_phase: &mut test_tone_phase,
@@ -389,7 +398,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if !std::sync::Arc::ptr_eq(&current_clip_snap, &prev_clip_snap) {
                             let old = std::mem::replace(&mut prev_clip_snap, current_clip_snap.clone());
                             if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
-                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                rt_debug_stats.record_gc_overflow();
                             }
                         }
                         let snapshot = &current_clip_snap;
@@ -399,7 +408,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if !std::sync::Arc::ptr_eq(&current_prepared_snap, &prev_prepared_snap) {
                             let old = std::mem::replace(&mut prev_prepared_snap, current_prepared_snap.clone());
                             if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
-                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                rt_debug_stats.record_gc_overflow();
                             }
                         }
                         let prepared = &current_prepared_snap;
@@ -422,7 +431,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if !std::sync::Arc::ptr_eq(&current_routing_snap, &prev_routing_snap) {
                             let old = std::mem::replace(&mut prev_routing_snap, current_routing_snap.clone());
                             if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
-                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                rt_debug_stats.record_gc_overflow();
                             }
                         }
                         let routing_now = &current_routing_snap;
@@ -447,7 +456,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if !std::sync::Arc::ptr_eq(&current_midi_snap, &prev_midi_snap) {
                             let old = std::mem::replace(&mut prev_midi_snap, current_midi_snap.clone());
                             if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
-                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                rt_debug_stats.record_gc_overflow();
                             }
                         }
                         let midi_snap = &current_midi_snap;
@@ -485,7 +494,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             if !std::sync::Arc::ptr_eq(&current_clip_pool, &prev_clip_pool) {
                                 let old = std::mem::replace(&mut prev_clip_pool, current_clip_pool.clone());
                                 if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
-                                    GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    rt_debug_stats.record_gc_overflow();
                                 }
                             }
                             let pool_snap = &current_clip_pool;
@@ -590,8 +599,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         track_idx,
                                         post_sum_processed,
                                         slot,
-                                        external_fx_map,
-                                        automation,
+                                        left_tracks: _left_tracks,
+                                        right_tracks: _right_tracks_rest,
+                                        external_fx_map: &external_fx_map,
+                                        automation: &automation,
                                         playhead_pos,
                                         sample_rate_f64,
                                         process_ctx: &process_ctx,
@@ -613,7 +624,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         time_sig_numerator,
                                         time_sig_denominator,
                                         timeline_sample_rate: render_ctx.timeline_sample_rate,
-                                        loop_region: render_ctx.loop_region.clone(),
+                                        loop_region: render_ctx.loop_region,
                                     };
 
                                     process_track_graph_node(left, right, &mut ctx, sidechain_resolver);

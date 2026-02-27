@@ -15,7 +15,6 @@ use crate::synth_types::Waveform;
 /// `dt` = phase increment per sample (normalized frequency).
 ///
 /// Returns the correction value to subtract from the naive waveform.
-
 #[inline]
 fn poly_blep(t: f64, dt: f64) -> f64 {
     if dt <= 0.0 {

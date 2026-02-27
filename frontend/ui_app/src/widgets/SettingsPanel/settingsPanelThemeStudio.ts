@@ -5,11 +5,11 @@ const cssGradient = (top: [number, number, number], bottom: [number, number, num
     `linear-gradient(180deg, ${cssRgb(...top)} 0%, ${cssRgb(...bottom)} 100%)`;
 
 export const THEME_PRESETS = [
-    { label: 'Dark Clean', theme: 'dark', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 72, themeDetailPercent: 90, themeMotionEnabled: true, themeMotionPercent: 85 },
-    { label: 'Dark Graphite', theme: 'dark', darkThemeShade: 96, darkThemeTintPercent: 16, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 72, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
-    { label: 'Forest Moss', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 92, forestThemeFogPercent: 82, lightThemeTexturePercent: 72, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 84 },
-    { label: 'Forest Pine', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 72, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
-    { label: 'Light Studio', theme: 'light', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 72, themeDetailPercent: 92, themeMotionEnabled: true, themeMotionPercent: 68 },
+    { label: 'Dark Clean', theme: 'dark', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 90, themeMotionEnabled: true, themeMotionPercent: 85 },
+    { label: 'Dark Graphite', theme: 'dark', darkThemeShade: 96, darkThemeTintPercent: 16, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
+    { label: 'Forest Moss', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 92, forestThemeFogPercent: 82, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 84 },
+    { label: 'Forest Pine', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
+    { label: 'Light Studio', theme: 'light', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 92, themeMotionEnabled: true, themeMotionPercent: 68 },
 ] as const;
 
 export const THEME_PRESET_LABELS = THEME_PRESETS.map((preset) => preset.label);

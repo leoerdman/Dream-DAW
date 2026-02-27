@@ -60,6 +60,9 @@ use crate::essence_synth::EssenceSynthEngine;
 use crate::instrument_core::AdsrParams;
 use crate::sampler::{SampleRackEngine, SamplerEngine};
 
+pub mod wav_writer;
+use wav_writer::WavWriter;
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 /// Offline bounce buffer size. Must match the typical RT audio callback
@@ -689,6 +692,12 @@ impl OfflineRenderer {
             .min(slot.buf_left.len())
             .min(slot.buf_right.len());
 
+        crate::driver::automation::apply_native_device_automation_sample_accurate_block(
+            &mut slot.device_chain,
+            ctx.automation.get(track_idx),
+            ctx.playhead_pos,
+        );
+
         if let Some(runtime_slots) = ctx.external_fx_map.get(track_idx) {
             if !runtime_slots.is_empty() {
                 let has_external = runtime_slots.iter().any(|s| s.instance_id.is_some());
@@ -1010,9 +1019,16 @@ impl OfflineRenderer {
                 // PARITY FIX 3: Build MIDI FX config from project track data
                 // and apply pitch/scale/velocity/random transforms — matching
                 // the live path at audio_thread_runner.rs:674-766.
-                let fx = ctx.midi_fx_configs.get(track_idx)
+                let mut fx = ctx.midi_fx_configs.get(track_idx)
                     .cloned()
                     .unwrap_or_default();
+                
+                crate::driver::automation::apply_midi_fx_automation_block(
+                    &mut fx,
+                    ctx.automation.get(track_idx),
+                    playhead_pos,
+                );
+
                 let mut rng_state: u32 = 0xDEAD_BEEF_u32.wrapping_add(track_idx as u32);
 
                 for event in &midi_schedule {
@@ -1414,14 +1430,14 @@ impl OfflineRenderer {
     /// 5. Adds the AudioClip to the project and registers the ClipAudio in the pool
     ///
     /// Returns the number of tracks that were pre-rendered.
-    fn pre_render_midi_tracks(&self, project: &mut Project, clip_pool: &mut ClipPool) -> usize {
+    fn pre_render_midi_tracks(&self, project: &mut Project, clip_pool: &mut ClipPool) -> Result<usize, BounceError> {
         let sample_rate = self.config.project_sample_rate.max(1.0);
         let start_frame = self.config.start_frame;
         let end_frame = self.config.end_frame;
         let total_frames = (end_frame - start_frame).max(0) as usize;
 
         if total_frames == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let mut rendered_count = 0usize;
@@ -1557,6 +1573,12 @@ impl OfflineRenderer {
             let mut playhead = start_frame;
 
             while frames_done < total_frames {
+                if self.cancel_flag.load(Ordering::SeqCst) {
+                    return Err(BounceError::RenderError(
+                        "Bounce cancelled by user during MIDI pre-render".to_string(),
+                    ));
+                }
+
                 let remaining = total_frames - frames_done;
                 let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
 
@@ -1720,7 +1742,7 @@ impl OfflineRenderer {
                 vec![out_left, out_right],
                 sample_rate as u32,
             );
-            let _ = clip_pool.insert(clip_audio);
+            clip_pool.insert(clip_audio).map_err(BounceError::RenderError)?;
 
             let synth_clip = AudioClip::new(
                 format!("{} (MIDI Pre-render)", track_name),
@@ -1733,7 +1755,7 @@ impl OfflineRenderer {
             rendered_count += 1;
         }
 
-        rendered_count
+        Ok(rendered_count)
     }
 
     /// Creates a new bouncer with the given configuration.
@@ -1887,7 +1909,7 @@ impl OfflineRenderer {
 
         // ── Pre-render MIDI tracks ──────────────────────────────
         if total_midi_clips > 0 {
-            let midi_rendered = self.pre_render_midi_tracks(project, clip_pool);
+            let midi_rendered = self.pre_render_midi_tracks(project, clip_pool)?;
             info!("[Bounce] Pre-rendered {} MIDI tracks", midi_rendered);
         }
 
@@ -2348,69 +2370,29 @@ impl OfflineRenderer {
                 .finalize()
                 .map_err(|e| BounceError::WriteError(e.to_string()))?;
         } else {
-            let spec = hound::WavSpec {
-                channels: 2,
-                sample_rate: self.config.sample_rate,
-                bits_per_sample: self.config.bit_depth,
-                sample_format: if self.config.bit_depth == 32 {
-                    hound::SampleFormat::Float
-                } else {
-                    hound::SampleFormat::Int
-                },
-            };
-            let mut wav_writer = hound::WavWriter::create(&self.config.output_path, spec)
-                .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            let mut wav_writer = WavWriter::create(
+                &self.config.output_path,
+                self.config.sample_rate,
+                self.config.bit_depth,
+            )?;
+            
+            let chunk_size = 8192;
+            let mut w_pos = 0;
+            while w_pos < export_frames {
+                let chunk = (export_frames - w_pos).min(chunk_size);
+                wav_writer.write_chunk(
+                    &final_l[w_pos..w_pos + chunk],
+                    &final_r[w_pos..w_pos + chunk],
+                )?;
+                w_pos += chunk;
 
-            let is_float = self.config.bit_depth == 32;
-            let scaler = if self.config.bit_depth == 16 {
-                32767.0
-            } else if self.config.bit_depth == 24 {
-                8388607.0
-            } else {
-                1.0
-            };
-
-            // HYPER-CORE: TPDF Dithering for integer quantization.
-            // Adds ±1 LSB triangular-distributed noise before rounding,
-            // converting truncation distortion into a flat, inaudible noise floor.
-            // Critical for reverb tails and quiet passages at 16-bit.
-            let mut ditherer = dream_dsp::dither::TpdfDitherer::new();
-
-            for i in 0..export_frames {
-                for ch in 0..2 {
-                    let s = if ch == 0 { final_l[i] } else { final_r[i] };
-                    if is_float {
-                        wav_writer
-                            .write_sample(s)
-                            .map_err(|e| BounceError::WriteError(e.to_string()))?;
-                    } else if self.config.bit_depth == 16 {
-                        // TPDF dither: add ±1 LSB triangular noise before rounding.
-                        let dithered = s * scaler + ditherer.next_tpdf();
-                        let scaled = dithered.round().clamp(-32768.0, 32767.0) as i16;
-                        wav_writer
-                            .write_sample(scaled)
-                            .map_err(|e| BounceError::WriteError(e.to_string()))?;
-                    } else {
-                        // 24-bit: hound writes the lower 24 bits of i32
-                        let dithered = s * scaler + ditherer.next_tpdf();
-                        let scaled = dithered.round().clamp(-8388608.0, 8388607.0) as i32;
-                        wav_writer
-                            .write_sample(scaled)
-                            .map_err(|e| BounceError::WriteError(e.to_string()))?;
-                    }
-                }
-
-                if i % 8192 == 0 {
-                    let progress = 0.85 + 0.15 * (i as f32 / export_frames as f32);
-                    if progress - last_progress >= 0.01 {
-                        progress_callback(progress.min(1.0));
-                        last_progress = progress;
-                    }
+                let progress = 0.85 + 0.15 * (w_pos as f32 / export_frames as f32);
+                if progress - last_progress >= 0.01 {
+                    progress_callback(progress.min(1.0));
+                    last_progress = progress;
                 }
             }
-            wav_writer
-                .finalize()
-                .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            wav_writer.finalize()?;
         }
 
         progress_callback(1.0);

@@ -49,7 +49,7 @@ impl MidiNote {
             pitch: pitch.min(127),
             // BUG-028 FIX: Allow velocity 0 — MIDI spec uses velocity=0 as note-off.
             velocity: velocity.min(127),
-            start_frame: start_frame.max(0),
+            start_frame, // BUG-A027 FIX: Notes can start before the clip boundary (negative relative frame)
             duration_frames: duration_frames.max(1),
         }
     }
@@ -419,7 +419,7 @@ impl Default for SamplerConfig {
         Self {
             sample_path: String::new(),
             root_note: 60,
-            volume: 0.5,
+            volume: 1.0,
             attack: 0.005, // 5ms — click-free
             decay: 0.1,
             sustain: 1.0,
@@ -591,6 +591,11 @@ mod tests {
         assert_eq!(note.start_frame, 0);
         assert_eq!(note.duration_frames, 22050);
         assert_eq!(note.end_frame(), 22050);
+
+        // BUG-A027 test: allow negative start frame offset.
+        let clipped_note = MidiNote::new(60, 100, -500, 22050);
+        assert_eq!(clipped_note.start_frame, -500);
+        assert_eq!(clipped_note.end_frame(), 21550);
     }
 
     #[test]
@@ -694,7 +699,7 @@ mod tests {
     fn sampler_config_defaults() {
         let cfg = SamplerConfig::default();
         assert_eq!(cfg.root_note, 60);
-        assert!((cfg.volume - 0.5).abs() < f64::EPSILON);
+        assert!((cfg.volume - 1.0).abs() < f64::EPSILON);
         assert!(!cfg.has_sample());
     }
 

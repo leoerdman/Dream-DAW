@@ -296,14 +296,10 @@ impl TimeSignature {
     /// - 6/8 → 3 beats (6 × 4 / 8 = 3)
     /// - 3/4 → 3 beats
     pub fn beats_per_bar(&self) -> u8 {
-        if self.denominator == 0 {
-            return 4;
-        }
         // Ensure at least 1 beat per bar for unusual signatures (e.g. 1/16).
-        // We intentionally use floor division here to keep quarter-note beat grid
-        // compatible with existing transport/editor semantics (e.g. 7/8 => 3 beats).
+        // BUG-A029 FIX: Guard denominator with max(1) and drop explicit branch!
         let n = self.numerator as u16 * 4;
-        let d = self.denominator as u16;
+        let d = (self.denominator as u16).max(1);
         let beats = n / d;
         u8::try_from(beats).unwrap_or(u8::MAX).max(1)
     }
@@ -968,7 +964,7 @@ pub struct AudioClip {
     pub source_offset: AbsoluteTime,
 
     /// Gain multiplier for this clip (1.0 = unity).
-    pub gain: f64,
+    pub gain: f32,
 
     /// User-defined fade-in length in sample frames.
     #[serde(default)]
@@ -1504,6 +1500,22 @@ pub struct TimeSignatureChange {
 
 // ── Project ────────────────────────────────────────────────────────────
 
+fn default_sample_rate() -> f64 {
+    44100.0
+}
+
+fn deserialize_sample_rate<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let val: f64 = serde::Deserialize::deserialize(deserializer)?;
+    if !val.is_finite() || val < 8000.0 {
+        Ok(44100.0)
+    } else {
+        Ok(val.clamp(8000.0, 384000.0))
+    }
+}
+
 /// The top-level project container — the entire DAW session.
 ///
 /// Serialized to disk as compressed JSON. Loaded on app launch.
@@ -1530,6 +1542,7 @@ pub struct Project {
     pub pulse_map: PulseMap,
 
     /// Project sample rate (e.g., 44100, 48000, 96000).
+    #[serde(default = "default_sample_rate", deserialize_with = "deserialize_sample_rate")]
     pub sample_rate: f64,
 
     /// Musical time signature.

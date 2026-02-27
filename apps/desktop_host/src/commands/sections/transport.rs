@@ -370,7 +370,7 @@ fn set_bpm(
 
     // Persisted project retime: keep musical beat positions/durations invariant
     // while converting all sample-frame fields to the new tempo map.
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let old_pulse_map = project.pulse_map.clone();
     let mut new_pulse_map = old_pulse_map.clone();
     new_pulse_map.set_constant_tempo(bpm);
@@ -534,7 +534,7 @@ fn set_time_signature(
 
     push_undo(&project_state)?;
     {
-        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.time_signature = dream_models::project::TimeSignature::new(numerator_u8, denominator_u8);
         let project_name = project.name.clone();
         drop(project);
@@ -625,7 +625,7 @@ fn set_loop(
 
         // BUG-061 FIX: Auto-seek to loop start when enabled during playback outside the region.
         let is_playing = {
-            let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
             state.is_playing
         };
         let pos = handle.master_clock.position();

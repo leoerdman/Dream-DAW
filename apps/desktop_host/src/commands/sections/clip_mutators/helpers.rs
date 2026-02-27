@@ -81,12 +81,12 @@ pub(super) fn build_local_pool_for_project(
                 continue;
             }
             if let Ok(decoded) = AudioReader::read(PathBuf::from(&clip.file_path)) {
-                let _ = local_pool.insert(ClipAudio {
+                local_pool.insert(ClipAudio {
                     source_path: clip.file_path.clone(),
                     channels: decoded.channels,
                     sample_rate: decoded.sample_rate,
                     num_frames: decoded.num_frames,
-                });
+                })?;
             }
         }
 
@@ -98,12 +98,12 @@ pub(super) fn build_local_pool_for_project(
                 let path = PathBuf::from(&sampler_cfg.sample_path);
                 if path.exists() {
                     if let Ok(decoded) = AudioReader::read(path) {
-                        let _ = local_pool.insert(ClipAudio {
+                        local_pool.insert(ClipAudio {
                             source_path: sampler_cfg.sample_path.clone(),
                             channels: decoded.channels,
                             sample_rate: decoded.sample_rate,
                             num_frames: decoded.num_frames,
-                        });
+                        })?;
                         log::info!(
                             "[ExportPool] Loaded sampler sample '{}' for track '{}'",
                             sampler_cfg.sample_path,
@@ -124,12 +124,12 @@ pub(super) fn build_local_pool_for_project(
                 let path = PathBuf::from(&pad.sample_path);
                 if path.exists() {
                     if let Ok(decoded) = AudioReader::read(path) {
-                        let _ = local_pool.insert(ClipAudio {
+                        local_pool.insert(ClipAudio {
                             source_path: pad.sample_path.clone(),
                             channels: decoded.channels,
                             sample_rate: decoded.sample_rate,
                             num_frames: decoded.num_frames,
-                        });
+                        })?;
                         log::info!(
                             "[ExportPool] Loaded SampleRack pad '{}' for track '{}'",
                             pad.sample_path,
@@ -159,13 +159,13 @@ pub(super) fn place_bounced_file_on_new_track(
     push_undo(project_state)?;
 
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-        let _ = pool.insert(ClipAudio {
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        pool.insert(ClipAudio {
             source_path: bounced_file_path.to_string(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
             num_frames: decoded.num_frames,
-        });
+        })?;
     }
 
     let project_sr = execute_orchestrator_query(
@@ -232,14 +232,14 @@ pub(super) fn place_stem_files_on_new_tracks(
     push_undo(project_state)?;
 
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         for stem in &metas {
-            let _ = pool.insert(ClipAudio {
+            pool.insert(ClipAudio {
                 source_path: stem.path.clone(),
                 channels: stem.channels_data.clone(),
                 sample_rate: stem.sample_rate,
                 num_frames: stem.num_frames,
-            });
+            })?;
         }
     }
 

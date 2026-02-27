@@ -26,7 +26,7 @@ async fn set_track_color_cmd(
 
     // No-op guard before undo snapshot.
     {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let track = project
             .tracks
             .iter()
@@ -68,7 +68,7 @@ async fn set_track_color_with_deltas_cmd(
 
     // Keep no-op responses empty so frontend never needs fallback refresh.
     {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         let track = project
             .tracks
             .iter()
@@ -149,7 +149,7 @@ async fn create_group_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -194,7 +194,7 @@ async fn create_group_with_deltas_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -255,7 +255,7 @@ async fn set_group_expanded_cmd(
     )
     .map_err(|e| e.to_string())?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;

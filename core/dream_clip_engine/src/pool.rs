@@ -13,8 +13,19 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// BUG-A043 FIX: macOS and Windows use case-insensitive filesystems.
+/// Normalizing paths to lowercase prevents duplicate RAM allocations
+/// if the same file is requested with different casing (e.g. "Kick.wav" vs "kick.wav").
+fn normalize_path_key(path: &str) -> String {
+    #[cfg(target_os = "linux")]
+    { path.to_string() }
+    #[cfg(not(target_os = "linux"))]
+    { path.to_lowercase() }
+}
+
 
 /// Pre-loaded audio data for a single clip.
 ///
@@ -42,7 +53,7 @@ impl ClipAudio {
         Self {
             source_path: source_path.into(),
             channels,
-            sample_rate,
+            sample_rate: sample_rate.max(1), // BUG-A032 FIX: Ensure sample rate > 0
             num_frames,
         }
     }
@@ -100,12 +111,13 @@ impl ClipPool {
     /// # BUG-024 FIX
     /// Returns `Err` if the insert would exceed the memory limit.
     pub fn insert(&mut self, audio: ClipAudio) -> Result<(), String> {
+        let key = normalize_path_key(&audio.source_path);
         let path = audio.source_path.clone();
         let bytes = audio.memory_bytes();
         let frames = audio.num_frames;
 
         // Remove old entry first to keep running total accurate
-        if let Some(old) = self.entries.remove(&path) {
+        if let Some(old) = self.entries.remove(&key) {
             self.running_memory_bytes =
                 self.running_memory_bytes.saturating_sub(old.memory_bytes());
         }
@@ -127,7 +139,7 @@ impl ClipPool {
         );
 
         self.running_memory_bytes += bytes;
-        self.entries.insert(path, Arc::new(audio));
+        self.entries.insert(key, Arc::new(audio));
         Ok(())
     }
 
@@ -135,12 +147,12 @@ impl ClipPool {
     ///
     /// Returns `None` if the source hasn't been loaded yet.
     pub fn get(&self, source_path: &str) -> Option<Arc<ClipAudio>> {
-        self.entries.get(source_path).cloned()
+        self.entries.get(&normalize_path_key(source_path)).cloned()
     }
 
     /// Removes loaded audio data from the pool.
     pub fn remove(&mut self, source_path: &str) -> bool {
-        if let Some(removed) = self.entries.remove(source_path) {
+        if let Some(removed) = self.entries.remove(&normalize_path_key(source_path)) {
             self.running_memory_bytes = self
                 .running_memory_bytes
                 .saturating_sub(removed.memory_bytes());
@@ -184,7 +196,7 @@ impl ClipPool {
 
     /// Returns all loaded source paths.
     pub fn loaded_paths(&self) -> Vec<&str> {
-        self.entries.keys().map(|k| k.as_str()).collect()
+        self.entries.values().map(|audio| audio.source_path.as_str()).collect()
     }
 
     /// BUG-047 FIX: Evicts pool entries not referenced by any clip in the project.
@@ -198,14 +210,19 @@ impl ClipPool {
         let before_count = self.entries.len();
         let mut freed_bytes = 0usize;
 
-        self.entries.retain(|path, audio| {
-            if referenced_paths.contains(path) {
+        // Normalize expected paths so we safely match regardless of case
+        let normalized_refs: HashSet<String> = referenced_paths.iter()
+            .map(|p| normalize_path_key(p))
+            .collect();
+
+        self.entries.retain(|key, audio| {
+            if normalized_refs.contains(key) {
                 true
             } else {
                 freed_bytes += audio.memory_bytes();
                 log::info!(
                     "ClipPool: evicted '{}' — {:.1} MB freed",
-                    path,
+                    audio.source_path,
                     audio.memory_bytes() as f64 / 1_048_576.0
                 );
                 false

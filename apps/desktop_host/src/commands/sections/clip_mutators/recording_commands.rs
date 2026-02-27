@@ -24,7 +24,7 @@ async fn start_recording_cmd(
 
     // BUG-029 FIX: Resolve track UUID at recording start (topology-safe).
     let armed_track_id = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project
             .tracks
             .get(armed_track_index)
@@ -109,13 +109,13 @@ async fn stop_recording_cmd(
     let decoded = AudioReader::read(&result.file_path)
         .map_err(|e| format!("Failed to decode recorded file: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-        let _ = pool.insert(ClipAudio {
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        pool.insert(ClipAudio {
             source_path: path.clone(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
             num_frames: decoded.num_frames,
-        });
+        })?;
     }
 
     push_undo(&project_state)?;

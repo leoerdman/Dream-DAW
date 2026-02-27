@@ -49,8 +49,8 @@ fn get_external_plugin_params(
     };
 
     let mut host = match plugin_host_state.host.try_lock() {
-        Ok(host) => host,
-        Err(_) => return Ok(fallback_external_param_block(metadata_count)),
+        Some(host) => host,
+        None => return Ok(fallback_external_param_block(metadata_count)),
     };
     let Some(instance) = host.get_mut(instance_id) else {
         log::warn!(
@@ -158,7 +158,7 @@ fn get_external_plugin_params_for_slot(
         // acquire the lock right now, fall back to reading default params
         // — the state will be restored the next time the user opens the
         // plugin editor (which uses blocking lock on purpose).
-        if let Ok(mut host) = plugin_host_state.host.try_lock() {
+        if let Some(mut host) = plugin_host_state.host.try_lock() {
             let mut slot =
                 dream_models::project::PluginSlot::new(slot_state.name.clone(), slot_state.plugin_id.clone());
             slot.id = slot_state.slot_id;
@@ -173,8 +173,8 @@ fn get_external_plugin_params_for_slot(
 
     let params = {
         let mut host = match plugin_host_state.host.try_lock() {
-            Ok(host) => host,
-            Err(_) => return Ok(fallback_external_param_block(metadata_count)),
+            Some(host) => host,
+            None => return Ok(fallback_external_param_block(metadata_count)),
         };
         let Some(instance) = host.get_mut(instance_id) else {
             return Ok(fallback_external_param_block(metadata_count));

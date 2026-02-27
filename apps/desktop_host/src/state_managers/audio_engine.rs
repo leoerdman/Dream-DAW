@@ -61,7 +61,7 @@ pub struct AudioEngineHandle {
     pub automation_snapshot: Arc<SharedAutomationSnapshot>,
     pub sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
     pub sample_rack_samples: Arc<dream_engine::driver::SharedSampleRackSamples>,
-    pub _plugin_host: Arc<Mutex<PluginHost>>,
+    pub _plugin_host: Arc<parking_lot::Mutex<PluginHost>>,
     pub plugin_registry: Arc<dream_engine::driver::SharedPluginRegistry>,
     pub rt_debug_stats: Arc<SharedRtDebugStats>,
 

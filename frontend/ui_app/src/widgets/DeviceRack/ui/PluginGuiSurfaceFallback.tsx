@@ -58,7 +58,7 @@ export function PluginGuiSurfaceFallback({
                     gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
                     gap: 'var(--space-2-5)',
                     alignItems: 'center',
-                    background: `linear-gradient(145deg, color-mix(in srgb, ${accent} 20%, var(--plugin-card-bg-main)) 0%, var(--plugin-card-bg-main) 65%)`,
+                    background: `linear-gradient(145deg, color-mix(in srgb, ${accent} 20%, var(--color-bg-surface)) 0%, var(--color-bg-surface) 65%)`,
                 }}
             >
                 <div style={{ display: 'grid', gap: 6 }}>
@@ -66,7 +66,7 @@ export function PluginGuiSurfaceFallback({
                         {device.name || 'Custom Device'}
                     </div>
                     <svg viewBox="0 0 320 54" preserveAspectRatio="none" style={{ width: '100%', height: 50 }}>
-                        <rect x="0" y="0" width="320" height="54" rx="4" fill="var(--token-color-rgba-8-10-14-0d7)" />
+                        <rect x="0" y="0" width="320" height="54" rx="4" fill="color-mix(in srgb, var(--color-bg-app) 70%, transparent)" />
                         {bars.map((bar, idx) => (
                             <rect
                                 key={idx}

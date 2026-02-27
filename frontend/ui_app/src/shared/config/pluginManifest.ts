@@ -146,9 +146,9 @@ export function getEffectTypeByPluginId(pluginId: string): DeviceEffectType | un
 
 export function formatBadgeColor(format: PluginFormat): string {
     switch (format) {
-        case 'VST3': return 'var(--token-color-hex-2ecc71)';
-        case 'VST2': return 'var(--token-color-hex-ffb36a)';
-        case 'AU': return 'var(--token-color-hex-5dade2)';
-        case 'INT': return 'var(--color-text-tertiary)';
+        case 'VST3': return 'var(--color-plugin-vst3)';
+        case 'VST2': return 'var(--color-plugin-vst2)';
+        case 'AU': return 'var(--color-plugin-au)';
+        case 'INT': return 'var(--color-plugin-internal)';
     }
 }

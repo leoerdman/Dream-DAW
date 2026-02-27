@@ -43,12 +43,12 @@ pub(super) enum DeferredDeviceChainCmd {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_pending_track_mixer_state(
     render_ctx: &mut RenderContext,
-    pending_track_volume: &[Option<f32>; MAX_TRACKS],
-    pending_track_pan: &[Option<f32>; MAX_TRACKS],
-    pending_track_disabled: &[Option<bool>; MAX_TRACKS],
-    pending_track_solo: &[Option<bool>; MAX_TRACKS],
-    track_disabled: &mut [bool; MAX_TRACKS],
-    track_soloed: &mut [bool; MAX_TRACKS],
+    pending_track_volume: &[Option<f32>],
+    pending_track_pan: &[Option<f32>],
+    pending_track_disabled: &[Option<bool>],
+    pending_track_solo: &[Option<bool>],
+    track_disabled: &mut [bool],
+    track_soloed: &mut [bool],
     any_solo: &mut bool,
     routing_snapshot: &Arc<SharedRoutingSnapshot>,
 ) {

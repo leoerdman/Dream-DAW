@@ -251,7 +251,7 @@ fn scan_all_audio_sources(
 ) -> Result<Vec<AudioFileEntry>, String> {
     let samples_path = get_samples_path(app)?;
     let browser_folders = {
-        let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let settings = settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         settings.browser_folders.clone()
     };
 

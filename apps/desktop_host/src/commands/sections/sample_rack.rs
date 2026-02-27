@@ -35,7 +35,7 @@ fn set_sample_rack_pad_volume_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -102,7 +102,7 @@ fn set_sample_rack_pad_mute_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -170,7 +170,7 @@ fn set_sample_rack_pad_solo_cmd(
     }
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -244,7 +244,7 @@ fn set_sample_rack_pad_adsr_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -332,7 +332,7 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -391,8 +391,8 @@ fn set_sample_rack_pad_sample_cmd(
         let clip_audio = ClipAudio::new(sample_path.clone(), decoded.channels, decoded.sample_rate);
 
         let arc = {
-            let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
-            if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
+            let mut pool = clip_pool_state.pool.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+            pool.insert(clip_audio)?;
             pool.get(&sample_path)
                 .ok_or_else(|| "Failed to cache decoded sample for rack".to_string())?
         };
@@ -425,7 +425,7 @@ fn set_sample_rack_pad_sample_cmd(
     handle.sample_rack_samples.swap(new_samples);
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;

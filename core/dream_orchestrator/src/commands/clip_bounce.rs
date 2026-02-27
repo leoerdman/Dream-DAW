@@ -118,3 +118,48 @@ impl Command for InsertStemClipsCommand {
         Ok(())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ConsolidateClipsCommand
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct ConsolidateClipsCommand {
+    pub file_path: String,
+    pub clip_name: String,
+    pub start_frame: i64,
+    pub timeline_duration_frames: i64,
+    pub source_duration_frames: i64,
+    pub track_index: usize,
+    pub clips_to_remove: Vec<uuid::Uuid>,
+}
+
+impl Command for ConsolidateClipsCommand {
+    type Result = ();
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+        let mut project = ctx.lock_project()?;
+        let track_count = project.tracks.len();
+        
+        let track = project.tracks.get_mut(self.track_index).ok_or_else(|| {
+            crate::error::OrchestratorError::TrackOutOfRange {
+                requested: self.track_index,
+                total: track_count,
+            }
+        })?;
+
+        track.clips.retain(|c| !self.clips_to_remove.contains(&c.id));
+        track.midi_clips.retain(|c| !self.clips_to_remove.contains(&c.id));
+
+        let mut clip = AudioClip::new(
+            &self.clip_name,
+            &self.file_path,
+            AbsoluteTime::new(self.start_frame.max(0)),
+            AbsoluteTime::new(self.timeline_duration_frames.max(1)),
+        );
+        clip.warp_source_duration_frames = self.source_duration_frames.max(1);
+        clip.is_selected = true;
+
+        track.clips.push(clip);
+        Ok(())
+    }
+}

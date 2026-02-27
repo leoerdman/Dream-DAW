@@ -38,7 +38,7 @@ struct MergeClipsResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BounceSelectionPayload {
+pub(crate) struct BounceSelectionPayload {
     #[serde(default)]
     clip_ids: Vec<String>,
     range_start_frames: Option<i64>,

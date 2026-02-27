@@ -104,7 +104,7 @@ export function DeviceNodeHeader({
                         width: 16,
                         height: 16,
                         borderRadius: 'var(--radius-sm)',
-                        background: (showSettings || nativeEditorOpen) ? 'var(--token-color-hex-48d282)' : 'transparent',
+                        background: (showSettings || nativeEditorOpen) ? 'var(--color-success)' : 'transparent',
                         border: (showSettings || nativeEditorOpen) ? 'none' : 'var(--space-px) solid var(--color-overlay-light)',
                         cursor: 'pointer',
                         flexShrink: 0,
@@ -119,11 +119,11 @@ export function DeviceNodeHeader({
                     <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
                         <path
                             d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
-                            stroke={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--token-color-hex-48d282)'}
+                            stroke={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--color-success)'}
                             strokeWidth="2"
                             fill="none"
                         />
-                        <circle cx="8" cy="8" r="2.5" fill={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--token-color-hex-48d282)'} />
+                        <circle cx="8" cy="8" r="2.5" fill={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--color-success)'} />
                     </svg>
                 </button>
             )}

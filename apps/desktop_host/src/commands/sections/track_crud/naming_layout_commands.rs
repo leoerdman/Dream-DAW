@@ -10,7 +10,7 @@ async fn rename_track_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
     let old_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         if index >= project.tracks.len() {
             return Err(format!("Track index {} out of range ({})", index, project.tracks.len()));
         }
@@ -23,7 +23,7 @@ async fn rename_track_cmd(
     }
     let sanitized = result.new_name;
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -52,7 +52,7 @@ async fn rename_track_with_deltas_cmd(
         return Ok(TrackManagementDeltaResponse { deltas: Vec::new() });
     }
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -82,7 +82,7 @@ async fn set_track_height_cmd(
         return Ok(());
     }
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -107,7 +107,7 @@ async fn set_track_height_with_deltas_cmd(
     }
     let parsed_id = cmd.track_id;
     let project_name = {
-        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;

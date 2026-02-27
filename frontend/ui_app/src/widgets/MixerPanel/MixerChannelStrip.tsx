@@ -63,17 +63,17 @@ const TRACK_NAME_STYLE: React.CSSProperties = {
     overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
     padding: '0 4px',
     flexShrink: 0,
-    borderBottom: '1px solid rgba(0,0,0,0.3)',
+    borderBottom: '1px solid var(--color-bg-overlay)',
 };
 
 const ROUTING_CONTAINER_STYLE: React.CSSProperties = { padding: '3px 4px 2px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
 const PAN_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
-const PAN_SLIDER_BG_STYLE: React.CSSProperties = { position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)' };
+const PAN_SLIDER_BG_STYLE: React.CSSProperties = { position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px var(--color-bg-overlay)' };
 const PAN_SLIDER_INPUT_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' };
 
 const FADER_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 };
 const FADER_TRACK_STYLE: React.CSSProperties = { flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' };
-const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' };
+const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-bg-overlay)' };
 
 export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
@@ -191,8 +191,8 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     {/* Fader Handle */}
                     <div style={{
                         position: 'absolute', left: 4, right: 4, bottom: `calc(${volNorm * 100}% - 6px)`, height: 12,
-                        background: trackColor, borderRadius: 2, border: '1px solid rgba(0,0,0,0.7)',
-                        boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                        background: trackColor, borderRadius: 2, border: '1px solid var(--color-bg-overlay)',
+                        boxShadow: 'inset 0 1px 1px color-mix(in srgb, var(--surface-elevated) 40%, transparent), 0 2px 4px var(--color-bg-overlay)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
                         <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
@@ -225,7 +225,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                         fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
                         background: !isDisabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
                         color: !isDisabled ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
-                        boxShadow: !isDisabled ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(76,175,80,0.5)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
+                        boxShadow: !isDisabled ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 4px color-mix(in srgb, var(--color-success) 50%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
                     }}>
                     {trackIndex + 1}
                 </button>
@@ -237,7 +237,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                         fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
                         background: isSoloed ? 'var(--color-status-solo)' : 'var(--surface-elevated)',
                         color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
-                        boxShadow: isSoloed ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(0,180,255,0.4)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
+                        boxShadow: isSoloed ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 4px color-mix(in srgb, var(--color-primary) 40%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
                     }}>
                     S
                 </button>
@@ -248,12 +248,13 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                         width: 24, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         background: isArmed ? 'color-mix(in srgb, var(--color-status-record) 80%, black)' : 'var(--surface-elevated)',
                         border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
-                        boxShadow: isArmed ? 'inset 0 -1px 0 rgba(0,0,0,0.3), 0 0 6px rgba(255,59,48,0.5)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
-                    }}>
-                    <span style={{
+                        boxShadow: isArmed ? 'inset 0 -1px 0 var(--color-bg-overlay), 0 0 6px color-mix(in srgb, var(--color-danger) 50%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
+                    }}
+                >
+                    <div style={{
                         width: 8, height: 8, borderRadius: '50%',
-                        background: isArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
-                        boxShadow: isArmed ? '0 0 3px rgba(255,255,255,0.8)' : 'none'
+                        background: isArmed ? 'var(--color-danger)' : 'var(--color-danger-muted)',
+                        boxShadow: isArmed ? '0 0 3px var(--surface-elevated)' : 'none'
                     }} />
                 </button>
             </div>

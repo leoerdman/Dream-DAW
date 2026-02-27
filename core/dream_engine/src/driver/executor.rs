@@ -11,5 +11,7 @@ mod command_dispatch;
 mod render_pipeline;
 #[path = "executor/audio_thread_process.rs"]
 pub(crate) mod audio_thread_process;
+#[path = "executor/audio_thread_track_pass.rs"]
+pub(crate) mod audio_thread_track_pass;
 
 pub(crate) use audio_thread_runner::start_audio_thread_on_device_impl;

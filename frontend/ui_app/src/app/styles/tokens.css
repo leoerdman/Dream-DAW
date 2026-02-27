@@ -238,6 +238,14 @@
    --plugin-title-color: #d2e2ff;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff);
 
+   /* Plugin Format Colors */
+   --color-plugin-vst2: var(--token-color-hex-ffb36a);
+   --color-plugin-vst3: var(--token-color-hex-2ecc71);
+   --color-plugin-au: var(--token-color-hex-5dade2);
+   --color-plugin-clap: var(--token-color-hex-cf8ef7);
+   --color-plugin-internal: var(--color-text-tertiary);
+
+
    --plugin-bg-eq: linear-gradient(180deg, #23262c 0%, #171a20 100%);
    --plugin-bg-utility: linear-gradient(180deg, #1f232b 0%, #13171f 100%);
    --plugin-bg-compressor: linear-gradient(180deg, #171f2a 0%, #10161f 100%);
@@ -864,6 +872,16 @@
    --color-btn-arm: #d94040;
    /* record arm = danger (red) */
    --color-midi-indicator: #d9a625;
+
+   /* ── Signal Types (dark) ── */
+   --color-signal-midi: #22d3ee;
+   --color-signal-audio: #3b82f6;
+
+   /* ── Synth Node Colors (dark) ── */
+   --color-synth-osc: #3b82f6;
+   --color-synth-filter: #f59e0b;
+   --color-synth-env: #a855f7;
+   --color-synth-out: #f43f5e;
    /* MIDI = warning (amber) */
 
    /* ── Borders (from DarkTheme) ── */
@@ -1028,32 +1046,32 @@
    Complete 1:1 parity with dark theme.
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
-   --color-bg-base: #c2c7cd;
-   --color-bg-app: #cbd1d8;
-   --color-bg-canvas: #cbd1d8;
-   --color-bg-secondary: #b8bfc7;
-   --color-bg-tertiary: #aeb6bf;
-   --color-bg-panel: #c0c7cf;
-   --color-bg-elevated: #d1d6dd;
-   --color-bg-hover: #a6afb8;
-   --color-bg-selected: #b7cbe2;
-   --color-bg-input: #d3d8de;
-   --color-bg-header: #c6ccd3;
-   --color-bg-active: #a6afb8;
-   --color-bg-sidebar: #b6bec6;
-   --color-bg-surface: #c0c7cf;
+   --color-bg-base: #b4b9bf;
+   --color-bg-app: #bcc1c8;
+   --color-bg-canvas: #bcc1c8;
+   --color-bg-secondary: #aab1ba;
+   --color-bg-tertiary: #a0a8b2;
+   --color-bg-panel: #b3bac3;
+   --color-bg-elevated: #c4cad2;
+   --color-bg-hover: #99a2ad;
+   --color-bg-selected: #adb9c8;
+   --color-bg-input: #c7ccd4;
+   --color-bg-header: #b9bfc8;
+   --color-bg-active: #99a2ad;
+   --color-bg-sidebar: #a8b0ba;
+   --color-bg-surface: #b3bac3;
 
    /* ── Semantic Tokens v2 (light) ── */
-   --surface-1: #cbd1d8;
-   --surface-2: #c0c7cf;
-   --surface-3: #b8bfc7;
-   --surface-elevated: #a6afb8;
-   --text-primary: #1f242a;
-   --text-secondary: #444c55;
-   --text-muted: #66707a;
-   --accent: #2f80df;
-   --accent-weak: rgba(47, 128, 223, 0.14);
-   --accent-strong: #2a74cc;
+   --surface-1: #bcc1c8;
+   --surface-2: #b3bac3;
+   --surface-3: #aab1ba;
+   --surface-elevated: #99a2ad;
+   --text-primary: #21262d;
+   --text-secondary: #49515b;
+   --text-muted: #69737e;
+   --accent: #4f79ae;
+   --accent-weak: rgba(79, 121, 174, 0.16);
+   --accent-strong: #446a9a;
 
    --color-bg-node: #c4c9cf;
    --color-bg-node-header: #b6bcc3;
@@ -1067,10 +1085,10 @@
    --color-text-on-accent: #ffffff;
    --color-text-on-color: #ffffff;
 
-   --color-accent-primary: #2f80df;
-   --color-accent-primary-hover: #2a74cc;
-   --color-accent-primary-glow: rgba(47, 128, 223, 0.28);
-   --color-accent-primary-dim: rgba(47, 128, 223, 0.10);
+   --color-accent-primary: #4f79ae;
+   --color-accent-primary-hover: #446a9a;
+   --color-accent-primary-glow: rgba(79, 121, 174, 0.24);
+   --color-accent-primary-dim: rgba(79, 121, 174, 0.12);
 
    --color-status-success: #33b326;
    --color-status-warning: #cc9900;
@@ -1084,13 +1102,23 @@
    --color-btn-arm: #cc2626;
    --color-midi-indicator: #cc9900;
 
+   /* ── Signal Types (light) ── */
+   --color-signal-midi: #0099b0;
+   --color-signal-audio: #2563eb;
+
+   /* ── Synth Node Colors (light) ── */
+   --color-synth-osc: #2563eb;
+   --color-synth-filter: #d97706;
+   --color-synth-env: #9333ea;
+   --color-synth-out: #e11d48;
+
    --color-border-subtle: rgba(20, 28, 36, 0.12);
-   --color-border-default: #9ea5ad;
-   --color-border-highlight: rgba(47, 128, 223, 0.45);
+   --color-border-default: #8f97a1;
+   --color-border-highlight: rgba(79, 121, 174, 0.40);
    --color-border-selected: #1f242a;
 
-   --color-divider: #a7adb5;
-   --color-divider-light: #b8bec6;
+   --color-divider: #969ea8;
+   --color-divider-light: #a8b0ba;
 
    /* ── UI Elements (light) ── */
    --color-grid-line: #a9b0b8;
@@ -1101,15 +1129,15 @@
    --color-clip-highlight: rgba(0, 0, 0, 0.06);
    --color-drop-target: rgba(200, 200, 200, 0.5);
 
-   --color-meter-bg: #b8bec5;
+   --color-meter-bg: #adb4bc;
    --color-meter-normal: #33b326;
    --color-meter-hot: #f2b30d;
    --color-meter-clip: #e62626;
    --color-meter-silent: #bfbfbf;
 
-   --color-control-bg: #afb6be;
-   --color-control-bg-active: #9da5ae;
-   --color-control-border: #8f98a2;
+   --color-control-bg: #a4acb6;
+   --color-control-bg-active: #939ca8;
+   --color-control-border: #87919c;
    --color-control-tint: #3f4750;
 
    /* ── Effect Type Tints (light) ── */
@@ -1145,8 +1173,8 @@
    --color-piano-sub: rgba(151, 161, 172, 0.5);
 
    /* ── Timeline (light) ── */
-   --color-timeline-bg: #cbd0d6;
-   --color-timeline-ruler-bg: #bec4cb;
+   --color-timeline-bg: #bcc2c9;
+   --color-timeline-ruler-bg: #b0b7c0;
    --color-timeline-grid-line: rgba(17, 24, 32, 0.06);
    --color-timeline-grid-bar: rgba(17, 24, 32, 0.25);
    --color-timeline-track-default: #c3c9d0;
@@ -1173,29 +1201,52 @@
    --color-overlay-modal: rgb(0 0 0 / var(--overlay-modal-strength));
 
    /* ── Gradients (light) ── */
-   --gradient-primary: linear-gradient(135deg, #2f80df 0%, #2a74cc 100%);
+   --gradient-primary: linear-gradient(135deg, #4f79ae 0%, #446a9a 100%);
    --gradient-meter: linear-gradient(to top, #33b326 0%, #f2b30d 70%, #e62626 100%);
-   --theme-app-bg: linear-gradient(180deg, #cfd5dc 0%, #bcc4cd 100%);
+   --theme-app-bg: linear-gradient(180deg, #c3c9d1 0%, #afb7c1 100%);
 
    /* ── Plugin Tokens (light) ── */
    --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #8a97a8);
    --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px rgba(0, 0, 0, 0.08);
-   --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
-   --plugin-title-color: #1a2a44;
-   --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
+   --plugin-card-bg-main: linear-gradient(180deg, #d5dae1 0%, #c7ced7 100%);
+   --badge-bg: color-mix(in srgb, var(--color-bg-app) 92%, black);
+   --badge-color: var(--color-text-primary);
+   --badge-border: 1px solid var(--color-border-default);
+
+   --plugin-title-color: #273142;
+   --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 84%, #516784);
+
+   --plugin-header-instrument: linear-gradient(135deg, #8f99a6 0%, #7c8794 100%);
+   --plugin-header-effect: linear-gradient(135deg, #929ca9 0%, #808a98 100%);
+   --plugin-accent-instrument: #5c6f8a;
+   --plugin-accent-effect: #4f79ae;
+
+   --plugin-bg-eq: linear-gradient(180deg, #c8ced6 0%, #bcc4ce 100%);
+   --plugin-bg-utility: linear-gradient(180deg, #c4cad3 0%, #b7bfca 100%);
+   --plugin-bg-compressor: linear-gradient(180deg, #cad0d8 0%, #bdc5cf 100%);
+   --plugin-bg-delay: linear-gradient(180deg, #d0d6de 0%, #c0c8d2 100%);
+   --plugin-bg-reverb: radial-gradient(circle at 30% 20%, rgba(120, 109, 150, 0.2) 0%, rgba(182, 190, 201, 0.92) 65%);
+   --plugin-bg-chorus: linear-gradient(180deg, #ccc7d2 0%, #beb8c5 100%);
+   --plugin-bg-saturator: linear-gradient(180deg, #d6ccc3 0%, #c8beb4 100%);
+   --plugin-bg-limiter: linear-gradient(180deg, #c3cdcc 0%, #b4bfbe 100%);
+   --plugin-bg-gate: linear-gradient(180deg, #cad2c6 0%, #b9c2b6 100%);
+   --plugin-bg-mod: linear-gradient(180deg, #c3cad9 0%, #b5bfce 100%);
+   --plugin-bg-distortion: linear-gradient(180deg, #d8c8bb 0%, #c8b8ab 100%);
+   --plugin-bg-noise: linear-gradient(180deg, #cad3cc 0%, #bcc5be 100%);
+   --plugin-bg-midi: linear-gradient(180deg, #caced7 0%, #bcc2cd 100%);
 
    --theme-overlay-primary-image: none;
    --theme-overlay-primary-size: 320px 320px;
    --theme-overlay-primary-position: center;
    --theme-overlay-primary-repeat: repeat;
-   --theme-overlay-primary-opacity: calc(0.28 * var(--theme-light-texture-strength));
+   --theme-overlay-primary-opacity: calc(0.20 * var(--theme-light-texture-strength));
    --theme-overlay-primary-blend: multiply;
 
    --theme-overlay-secondary-image: radial-gradient(circle at 80% -20%, rgba(124, 138, 154, 0.18) 0%, rgba(124, 138, 154, 0) 46%);
    --theme-overlay-secondary-size: cover;
    --theme-overlay-secondary-position: center;
    --theme-overlay-secondary-repeat: no-repeat;
-   --theme-overlay-secondary-opacity: 0.42;
+   --theme-overlay-secondary-opacity: 0.30;
    --theme-overlay-secondary-blend: normal;
    --theme-overlay-primary-animation-duration: 96s;
    --theme-overlay-secondary-animation-duration: 84s;
@@ -1274,6 +1325,16 @@
    --color-btn-solo: #52cfb8;
    --color-btn-arm: #d86363;
    --color-midi-indicator: #dcb957;
+
+   /* ── Signal Types (forest) ── */
+   --color-signal-midi: #38bdf8;
+   --color-signal-audio: #60a5fa;
+
+   /* ── Synth Node Colors (forest) ── */
+   --color-synth-osc: #60a5fa;
+   --color-synth-filter: #fbbf24;
+   --color-synth-env: #c084fc;
+   --color-synth-out: #fb7185;
 
    --color-border-subtle: rgba(214, 241, 226, 0.09);
    --color-border-default: #375745;
@@ -1363,8 +1424,26 @@
    --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #577663);
    --plugin-card-shadow: inset 0 1px 0 rgba(240, 255, 248, 0.06), 0 6px 18px rgba(0, 0, 0, 0.30);
    --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 90%, #1d2b22) 0%, color-mix(in srgb, var(--surface-1) 94%, #121c16) 100%);
+   --badge-bg: color-mix(in srgb, var(--color-bg-app) 92%, black);
+   --badge-color: var(--color-text-primary);
+   --badge-border: 1px solid var(--color-border-default);
+
    --plugin-title-color: #d7ede0;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ec3ac);
+
+   --plugin-bg-eq: linear-gradient(180deg, #182e22 0%, #112219 100%);
+   --plugin-bg-utility: linear-gradient(180deg, #1c3326 0%, #14281d 100%);
+   --plugin-bg-compressor: linear-gradient(180deg, #162b20 0%, #101e16 100%);
+   --plugin-bg-delay: linear-gradient(180deg, #152d24 0%, #0e1e17 100%);
+   --plugin-bg-reverb: radial-gradient(circle at 30% 20%, rgba(95, 224, 141, 0.2) 0%, rgba(18, 36, 26, 0.92) 65%);
+   --plugin-bg-chorus: linear-gradient(180deg, #1c2b28 0%, #121e1a 100%);
+   --plugin-bg-saturator: linear-gradient(180deg, #2b2518 0%, #1f1a0e 100%);
+   --plugin-bg-limiter: linear-gradient(180deg, #193625 0%, #12281b 100%);
+   --plugin-bg-gate: linear-gradient(180deg, #1a2b16 0%, #11200e 100%);
+   --plugin-bg-mod: linear-gradient(180deg, #162725 0%, #0f1c1a 100%);
+   --plugin-bg-distortion: linear-gradient(180deg, #281d13 0%, #1c130b 100%);
+   --plugin-bg-noise: linear-gradient(180deg, #172c1c 0%, #0e1e12 100%);
+   --plugin-bg-midi: linear-gradient(180deg, #1e3025 0%, #15251a 100%);
 
    --theme-overlay-primary-image: url('/themes/forest-canopy.svg');
    --theme-overlay-primary-size: cover;

@@ -87,8 +87,7 @@ fn get_plugin_slot_runtime_status_cmd(
     let (sandbox_loaded, sandbox_instance_for_key, sandbox_instance_ids) = {
         let sandbox_map = plugin_host_state
             .loaded_sandbox_by_key
-            .lock()
-            .map_err(|e| e.to_string())?;
+            .lock();
         (
             sandbox_map.contains_key(&slot.plugin_id),
             sandbox_map.get(&slot.plugin_id).copied(),
@@ -117,7 +116,7 @@ fn get_plugin_slot_runtime_status_cmd(
         // mutex with the audio callback. If we can't lock, return safe defaults
         // — the slot map confirms the instance is bound.
         let (loaded, editor_supported, latency_frames) = match plugin_host_state.host.try_lock() {
-            Ok(mut host) => {
+            Some(mut host) => {
                 let loaded = host.get_mut(instance_id).is_some();
                 let editor_supported = if loaded {
                     host.supports_editor(instance_id).unwrap_or(false)
@@ -131,7 +130,7 @@ fn get_plugin_slot_runtime_status_cmd(
                 };
                 (loaded, editor_supported, latency_frames)
             }
-            Err(_) => {
+            None => {
                 // Host mutex is held — assume loaded since slot binding exists.
                 (true, true, Some(0))
             }
@@ -216,7 +215,8 @@ fn ensure_plugin_slot_active_cmd(
     // Without this, plugins activated for audio processing after project
     // reload would lose their saved settings (e.g., ShaperBox3 EQ points).
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
-        if let Ok(mut host) = plugin_host_state.host.lock() {
+        {
+            let mut host = plugin_host_state.host.lock();
             let mut slot_restore =
                 dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
             slot_restore.id = slot.slot_id;
@@ -369,8 +369,8 @@ fn replace_missing_plugin_slot_impl(
     ) && (slot_state.external_state_blob.is_some() || slot_state.external_preset_blob.is_some())
     {
         if let Some(instance_id) = plugin_host_state.slot_instance_snapshot().get(&slot_uuid).copied()
-            && let Ok(mut host) = plugin_host_state.host.lock()
         {
+            let mut host = plugin_host_state.host.lock();
             let mut slot_restore = dream_models::project::PluginSlot::new(
                 slot_state.name.clone(),
                 slot_state.plugin_id.clone(),

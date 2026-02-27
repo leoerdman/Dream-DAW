@@ -8,7 +8,7 @@ fn get_routing_targets(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let source_id =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
 
     let mut targets = Vec::new();
     for t in &project.tracks {
@@ -60,7 +60,7 @@ fn set_track_routing_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -109,7 +109,7 @@ fn set_track_routing_with_deltas_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -152,7 +152,7 @@ fn set_track_input_cmd(
     }
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -191,7 +191,7 @@ fn set_track_input_with_deltas_cmd(
     // which would push undo + execute a second time.
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -247,7 +247,7 @@ fn set_plugin_sidechain_source_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let source_value = cmd.source_track_id.map(|id| id.to_string());
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
@@ -318,7 +318,7 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let source_value = cmd.source_track_id.map(|id| id.to_string());
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);

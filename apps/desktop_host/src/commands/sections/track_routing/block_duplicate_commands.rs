@@ -19,7 +19,7 @@ async fn move_track_block_to_index_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -58,7 +58,7 @@ async fn move_track_block_to_index_with_deltas_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -106,7 +106,7 @@ async fn duplicate_tracks_cmd(
         return Ok(());
     }
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -143,7 +143,7 @@ async fn duplicate_tracks_with_deltas_cmd(
         return Ok(DeltaMutationResponse { deltas: vec![] });
     }
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,

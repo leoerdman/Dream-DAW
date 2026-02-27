@@ -227,6 +227,7 @@ impl DspProcessor for HybridReverbProcessor {
             // Feedback with damping
             let damp_c = damp.clamp(0.01, 0.99);
             let fb = decay.clamp(0.0, 0.95);
+            #[allow(clippy::needless_range_loop)]
             for ch in 0..FDN_CHANNELS {
                 // LP damping
                 self.fdn_lp[ch] = self.fdn_lp[ch] * damp_c + mixed[ch] * (1.0 - damp_c);

@@ -140,9 +140,9 @@ impl DspProcessor for CorpusProcessor {
             let mut wet_r = 0.0f32;
             let gain = 1.0 / NUM_COMBS as f32;
 
-            for c in 0..NUM_COMBS {
+            for (c, &ratio) in ratios.iter().enumerate().take(NUM_COMBS) {
                 let spread_offset = 1.0 + self.spread * 0.002 * (c as f32 - 2.5);
-                let freq = base_freq * ratios[c] * spread_offset;
+                let freq = base_freq * ratio * spread_offset;
                 let delay = (sr / freq.max(20.0)).min((COMB_SIZE - 2) as f32);
                 wet_l += self.combs_l[c].process(dry_l, delay, decay, damp) * gain;
                 // Slightly detune R for stereo width

@@ -51,7 +51,7 @@ fn connect_midi_input(
         .ok_or_else(|| format!("MIDI input port not found: {port_name}"))?;
 
     // Drop previous connection (if any) before reconnecting.
-    if let Some(existing) = midi_runtime.connection.lock().map_err(|_| "Mutex poisoned".to_string())?.take() {
+    if let Some(existing) = midi_runtime.connection.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.take() {
         drop(existing);
     }
 
@@ -142,8 +142,8 @@ fn connect_midi_input(
         )
         .map_err(|e| format!("Failed to connect MIDI input '{port_name}': {e}"))?;
 
-    *midi_runtime.connection.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(conn);
-    *midi_runtime.connected_port.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(port_name.clone());
+    *midi_runtime.connection.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(conn);
+    *midi_runtime.connected_port.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = Some(port_name.clone());
     log::info!("[IPC] connect_midi_input({port_name})");
     Ok(())
 }

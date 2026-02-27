@@ -8,14 +8,7 @@ fn restore_slot_state_for_export(
         return;
     }
 
-    let Ok(mut host) = plugin_host_state.host.lock() else {
-        log::warn!(
-            "[Export] Host lock failed for plugin state restore (slot='{}' id={})",
-            slot.name,
-            slot.id
-        );
-        return;
-    };
+    let mut host = plugin_host_state.host.lock();
 
     if let Err(err) = crate::commands::plugins_routing_helpers::apply_imported_external_state_blob(
         &mut host,
@@ -147,7 +140,7 @@ async fn export_mix_cmd(
             _ => return Err("Selected range requires valid start_frame and end_frame".to_string()),
         }
     } else if export_range == "loop" {
-        let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         if state.loop_enabled && state.loop_end > state.loop_start {
             (state.loop_start, state.loop_end)
         } else {
@@ -159,7 +152,7 @@ async fn export_mix_cmd(
 
     let local_pool = build_local_pool_for_project(&project, &clip_pool_state)?;
 
-    let export_bpm = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm;
+    let export_bpm = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm;
     let cfg = BounceConfig {
         output_path: settings.output_path.clone(),
         sample_rate: settings.sample_rate,
@@ -176,6 +169,13 @@ async fn export_mix_cmd(
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: export_bpm,
     };
+
+    // BUG-A013 FIX: Pre-flight write check to ensure the export path is valid and writable.
+    // If the disk is full, the path is read-only, or the directory doesn't exist, this fails immediately
+    // rather than waiting to the end of a 10-minute offline render to report an error.
+    if let Err(e) = std::fs::File::create(&settings.output_path) {
+        return Err(format!("Export path '{}' is not writable: {}", settings.output_path, e));
+    }
 
     // ── Ensure external plugin runtime bindings are ready for export ──
     // Export uses lock-free runtime snapshots; if a slot is not currently bound
@@ -333,17 +333,17 @@ async fn export_mix_cmd(
     //    triggering the VST3 passthrough guard → all FX/instruments silent.
     // Fix: stop playback FIRST, wait for quiescence, THEN reactivate.
     let was_playing = {
-        let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         state.is_playing
     };
     if was_playing {
         push_command(&handle, EngineCommand::SetPlay(false))?;
         let timeline_sr = {
-            let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
             state.sample_rate
         };
         {
-            let mut state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
+            let mut state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
             state.is_playing = false;
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
@@ -383,7 +383,7 @@ async fn export_mix_cmd(
 
     // Clone the command producer so we can resume playback from spawn_blocking.
     let cmd_producer = {
-        let producer_guard = handle.producer.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let producer_guard = handle.producer.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
         // We can't clone the producer, but we need it for post-export.
         // Instead, pass the was_playing flag and resume via the app handle.
         drop(producer_guard);
@@ -475,7 +475,8 @@ async fn export_mix_cmd(
         // The RT audio thread may deliver up to MAX_BUFFER_FRAMES (8192) per
         // callback. If we don't reactivate, the num_frames > max_buffer_size
         // guard in VST3 plugins would trigger, causing silent passthrough.
-        if let Ok(mut host) = plugin_host_arc.lock() {
+        {
+            let mut host = plugin_host_arc.lock();
             host.reactivate_all(
                 project_sr_for_reactivate,
                 dream_engine::render_callback::MAX_BUFFER_FRAMES,

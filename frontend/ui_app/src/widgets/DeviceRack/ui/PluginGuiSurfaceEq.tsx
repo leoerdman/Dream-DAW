@@ -135,8 +135,8 @@ export function PluginGuiSurfaceEq({
                     data-no-drag
                     style={{
                         ...pluginPanelCardBaseStyle,
-                        background: 'linear-gradient(180deg, color-mix(in srgb, #2b2b2b 94%, black) 0%, color-mix(in srgb, #232323 96%, black) 100%)',
-                        border: 'var(--space-px) solid color-mix(in srgb, #555 40%, transparent)',
+                        background: 'var(--plugin-bg-eq)',
+                        border: 'var(--space-px) solid var(--plugin-card-border)',
                         overflow: 'hidden',
                         padding: 0,
                         position: 'relative',
@@ -179,7 +179,7 @@ export function PluginGuiSurfaceEq({
                                 </feMerge>
                             </filter>
                         </defs>
-                        <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, #1f1f1f 96%, black)" />
+                        <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, var(--color-bg-app) 40%, transparent)" />
                         {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                             <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 46%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 14%, transparent)'} strokeWidth={db === 0 ? 1.1 : 0.5} />
                         ))}

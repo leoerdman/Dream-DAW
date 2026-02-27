@@ -34,3 +34,5 @@ mod oscillator;
 pub mod sampler;
 // Subtractive synthesizer engine (EssenceSynthEngine).
 pub mod essence_synth;
+// Modular node-based synthesizer engine (FlowSynthEngine).
+pub mod flow_synth;

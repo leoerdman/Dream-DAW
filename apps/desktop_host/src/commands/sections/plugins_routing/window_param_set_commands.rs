@@ -35,7 +35,7 @@ fn set_external_plugin_param_cmd(
         plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut host = plugin_host_state.host.lock();
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
@@ -91,7 +91,7 @@ fn set_external_plugin_param_for_slot_cmd(
         plugin_host_state.ensure_loaded_instance_for_slot(resolved_slot_id, &resolved_plugin_id)?;
     plugin_host_state.bind_slot_instance(resolved_slot_id, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut host = plugin_host_state.host.lock();
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
@@ -148,7 +148,7 @@ fn set_external_plugin_param_for_slot_runtime_cmd(
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &plugin_id)?;
     plugin_host_state.bind_slot_instance(slot_uuid, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut host = plugin_host_state.host.lock();
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;

@@ -1226,6 +1226,10 @@ export const bounceGroup = (groupTrackId: string) =>
     invoke<void>('bounce_group_cmd', { groupTrackId });
 export const bounceGroupWithDeltas = (groupTrackId: string) =>
     invoke<DeltaMutationResponse>('bounce_group_with_deltas_cmd', { groupTrackId });
+export const consolidateSelection = (payload: BounceSelectionToTrackPayload) =>
+    invoke<void>('consolidate_selection_cmd', { payload });
+export const consolidateSelectionWithDeltas = (payload: BounceSelectionToTrackPayload) =>
+    invoke<DeltaMutationResponse>('consolidate_selection_with_deltas_cmd', { payload });
 export const splitTrackToStems = (trackId: string) =>
     invoke<void>('split_track_to_stems_cmd', {
         payload: { trackId },

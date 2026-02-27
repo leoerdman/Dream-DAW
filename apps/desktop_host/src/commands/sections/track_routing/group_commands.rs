@@ -19,7 +19,7 @@ async fn set_track_group_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -52,7 +52,7 @@ async fn set_track_group_with_deltas_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -83,7 +83,7 @@ async fn ungroup_track_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -118,7 +118,7 @@ async fn ungroup_track_with_deltas_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,

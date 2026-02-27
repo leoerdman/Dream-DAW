@@ -22,4 +22,11 @@ export const INTERNAL_INSTRUMENT_PLUGINS: InternalPluginDefinition[] = [
         slotHint: 'instrument',
         tags: ['internal', 'instrument', 'sampler', 'rack', 'drum'],
     },
+    {
+        id: 'internal://instrument/flow',
+        name: 'Flow',
+        kind: 'instrument',
+        slotHint: 'instrument',
+        tags: ['internal', 'instrument', 'synth', 'modular', 'flow'],
+    },
 ];

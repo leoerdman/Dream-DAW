@@ -56,12 +56,7 @@ impl DeviceChain {
         }
     }
 
-    /// Returns the number of active slots.
-    /// BUG-Q004 FIX: Deprecated in favor of `len()` to follow Rust conventions.
-    #[deprecated(note = "Use `len()` instead for consistency with std library conventions.")]
-    pub fn slot_count(&self) -> usize {
-        self.slots.len()
-    }
+
 
     /// Returns the number of device slots in the chain.
     pub fn len(&self) -> usize {
@@ -144,13 +139,19 @@ impl DeviceChain {
     /// # Returns
     /// `true` if the reorder was performed.
     pub fn reorder(&mut self, from: usize, to: usize) -> bool {
-        if from >= self.slots.len() || to >= self.slots.len() || from == to {
+        let len = self.slots.len();
+        if from >= len || to >= len || from == to {
             return false;
         }
-        let device = self.slots.remove(from);
-        // After removal, indices shift. `to` might need adjustment.
-        let target = to.min(self.slots.len());
-        self.slots.insert(target, device);
+        
+        // BUG-A046 FIX: Use slice rotation. `remove` + `insert` shifts the 
+        // entire memory tail twice. `rotate` is a highly-optimized single step.
+        if from < to {
+            self.slots[from..=to].rotate_left(1);
+        } else {
+            self.slots[to..=from].rotate_right(1);
+        }
+        
         true
     }
 
@@ -212,6 +213,7 @@ impl DeviceChain {
     /// `sidechains` maps slot index to sidechain buffer pair.
     /// Slots without a sidechain entry receive `None`.
     #[inline]
+    #[allow(clippy::type_complexity)]
     pub fn process_with_sidechains(
         &mut self,
         left: &mut [f32],
@@ -345,13 +347,13 @@ mod tests {
         assert!(chain.is_empty());
 
         assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
-        assert_eq!(chain.slot_count(), 1);
+        assert_eq!(chain.len(), 1);
 
         assert!(chain.add_builtin_effect(1, BuiltinEffectType::Eq));
-        assert_eq!(chain.slot_count(), 2);
+        assert_eq!(chain.len(), 2);
 
         assert!(chain.remove_device(0));
-        assert_eq!(chain.slot_count(), 1);
+        assert_eq!(chain.len(), 1);
     }
 
     #[test]
@@ -362,10 +364,10 @@ mod tests {
         for _ in 0..target {
             assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
         }
-        assert_eq!(chain.slot_count(), target);
+        assert_eq!(chain.len(), target);
         // Still accepts more:
         assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
-        assert_eq!(chain.slot_count(), target + 1);
+        assert_eq!(chain.len(), target + 1);
     }
 
     #[test]
@@ -407,11 +409,11 @@ mod tests {
         chain.add_builtin_effect(0, BuiltinEffectType::Utility);
         chain.add_builtin_effect(1, BuiltinEffectType::Eq);
         chain.add_builtin_effect(2, BuiltinEffectType::Compressor);
-        assert_eq!(chain.slot_count(), 3);
+        assert_eq!(chain.len(), 3);
 
         // Move slot 2 (Compressor) to slot 0.
         assert!(chain.reorder(2, 0));
-        assert_eq!(chain.slot_count(), 3);
+        assert_eq!(chain.len(), 3);
 
         // Out-of-bounds should fail.
         assert!(!chain.reorder(5, 0));
@@ -424,7 +426,7 @@ mod tests {
         let mut chain = DeviceChain::new(44100.0);
         let device = InternalDeviceSlot::new(BuiltinEffectType::Reverb, 44100.0);
         assert!(chain.add_device(0, Box::new(device)));
-        assert_eq!(chain.slot_count(), 1);
+        assert_eq!(chain.len(), 1);
     }
 
     #[test]

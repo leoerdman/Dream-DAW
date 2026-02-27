@@ -149,17 +149,16 @@ impl Command for MoveMultipleClipsCommand {
                 new_position,
             );
 
-            if audio_err.is_err() {
-                if mutators::move_midi_clip(
+            if audio_err.is_err()
+                && mutators::move_midi_clip(
                     &mut project,
                     *clip_id,
                     *new_track_index,
                     new_position,
                 )
                 .is_err()
-                {
-                    continue;
-                }
+            {
+                continue;
             }
 
             results.push((*clip_id, MoveClipResult { old_track_index }));

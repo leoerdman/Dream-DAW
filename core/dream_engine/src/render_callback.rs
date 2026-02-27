@@ -37,10 +37,6 @@ static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomic
 /// Previously both clip pool misses AND spectrum drops shared POOL_MISS_COUNT.
 pub static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-/// AUDIT-S1-01: RT-safe counter for zero-duration clips encountered during rendering.
-/// Replaces the previous log::warn! which acquired a global Mutex in the log backend,
-/// violating RT-safety constraints on the audio thread.
-// Zero duration clip count atomic removed for RT safety (Bug 69)
 
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
@@ -372,8 +368,10 @@ impl RenderContext {
     ) {
         let playhead_pos = self.playhead.position();
 
-        // ── 1. Clear all track buffers ──────────────────────────────
-        for slot in &mut self.track_slots {
+        // ── 1. Clear active track buffers ──────────────────────────
+        let track_count = clips_per_track.len().min(self.track_slots.len());
+        // BUG-A038 FIX: Only clear active layout slots, avoiding 500KB of memsets.
+        for slot in &mut self.track_slots[..track_count] {
             slot.clear(frame_count);
         }
         self.master_bus.clear(frame_count);
@@ -387,19 +385,23 @@ impl RenderContext {
         // The RT path limits concurrent Pro warp clips to avoid dropouts,
         // but offline rendering has no real-time constraint — allow
         // every clip to use its configured warp mode at full quality.
+        //
+        // BUG-A042 FIX: Use named constants for pro warp budgets instead of magic numbers.
+        const PRO_WARP_BUDGET_LARGE: usize = 12;
+        const PRO_WARP_BUDGET_SMALL: usize = 6;
+        
         let mut pro_warp_budget = if self.offline_mode {
             usize::MAX
         } else if frame_count >= 1024 {
-            12usize
+            PRO_WARP_BUDGET_LARGE
         } else {
-            6usize
+            PRO_WARP_BUDGET_SMALL
         };
 
         // BUG-047 FIX: Round-robin track ordering for Pro warp budget.
         // Rotate the starting track index each callback so later tracks
         // get first pick on alternating buffers, preventing systematic
         // starvation of higher-indexed tracks.
-        let track_count = clips_per_track.len().min(self.track_slots.len());
         let start = if track_count > 0 { self.pro_warp_start_track % track_count } else { 0 };
         self.pro_warp_start_track = start.wrapping_add(1);
 

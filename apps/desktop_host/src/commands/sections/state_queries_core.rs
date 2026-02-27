@@ -25,7 +25,7 @@ fn get_project_history(
     since_seq: Option<u64>,
 ) -> Result<Vec<ProjectHistoryEvent>, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     project_state.history_snapshot(limit, since_seq)
 }
 
@@ -61,7 +61,7 @@ fn get_audio_chain_audit(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<AudioChainAuditPayload, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     use std::collections::{HashMap, HashSet};
 
     let project = project_state

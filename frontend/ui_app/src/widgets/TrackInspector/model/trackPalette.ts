@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 export const TRACK_PALETTE = [
     // Row 1 — Warm
     { name: 'Red', hex: '#E84040' },

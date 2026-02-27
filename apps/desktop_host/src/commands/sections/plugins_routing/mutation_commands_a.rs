@@ -26,7 +26,7 @@ fn add_plugin_to_track_impl(
     app: tauri::AppHandle,
 ) -> Result<AddedPluginOutcome, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_id = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
 
@@ -65,7 +65,7 @@ fn add_plugin_to_track_impl(
         external_audio_inputs,
         external_supports_sidechain_input,
     )
-    .map_err(|e| e.to_string())?
+    .map_err(|_| "Mutex poisoned".to_string())?
     .with_insert_index(payload.insert_index);
     let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let new_slot_id = cmd_result.slot_id;
@@ -277,7 +277,7 @@ fn remove_plugin_from_track_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
         .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
 
@@ -286,7 +286,7 @@ fn remove_plugin_from_track_cmd(
         &payload.track_id,
         &payload.slot_id,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let runtime_remove_slot = cmd_result.runtime_remove_slot;
     let runtime_track_index = cmd_result.track_index as u16;
@@ -326,7 +326,7 @@ fn set_internal_plugin_param_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -354,7 +354,7 @@ fn set_internal_plugin_param_cmd(
         scoped_param_id.clone(),
         payload.value,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let track_index = result.track_index;
     let sampler_command_needed = result.sampler_command_needed;

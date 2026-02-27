@@ -10,7 +10,7 @@ fn set_external_plugin_param_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let normalized = value.clamp(0.0, 1.0);
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let Some(slot) = slot_states.first() else {
@@ -35,7 +35,7 @@ fn set_external_plugin_param_cmd(
         plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
@@ -67,7 +67,7 @@ fn set_external_plugin_param_for_slot_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let should_commit_snapshot = push_undo_step.unwrap_or(true);
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -91,7 +91,7 @@ fn set_external_plugin_param_for_slot_cmd(
         plugin_host_state.ensure_loaded_instance_for_slot(resolved_slot_id, &resolved_plugin_id)?;
     plugin_host_state.bind_slot_instance(resolved_slot_id, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
@@ -107,7 +107,7 @@ fn set_external_plugin_param_for_slot_cmd(
         param_index,
         normalized,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     execute_orchestrator_command(&project_state, &lane_cmd)?;
 
     finalize_external_param_update(
@@ -148,7 +148,7 @@ fn set_external_plugin_param_for_slot_runtime_cmd(
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &plugin_id)?;
     plugin_host_state.bind_slot_instance(slot_uuid, instance_id);
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let instance = host
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;

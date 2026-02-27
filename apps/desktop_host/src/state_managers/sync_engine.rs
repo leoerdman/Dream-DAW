@@ -160,8 +160,8 @@ const MAX_UNDO_DEPTH: usize = 120; // 120 * ~200KB = ~24MB RAM usage
 /// (a new action invalidates the redo history).
 #[track_caller]
 pub fn push_undo(project_state: &ProjectState) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let previous = undo.undo_stack.back();
     let snapshot = SharedProjectSnapshot::from_project(&project, previous);
     drop(project);
@@ -188,7 +188,7 @@ pub fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     // assuming it exists or we do it inline here. Wait, `record_history` is in lib.rs.
     // We'll trust `record_history` is available or make it so.
     let _ = project_state.history_snapshot(None, None); // Hacky proxy
-    let mut history = project_state.history.lock().map_err(|e| e.to_string())?;
+    let mut history = project_state.history.lock().map_err(|_| "Mutex poisoned".to_string())?;
     history.push("mutation_snapshot", detail);
     Ok(())
 }
@@ -206,8 +206,8 @@ pub fn push_undo_coalesced(project_state: &ProjectState) -> Result<(), String> {
     let last_ms = LAST_UNDO_PUSH_MS.load(std::sync::atomic::Ordering::Relaxed);
 
     if last_ms > 0 && (now_ms.saturating_sub(last_ms) as u128) < COALESCE_WINDOW_MS {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
+        let mut undo = project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let stack_len = undo.undo_stack.len();
         if stack_len > 0 {
             let previous = if stack_len >= 2 {
@@ -577,7 +577,7 @@ pub fn sync_transport_from_project(
     let playhead = project.playhead_position_frames.max(0);
 
     {
-        let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        let mut state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
         state.bpm = bpm;
         state.sample_rate = timeline_sample_rate;
         state.loop_enabled = loop_enabled;

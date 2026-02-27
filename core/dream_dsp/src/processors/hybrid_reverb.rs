@@ -202,7 +202,7 @@ impl DspProcessor for HybridReverbProcessor {
             // ── FDN Late Reverb ──
             // LFO for delay modulation
             let lfo = (self.lfo_phase * std::f64::consts::TAU).sin() as f32;
-            self.lfo_phase += lfo_rate as f64 / sr as f64;
+            self.lfo_phase += lfo_rate / sr as f64;
             if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
 
             // Read from FDN delay lines

@@ -33,7 +33,7 @@ async fn create_midi_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<CreateMidiClipResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let clip_name = name.unwrap_or_else(|| "MIDI Clip".to_string());
     log::info!("[IPC] create_midi_clip_cmd: '{}' track={} pos={} dur={}", clip_name, track_index, position_frames, duration_frames);
 
@@ -47,7 +47,7 @@ async fn create_midi_clip_cmd(
     let clip_id = clip.id.to_string();
 
     {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
         let idx = track_index as usize;
         while project.tracks.len() <= idx {
@@ -87,7 +87,7 @@ async fn create_midi_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<CreateMidiClipWithDeltasResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let response = create_midi_clip_cmd(
         track_index,
         position_frames,
@@ -102,7 +102,7 @@ async fn create_midi_clip_with_deltas_cmd(
     let clip_uuid = Uuid::parse_str(&response.clip_id)
         .map_err(|_| format!("Invalid MIDI clip UUID: {}", response.clip_id))?;
     let resolved_track_index = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project
             .tracks
             .iter()
@@ -327,7 +327,7 @@ async fn generate_midi_variation_cmd(
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<GenerateMidiVariationResponse, String> {
     let (api_key, default_model) = {
-        let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
         (
             settings.open_router_api_key.trim().to_string(),
             settings.open_router_model.trim().to_string(),
@@ -500,12 +500,12 @@ async fn update_midi_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
 
     // 1. Get clip duration for normalization, and check for Noop
     let (clip_duration_frames, is_noop, is_legacy, project_name) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let mut dur = 0;
         let mut is_noop = false;
         let mut is_legacy = false;
@@ -539,11 +539,11 @@ async fn update_midi_clip_cmd(
 
     let normalized = normalize_note_payloads(&notes, clip_duration_frames);
     let cmd = dream_orchestrator::commands::UpdateMidiClipCommand::from_str_id(&clip_id, normalized)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     if is_legacy {
         clip_pool_state.rebuild_snapshot(&project);
     }
@@ -598,7 +598,7 @@ async fn update_midi_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     update_midi_clip_cmd(
         clip_id.clone(),
         notes,
@@ -612,7 +612,7 @@ async fn update_midi_clip_with_deltas_cmd(
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     let note_deltas = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         collect_midi_note_deltas_for_clip(&project, clip_uuid)
     };
 
@@ -634,7 +634,7 @@ async fn set_midi_clip_envelopes_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
         .iter()
         .filter(|env| !env.param_id.trim().is_empty())
@@ -668,11 +668,11 @@ async fn set_midi_clip_envelopes_cmd(
     }
 
     let cmd = dream_orchestrator::commands::SetMidiClipEnvelopesCommand::from_str_id(&clip_id, normalized)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);

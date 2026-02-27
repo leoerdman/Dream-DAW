@@ -5,12 +5,15 @@ type IdleWindow = Window & {
     cancelIdleCallback?: (id: number) => void;
 };
 
+const DEFAULT_IDLE_TIMEOUT_MS = 900;
+const DEFAULT_FALLBACK_DELAY_MS = 260;
+
 export function scheduleIdle(
     cb: () => void,
     options?: { timeoutMs?: number; fallbackDelayMs?: number },
 ): IdleHandle {
-    const timeoutMs = options?.timeoutMs ?? 900;
-    const fallbackDelayMs = options?.fallbackDelayMs ?? 260;
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    const fallbackDelayMs = options?.fallbackDelayMs ?? DEFAULT_FALLBACK_DELAY_MS;
     const win = window as IdleWindow;
     if (typeof win.requestIdleCallback === 'function') {
         return win.requestIdleCallback(cb, { timeout: timeoutMs }) as number;

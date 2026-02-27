@@ -91,6 +91,9 @@ pub(super) fn drain_commands(
                     slot.device_chain.clear();
                 }
                 ctx.master_device_chain.clear();
+                // BUG-D005 FIX: Reset test tone when clearing engine state for a new project.
+                *ctx.test_tone_enabled = false;
+                *ctx.test_tone_phase = 0.0;
             }
             EngineCommand::SetPlay(play) => {
                 *ctx.is_playing = play;

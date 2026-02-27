@@ -9,17 +9,17 @@ async fn move_track_block_to_index_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackBlockToIndexCommand::from_str_root_track_id(
         &root_track_id,
         target_index,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -49,16 +49,16 @@ async fn move_track_block_to_index_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::MoveTrackBlockToIndexCommand::from_str_root_track_id(
         &root_track_id,
         target_index,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -93,9 +93,9 @@ async fn duplicate_tracks_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     if cmd.track_ids.is_empty() {
         return Ok(());
     }
@@ -106,7 +106,7 @@ async fn duplicate_tracks_cmd(
         return Ok(());
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -130,9 +130,9 @@ async fn duplicate_tracks_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     if cmd.track_ids.is_empty() {
         return Ok(DeltaMutationResponse { deltas: vec![] });
     }
@@ -143,7 +143,7 @@ async fn duplicate_tracks_with_deltas_cmd(
         return Ok(DeltaMutationResponse { deltas: vec![] });
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,

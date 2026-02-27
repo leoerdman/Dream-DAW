@@ -9,11 +9,11 @@ async fn split_track_to_stems_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let project = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
     let track_uuid =
         Uuid::parse_str(&payload.track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
@@ -46,7 +46,7 @@ async fn split_track_to_stems_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
+        bpm: handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm,
     };
 
     crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
@@ -94,7 +94,7 @@ async fn split_track_to_stems_cmd(
                     );
                 },
             )
-            .map_err(|e| e.to_string())
+            .map_err(|_| "Mutex poisoned".to_string())
     })
     .await
     .map_err(|e| format!("Stem bounce worker failed: {e}"))?;
@@ -193,11 +193,11 @@ async fn split_track_to_stems_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let before_project = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
     split_track_to_stems_cmd(
         payload,
@@ -211,7 +211,7 @@ async fn split_track_to_stems_with_deltas_cmd(
     let after_project = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
     Ok(DeltaMutationResponse {
         deltas: collect_added_track_and_clip_deltas(&before_project, &after_project),

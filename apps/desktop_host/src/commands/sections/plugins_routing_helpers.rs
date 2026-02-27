@@ -76,7 +76,7 @@ pub fn sync_external_fx_snapshot_from_state(
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     sync_external_fx_snapshot(&project, clip_pool_state, plugin_host_state);
     Ok(())
 }
@@ -86,7 +86,7 @@ pub fn sync_routing_and_mark_dirty(
     clip_pool_state: &State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -223,7 +223,7 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     app: &tauri::AppHandle,
     rebuild_routing: bool,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     if rebuild_routing {
         clip_pool_state.rebuild_routing_only(&project);
@@ -333,12 +333,12 @@ pub fn finalize_external_param_update(
     app: &tauri::AppHandle,
     should_commit_snapshot: bool,
 ) -> Result<(), String> {
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = true;
     if !should_commit_snapshot {
         return Ok(());
     }
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
     plugin_host_state.publish_registry();
@@ -357,7 +357,7 @@ pub fn finalize_internal_param_update(
     should_commit_snapshot: bool,
 ) -> Result<(), String> {
     if should_commit_snapshot {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let project_name = project.name.clone();
         clip_pool_state.rebuild_routing_only(&project);
         crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);

@@ -23,7 +23,7 @@ struct BrowserFileEntry {
 fn get_browser_folders(
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<Vec<String>, String> {
-    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
     Ok(settings.browser_folders.clone())
 }
 
@@ -60,13 +60,13 @@ async fn add_browser_folder(
     })
     .await
     .map_err(|e| format!("Join error: {}", e))?
-    .map_err(|e| e.to_string())?
+    .map_err(|_| "Mutex poisoned".to_string())?
     .ok_or_else(|| "Cancelled".to_string())?;
 
     let normalized_picked = normalize_browser_path(&picked);
 
     {
-        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        let mut settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
         // Don't add duplicates
         let exists = settings
             .browser_folders
@@ -78,7 +78,7 @@ async fn add_browser_folder(
     }
     settings_state.save_to_user_folder()?;
 
-    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
     log::info!(
         "[Browser] Added folder: '{}' (total: {})",
         normalized_picked,
@@ -96,14 +96,14 @@ fn remove_browser_folder(
 ) -> Result<Vec<String>, String> {
     let normalized_target = normalize_browser_path(&path);
     {
-        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        let mut settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
         settings
             .browser_folders
             .retain(|f| normalize_browser_path(f) != normalized_target);
     }
     settings_state.save_to_user_folder()?;
 
-    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
     log::info!(
         "[Browser] Removed folder: '{}' (total: {})",
         normalized_target,
@@ -336,7 +336,7 @@ fn scan_plugin_folders(
     settings_state: tauri::State<'_, SettingsState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<Vec<BrowserFileEntry>, String> {
-    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let mut entries = Vec::new();
 
     // Scan each plugin path
@@ -432,7 +432,7 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
 
     let project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = app.state();
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     let default_dir = preferred_project_dialog_dir(&project_state);
 
@@ -463,7 +463,7 @@ async fn save_project_dialog(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<Option<String>, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     use tauri_plugin_dialog::DialogExt;
 
     fn preferred_project_dialog_dir(project_state: &crate::state_managers::ProjectState) -> Option<std::path::PathBuf> {
@@ -485,7 +485,7 @@ async fn save_project_dialog(
 
     // Use current project name as default filename
     let default_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         format!("{}.ddpj", project.name)
     };
     let default_dir = preferred_project_dialog_dir(&project_state);

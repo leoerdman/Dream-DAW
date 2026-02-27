@@ -114,6 +114,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
 
 // ── Helper: read/write pin state from localStorage ────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function readNotesPinned(): boolean {
     try {
         const raw = window.localStorage.getItem(NOTES_PIN_KEY);
@@ -123,6 +124,7 @@ export function readNotesPinned(): boolean {
     }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function writeNotesPinned(pinned: boolean): void {
     try {
         window.localStorage.setItem(NOTES_PIN_KEY, String(pinned));

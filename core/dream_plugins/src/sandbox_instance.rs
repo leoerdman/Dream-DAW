@@ -269,11 +269,10 @@ impl PluginInstance for SandboxedPluginInstance {
         // Debounce: Only send if the value changed significantly to prevent IPC flood
         // from flat automation curves or high-frequency UI dragging.
         // Uses linear scan on pre-allocated Vec (no heap allocation on RT thread).
-        if let Some(entry) = self.param_cache.iter().find(|(i, _)| *i == index) {
-            if (entry.1 - value).abs() < 1e-6 {
+        if let Some(entry) = self.param_cache.iter().find(|(i, _)| *i == index)
+            && (entry.1 - value).abs() < 1e-6 {
                 return Ok(());
             }
-        }
         // Update or insert (no allocation since Vec is pre-allocated with_capacity(64))
         if let Some(entry) = self.param_cache.iter_mut().find(|(i, _)| *i == index) {
             entry.1 = value;

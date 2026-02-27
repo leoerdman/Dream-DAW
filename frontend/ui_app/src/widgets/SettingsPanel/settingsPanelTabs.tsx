@@ -19,7 +19,7 @@ import { useShortcutStore } from '@/shared/stores/useShortcutStore';
 
 interface FoldersTabProps {
     settings: AppSettings;
-    pickAndSetFolder: (key: keyof AppSettings) => Promise<void>;
+    pickAndSetFolder: (key: 'userFolderPath' | 'samplesPath' | 'vst2Path' | 'vst3Path') => Promise<string | null>;
     handleRescan: () => void;
     rescanningPlugins: boolean;
     rescanResult: string | null;

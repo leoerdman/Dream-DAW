@@ -137,7 +137,7 @@ impl SmoothedProcessor {
                 // Analyzer reset trigger
                 | (BuiltinEffectType::Analyzer, 0)
                 // Channel EQ kill switches and crossover toggles
-                | (BuiltinEffectType::ChannelEq, 5 | 6 | 7)
+                | (BuiltinEffectType::ChannelEq, 5..=7)
         )
     }
 

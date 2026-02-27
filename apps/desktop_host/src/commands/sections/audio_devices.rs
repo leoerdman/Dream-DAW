@@ -39,7 +39,7 @@ fn restart_audio_engine_impl(
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     log::info!("Audio device change requested: '{}'", device_name);
 
     // Build a fresh engine ring buffer and stream on requested device.
@@ -85,15 +85,15 @@ fn restart_audio_engine_impl(
 
     // Atomically replace queue producer first, then stream handle.
     {
-        let mut producer = handle.producer.lock().map_err(|e| e.to_string())?;
+        let mut producer = handle.producer.lock().map_err(|_| "Mutex poisoned".to_string())?;
         *producer = new_producer;
     }
     {
-        let mut prealloc = handle.prealloc_producer.lock().map_err(|e| e.to_string())?;
+        let mut prealloc = handle.prealloc_producer.lock().map_err(|_| "Mutex poisoned".to_string())?;
         *prealloc = new_prealloc_producer;
     }
     {
-        let mut stream = handle._stream.lock().map_err(|e| e.to_string())?;
+        let mut stream = handle._stream.lock().map_err(|_| "Mutex poisoned".to_string())?;
         *stream = Some(Box::new(new_stream));
     }
 
@@ -124,7 +124,7 @@ fn restart_audio_engine_impl(
     let snapshot = handle
         .playback_state
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
     let current_pos_frames = handle.master_clock.position();
     push_command(
@@ -133,7 +133,7 @@ fn restart_audio_engine_impl(
     )?;
     push_command(&handle, EngineCommand::SetBpm(snapshot.bpm))?;
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         push_command(
             &handle,
             EngineCommand::SetTimeSignature {
@@ -162,13 +162,13 @@ fn restart_audio_engine_impl(
     // Re-apply per-track mixer state (volume, pan, mute, solo) + master volume.
     // Without this, the new audio thread starts with all tracks unmuted.
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         sync_track_mix_state_from_project(&project, &handle)?;
     }
 
     // Persist the resolved device only after successful hot-swap.
     {
-        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        let mut settings = settings_state.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
         settings.output_device = resolved_output_device.clone();
     }
     settings_state.save_to_user_folder()?;

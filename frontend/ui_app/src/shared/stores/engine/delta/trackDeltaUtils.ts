@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 // BUG-C08b FIX: Canvas ctx.fillStyle cannot resolve CSS custom properties.
 // Use raw hex values (extracted from variable name convention --token-color-hex-XXXXXX).
 const TRACK_PALETTE = [

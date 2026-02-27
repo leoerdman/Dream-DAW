@@ -16,6 +16,8 @@ function snapPhysical(value: number): number {
     return Math.round(value * dpr) / dpr;
 }
 
+const FOLLOW_MARGIN_RATIO = 0.15;
+
 export class ViewportMatrix {
     private _scrollX = 0;
     private _scrollY = 0;
@@ -218,7 +220,7 @@ export class ViewportMatrix {
 
     ensureBeatVisible(beat: number): void {
         const px = beat * this._ppb;
-        const margin = this._viewportW * 0.15;
+        const margin = this._viewportW * FOLLOW_MARGIN_RATIO;
         if (px < this._scrollX + margin) {
             this._scrollX = Math.max(0, px - margin);
             this._markDirty();

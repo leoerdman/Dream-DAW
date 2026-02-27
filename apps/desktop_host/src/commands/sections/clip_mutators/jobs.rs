@@ -114,7 +114,7 @@ pub(super) fn start_job(
         cancellable,
     };
     {
-        let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+        let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
         prune_finished_jobs_locked(&mut jobs);
         jobs.insert(
             id.clone(),
@@ -134,7 +134,7 @@ pub(super) fn set_job_progress(
     progress: f32,
     phase: &str,
 ) -> Result<(), String> {
-    let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
     if let Some(job) = jobs.get_mut(job_id) {
         job.snapshot.progress = progress.clamp(0.0, 100.0);
         job.snapshot.phase = phase.to_string();
@@ -159,7 +159,7 @@ pub(super) fn finish_job(
     cancelled: bool,
     error: Option<String>,
 ) -> Result<(), String> {
-    let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|_| "Mutex poisoned".to_string())?;
     if let Some(job) = jobs.get_mut(job_id) {
         job.snapshot.progress = if ok { 100.0 } else { job.snapshot.progress };
         job.snapshot.finished_at_ms = Some(now_ms());

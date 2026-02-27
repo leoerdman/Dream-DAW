@@ -13,3 +13,33 @@ export function isMacDesktopPlatform(): boolean {
     const userAgent = (navigator.userAgent || '').toLowerCase();
     return userAgent.includes('mac') && !/(iphone|ipad|ipod)/i.test(userAgent);
 }
+
+export function isWindows(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const platform = (navigator.platform || '').toLowerCase();
+    const userAgent = (navigator.userAgent || '').toLowerCase();
+    return platform.startsWith('win') || userAgent.includes('windows');
+}
+
+export function isLinux(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const platform = (navigator.platform || '').toLowerCase();
+    const userAgent = (navigator.userAgent || '').toLowerCase();
+    return platform.startsWith('linux') || userAgent.includes('linux');
+}
+
+export function isIos(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const platform = (navigator.platform || '').toLowerCase();
+    const userAgent = (navigator.userAgent || '').toLowerCase();
+    return platform.startsWith('iphone') || platform.startsWith('ipad') || platform.startsWith('ipod') ||
+        /(iphone|ipad|ipod)/i.test(userAgent) ||
+        // iPad on iOS 13+ detection
+        (platform === 'macintel' && navigator.maxTouchPoints > 1);
+}
+
+export function isAndroid(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const userAgent = (navigator.userAgent || '').toLowerCase();
+    return userAgent.includes('android');
+}

@@ -97,11 +97,11 @@ async fn export_mix_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let project = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
@@ -147,7 +147,7 @@ async fn export_mix_cmd(
             _ => return Err("Selected range requires valid start_frame and end_frame".to_string()),
         }
     } else if export_range == "loop" {
-        let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
         if state.loop_enabled && state.loop_end > state.loop_start {
             (state.loop_start, state.loop_end)
         } else {
@@ -159,7 +159,7 @@ async fn export_mix_cmd(
 
     let local_pool = build_local_pool_for_project(&project, &clip_pool_state)?;
 
-    let export_bpm = handle.playback_state.lock().map_err(|e| e.to_string())?.bpm;
+    let export_bpm = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?.bpm;
     let cfg = BounceConfig {
         output_path: settings.output_path.clone(),
         sample_rate: settings.sample_rate,
@@ -329,17 +329,17 @@ async fn export_mix_cmd(
     //    triggering the VST3 passthrough guard → all FX/instruments silent.
     // Fix: stop playback FIRST, wait for quiescence, THEN reactivate.
     let was_playing = {
-        let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
         state.is_playing
     };
     if was_playing {
         push_command(&handle, EngineCommand::SetPlay(false))?;
         let timeline_sr = {
-            let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
             state.sample_rate
         };
         {
-            let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            let mut state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
             state.is_playing = false;
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
@@ -379,7 +379,7 @@ async fn export_mix_cmd(
 
     // Clone the command producer so we can resume playback from spawn_blocking.
     let cmd_producer = {
-        let producer_guard = handle.producer.lock().map_err(|e| e.to_string())?;
+        let producer_guard = handle.producer.lock().map_err(|_| "Mutex poisoned".to_string())?;
         // We can't clone the producer, but we need it for post-export.
         // Instead, pass the was_playing flag and resume via the app handle.
         drop(producer_guard);
@@ -464,7 +464,7 @@ async fn export_mix_cmd(
                     );
                 },
             )
-            .map_err(|e| e.to_string());
+            .map_err(|_| "Mutex poisoned".to_string());
 
         // ── Reactivate plugins to RT buffer size after export ────────
         // During export, plugins were activated with OFFLINE_BUFFER_FRAMES (512).
@@ -483,7 +483,7 @@ async fn export_mix_cmd(
         // Send SetExportActive(false) to the RT callback so it resumes
         // try_lock() calls on external plugins (now safely reactivated
         // to the RT buffer size).
-        if let Some(engine_handle) = app_for_resume.try_state::<crate::state_managers::audio_engine::AudioEngineHandle>() {
+        if let Some(engine_handle) = app_for_resume.try_state::<AudioEngineHandle>() {
             if let Ok(mut producer) = engine_handle.producer.lock() {
                 let _ = producer.push(EngineCommand::SetExportActive(false));
             }

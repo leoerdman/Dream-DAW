@@ -12,6 +12,9 @@ type ThrottledSender<T> = ((payload: T) => void) & {
     flush: () => void;
 };
 
+const MIDI_SAVE_THROTTLE_MS = 80;
+const MIDI_ENVELOPE_SAVE_THROTTLE_MS = 100;
+
 interface UseDawShellMidiPersistenceArgs {
     timelineClips: TimelineClip[];
     trackIds: string[];
@@ -253,7 +256,7 @@ export function useDawShellMidiPersistence({
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
                     .catch((error) => console.error('[DawShell] updateMidiClip failed:', error));
-            }, 80) as ThrottledSender<MidiNote[]>;
+            }, MIDI_SAVE_THROTTLE_MS) as ThrottledSender<MidiNote[]>;
             midiSaveThrottlesRef.current.set(clipId, send);
         }
         send(notes);
@@ -273,7 +276,7 @@ export function useDawShellMidiPersistence({
                         dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
                     .catch((error) => console.error('[DawShell] setMidiClipEnvelopes failed:', error));
-            }, 100) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
+            }, MIDI_ENVELOPE_SAVE_THROTTLE_MS) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
             midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
         }
         dirtyMidiEnvelopeClipIdsRef.current.add(clipId);

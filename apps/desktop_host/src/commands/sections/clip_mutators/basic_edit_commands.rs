@@ -9,7 +9,7 @@ async fn move_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
     let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
@@ -17,7 +17,7 @@ async fn move_clip_cmd(
         new_track_index,
         new_position_frames,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -43,7 +43,7 @@ async fn move_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
@@ -53,7 +53,7 @@ async fn move_clip_with_deltas_cmd(
         new_track_index,
         new_position_frames,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let deltas = vec![dream_models::delta::ProjectDelta::ClipMoved {
@@ -87,7 +87,7 @@ async fn resize_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: coalesced undo + delegate to orchestrator + snapshot rebuild
     push_undo_coalesced(&project_state)?;
 
@@ -97,7 +97,7 @@ async fn resize_clip_cmd(
         new_duration_frames,
         allow_stretch.unwrap_or(false),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -124,12 +124,12 @@ async fn resize_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let before_audio_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project
             .tracks
             .iter()
@@ -153,12 +153,12 @@ async fn resize_clip_with_deltas_cmd(
         new_duration_frames,
         allow_stretch.unwrap_or(false),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
     let after_audio_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project
             .tracks
             .iter()
@@ -234,12 +234,12 @@ async fn split_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<SplitClipResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -267,12 +267,12 @@ async fn split_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<SplitClipWithDeltasResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -310,12 +310,12 @@ async fn delete_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -341,13 +341,13 @@ async fn delete_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
 
     let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -379,7 +379,7 @@ async fn duplicate_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<DuplicateClipResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -387,7 +387,7 @@ async fn duplicate_clip_cmd(
         &clip_id,
         new_position_frames,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -414,7 +414,7 @@ async fn duplicate_clip_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DuplicateClipWithDeltasResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
     let source_clip_uuid =
@@ -423,7 +423,7 @@ async fn duplicate_clip_with_deltas_cmd(
         &clip_id,
         new_position_frames,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -457,12 +457,12 @@ async fn merge_clips_cmd(
     app: tauri::AppHandle,
 ) -> Result<MergeClipsResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -488,7 +488,7 @@ async fn merge_clips_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<MergeClipsWithDeltasResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
     let source_ids: Vec<Uuid> = clip_ids
@@ -497,7 +497,7 @@ async fn merge_clips_with_deltas_cmd(
         .collect();
 
     let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 

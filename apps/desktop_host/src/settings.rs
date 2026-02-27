@@ -394,7 +394,7 @@ impl SettingsState {
     /// Save settings to `{user_folder_path}/User Info/settings.json`.
     /// Creates the directory structure if it doesn't exist.
     pub(crate) fn save_to_user_folder(&self) -> Result<(), String> {
-        let settings = self.settings.lock().map_err(|e| e.to_string())?;
+        let settings = self.settings.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let user_info_dir = settings.user_info_dir();
         let settings_path = settings.settings_file_path();
 
@@ -471,10 +471,10 @@ impl RecentProjects {
     }
 
     pub(crate) fn save(&self, app_data_dir: &std::path::Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string_pretty(self).map_err(|_| "Mutex poisoned".to_string())?;
+        std::fs::create_dir_all(app_data_dir).map_err(|_| "Mutex poisoned".to_string())?;
         std::fs::write(app_data_dir.join("recent_projects.json"), json)
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
         Ok(())
     }
 

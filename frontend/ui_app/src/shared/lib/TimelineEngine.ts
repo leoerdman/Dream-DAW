@@ -14,6 +14,11 @@ import {
     FADE_CURVE_PRESETS,
     FADE_HANDLE_HOTSPOT_PX,
     MIN_LOOP_BEATS,
+    CURSOR_BLINK_MS,
+    WAVEFORM_PREFETCH_BUFFER_BEATS,
+    BEAT_COMMIT_THRESHOLD,
+    TRACK_COMMIT_THRESHOLD,
+    FALLBACK_SAMPLES_PER_BEAT,
     type DragState,
     type HitTestResult,
     type MarqueeSelection,
@@ -405,7 +410,7 @@ export class TimelineEngine {
     }
 
     private _needsRedraw = true;
-    /** Tracks edit cursor blink state (on/off) for the 500ms blink cycle (PERF-FIX-3). */
+    /** Tracks edit cursor blink state (on/off) for the CURSOR_BLINK_MS blink cycle (PERF-FIX-3). */
     private _lastCursorBlinkOn = true;
 
     private _requestRedraw(): void {
@@ -416,7 +421,7 @@ export class TimelineEngine {
         const hasEditCursor = this._editCursorBeat >= 0;
         if (hasEditCursor) {
             const now = performance.now();
-            const blinkOn = (Math.floor(now / 500) % 2) === 0;
+            const blinkOn = (Math.floor(now / CURSOR_BLINK_MS) % 2) === 0;
             if (blinkOn !== this._lastCursorBlinkOn) {
                 this._lastCursorBlinkOn = blinkOn;
                 this._needsRedraw = true;
@@ -568,10 +573,11 @@ export class TimelineEngine {
         const rect = (this._drag.mode !== DragMode.None && this._drag.canvasRect)
             ? this._drag.canvasRect
             : canvas.getBoundingClientRect();
-        return {
-            beat: this._viewport.screenToBeats(clientX, rect),
-            trackIndex: this._viewport.screenToTrack(clientY, rect),
-        };
+        const beat = Math.max(0, this._viewport.screenToBeats(clientX, rect));
+        const rawTrackIndex = this._viewport.screenToTrack(clientY, rect);
+        const trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, rawTrackIndex));
+
+        return { beat, trackIndex };
     }
 
     private _syncCanvasSize(): void {
@@ -1475,10 +1481,10 @@ export class TimelineEngine {
                     const deltaBeat = beat - this._drag.startBeat;
                     const deltaTrack = track - this._drag.startTrack;
                     const beatCommitThreshold = this._snapEnabled
-                        ? Math.max(0.05, this._snapBeats * 0.5)
-                        : 0.05;
+                        ? Math.max(BEAT_COMMIT_THRESHOLD, this._snapBeats * TRACK_COMMIT_THRESHOLD)
+                        : BEAT_COMMIT_THRESHOLD;
                     const isTinyMove =
-                        Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
+                        Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < TRACK_COMMIT_THRESHOLD;
                     if (isTinyMove) {
                         const clipToRestore = this._clipsById.get(this._drag.clipId!);
                         if (clipToRestore) {
@@ -1792,7 +1798,7 @@ export class TimelineEngine {
 
     private _prefetchVisibleWaveforms(): void {
         const range = this._viewport.getVisibleRange();
-        const bufferBeats = 10;
+        const bufferBeats = WAVEFORM_PREFETCH_BUFFER_BEATS;
         const clipIds: string[] = [];
 
         for (const clip of this._clips) {
@@ -1809,8 +1815,8 @@ export class TimelineEngine {
         if (clipIds.length > 0) {
             const ppb = this._viewport.pixelsPerBeat;
             const hasValidTempo = this._bpm > 0 && this._sampleRate > 0;
-            const samplesPerBeat = hasValidTempo ? (this._sampleRate * 60 / this._bpm) : 1024;
-            const samplesPerPixel = ppb > 0 ? (samplesPerBeat / ppb) : 1024;
+            const samplesPerBeat = hasValidTempo ? (this._sampleRate * 60 / this._bpm) : FALLBACK_SAMPLES_PER_BEAT;
+            const samplesPerPixel = ppb > 0 ? (samplesPerBeat / ppb) : FALLBACK_SAMPLES_PER_BEAT;
 
             this._waveformCache.prefetch(clipIds, samplesPerPixel);
             cancelIdle(this._prefetchDeferredId);

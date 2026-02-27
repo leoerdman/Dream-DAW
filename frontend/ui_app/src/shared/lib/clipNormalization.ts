@@ -5,7 +5,9 @@ export type TimelineClipLike = {
     trackIndex: number;
 };
 
-export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readonly T[]): T[] {
+export const MIN_CLIP_DURATION_BEATS = 0.0001;
+
+export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readonly T[]): readonly T[] {
     const byId = new Map<string, T>();
     for (const clip of clips) {
         if (!clip || typeof clip.id !== 'string') continue;
@@ -16,7 +18,7 @@ export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readon
             ...clip,
             id,
             trackIndex: Number.isFinite(clip.trackIndex) ? Math.max(0, Math.trunc(clip.trackIndex)) : 0,
-            durationBeats: Math.max(0.0001, clip.durationBeats),
+            durationBeats: Math.max(MIN_CLIP_DURATION_BEATS, clip.durationBeats),
         };
         // BUG-010 FIX: Log warning when duplicate clip ID is detected.
         if (byId.has(id)) {

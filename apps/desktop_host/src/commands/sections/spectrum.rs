@@ -6,7 +6,7 @@
 fn get_spectrum_data(
     state: tauri::State<'_, SpectrumState>,
 ) -> Result<Vec<f32>, String> {
-    let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
+    let mut inner = state.inner.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     // Drain all available samples from the ring buffer consumer
     let mut drained = 0usize;

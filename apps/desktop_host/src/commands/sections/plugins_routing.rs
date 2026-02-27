@@ -26,7 +26,7 @@ fn get_plugin_slot_runtime_status_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<PluginSlotRuntimeStatus, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -88,7 +88,7 @@ fn get_plugin_slot_runtime_status_cmd(
         let sandbox_map = plugin_host_state
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
         (
             sandbox_map.contains_key(&slot.plugin_id),
             sandbox_map.get(&slot.plugin_id).copied(),
@@ -180,7 +180,7 @@ fn ensure_plugin_slot_active_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -262,7 +262,7 @@ fn unload_plugin_slot_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -305,7 +305,7 @@ fn replace_missing_plugin_slot_impl(
     app: &tauri::AppHandle,
 ) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)

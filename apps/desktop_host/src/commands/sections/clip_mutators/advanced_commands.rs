@@ -8,11 +8,11 @@ async fn paint_track_clips_with_track_color_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -38,7 +38,7 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
     let before_colors = execute_orchestrator_query(
@@ -92,7 +92,7 @@ async fn resolve_missing_file_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -101,7 +101,7 @@ async fn resolve_missing_file_cmd(
 
     let cmd =
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -109,7 +109,7 @@ async fn resolve_missing_file_cmd(
     let decoded = AudioReader::read(PathBuf::from(&new_path))
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let _ = pool.insert(ClipAudio {
             source_path: new_path.clone(),
             channels: decoded.channels,
@@ -132,7 +132,7 @@ async fn resolve_missing_file_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -141,14 +141,14 @@ async fn resolve_missing_file_with_deltas_cmd(
 
     let cmd =
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
     let decoded = AudioReader::read(PathBuf::from(&new_path))
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let _ = pool.insert(ClipAudio {
             source_path: new_path.clone(),
             channels: decoded.channels,
@@ -184,7 +184,7 @@ async fn set_automation_points_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let persistent_points = points
         .iter()
         .map(|p| dream_models::project::AutomationPoint {
@@ -204,7 +204,7 @@ async fn set_automation_points_cmd(
         &param_id,
         persistent_points,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
@@ -270,7 +270,7 @@ async fn arm_track_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
     execute_orchestrator_command(&project_state, &cmd)?;

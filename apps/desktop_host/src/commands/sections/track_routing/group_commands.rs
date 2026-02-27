@@ -9,17 +9,17 @@ async fn set_track_group_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackGroupCommand::from_str_ids(
         &track_id,
         group_id.as_deref(),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -42,17 +42,17 @@ async fn set_track_group_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackGroupCommand::from_str_ids(
         &track_id,
         group_id.as_deref(),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
@@ -76,14 +76,14 @@ async fn ungroup_track_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::UngroupTrackCommand::from_str_group_id(&group_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -111,14 +111,14 @@ async fn ungroup_track_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let group_uuid = Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group_id: {e}"))?;
     let cmd = dream_orchestrator::commands::UngroupTrackCommand::from_str_group_id(&group_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,

@@ -49,6 +49,7 @@ export const VerticalMixerStrip = ({
         if (peakDb >= 0) {
             // BUG-R4-050 FIX: Direct state set — React batches this within the effect.
             // No need for setTimeout(0) or queueMicrotask for a simple boolean update.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setClipLatched(true);
         }
         if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);

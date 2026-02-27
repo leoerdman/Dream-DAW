@@ -238,7 +238,7 @@ impl PluginHostState {
         actual_sample_rate: f64,
         actual_buffer_size: usize,
     ) -> Result<(), String> {
-        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let mut host = self.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let (current_sr, current_bs) = host.audio_config();
         let sr_changed = (current_sr - actual_sample_rate).abs() > 0.001;
         let bs_changed = current_bs != actual_buffer_size;
@@ -257,7 +257,7 @@ impl PluginHostState {
         sample_rate: f64,
         buffer_size: usize,
     ) -> Result<(), String> {
-        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let mut host = self.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
         host.reactivate_all(sample_rate, buffer_size);
         Ok(())
     }
@@ -330,19 +330,19 @@ impl PluginHostState {
     }
     pub(crate) fn unload_instance(&self, instance_id: Uuid) -> Result<(), String> {
         {
-            let mut host = self.host.lock().map_err(|e| e.to_string())?;
+            let mut host = self.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
             let _ = host.remove(instance_id);
         }
         self.publish_registry();
         {
-            let mut map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+            let mut map = self.loaded_by_key.lock().map_err(|_| "Mutex poisoned".to_string())?;
             map.retain(|_, id| *id != instance_id);
         }
         {
             let mut sandbox_map = self
                 .loaded_sandbox_by_key
                 .lock()
-                .map_err(|e| e.to_string())?;
+                .map_err(|_| "Mutex poisoned".to_string())?;
             sandbox_map.retain(|_, id| *id != instance_id);
         }
         {
@@ -350,7 +350,7 @@ impl PluginHostState {
             // Do not rely on plugin-key maps here because duplicate plugin
             // paths can overwrite key entries while older sandbox instances
             // are still alive and bound to different slots.
-            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
             let _ = supervisor.send_close_editor(instance_id);
             supervisor.remove_instance(instance_id);
         }
@@ -368,14 +368,14 @@ impl PluginHostState {
     pub(crate) fn unload_all_instances(&self) -> Result<(), String> {
         let mut ids = HashSet::<Uuid>::new();
         {
-            let map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+            let map = self.loaded_by_key.lock().map_err(|_| "Mutex poisoned".to_string())?;
             ids.extend(map.values().copied());
         }
         {
             let map = self
                 .loaded_sandbox_by_key
                 .lock()
-                .map_err(|e| e.to_string())?;
+                .map_err(|_| "Mutex poisoned".to_string())?;
             ids.extend(map.values().copied());
         }
         ids.extend(self.slot_instance_map.load_full().values().copied());
@@ -384,11 +384,11 @@ impl PluginHostState {
         }
         self.loaded_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .clear();
         self.loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .clear();
         self.clear_slot_instance_bindings();
         Ok(())
@@ -565,7 +565,7 @@ impl PluginHostState {
                     self.bind_slot_instance(slot_id, instance_id);
                     self.loaded_by_key
                         .lock()
-                        .map_err(|e| e.to_string())?
+                        .map_err(|_| "Mutex poisoned".to_string())?
                         .entry(plugin_id.to_string())
                         .or_insert(instance_id);
                     self.publish_registry();
@@ -592,7 +592,7 @@ impl PluginHostState {
                 descriptor.name
             ));
         }
-        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let mut host = self.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let instance_id = match descriptor.format {
             PluginFormat::VST3 => host
                 .load_vst3(descriptor.clone())
@@ -614,7 +614,7 @@ impl PluginHostState {
         self.bind_slot_instance(slot_id, instance_id);
         self.loaded_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .entry(plugin_id.to_string())
             .or_insert(instance_id);
         self.publish_registry();
@@ -654,7 +654,7 @@ impl PluginHostState {
                 candidate_keys.insert(Self::normalize_plugin_lookup_key(uid));
             }
         }
-        let mut loaded = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+        let mut loaded = self.loaded_by_key.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let mut matched: Option<Uuid> = None;
         let mut stale_keys: Vec<String> = Vec::new();
         for (key, instance_id) in loaded.iter() {
@@ -809,19 +809,19 @@ impl PluginHostState {
         Ok(descriptor)
     }
     pub(crate) fn sandbox_snapshot(&self) -> Result<PluginSandboxSnapshot, String> {
-        let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         Ok(supervisor.snapshot())
     }
     pub(crate) fn set_sandbox_enabled(
         &self,
         enabled: bool,
     ) -> Result<PluginSandboxSnapshot, String> {
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         supervisor.set_enabled(enabled);
         Ok(supervisor.snapshot())
     }
     pub(crate) fn sandbox_enabled(&self) -> Result<bool, String> {
-        let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         Ok(supervisor.enabled())
     }
     pub(crate) fn open_in_sandbox(
@@ -829,7 +829,7 @@ impl PluginHostState {
         plugin_key: &str,
         descriptor: PluginDescriptor,
     ) -> Result<Uuid, String> {
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let instance_id = supervisor
             .attach_plugin_process(descriptor.clone())
             .map_err(|e| format!("Sandbox spawn failed: {e}"))?;
@@ -838,7 +838,7 @@ impl PluginHostState {
             .ok_or_else(|| "Sandbox shared region was not created".to_string())?;
         drop(supervisor);
         {
-            let mut host = self.host.lock().map_err(|e| e.to_string())?;
+            let mut host = self.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
             host.load_vst3_sandboxed(
                 instance_id,
                 descriptor,
@@ -852,10 +852,10 @@ impl PluginHostState {
         self.publish_registry();
         self.loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .insert(plugin_key.to_string(), instance_id);
         {
-            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
             let _ = supervisor.send_open_editor(instance_id);
         }
         Ok(instance_id)
@@ -865,7 +865,7 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .remove(plugin_key);
         if let Some(id) = maybe_id {
             if let Ok(mut supervisor) = self.sandbox_supervisor.lock() {
@@ -875,7 +875,7 @@ impl PluginHostState {
                 let _ = host.remove(id);
             }
             self.publish_registry();
-            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
             supervisor.remove_instance(id);
         }
         Ok(())
@@ -890,7 +890,7 @@ impl PluginHostState {
         ),
         String,
     > {
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let timed_out = supervisor.tick_watchdog();
         if !timed_out.is_empty() {
             let mut reverse = HashMap::<Uuid, String>::new();
@@ -934,7 +934,7 @@ impl PluginHostState {
                 instance_id
             ));
         }
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         supervisor
             .manual_restart(instance_id)
             .map_err(|e| format!("Sandbox manual restart failed: {e}"))?;
@@ -945,13 +945,13 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .get(plugin_key)
             .copied();
         let Some(id) = maybe_id else {
             return Ok(false);
         };
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         match supervisor.send_open_editor(id) {
             Ok(()) => Ok(true),
             Err(err) => {
@@ -979,13 +979,13 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .get(plugin_key)
             .copied();
         let Some(id) = maybe_id else {
             return Ok(false);
         };
-        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
         supervisor
             .send_set_parameter(id, param_index, value)
             .map_err(|e| format!("Sandbox set parameter failed: {e}"))?;

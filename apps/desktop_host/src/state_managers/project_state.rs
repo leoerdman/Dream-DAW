@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::path::PathBuf;
 
 use dream_models::project::Project;
 use tauri::{Emitter, Manager};
@@ -103,7 +104,7 @@ impl ProjectState {
         project_name: &str,
         app: Option<&tauri::AppHandle>,
     ) -> Result<(), String> {
-        let mut dirty = self.is_dirty.lock().map_err(|e| e.to_string())?;
+        let mut dirty = self.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let was_dirty = *dirty;
         *dirty = true;
         if !was_dirty {
@@ -115,7 +116,7 @@ impl ProjectState {
     }
 
     pub(crate) fn mark_dirty_current(&self, app: Option<&tauri::AppHandle>) -> Result<(), String> {
-        let project_name = self.project.lock().map_err(|e| e.to_string())?.name.clone();
+        let project_name = self.project.lock().map_err(|_| "Mutex poisoned".to_string())?.name.clone();
         self.mark_dirty(&project_name, app)
     }
 
@@ -126,7 +127,7 @@ impl ProjectState {
         project_name: &str,
         app: Option<&tauri::AppHandle>,
     ) -> Result<(), String> {
-        *self.is_dirty.lock().map_err(|e| e.to_string())? = false;
+        *self.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
         if let Some(app) = app {
             safe_set_window_title(app, &format!("Dream DAW — {}", project_name));
         }
@@ -138,7 +139,7 @@ impl ProjectState {
         kind: impl Into<String>,
         detail: impl Into<String>,
     ) -> Result<(), String> {
-        let mut history = self.history.lock().map_err(|e| e.to_string())?;
+        let mut history = self.history.lock().map_err(|_| "Mutex poisoned".to_string())?;
         history.push(kind, detail);
         Ok(())
     }
@@ -148,7 +149,7 @@ impl ProjectState {
         limit: Option<usize>,
         since_seq: Option<u64>,
     ) -> Result<Vec<ProjectHistoryEvent>, String> {
-        let history = self.history.lock().map_err(|e| e.to_string())?;
+        let history = self.history.lock().map_err(|_| "Mutex poisoned".to_string())?;
         Ok(history.snapshot(limit, since_seq))
     }
 }

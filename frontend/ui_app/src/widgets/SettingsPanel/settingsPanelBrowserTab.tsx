@@ -50,7 +50,7 @@ const toggleKnobStyle: CSSProperties = {
     width: 16,
     height: 16,
     borderRadius: '50%',
-    background: '#fff',
+    background: 'var(--color-text-inverse, #fff)',
     transition: 'transform var(--transition-fast)',
     boxShadow: '0 1px 3px rgba(0,0,0,.25)',
 };

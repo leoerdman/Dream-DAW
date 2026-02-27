@@ -10,7 +10,7 @@ fn get_transport(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<TransportState, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let state = handle

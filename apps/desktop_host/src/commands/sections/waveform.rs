@@ -26,7 +26,7 @@ fn load_or_generate_peaks_from_cache_or_source(
     }
 
     let pool_audio = {
-        let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         pool.get(file_path)
     };
     if let Some(audio) = pool_audio {
@@ -207,13 +207,13 @@ pub async fn get_peaks_by_clip_id(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<tauri::ipc::Response, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let clip_uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip_id: {e}"))?;
 
     // Resolve clip_id → file_path via project model.
     let file_path = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project
             .tracks
             .iter()

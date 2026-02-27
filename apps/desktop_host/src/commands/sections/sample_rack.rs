@@ -16,13 +16,13 @@ fn set_sample_rack_pad_volume_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadVolumeCommand::from_str_track_id(
         &track_id,
         pad_index,
         volume,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -35,7 +35,7 @@ fn set_sample_rack_pad_volume_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -82,13 +82,13 @@ fn set_sample_rack_pad_mute_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadMuteCommand::from_str_track_id(
         &track_id,
         pad_index,
         muted,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     // Engine doesn't have a distinct mute state per pad, so we sync volume = 0 if muted.
@@ -102,7 +102,7 @@ fn set_sample_rack_pad_mute_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -148,13 +148,13 @@ fn set_sample_rack_pad_solo_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadSoloCommand::from_str_track_id(
         &track_id,
         pad_index,
         soloed,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     for (i, vol_for_engine) in result.effective_pad_volumes.iter().enumerate() {
@@ -170,7 +170,7 @@ fn set_sample_rack_pad_solo_cmd(
     }
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -219,7 +219,7 @@ fn set_sample_rack_pad_adsr_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadAdsrCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -228,7 +228,7 @@ fn set_sample_rack_pad_adsr_cmd(
         sustain,
         release,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -244,7 +244,7 @@ fn set_sample_rack_pad_adsr_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -313,13 +313,13 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetSampleRackPadFilterCutoffCommand::from_str_track_id(
         &track_id,
         pad_index,
         cutoff,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -332,7 +332,7 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -380,7 +380,7 @@ fn set_sample_rack_pad_sample_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let sample_arc = if !sample_path.trim().is_empty() {
         if !PathBuf::from(&sample_path).exists() {
             return Err(format!("Sample path does not exist: {}", sample_path));
@@ -391,7 +391,7 @@ fn set_sample_rack_pad_sample_cmd(
         let clip_audio = ClipAudio::new(sample_path.clone(), decoded.channels, decoded.sample_rate);
 
         let arc = {
-            let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+            let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
             if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
             pool.get(&sample_path)
                 .ok_or_else(|| "Failed to cache decoded sample for rack".to_string())?
@@ -408,7 +408,7 @@ fn set_sample_rack_pad_sample_cmd(
         pad_index,
         sample_path.clone(),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let track_index = result.track_index as usize;
 
@@ -425,7 +425,7 @@ fn set_sample_rack_pad_sample_cmd(
     handle.sample_rack_samples.swap(new_samples);
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;

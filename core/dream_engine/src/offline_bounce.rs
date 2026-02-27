@@ -565,9 +565,8 @@ impl OfflineRenderer {
                     if !plugin_ids.iter().any(|id| slot.plugin_id.eq_ignore_ascii_case(id)) {
                         continue;
                     }
-                    if let Some(v) = slot.params.as_ref().and_then(|p| p.get(idx).copied()) {
-                        if v.is_finite() { return Some(v); }
-                    }
+                    if let Some(v) = slot.params.as_ref().and_then(|p| p.get(idx).copied())
+                        && v.is_finite() { return Some(v); }
                 }
             }
             None
@@ -584,11 +583,10 @@ impl OfflineRenderer {
             let normalized: Vec<String> = keys.iter().map(|k| norm(k)).collect();
             for lane in &track.automation_lanes {
                 let lane_key = norm(&lane.param_id);
-                if normalized.iter().any(|key| lane_key == *key || lane_key.ends_with(key.as_str())) {
-                    if let Some(pt) = lane.points.first() {
+                if normalized.iter().any(|key| lane_key == *key || lane_key.ends_with(key.as_str()))
+                    && let Some(pt) = lane.points.first() {
                         return pt.value as f32;
                     }
-                }
             }
             default
         }
@@ -666,7 +664,7 @@ impl OfflineRenderer {
                 // out-of-bounds access on DeviceChain (mirrors RT indices_valid check).
                 let chain_len = slot.device_chain.len();
                 let indices_valid = runtime_slots.iter().all(|s| {
-                    s.internal_slot_index.map_or(true, |idx| idx < chain_len)
+                    s.internal_slot_index.is_none_or(|idx| idx < chain_len)
                 });
                 if (!has_external && !has_internal_sidechain) || !indices_valid {
                     if !slot.device_chain.is_empty() {
@@ -1057,7 +1055,7 @@ impl OfflineRenderer {
                 playhead_pos,
                 left_slots,
                 right_slots: right_slots_rest,
-                midi_events: &ctx.bounce_midi_events,
+                midi_events: ctx.bounce_midi_events,
                 automation: ctx.automation,
                 track_idx,
             };

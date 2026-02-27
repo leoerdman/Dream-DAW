@@ -7,11 +7,11 @@ async fn start_recording_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if recording_runtime
         .session
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .is_some()
     {
         return Err("Recording already in progress".to_string());
@@ -24,7 +24,7 @@ async fn start_recording_cmd(
 
     // BUG-029 FIX: Resolve track UUID at recording start (topology-safe).
     let armed_track_id = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project
             .tracks
             .get(armed_track_index)
@@ -38,7 +38,7 @@ async fn start_recording_cmd(
         "recording_{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .as_secs()
     );
 
@@ -66,12 +66,12 @@ async fn start_recording_cmd(
     *recording_runtime
         .session
         .lock()
-        .map_err(|e| e.to_string())? = Some(session);
+        .map_err(|_| "Mutex poisoned".to_string())? = Some(session);
     // BUG-029 FIX: Store track UUID instead of index.
     *recording_runtime
         .armed_track_id
         .lock()
-        .map_err(|e| e.to_string())? = Some(armed_track_id);
+        .map_err(|_| "Mutex poisoned".to_string())? = Some(armed_track_id);
 
     Ok(())
 }
@@ -85,11 +85,11 @@ async fn stop_recording_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let session = recording_runtime
         .session
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .take()
         .ok_or_else(|| "No active recording session".to_string())?;
 
@@ -97,7 +97,7 @@ async fn stop_recording_cmd(
     let armed_track_id = recording_runtime
         .armed_track_id
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .take()
         .ok_or_else(|| "Missing armed track ID".to_string())?;
 
@@ -109,7 +109,7 @@ async fn stop_recording_cmd(
     let decoded = AudioReader::read(&result.file_path)
         .map_err(|e| format!("Failed to decode recorded file: {e}"))?;
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let _ = pool.insert(ClipAudio {
             source_path: path.clone(),
             channels: decoded.channels,

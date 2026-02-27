@@ -68,7 +68,7 @@ fn ensure_engine_on_active_project(
     let project = target_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
 
     let _ = plugin_host_state.unload_all_instances();
@@ -199,7 +199,7 @@ fn play_from_beat(
 
     // Resolve beat → sample frames using the project's pulse map.
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     let mut state = handle
         .playback_state
@@ -326,7 +326,7 @@ fn seek_to_beat(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // BUG-017 FIX: Validate non-negative beat at the API boundary.
     let safe_beat = beat.max(0.0);
     let state = handle
@@ -358,7 +358,7 @@ fn set_bpm(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if !(20.0..=999.0).contains(&bpm) {
         return Err(format!("BPM {bpm} out of range (20–999)"));
     }
@@ -370,7 +370,7 @@ fn set_bpm(
 
     // Persisted project retime: keep musical beat positions/durations invariant
     // while converting all sample-frame fields to the new tempo map.
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let old_pulse_map = project.pulse_map.clone();
     let mut new_pulse_map = old_pulse_map.clone();
     new_pulse_map.set_constant_tempo(bpm);
@@ -528,13 +528,13 @@ fn set_time_signature(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let numerator_u8 = (numerator.clamp(1, 32)) as u8;
     let denominator_u8 = (denominator.clamp(1, 32)) as u8;
 
     push_undo(&project_state)?;
     {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.time_signature = dream_models::project::TimeSignature::new(numerator_u8, denominator_u8);
         let project_name = project.name.clone();
         drop(project);
@@ -579,7 +579,7 @@ fn set_loop(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (beats_per_bar, sample_rate, bpm) = {
         let project = project_state
             .project
@@ -625,7 +625,7 @@ fn set_loop(
 
         // BUG-061 FIX: Auto-seek to loop start when enabled during playback outside the region.
         let is_playing = {
-            let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            let state = handle.playback_state.lock().map_err(|_| "Mutex poisoned".to_string())?;
             state.is_playing
         };
         let pos = handle.master_clock.position();

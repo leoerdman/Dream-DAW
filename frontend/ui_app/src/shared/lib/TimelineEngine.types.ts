@@ -48,7 +48,13 @@ export const MIN_LOOP_BEATS = 4;
 export const FADE_HANDLE_HOTSPOT_PX = 12;
 export const FADE_CURVE_HANDLE_RADIUS_PX = 6;
 export const FADE_CURVE_PRESETS = [0.2, 0.35, 0.5, 0.65, 0.8] as const;
+export const DEFAULT_FADE_CURVE = 0.5;
 export const CLIP_DRAG_START_THRESHOLD_PX = 4;
+export const CURSOR_BLINK_MS = 500;
+export const WAVEFORM_PREFETCH_BUFFER_BEATS = 10;
+export const BEAT_COMMIT_THRESHOLD = 0.05;
+export const TRACK_COMMIT_THRESHOLD = 0.5;
+export const FALLBACK_SAMPLES_PER_BEAT = 1024;
 
 export type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 export const DragMode = {

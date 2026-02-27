@@ -5,7 +5,7 @@ fn can_open_plugin_editor(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<PluginEditorCapability, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let instance_id = slot_states
         .first()
@@ -19,7 +19,7 @@ fn can_open_plugin_editor(
         );
     }
     if let Some(instance_id) = instance_id {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        let mut host = plugin_host_state.host.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let supported = host
             .supports_editor(instance_id)
             .map_err(|e| format!("Failed to check editor capability: {e}"))?;
@@ -59,7 +59,7 @@ fn can_open_plugin_editor_for_slot(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<PluginEditorCapability, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid =

@@ -182,7 +182,7 @@ fn bypass_device_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     const INSTRUMENT_SLOT_INDEX: u8 = 255;
 
     let cmd = dream_orchestrator::commands::SetInternalDeviceBypassByTrackIndexCommand {
@@ -194,7 +194,7 @@ fn bypass_device_cmd(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -244,7 +244,7 @@ fn set_device_param_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetInternalDeviceParamByTrackIndexCommand {
         track_index,
         slot_index,
@@ -255,7 +255,7 @@ fn set_device_param_cmd(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
 
@@ -293,9 +293,9 @@ fn set_device_param_runtime_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let resolved_slot = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         resolve_internal_runtime_slot(&project, track_index, slot_index)
     };
 
@@ -326,12 +326,12 @@ fn set_device_params_runtime_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if updates.is_empty() {
         return Ok(());
     }
     let resolved_slot = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         resolve_internal_runtime_slot(&project, track_index, slot_index)
     };
     if let Some(resolved_slot) = resolved_slot {
@@ -359,7 +359,7 @@ fn update_track(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     if let Some(vol) = update.volume {
         let result = execute_orchestrator_command(
             &project_state,
@@ -437,7 +437,7 @@ fn update_track(
     }
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
 

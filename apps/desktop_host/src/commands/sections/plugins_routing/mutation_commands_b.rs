@@ -8,7 +8,7 @@ fn set_sampler_sample_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let sample_path = payload.sample_path.clone();
     if !PathBuf::from(&sample_path).exists() {
         return Err(format!("Sample path does not exist: {}", sample_path));
@@ -19,7 +19,7 @@ fn set_sampler_sample_cmd(
     let clip_audio = ClipAudio::new(sample_path.clone(), decoded.channels, decoded.sample_rate);
 
     let sample_arc = {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         if let Err(e) = pool.insert(clip_audio) {
             log::error!("ClipPool: {}", e);
         }
@@ -34,7 +34,7 @@ fn set_sampler_sample_cmd(
         sample_path.clone(),
         payload.root_note,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
 
@@ -115,7 +115,7 @@ fn eager_activate_external_plugins(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<serde_json::Value, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let external_slots = execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ListExternalPluginSlotsQuery,
@@ -222,7 +222,7 @@ fn set_slot_bypass_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
@@ -315,10 +315,10 @@ async fn move_effect_slot_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
         target,
         slot_id: slot_uuid,
@@ -330,10 +330,10 @@ async fn move_effect_slot_cmd(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -369,10 +369,10 @@ async fn move_effect_slot_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<PluginMutationDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
         target,
         slot_id: slot_uuid,
@@ -384,10 +384,10 @@ async fn move_effect_slot_with_deltas_cmd(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(PluginMutationDeltaResponse { deltas: Vec::new() });

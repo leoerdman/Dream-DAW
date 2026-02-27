@@ -5,10 +5,10 @@ fn get_routing_targets(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<Vec<RoutingTarget>, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let source_id =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     let mut targets = Vec::new();
     for t in &project.tracks {
@@ -37,21 +37,21 @@ fn set_track_routing_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
         &track_id, &target_id,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -60,7 +60,7 @@ fn set_track_routing_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -77,7 +77,7 @@ fn set_track_routing_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<RoutingDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let output_destination_id = if target_id == "master" {
@@ -89,16 +89,16 @@ fn set_track_routing_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
         &track_id, &target_id,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });
@@ -109,7 +109,7 @@ fn set_track_routing_with_deltas_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -132,27 +132,27 @@ fn set_track_input_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd =
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(());
     }
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -167,22 +167,22 @@ fn set_track_input_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let normalized_input = input_id.trim().to_string();
     let cmd =
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "Mutex poisoned".to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(DeltaMutationResponse { deltas: Vec::new() });
@@ -191,7 +191,7 @@ fn set_track_input_with_deltas_cmd(
     // which would push undo + execute a second time.
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -223,23 +223,23 @@ fn set_plugin_sidechain_source_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids(
         &track_id,
         &slot_id,
         &source_track_id,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -247,7 +247,7 @@ fn set_plugin_sidechain_source_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let source_value = cmd.source_track_id.map(|id| id.to_string());
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
@@ -281,7 +281,7 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<RoutingDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let source_uuid = {
@@ -298,16 +298,16 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
         &slot_id,
         &source_track_id,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "Mutex poisoned".to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|e| e.to_string())?
+                .map_err(|_| "Mutex poisoned".to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?
+        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
     };
     if !preview_result.changed {
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });
@@ -318,7 +318,7 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let source_value = cmd.source_track_id.map(|id| id.to_string());
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);

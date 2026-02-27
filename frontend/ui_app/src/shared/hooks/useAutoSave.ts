@@ -16,21 +16,21 @@ import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 // Pauses when the browser tab is hidden (Page Visibility API).
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DEFAULT_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
+const AUTO_SAVE_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 
-export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
+export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // BUG-C003 FIX: Use a ref for inFlight state so it persists across effect re-runs (when intervalMs changes).
+    const inFlightRef = useRef(false);
 
     useEffect(() => {
-        // BUG-066 FIX: Guard against overlapping auto-saves.
-        let inFlight = false;
         const tick = async () => {
             // Skip auto-save when tab is hidden (no point saving while user
             // is in another app — also avoids plugin state capture overhead).
             if (document.hidden) return;
-            if (inFlight) return; // Prevent overlapping saves
+            if (inFlightRef.current) return; // Prevent overlapping saves
 
-            inFlight = true;
+            inFlightRef.current = true;
             try {
                 // Sync current viewport to backend so auto-save persists scroll/zoom.
                 try {
@@ -49,7 +49,7 @@ export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
                 // Non-fatal: log and keep timer running
                 console.warn('[AutoSave] Failed:', err);
             } finally {
-                inFlight = false;
+                inFlightRef.current = false;
             }
         };
 

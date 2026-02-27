@@ -1,9 +1,11 @@
+/* eslint-disable no-restricted-syntax */
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
 import { clampMidiPitch, DEFAULT_BPM } from './audioMath';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
+import { DEFAULT_FADE_CURVE } from './TimelineEngine.types';
 import {
     applyAlphaMultiplier,
     CLIP_LABEL_FONT,
@@ -547,7 +549,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeIn,
                 bodyH,
                 'in',
-                clip.fadeInCurve ?? 0.5,
+                clip.fadeInCurve ?? DEFAULT_FADE_CURVE,
             );
         }
         if (showFadeUi && clip.fadeOut && clip.fadeOut > 0) {
@@ -558,7 +560,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeOut,
                 bodyH,
                 'out',
-                clip.fadeOutCurve ?? 0.5,
+                clip.fadeOutCurve ?? DEFAULT_FADE_CURVE,
             );
         }
 
@@ -660,8 +662,8 @@ export class CanvasClipRenderer {
             ctx.fill();
             ctx.stroke();
 
-            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
-            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
+            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? DEFAULT_FADE_CURVE));
+            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? DEFAULT_FADE_CURVE));
             const bodyBottom = bodyY + bodyH - 2;
 
             if (clip.showFadeInCurvePoint && fadeInWidth > 0) {

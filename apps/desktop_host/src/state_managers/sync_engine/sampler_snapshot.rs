@@ -106,7 +106,7 @@ pub fn rebuild_sampler_snapshot_from_project(
         let is_essence = track
             .instrument
             .as_ref()
-            .map_or(false, |dev| dev.plugin_id() == ESSENCE_PLUGIN_ID);
+            .is_some_and(|dev| dev.plugin_id() == ESSENCE_PLUGIN_ID);
 
         push_command_or_log!(
             handle,

@@ -426,11 +426,10 @@ impl DeviceGroupSlot {
             .collect();
 
         for (chain_idx, slot_idx, param_idx, param_val) in mappings {
-            if let Some(chain) = self.chains.get_mut(chain_idx) {
-                if let Some(device) = chain.devices.get_mut(slot_idx) {
+            if let Some(chain) = self.chains.get_mut(chain_idx)
+                && let Some(device) = chain.devices.get_mut(slot_idx) {
                     device.set_param(param_idx, param_val);
                 }
-            }
         }
     }
 
@@ -450,11 +449,10 @@ impl DeviceGroupSlot {
                 let si = m.slot_index;
                 let pi = m.param_index;
                 // SAFETY: We index chains/devices only if in bounds.
-                if ci < self.chains.len() {
-                    if si < self.chains[ci].devices.len() {
+                if ci < self.chains.len()
+                    && si < self.chains[ci].devices.len() {
                         self.chains[ci].devices[si].set_param(pi, param_value);
                     }
-                }
             }
         }
     }

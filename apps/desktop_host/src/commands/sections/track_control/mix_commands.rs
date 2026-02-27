@@ -13,7 +13,7 @@ fn set_track_volume(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -26,7 +26,7 @@ fn set_track_volume(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -47,7 +47,7 @@ fn set_track_volume_with_deltas(
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackVolumeByIndexCommand { track_index, volume };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -60,7 +60,7 @@ fn set_track_volume_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -83,7 +83,7 @@ fn set_track_pan(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -96,7 +96,7 @@ fn set_track_pan(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -117,7 +117,7 @@ fn set_track_pan_with_deltas(
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackPanByIndexCommand { track_index, pan };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -130,7 +130,7 @@ fn set_track_pan_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -152,14 +152,14 @@ fn set_master_volume(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetMasterVolumeCommand { volume };
     let clamped = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(&handle, EngineCommand::SetMasterVolume { volume: clamped })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -178,14 +178,14 @@ fn set_track_disabled(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -203,14 +203,14 @@ fn set_track_disabled_with_deltas(
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -233,7 +233,7 @@ fn set_track_solo(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -246,7 +246,7 @@ fn set_track_solo(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -264,7 +264,7 @@ fn set_track_solo_with_deltas(
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSoloByIndexCommand { track_index, soloed };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -277,7 +277,7 @@ fn set_track_solo_with_deltas(
     )?;
 
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -300,7 +300,7 @@ fn set_track_send_level(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,
         send,
@@ -308,7 +308,7 @@ fn set_track_send_level(
     };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -324,7 +324,7 @@ fn set_track_send_level_with_deltas(
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
         track_index,
         send,
@@ -332,7 +332,7 @@ fn set_track_send_level_with_deltas(
     };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let project_name = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name.clone()
     };
     project_state.mark_dirty(&project_name, Some(&app))?;

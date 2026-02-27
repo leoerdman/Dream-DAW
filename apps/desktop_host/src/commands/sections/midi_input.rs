@@ -9,7 +9,7 @@ fn get_midi_inputs(
     let connected = midi_runtime
         .connected_port
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
 
     let mut out = Vec::with_capacity(ports.len());
@@ -51,7 +51,7 @@ fn connect_midi_input(
         .ok_or_else(|| format!("MIDI input port not found: {port_name}"))?;
 
     // Drop previous connection (if any) before reconnecting.
-    if let Some(existing) = midi_runtime.connection.lock().map_err(|e| e.to_string())?.take() {
+    if let Some(existing) = midi_runtime.connection.lock().map_err(|_| "Mutex poisoned".to_string())?.take() {
         drop(existing);
     }
 
@@ -87,7 +87,7 @@ fn connect_midi_input(
                     let Some(active_project_arc) = project_registry.get_active_project() else {
                         return; // Drop MIDI event if no active project
                     };
-                    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+                    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
                     match project_state.project.lock() {
                         Ok(project) => project
                             .tracks
@@ -142,8 +142,8 @@ fn connect_midi_input(
         )
         .map_err(|e| format!("Failed to connect MIDI input '{port_name}': {e}"))?;
 
-    *midi_runtime.connection.lock().map_err(|e| e.to_string())? = Some(conn);
-    *midi_runtime.connected_port.lock().map_err(|e| e.to_string())? = Some(port_name.clone());
+    *midi_runtime.connection.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(conn);
+    *midi_runtime.connected_port.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(port_name.clone());
     log::info!("[IPC] connect_midi_input({port_name})");
     Ok(())
 }

@@ -31,16 +31,16 @@ fn new_project(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let mut new = dream_models::project::Project::default();
     new.normalize_invariants();
     refresh_offline_flags(&mut new);
-    *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? = None;
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
-    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
-    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
+    *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = new.clone();
+    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = None;
+    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = None;
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
+    *project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|_| "Mutex poisoned".to_string())? = ProjectHistory::new();
     project_state.record_history("new_project", format!("created '{}'", new.name))?;
     let _ = plugin_host_state.unload_all_instances();
     clip_pool_state.rebuild_snapshot(&new);
@@ -104,9 +104,9 @@ async fn save_project(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, path, project_name, legacy_path_to_remove) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
         // ── Capture live plugin state into the project model ──
         // This ensures all knob positions, preset selections, and internal
@@ -115,7 +115,7 @@ async fn save_project(
             log::warn!("[Save] Plugin state capture failed (non-fatal): {e}");
         }
 
-        let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
+        let file_path_guard = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let path = file_path_guard
             .as_ref()
             .ok_or("No file path set. Use Save As first.")?
@@ -149,7 +149,7 @@ async fn save_project(
     tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
         .await
         .map_err(|e| format!("Save task join error: {e}"))?
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     if let Some(legacy_path) = legacy_path_to_remove
         && legacy_path.exists()
         && let Err(e) = std::fs::remove_file(&legacy_path)
@@ -162,14 +162,14 @@ async fn save_project(
     }
 
     {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name = project_name.clone();
     }
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(path.clone());
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? =
+    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? =
         path.parent().map(|p| p.to_path_buf());
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
     project_state.record_history("save", format!("saved to {}", path.display()))?;
 
     // Update window title (safe — absorbs ObjC crashes from VST plugins)
@@ -188,11 +188,11 @@ async fn save_project_as(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
         // ── Capture live plugin state ──
         if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
@@ -220,14 +220,14 @@ async fn save_project_as(
         log::info!("[SaveAs] parent_dir={:?}, is_project_dir={}, project_name={}", parent_dir, is_proj_dir, project_name_for_save);
         if is_proj_dir {
             log::info!("[SaveAs] Saving directly to existing project dir: {:?}", save_target);
-            ProjectFile::save(&snapshot, &save_target).map_err(|e| e.to_string())?;
+            ProjectFile::save(&snapshot, &save_target).map_err(|_| "Mutex poisoned".to_string())?;
             Ok((save_target.clone(), parent_dir.to_path_buf()))
         } else {
             log::info!("[SaveAs] Non-project dir — creating project folder '{}' under {:?}", project_name_for_save, parent_dir);
             let folder = ProjectManager::create_project_folder(parent_dir, &project_name_for_save)
-                .map_err(|e| e.to_string())?;
+                .map_err(|_| "Mutex poisoned".to_string())?;
             let saved_path = ProjectManager::save_to_folder(&snapshot, &folder, true)
-                .map_err(|e| e.to_string())?;
+                .map_err(|_| "Mutex poisoned".to_string())?;
             log::info!("[SaveAs] Project saved to: {:?}", saved_path);
             Ok((saved_path, folder))
         }
@@ -236,13 +236,13 @@ async fn save_project_as(
     .map_err(|e| format!("Save As task join error: {e}"))??;
 
     {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         project.name = project_name.clone();
     }
 
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(actual_file_path.clone());
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? = Some(folder);
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(actual_file_path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(folder);
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
     project_state.record_history("save_as", format!("saved as {}", actual_file_path.display()))?;
 
     // Track in recent projects
@@ -272,7 +272,7 @@ fn open_project(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let file_path = PathBuf::from(&path);
 
     let importing_als = file_path
@@ -286,7 +286,7 @@ fn open_project(
         let runtime_sample_rate = handle
             .playback_state
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .sample_rate;
         dream_importers::ableton::project_import::import_als_project_with_target_sample_rate(
             &file_path,
@@ -298,7 +298,7 @@ fn open_project(
         // mapping to internal://). Calling it on native .ddpj projects destroys
         // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
         // keyword matcher hits on substrings like "shaper" in "ShaperBox".
-        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|e| e.to_string())?;
+        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|_| "Mutex poisoned".to_string())?;
         normalized_empty_tracks_on_load = report.default_tracks_injected;
         project
     };
@@ -376,15 +376,15 @@ fn open_project(
     sync_transport_from_project(&loaded, &handle)?;
     sync_track_mix_state_from_project(&loaded, &handle)?;
 
-    *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = if importing_als {
+    *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = loaded.clone();
+    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = if importing_als {
         None
     } else {
         Some(file_path.clone())
     };
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = importing_als;
-    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
-    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = importing_als;
+    *project_state.undo.lock().map_err(|_| "Mutex poisoned".to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|_| "Mutex poisoned".to_string())? = ProjectHistory::new();
     let source_kind = if importing_als { "als_import" } else { "project_open" };
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
     if normalized_empty_tracks_on_load {
@@ -411,7 +411,7 @@ fn open_project(
     } else {
         ProjectManager::folder_from_file(&file_path)
     };
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? = folder;
+    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? = folder;
 
     // Track in recent projects
     if let Ok(app_data_dir) = app.path().app_data_dir() {
@@ -499,7 +499,7 @@ fn get_recent_projects(
     app: tauri::AppHandle,
 ) -> Result<Vec<RecentProject>, String> {
     let app_data_dir = app.path().app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     let recent = RecentProjects::load(&app_data_dir);
     Ok(recent.projects)
 }
@@ -510,10 +510,10 @@ fn get_project_status(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<serde_json::Value, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
-    let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
-    let project_folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let file_path = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    let project_folder = project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())?;
     Ok(serde_json::json!({
         "isDirty": is_dirty,
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
@@ -531,9 +531,9 @@ fn auto_resolve_missing_plugins_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
         let stats = auto_resolve_missing_external_plugin_slots(&mut project);
         normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
@@ -591,9 +591,9 @@ fn auto_resolve_missing_plugins_report_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<AutoResolveMissingPluginsReportResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let missing_before = count_missing_plugin_slots(&project);
         let stats = auto_resolve_missing_external_plugin_slots(&mut project);
         normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
@@ -654,8 +654,8 @@ fn set_arrangement_viewport_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let ppb = pixels_per_beat.clamp(0.5, 2000.0);
     let scroll = scroll_left.max(0.0);
     let scroll_top = scroll_top.map(|v| v.max(0.0)).unwrap_or(0.0);
@@ -674,8 +674,8 @@ fn get_arrangement_viewport_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<ArrangementViewportPayload, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let pixels_per_beat = project.view_zoom_scale.or(project.sequencer_navigator_zoom);
     let scroll_left = project
         .view_scroll_position
@@ -700,7 +700,7 @@ fn set_arrangement_grid_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
         denominator,
@@ -712,7 +712,7 @@ fn set_arrangement_grid_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
 
@@ -731,7 +731,7 @@ fn set_arrangement_grid_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
         denominator,
@@ -743,7 +743,7 @@ fn set_arrangement_grid_with_deltas_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
     project_state.mark_dirty(&name, Some(&app))?;
@@ -768,7 +768,7 @@ fn set_key_signature_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
         tonic,
@@ -778,7 +778,7 @@ fn set_key_signature_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
 
@@ -795,7 +795,7 @@ fn set_key_signature_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
         tonic,
@@ -805,7 +805,7 @@ fn set_key_signature_with_deltas_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
     project_state.mark_dirty(&name, Some(&app))?;
@@ -839,16 +839,16 @@ async fn auto_save_if_dirty(
     app: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // ── Gate 1: Check dirty flag ──
-    let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
     if !is_dirty {
         return Ok(serde_json::json!({ "saved": false, "reason": "clean" }));
     }
 
     // ── Gate 2: Check file path exists (skip unsaved/new projects) ──
     let raw_path = {
-        let fp = project_state.file_path.lock().map_err(|e| e.to_string())?;
+        let fp = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
         match fp.as_ref() {
             Some(p) => p.clone(),
             None => return Ok(serde_json::json!({ "saved": false, "reason": "no_path" })),
@@ -857,7 +857,7 @@ async fn auto_save_if_dirty(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .name
         .clone();
     let path = canonical_project_path(&raw_path, &project_name);
@@ -869,7 +869,7 @@ async fn auto_save_if_dirty(
 
     // ── Gate 3: Capture plugin states + serialize ──
     let snapshot = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
         if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
             log::warn!("[AutoSave] Plugin state capture failed (non-fatal): {e}");
@@ -883,7 +883,7 @@ async fn auto_save_if_dirty(
     tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
         .await
         .map_err(|e| format!("AutoSave task join error: {e}"))?
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "Mutex poisoned".to_string())?;
     if let Some(legacy_path) = legacy_path_to_remove
         && legacy_path.exists()
         && let Err(e) = std::fs::remove_file(&legacy_path)
@@ -896,15 +896,15 @@ async fn auto_save_if_dirty(
     }
 
     // ── Gate 5: Clear dirty flag ──
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(path.clone());
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? =
+    *project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())? =
         path.parent().map(|p| p.to_path_buf());
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())? = false;
     project_state.record_history("auto_save", format!("auto-saved to {}", path.display()))?;
 
     // Update window title (safe — absorbs ObjC crashes from VST plugins)
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
         crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", project.name));
     }
 
@@ -937,7 +937,7 @@ fn create_project_tab(
     let mut new_project = dream_models::project::Project::default();
     new_project.normalize_invariants();
     refresh_offline_flags(&mut new_project);
-    *new_state.project.lock().map_err(|e| e.to_string())? = new_project.clone();
+    *new_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? = new_project.clone();
     new_state.record_history("create_tab", "created new project tab".to_string())?;
 
     // 3. Register in the registry and switch to it (both visual + audio).
@@ -1019,11 +1019,11 @@ fn switch_project_tab(
     let project = target_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
 
     // Update window title immediately.
-    let is_dirty = *target_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    let is_dirty = *target_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let title_suffix = if is_dirty { "*" } else { "" };
     crate::state_managers::project_state::safe_set_window_title(
         &app,
@@ -1214,7 +1214,7 @@ fn close_project_tab(
         let project = new_active
             .project
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .clone();
 
         // If we also closed the audio-active project, swap the engine too.
@@ -1237,7 +1237,7 @@ fn close_project_tab(
             sync_track_mix_state_from_project(&project, &handle)?;
         }
 
-        let is_dirty = *new_active.is_dirty.lock().map_err(|e| e.to_string())?;
+        let is_dirty = *new_active.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let title_suffix = if is_dirty { "*" } else { "" };
         crate::state_managers::project_state::safe_set_window_title(
             &app,
@@ -1270,7 +1270,7 @@ fn close_project_tab(
         let project = visual_project
             .project
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| "Mutex poisoned".to_string())?
             .clone();
 
         let _ = plugin_host_state.unload_all_instances();
@@ -1328,8 +1328,8 @@ fn copy_clips_to_global_clipboard(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<usize, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     let source_project_id = active_project_arc.id.to_string();
     let mut clips = Vec::new();
@@ -1363,7 +1363,7 @@ fn copy_clips_to_global_clipboard(
         midi_clips,
     };
 
-    let mut cb = project_registry.global_clip_clipboard.lock().map_err(|e| e.to_string())?;
+    let mut cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
     *cb = Some(clipboard_data);
 
     log::info!("[GlobalClipboard] Copied {} clip(s) to global clipboard", total);
@@ -1384,10 +1384,10 @@ fn paste_clips_from_global_clipboard(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     // Read clipboard (don't consume — allow multiple pastes).
-    let cb = project_registry.global_clip_clipboard.lock().map_err(|e| e.to_string())?;
+    let cb = project_registry.global_clip_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let clipboard_data = cb.as_ref().ok_or("Global clip clipboard is empty")?;
 
     // Find the earliest position to compute relative offsets.
@@ -1403,7 +1403,7 @@ fn paste_clips_from_global_clipboard(
     }
 
     push_undo(project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     // Ensure the target track exists.
     if track_index >= project.tracks.len() {
@@ -1457,7 +1457,7 @@ fn paste_clips_from_global_clipboard(
     project_state.mark_dirty(&project_name, None)?;
     drop(project); // Ensure lock is released before invoking engine rebuilds
 
-    let rebuilt_project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let rebuilt_project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?.clone();
 
     // Rebuild the engine snapshot so the backend audio systems are aware of the new clips!
     crate::commands::helpers::rebuild_clip_views_and_mark_dirty(
@@ -1489,8 +1489,8 @@ fn copy_track_to_global_clipboard(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     if track_index >= project.tracks.len() {
         return Err(format!(
@@ -1503,7 +1503,7 @@ fn copy_track_to_global_clipboard(
     let track = project.tracks[track_index].clone();
     let track_name = track.name.clone();
 
-    let mut cb = project_registry.global_track_clipboard.lock().map_err(|e| e.to_string())?;
+    let mut cb = project_registry.global_track_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
     *cb = Some(track);
 
     log::info!("[GlobalClipboard] Copied track '{}' (index={}) to global clipboard", track_name, track_index);
@@ -1525,10 +1525,10 @@ fn paste_track_from_global_clipboard(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
 
     // Read clipboard (don't consume — allow multiple pastes).
-    let cb = project_registry.global_track_clipboard.lock().map_err(|e| e.to_string())?;
+    let cb = project_registry.global_track_clipboard.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let source_track = cb.as_ref().ok_or("Global track clipboard is empty")?.clone();
     drop(cb);
 
@@ -1555,7 +1555,7 @@ fn paste_track_from_global_clipboard(
 
 
     push_undo(project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
 
     let idx = insert_index.unwrap_or(project.tracks.len());
     let clamped_idx = idx.min(project.tracks.len());

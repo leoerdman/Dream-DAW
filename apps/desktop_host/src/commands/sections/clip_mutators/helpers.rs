@@ -67,7 +67,7 @@ pub(super) fn build_local_pool_for_project(
     let mut local_pool = clip_pool_state
         .pool
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Mutex poisoned".to_string())?
         .clone();
     for track in &project.tracks {
         for clip in &track.clips {
@@ -133,7 +133,7 @@ pub(super) fn place_bounced_file_on_new_track(
     push_undo(project_state)?;
 
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         let _ = pool.insert(ClipAudio {
             source_path: bounced_file_path.to_string(),
             channels: decoded.channels,
@@ -206,7 +206,7 @@ pub(super) fn place_stem_files_on_new_tracks(
     push_undo(project_state)?;
 
     {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let mut pool = clip_pool_state.pool.lock().map_err(|_| "Mutex poisoned".to_string())?;
         for stem in &metas {
             let _ = pool.insert(ClipAudio {
                 source_path: stem.path.clone(),

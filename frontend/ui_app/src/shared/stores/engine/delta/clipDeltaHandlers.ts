@@ -252,7 +252,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
         const next = {
             ...clip,
-            midiNotes: delta.data.notes.map((n: { start_beat: number; pitch: number; velocity: number; duration_beats: number }, _idx: number) => {
+            midiNotes: delta.data.notes.map((n: { start_beat: number; pitch: number; velocity: number; duration_beats: number }) => {
                 const startBeat = n.start_beat;
                 const pitch = n.pitch;
                 let matchedId: string | undefined;

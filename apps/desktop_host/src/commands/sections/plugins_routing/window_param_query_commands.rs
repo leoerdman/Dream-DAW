@@ -23,7 +23,7 @@ fn get_external_plugin_params(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let hints = execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
@@ -107,7 +107,7 @@ fn get_external_plugin_params_for_slot(
     _clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot_state = execute_orchestrator_query(

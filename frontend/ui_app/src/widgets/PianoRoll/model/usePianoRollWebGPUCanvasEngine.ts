@@ -185,7 +185,7 @@ export function usePianoRollWebGPUCanvasEngine({
             if (gpuRef.current?.buffer) gpuRef.current.buffer.destroy();
             gpuRef.current = null;
         };
-    }, [canInit]);
+    }, [canInit, canvasHeight, canvasWidth]);
 
     useEffect(() => {
         const gpu = gpuRef.current;

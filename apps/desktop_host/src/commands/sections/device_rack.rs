@@ -29,7 +29,7 @@ fn create_rack_from_devices_cmd(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::CreateRackFromDevicesCommand {
         track_id: payload.track_id.clone(),
@@ -40,7 +40,7 @@ fn create_rack_from_devices_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let rack_id = result.rack_id.to_string();
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -65,7 +65,7 @@ fn add_chain_to_rack_cmd(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddChainToRackCommand {
         track_id: payload.track_id.clone(),
@@ -75,7 +75,7 @@ fn add_chain_to_rack_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let chain_id = result.chain_id.to_string();
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -100,7 +100,7 @@ fn add_device_to_rack_chain_cmd(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddDeviceToRackChainCommand {
         track_id: payload.track_id.clone(),
@@ -113,7 +113,7 @@ fn add_device_to_rack_chain_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let device_id = result.device_id.to_string();
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -143,7 +143,7 @@ fn remove_device_from_rack_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::RemoveDeviceFromRackCommand {
         track_id: payload.track_id.clone(),
@@ -153,7 +153,7 @@ fn remove_device_from_rack_cmd(
     };
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -176,13 +176,13 @@ fn save_device_preset_cmd(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let device_uuid = Uuid::parse_str(&payload.device_id)
         .map_err(|_| format!("Invalid device_id: {}", payload.device_id))?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let track = project
         .tracks
         .iter()
@@ -236,7 +236,7 @@ fn load_device_preset_cmd(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // Read and deserialize preset file.
     let json = std::fs::read_to_string(&payload.preset_path)
         .map_err(|e| format!("Failed to read preset file: {e}"))?;
@@ -254,7 +254,7 @@ fn load_device_preset_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let device_id = result.device_id.to_string();
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);

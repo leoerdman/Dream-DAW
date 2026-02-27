@@ -13,9 +13,15 @@
  * @returns A clean, user-facing error string.
  */
 export function toErrorMessage(err: unknown, fallback = 'Unknown error'): string {
-    if (err instanceof Error) return err.message;
+    if (err instanceof Error) {
+        return err.name && err.name !== 'Error' ? `${err.name}: ${err.message}` : err.message;
+    }
     if (typeof err === 'string') return err;
     if (err != null && typeof (err as Record<string, unknown>).message === 'string') {
+        const name = (err as Record<string, unknown>).name;
+        if (typeof name === 'string' && name && name !== 'Error') {
+            return `${name}: ${(err as Record<string, unknown>).message as string}`;
+        }
         return (err as Record<string, unknown>).message as string;
     }
     try {

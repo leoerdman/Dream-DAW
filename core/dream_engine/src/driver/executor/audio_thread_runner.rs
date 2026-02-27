@@ -562,7 +562,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                             let chain_len = slot.device_chain.len();
                                             let indices_valid = runtime_slots.iter().all(|s| {
                                                 s.internal_slot_index
-                                                    .map_or(true, |idx| idx < chain_len)
+                                                    .is_none_or(|idx| idx < chain_len)
                                             });
                                             if (!has_external && !has_internal_sidechain)
                                                 || !indices_valid
@@ -909,13 +909,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             let mut out_after: [&mut [f32]; 2] = [out_l_after, out_r_after];
 
                                                             // 1. Process block BEFORE loop wrap
-                                                            if let Err(_) = host.process_with_sidechain(
+                                                            if host.process_with_sidechain(
                                                                 &main_before,
                                                                 sc_before.as_ref().map(|p| p.as_slice()),
                                                                 &mut out_before,
                                                                 split_at,
                                                                 &vst3_midi_scratch[..split_idx],
-                                                            ) {
+                                                            ).is_err() {
                                                                 static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                                                                 PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                                             }
@@ -926,28 +926,26 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             }
 
                                                             // 3. Process block AFTER loop wrap
-                                                            if let Err(_) = host.process_with_sidechain(
+                                                            if host.process_with_sidechain(
                                                                 &main_after,
                                                                 sc_after.as_ref().map(|p| p.as_slice()),
                                                                 &mut out_after,
                                                                 c - split_at,
                                                                 &vst3_midi_scratch[split_idx..],
-                                                            ) {
+                                                            ).is_err() {
                                                                 static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                                                                 PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                                             }
-                                                        } else {
-                                                            if let Err(_) = host.process_with_sidechain(
-                                                                &main_inputs,
-                                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                                                &mut out_slices,
-                                                                c,
-                                                                &vst3_midi_scratch,
-                                                            ) {
-                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
-                                                                    std::sync::atomic::AtomicU32::new(0);
-                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                            }
+                                                        } else if host.process_with_sidechain(
+                                                            &main_inputs,
+                                                            sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                            &mut out_slices,
+                                                            c,
+                                                            &vst3_midi_scratch,
+                                                        ).is_err() {
+                                                            static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
+                                                                std::sync::atomic::AtomicU32::new(0);
+                                                            PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                                         }
                                                     } else {
                                                         // CRACKLE-FIX-1: Lock contended — dry passthrough.
@@ -1115,6 +1113,14 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // ── D. Sync master clock to transport playhead ───
                         if is_playing {
                             clock.set_position(render_ctx.playhead.position());
+                        }
+
+                        // BUG-M005 FIX: Force-clear the active real-time MIDI queue for all tracks.
+                        // Events sent from the frontend during this callback window MUST be 
+                        // consumed by a VST in this exact block, or they are stale. Unconsumed
+                        // events on tracks without instruments previously leaked memory.
+                        for queue in plugin_rt_midi_queue.iter_mut() {
+                            queue.clear();
                         }
 
                         rt_debug_stats.record_callback(

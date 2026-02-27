@@ -56,7 +56,7 @@ export const SessionWorkspace = ({
         const saved = localStorage.getItem('dream_daw_session_mixer_height');
         return saved ? parseInt(saved, 10) : SESSION_MIXER_HEIGHT_PX;
     });
-    const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
+    const resizeRef = useRef<{ startY: number; startH: number; viewportH: number } | null>(null);
     const [draggingMixerEdge, setDraggingMixerEdge] = useState(false);
 
     // ── Horizontal scroll synchronization ──
@@ -246,14 +246,16 @@ export const SessionWorkspace = ({
                         e.preventDefault();
                         e.stopPropagation();
                         e.currentTarget.setPointerCapture(e.pointerId);
-                        resizeRef.current = { startY: e.clientY, startH: mixerHeight };
+                        resizeRef.current = { startY: e.clientY, startH: mixerHeight, viewportH: window.innerHeight };
                         setDraggingMixerEdge(true);
                     }}
                     onPointerMove={(e) => {
                         if (!draggingMixerEdge || !resizeRef.current) return;
                         const deltaY = resizeRef.current.startY - e.clientY;
                         let newH = resizeRef.current.startH + deltaY;
-                        newH = Math.max(150, Math.min(newH, window.innerHeight - 150));
+                        // ENTERPRISE FIX (BUG-R11): Use cached viewportH instead of
+                        // window.innerHeight to avoid layout thrashing on every move.
+                        newH = Math.max(150, Math.min(newH, resizeRef.current.viewportH - 150));
                         setMixerHeight(newH);
                     }}
                     onPointerUp={(e) => {
@@ -264,7 +266,7 @@ export const SessionWorkspace = ({
                         if (resizeRef.current) {
                             const deltaY = resizeRef.current.startY - e.clientY;
                             let newH = resizeRef.current.startH + deltaY;
-                            newH = Math.max(150, Math.min(newH, window.innerHeight - 150));
+                            newH = Math.max(150, Math.min(newH, resizeRef.current.viewportH - 150));
                             localStorage.setItem('dream_daw_session_mixer_height', newH.toString());
                         }
                         resizeRef.current = null;

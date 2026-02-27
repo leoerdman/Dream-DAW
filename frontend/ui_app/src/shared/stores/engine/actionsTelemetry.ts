@@ -24,7 +24,21 @@ let latestMeters: MeteringSnapshot | null = null;
 let smoothedMeters: MeteringSnapshot | null = null;
 let lastMeterTickMs = 0;
 
+// BUG-A004/M001 FIX: Reset ALL module-level state including listener cleanup.
+// Previously only reset 5 of 8 variables — listener references leaked on project switch / HMR.
 export function resetTelemetryModuleState(): void {
+    // 1. Unlisten all active listeners to prevent duplicate registrations.
+    telemetryUnlisten?.(); telemetryUnlisten = null;
+    telemetryMetersBinaryUnlisten?.(); telemetryMetersBinaryUnlisten = null;
+    pluginSandboxUnlisten?.(); pluginSandboxUnlisten = null;
+    pluginSandboxCrashUnlisten?.(); pluginSandboxCrashUnlisten = null;
+    pluginSandboxRecoveredUnlisten?.(); pluginSandboxRecoveredUnlisten = null;
+    pluginSandboxAutoBypassUnlisten?.(); pluginSandboxAutoBypassUnlisten = null;
+    pluginSandboxAutoRecoveredUnlisten?.(); pluginSandboxAutoRecoveredUnlisten = null;
+    pluginSandboxReloadedUnlisten?.(); pluginSandboxReloadedUnlisten = null;
+    // 2. Reset lifecycle flag so startTelemetryLoop can re-register.
+    telemetryStarted = false;
+    // 3. Reset meter state.
     bpmPendingUntil = 0;
     meterFrameCounter = 0;
     latestMeters = null;

@@ -585,8 +585,44 @@ pub fn resize_midi_clip(
     for (track_idx, track) in project.tracks.iter_mut().enumerate() {
         if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
             let mut clip = track.midi_clips.remove(idx);
+
+            // CLIP-001 FIX: When the left edge moves, adjust MIDI note positions
+            // so they maintain their absolute timeline position.
+            //
+            // Notes use clip-local coordinates (start_frame is relative to clip.position).
+            // If clip.position moves RIGHT by +delta frames, each note must shift LEFT
+            // by -delta frames to stay at the same absolute position.
+            //
+            // Example: Clip at beat 1, note at start_frame=0 (absolute beat 1).
+            //   → User drags left edge to beat 2 (delta = +1 beat in frames).
+            //   → Without fix: note stays at start_frame=0 → now plays at beat 2 (WRONG!)
+            //   → With fix: note.start_frame -= delta → start_frame becomes negative → removed.
+            //     Or if note was at start_frame=44100 (beat 2), after fix: start_frame=0 → still plays at beat 2. ✓
+            let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
+
             clip.position = new_position;
             clip.duration = new_duration;
+
+            if left_edge_delta != 0 {
+                clip.notes.retain_mut(|note| {
+                    note.start_frame -= left_edge_delta;
+                    // Remove notes that are now entirely before the clip start
+                    if note.start_frame + note.duration_frames <= 0 {
+                        return false;
+                    }
+                    // Trim notes that partially extend before clip start
+                    if note.start_frame < 0 {
+                        let trim = -note.start_frame;
+                        note.duration_frames -= trim;
+                        note.start_frame = 0;
+                        if note.duration_frames < 1 {
+                            return false;
+                        }
+                    }
+                    true
+                });
+            }
+
             // BUG-B12 FIX: Trim or remove MIDI notes that extend beyond the
             // new clip duration. Without this, notes can reference beats outside
             // the clip bounds, causing playback glitches and visual artifacts.
@@ -1075,5 +1111,64 @@ mod tests {
                 .iter()
                 .all(|c| c.name != "MIDI B")
         );
+    }
+
+    // ── CLIP-001: MIDI left-edge resize keeps notes in place ─────────────
+    #[test]
+    fn resize_midi_clip_left_edge_keeps_notes_in_place() {
+        let mut project = make_test_project();
+        let mut midi_clip = MidiClip::new(
+            "MIDI A",
+            AbsoluteTime::new(0),      // starts at frame 0
+            AbsoluteTime::new(88200),   // 2 seconds
+        );
+        // Add notes at various positions (clip-local frames):
+        // Note 1 at frame 0 (absolute 0) - should be removed when left edge moves to 22050
+        // Note 2 at frame 22050 (absolute 22050) - should become frame 0
+        // Note 3 at frame 44100 (absolute 44100) - should become frame 22050
+        midi_clip.notes.push(crate::midi::MidiNote {
+            start_frame: 0,
+            duration_frames: 11025,
+            pitch: 60,
+            velocity: 100,
+        });
+        midi_clip.notes.push(crate::midi::MidiNote {
+            start_frame: 22050,
+            duration_frames: 11025,
+            pitch: 64,
+            velocity: 100,
+        });
+        midi_clip.notes.push(crate::midi::MidiNote {
+            start_frame: 44100,
+            duration_frames: 11025,
+            pitch: 67,
+            velocity: 100,
+        });
+        let clip_id = midi_clip.id;
+        project.tracks[0].midi_clips.push(midi_clip);
+
+        // Resize: move left edge from 0 to 22050 (trim first 0.5s)
+        resize_midi_clip(
+            &mut project,
+            clip_id,
+            AbsoluteTime::new(22050),  // new position
+            AbsoluteTime::new(66150),  // new duration: 88200 - 22050
+        )
+        .unwrap();
+
+        let clip = project.tracks[0]
+            .midi_clips
+            .iter()
+            .find(|c| c.id == clip_id)
+            .unwrap();
+
+        // Note 1 (was at absolute 0) should be removed (before new start at 22050)
+        // Note 2 (was at absolute 22050) should now be at start_frame 0
+        // Note 3 (was at absolute 44100) should now be at start_frame 22050
+        assert_eq!(clip.notes.len(), 2, "Note 1 should be removed");
+        assert_eq!(clip.notes[0].start_frame, 0, "Note 2 should be at frame 0");
+        assert_eq!(clip.notes[0].pitch, 64, "Note 2 is pitch 64");
+        assert_eq!(clip.notes[1].start_frame, 22050, "Note 3 should be at frame 22050");
+        assert_eq!(clip.notes[1].pitch, 67, "Note 3 is pitch 67");
     }
 }

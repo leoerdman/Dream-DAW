@@ -147,10 +147,19 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await engineApi.saveProject();
             await syncProjectHistory();
 
-        } catch {
-            // If no path set, fallback to Save As
-            // BUG-041 FIX: console.log removed. If no path, fallback to Save As.
-            handleSaveAs();
+        } catch (err: unknown) {
+            // ENTERPRISE FIX (BUG-R05): Previously caught ALL errors silently,
+            // including network errors, serialization failures, and permission errors.
+            // Now logs the error for diagnostics and only falls back to Save As
+            // if the error indicates "no path set" (the expected case).
+            const msg = err instanceof Error ? err.message : String(err);
+            const isNoPath = /no.*(path|file|save)/i.test(msg) || /not.*saved/i.test(msg);
+            if (isNoPath) {
+                handleSaveAs();
+            } else {
+                console.error('[FileMenu] Save failed (unexpected):', err);
+                handleSaveAs();
+            }
         }
     }, [handleSaveAs, syncProjectHistory, syncArrangementViewport]);
 

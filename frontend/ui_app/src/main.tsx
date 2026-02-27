@@ -46,16 +46,22 @@ class ErrorBoundary extends Component<
           <pre style={{ marginTop: 16, opacity: 0.6, fontSize: 12 }}>
             {this.state.error.stack}
           </pre>
-          {/* BUG-039 FIX: Recovery button */}
+          {/* ENTERPRISE FIX (BUG-R06): Attempt auto-save before reload to prevent data loss */}
           <button
-            onClick={() => window.location.reload()}
+            onClick={async () => {
+              try {
+                const engineApi = await import('@/shared/api/engine');
+                await engineApi.saveProject();
+              } catch { /* Best-effort — proceed with reload even if save fails */ }
+              window.location.reload();
+            }}
             style={{
               marginTop: 24, padding: '10px 24px', fontSize: 14, fontWeight: 600,
               background: 'var(--color-error)', color: 'var(--color-text-on-accent)', border: 'none', borderRadius: 6,
               cursor: 'pointer', fontFamily: 'var(--font-role-body)',
             }}
           >
-            🔄 Reload Application
+            💾 Save & Reload Application
           </button>
         </div>
       )
@@ -268,14 +274,20 @@ function App() {
           </h1>
           <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{fatalError}</pre>
           <button
-            onClick={() => window.location.reload()}
+            onClick={async () => {
+              try {
+                const engineApi = await import('@/shared/api/engine');
+                await engineApi.saveProject();
+              } catch { /* Best-effort save before reload */ }
+              window.location.reload();
+            }}
             style={{
               marginTop: 24, padding: '10px 24px', fontSize: 14, fontWeight: 600,
               background: 'var(--color-error)', color: 'var(--color-text-on-accent)', border: 'none', borderRadius: 6,
               cursor: 'pointer', fontFamily: 'var(--font-role-body)',
             }}
           >
-            Reload Application
+            💾 Save & Reload
           </button>
         </div>
       )}
@@ -291,7 +303,14 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(
+// ENTERPRISE FIX (BUG-R08): Explicit null check with meaningful error
+// instead of non-null assertion that produces cryptic runtime error.
+const rootEl = document.getElementById('root');
+if (!rootEl) {
+  document.body.innerHTML = '<pre style="color:#ff6b6b;padding:40px">Fatal: Missing #root element in index.html</pre>';
+  throw new Error('Fatal: Missing #root element in index.html');
+}
+createRoot(rootEl).render(
   <StrictMode>
     <App />
   </StrictMode>,

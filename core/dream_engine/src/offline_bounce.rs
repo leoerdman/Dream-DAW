@@ -357,7 +357,7 @@ impl OfflineRenderer {
                 // ── CRITICAL FIX: Sync runtime param values ──
                 if let Some(ref params) = slot.params {
                     for (param_idx, &value) in params.iter().enumerate() {
-                        chain.set_param(slot_index, param_idx as u8, value);
+                        chain.set_param(slot_index, param_idx as u32, value);
                     }
                 }
                 slot_index += 1;
@@ -784,10 +784,19 @@ impl OfflineRenderer {
                                     c,
                                     use_midi,
                                 ) {
-                                    log::warn!(
-                                        "[Bounce/FX] Track {}: process_with_sidechain failed: {}",
-                                        track_idx, proc_err
-                                    );
+                                    // ENTERPRISE FIX (BUG-R01): Rate-limit plugin error logging.
+                                    // Previously logged on every buffer — thousands of msgs/sec if
+                                    // a plugin errors persistently. Now log only the first failure
+                                    // per instance to avoid flooding the log backend Mutex.
+                                    static LOGGED_INSTANCES: std::sync::atomic::AtomicU64 =
+                                        std::sync::atomic::AtomicU64::new(0);
+                                    let prev = LOGGED_INSTANCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    if prev < 8 {
+                                        log::warn!(
+                                            "[Bounce/FX] Track {}: process_with_sidechain failed: {} (further errors suppressed)",
+                                            track_idx, proc_err
+                                        );
+                                    }
                                 }
                                 // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
                                 // misbehaving plugin would corrupt the entire export file.

@@ -30,9 +30,9 @@ use crate::dsp_processor::BuiltinEffectType;
 /// unlimited growth for power users (100+ effects per track).
 pub const DEFAULT_DEVICE_SLOT_CAPACITY: usize = 16;
 
-/// Legacy alias for backward compatibility.
-/// Code that referenced MAX_DEVICE_SLOTS for capacity hints still compiles.
-/// **This is NOT a hard limit** — use it only as a capacity hint.
+/// BUG-Q007 FIX: Renamed and deprecated misleading alias.
+/// This is NOT a hard limit — use `DEFAULT_DEVICE_SLOT_CAPACITY` or `len()` instead.
+#[deprecated(note = "Use DEFAULT_DEVICE_SLOT_CAPACITY for capacity hints. This is NOT a max limit.")]
 pub const MAX_DEVICE_SLOTS: usize = DEFAULT_DEVICE_SLOT_CAPACITY;
 
 /// Per-track device chain.
@@ -57,6 +57,8 @@ impl DeviceChain {
     }
 
     /// Returns the number of active slots.
+    /// BUG-Q004 FIX: Deprecated in favor of `len()` to follow Rust conventions.
+    #[deprecated(note = "Use `len()` instead for consistency with std library conventions.")]
     pub fn slot_count(&self) -> usize {
         self.slots.len()
     }
@@ -160,9 +162,11 @@ impl DeviceChain {
     }
 
     /// Sets a parameter on a specific device slot.
-    pub fn set_param(&mut self, slot_index: usize, param_index: u8, value: f32) {
+    /// BUG-Q005 FIX: Widened param_index from u8 to u32 to support VST3 plugins
+    /// with 1000+ parameters (u8 caps at 256).
+    pub fn set_param(&mut self, slot_index: usize, param_index: u32, value: f32) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.set_param(param_index as u32, value as f64);
+            slot.set_param(param_index, value as f64);
         }
     }
 
@@ -244,6 +248,8 @@ impl DeviceChain {
     /// This creates a ProcessContext with only sample_rate set; playhead, tempo,
     /// and time signature default to zero/false. Use the `_ctx` variant when
     /// transport metadata is available.
+    /// BUG-Q003 FIX: Properly marked as deprecated.
+    #[deprecated(note = "Use `process_slot_with_sidechain_ctx` with a full ProcessContext.")]
     #[inline]
     pub fn process_slot_with_sidechain(
         &mut self,

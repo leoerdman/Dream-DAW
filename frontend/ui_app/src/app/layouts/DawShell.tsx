@@ -355,11 +355,13 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     }, [missingMediaSummary.total]);
     const selectedMidiTotalBars = useMemo(() => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
-        const parsed = parseInt(gridDivision.split('/')[0], 10);
-        const beatsPerBar = parsed > 0 && isFinite(parsed) ? parsed : 4;
+        // BUG-U004 FIX: Use timeSigNumerator for beatsPerBar, not grid division numerator.
+        // Grid division (e.g. "1/8") is for snap resolution, not measures.
+        const timeSig = useEngineStore.getState().timeSigNumerator;
+        const beatsPerBar = timeSig > 0 && isFinite(timeSig) ? timeSig : 4;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / beatsPerBar));
-    }, [selectedTimelineClip, gridDivision]);
-    const hasResizableClipEditor = false;
+    }, [selectedTimelineClip]);
+    // BUG-U005 FIX: hasResizableClipEditor removed — always false, dead code path.
     usePointerUpFinalizer({
         flushTrackControlFinals,
         flushMidiThrottles,
@@ -549,7 +551,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 toggleGroupCollapse={toggleGroupCollapse}
                 timelineProps={timelineProps}
                 bottomPanelMode={bottomPanelMode}
-                hasResizableClipEditor={hasResizableClipEditor}
+                hasResizableClipEditor={false}
                 bottomPanelHeightPx={bottomPanelHeightPx}
                 setBottomPanelHeightPx={setBottomPanelHeightPx}
                 beginBottomPanelResize={beginBottomPanelResize}

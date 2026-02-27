@@ -603,13 +603,13 @@ pub(super) fn drain_commands(
             } => {
                 if track_index == MASTER_TRACK_INDEX {
                     ctx.master_device_chain
-                        .set_param(slot_index as usize, param_index, value);
+                        .set_param(slot_index as usize, param_index as u32, value);
                 } else {
                     let idx = track_index as usize;
                     if idx < ctx.render_ctx.track_slots.len() {
                         ctx.render_ctx.track_slots[idx].device_chain.set_param(
                             slot_index as usize,
-                            param_index,
+                            param_index as u32,
                             value,
                         );
                     }

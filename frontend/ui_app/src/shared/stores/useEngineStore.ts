@@ -7,7 +7,7 @@ import { createTransportActions } from '@/shared/stores/engine/actionsTransport'
 import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
-import { createTelemetryActions, getLatestMetersSnapshot, setBpmPendingUntil } from '@/shared/stores/engine/actionsTelemetry';
+import { createTelemetryActions, getLatestMetersSnapshot, setBpmPendingUntil, resetTelemetryPeaks } from '@/shared/stores/engine/actionsTelemetry';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -96,6 +96,7 @@ export interface EngineStore {
     reloadCrashedSandboxPlugins: () => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     closeAllPluginEditors: () => Promise<void>;
+    resetMeterPeakHold: (trackIndex: number | 'master') => void;
 }
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
@@ -247,6 +248,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),
+    resetMeterPeakHold: (trackIndex) => resetTelemetryPeaks(trackIndex),
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         try { // BUG-010: Error boundary wrapping entire delta application
             const sanitizedDeltas = sanitizeProjectDeltas(deltas);

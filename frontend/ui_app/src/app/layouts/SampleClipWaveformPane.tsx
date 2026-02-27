@@ -41,6 +41,10 @@ export const SampleClipWaveformPane = ({
     const gridLineCount = Math.min(512, Math.ceil(clipDurationBeats / gridStep));
     const renderedWaveHeight = Math.max(56, Math.round(bodyHeight * Math.max(0.5, Math.min(2.0, waveHeightScale))));
 
+    // Calculate precise samples per pixel to ensure warped waveforms stretch accurately
+    // rather than falling back to the Timeline's unwarped global zoom scaling.
+    const samplesPerPixel = durationSamples / Math.max(1, waveformWidth);
+
     return (
         <div style={{
             flex: 1,
@@ -127,6 +131,7 @@ export const SampleClipWaveformPane = ({
                                 height={renderedWaveHeight}
                                 durationSamples={durationSamples}
                                 sourceOffset={sourceOffset ?? 0}
+                                samplesPerPixelOverride={samplesPerPixel}
                                 isSelected
                             />
                         </div>

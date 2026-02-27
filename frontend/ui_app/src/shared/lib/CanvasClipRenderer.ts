@@ -282,6 +282,8 @@ export class CanvasClipRenderer {
 
         let markStep = beatsPerBar;
         if (vp.pixelsPerBeat < 12) markStep = beatsPerBar * 4;
+        else if (vp.pixelsPerBeat >= 120) markStep = 0.5;
+        else if (vp.pixelsPerBeat >= 40) markStep = 1;
 
         ctx.font = '10px Inter, -apple-system, sans-serif';
         ctx.fillStyle = theme.rulerText;
@@ -296,11 +298,36 @@ export class CanvasClipRenderer {
             if (x < -50 || x > vp.viewportWidth + 10) continue;
 
             const roundedX = snapPhysical(x);
-            const barNumber = Math.floor(beat / beatsPerBar) + 1;
-            ctx.fillText(String(barNumber), roundedX, 2);
+            const remainder = beat % beatsPerBar;
+            const isBarMark = Math.abs(remainder) < 1e-6;
+            const isWholeBeat = Math.abs(remainder - Math.round(remainder)) < 1e-6;
 
-            ctx.fillStyle = theme.rulerText;
-            ctx.fillRect(roundedX, rulerH - 8, 1, 8);
+            const barNumber = Math.floor(beat / beatsPerBar) + 1;
+            const beatWithinBar = Math.floor(remainder) + 1;
+
+            let label = '';
+            let lineH = 8;
+            if (isBarMark) {
+                label = String(barNumber);
+                ctx.fillStyle = theme.rulerText;
+                lineH = 10;
+            } else if (isWholeBeat) {
+                label = `${barNumber}.${beatWithinBar}`;
+                ctx.fillStyle = applyAlphaMultiplier(theme.rulerText, 0.7);
+                lineH = 6;
+            } else {
+                label = `${barNumber}.${beatWithinBar}.5`;
+                ctx.fillStyle = applyAlphaMultiplier(theme.rulerText, 0.5);
+                lineH = 4;
+            }
+
+            // Only draw text if it's a bar or if we have enough space
+            const showText = isBarMark || (isWholeBeat && vp.pixelsPerBeat >= 40) || (!isWholeBeat && vp.pixelsPerBeat >= 120);
+            if (showText) {
+                ctx.fillText(label, roundedX, 2);
+            }
+
+            ctx.fillRect(roundedX, rulerH - lineH, 1, lineH);
         }
 
         const phX = snapPhysical(vp.beatsToScreenX(playheadBeat));

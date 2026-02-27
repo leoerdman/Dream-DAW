@@ -37,47 +37,24 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
 
 /**
  * Peak hold label: shows the maximum peak dB reached.
- * Decays after PEAK_HOLD_MS of inactivity. Click to reset.
+ * Decays after 4 seconds of inactivity. Click to reset.
  */
-const PEAK_HOLD_MS = 4000;
-
 export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     trackIndex,
 }: {
     trackIndex: number;
 }) {
     const meterPair = useEngineStore((s) => s.meters.tracks[trackIndex]);
-    const liveL = meterPair?.[0]?.peak ?? -96;
-    const liveR = meterPair?.[1]?.peak ?? -96;
+    const resetMeterPeakHold = useEngineStore((s) => s.resetMeterPeakHold);
+    const holdL = meterPair?.[0]?.peak_hold ?? -96;
+    const holdR = meterPair?.[1]?.peak_hold ?? -96;
 
-    // Peak hold state (in refs to avoid re-renders on every meter tick)
-    const holdL = useRef(-96);
-    const holdR = useRef(-96);
-    const holdTs = useRef(0);
     const displayRef = useRef<HTMLDivElement>(null);
 
-    // Update hold values on every meter tick
+    // Direct DOM update — bypasses React render for 30Hz performance
     useEffect(() => {
-        const now = performance.now();
-        const currentLiveMax = Math.max(liveL, liveR);
-        const currentHoldMax = Math.max(holdL.current, holdR.current);
-
-        // If we hit a new absolute peak (or equal to keep timer refreshing while sustaining)
-        if (currentLiveMax >= currentHoldMax) {
-            holdL.current = liveL;
-            holdR.current = liveR;
-            holdTs.current = now;
-        }
-        // If 2 seconds have passed since the last absolute peak, drop to current live signal
-        else if (now - holdTs.current > PEAK_HOLD_MS) {
-            holdL.current = liveL;
-            holdR.current = liveR;
-            holdTs.current = now;
-        }
-
-        // Direct DOM update — bypasses React render for 30Hz performance
         if (displayRef.current) {
-            const maxDb = Math.max(holdL.current, holdR.current);
+            const maxDb = Math.max(holdL, holdR);
             const hasClipped = maxDb >= 0;
             const text = Number.isFinite(maxDb) && maxDb > -90
                 ? formatDb(maxDb)
@@ -95,14 +72,12 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     });
 
     const resetPeak = useCallback(() => {
-        holdL.current = -96;
-        holdR.current = -96;
-        holdTs.current = performance.now();
+        resetMeterPeakHold(trackIndex);
         if (displayRef.current) {
             displayRef.current.textContent = '-∞';
             displayRef.current.style.color = 'var(--color-text-secondary)';
         }
-    }, []);
+    }, [resetMeterPeakHold, trackIndex]);
 
     return (
         <div

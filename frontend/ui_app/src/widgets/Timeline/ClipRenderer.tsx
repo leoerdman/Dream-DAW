@@ -10,6 +10,7 @@ export interface ClipRendererProps {
     isSelected?: boolean;
     sourceOffset?: number;
     durationSamples: number;
+    samplesPerPixelOverride?: number;
     className?: string;
 }
 
@@ -20,12 +21,14 @@ export const ClipRenderer = memo(function ClipRenderer({
     isSelected = false,
     sourceOffset = 0,
     durationSamples,
+    samplesPerPixelOverride,
     className,
 }: ClipRendererProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const samplesPerPixel = useViewportStore((s) => s.samplesPerPixel);
+    const globalSamplesPerPixel = useViewportStore((s) => s.samplesPerPixel);
+    const samplesPerPixel = samplesPerPixelOverride ?? globalSamplesPerPixel;
 
     useEffect(() => {
         let cancelled = false;

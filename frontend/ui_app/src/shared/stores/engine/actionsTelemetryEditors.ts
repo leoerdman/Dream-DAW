@@ -35,8 +35,8 @@ export function createPluginEditorActions(
                 for (const slotId of slots) {
                     try {
                         await engine.closePluginWindowForSlot(trackId, slotId);
-                    } catch {
-                        // no-op
+                    } catch (err) {
+                        console.warn('[PluginEditors] closePluginWindowForSlot failed:', err);
                     }
                 }
             }

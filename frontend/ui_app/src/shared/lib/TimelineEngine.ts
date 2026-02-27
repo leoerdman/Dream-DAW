@@ -33,6 +33,8 @@ export class TimelineEngine {
     private _resizeRafId = 0;
 
     private _clips: TimelineClipData[] = [];
+    /** BUG-P001 FIX: O(1) clip lookup by id (built in setClips). */
+    private _clipsById: Map<string, TimelineClipData> = new Map();
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
@@ -240,6 +242,9 @@ export class TimelineEngine {
                 showFadeOutCurvePoint: Boolean(flags?.out),
             };
         });
+        // BUG-P001 FIX: Build O(1) lookup map.
+        this._clipsById.clear();
+        for (const clip of this._clips) this._clipsById.set(clip.id, clip);
 
         const currentIds = new Set(normalizedInput.map((c) => c.id));
         for (const id of Object.keys(this._fadeCurvePoints)) {
@@ -902,7 +907,7 @@ export class TimelineEngine {
                 if (this._marquee) this._setMarquee(null);
                 if (!hit.clipId) break;
 
-                const clip = this._clips.find(c => c.id === hit.clipId);
+                const clip = this._clipsById.get(hit.clipId!);
                 if (!clip) break;
 
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
@@ -1187,13 +1192,13 @@ export class TimelineEngine {
                     0,
                     Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
                 );
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._clipsById.get(this._drag.clipId!);
                 if (clip) {
                     clip.startBeat = newBeat;
                     clip.trackIndex = newTrack;
                 }
                 for (const [id, origin] of coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipsById.get(id);
                     if (co) {
                         co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
                         co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
@@ -1283,7 +1288,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeIn: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._clipsById.get(this._drag.clipId!);
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
@@ -1295,7 +1300,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeOut: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._clipsById.get(this._drag.clipId!);
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
@@ -1424,14 +1429,14 @@ export class TimelineEngine {
             case DragMode.ClipMove: {
                 if (this._drag.clipId) {
                     if (!canvas) {
-                        const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
+                        const clipToRestore = this._clipsById.get(this._drag.clipId!);
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
                         }
                         if (this._drag.coMoverOrigins) {
                             for (const [id, origin] of this._drag.coMoverOrigins) {
-                                const co = this._clips.find(c => c.id === id);
+                                const co = this._clipsById.get(id);
                                 if (co) {
                                     co.startBeat = origin.beat;
                                     co.trackIndex = origin.track;
@@ -1454,14 +1459,14 @@ export class TimelineEngine {
                     const isTinyMove =
                         Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
                     if (isTinyMove) {
-                        const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
+                        const clipToRestore = this._clipsById.get(this._drag.clipId!);
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
                         }
                         if (this._drag.coMoverOrigins) {
                             for (const [id, origin] of this._drag.coMoverOrigins) {
-                                const co = this._clips.find(c => c.id === id);
+                                const co = this._clipsById.get(id);
                                 if (co) {
                                     co.startBeat = origin.beat;
                                     co.trackIndex = origin.track;
@@ -1826,7 +1831,7 @@ export class TimelineEngine {
             track: Math.max(0, Math.min(trackCount - 1, origTrack + deltaTrack)),
         });
 
-        const primaryClip = this._clips.find(c => c.id === this._drag.clipId);
+        const primaryClip = this._clipsById.get(this._drag.clipId!);
         if (!primaryClip) return;
 
         const primaryTarget = computeTarget(this._drag.clipOriginalBeat, this._drag.clipOriginalTrack);
@@ -1854,7 +1859,7 @@ export class TimelineEngine {
             // Co-movers: restore + ghost
             if (this._drag.coMoverOrigins) {
                 for (const [id, origin] of this._drag.coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipsById.get(id);
                     if (co) {
                         co.startBeat = origin.beat;
                         co.trackIndex = origin.track;
@@ -1881,7 +1886,7 @@ export class TimelineEngine {
 
             if (this._drag.coMoverOrigins) {
                 for (const [id, origin] of this._drag.coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipsById.get(id);
                     if (co) {
                         const target = computeTarget(origin.beat, origin.track);
                         co.startBeat = target.beat;

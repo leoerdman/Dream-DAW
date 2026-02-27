@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { DEFAULT_BPM, DEFAULT_SAMPLE_RATE } from '@/shared/lib/audioMath';
 import { ModalOverlay } from '@/shared/ui/ModalOverlay';
 import { ExportModalPanel } from './ExportModalPanel';
 import {
@@ -53,8 +54,8 @@ export const ExportModal = ({
     projectName = 'Untitled',
     selectedClipIds = [],
     allClips = [],
-    bpm = 120,
-    sampleRate: projectSampleRate = 48000,
+    bpm = DEFAULT_BPM,
+    sampleRate: projectSampleRate = DEFAULT_SAMPLE_RATE,
     loopStartBeat = 0,
     loopEndBeat = 0,
     marqueeSelection = null,

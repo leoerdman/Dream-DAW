@@ -325,7 +325,8 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
                             setSpectrumPath(null);
                         }
                         await new Promise(r => setTimeout(r, 60)); // ~16FPS
-                    } catch {
+                    } catch (err) {
+                        console.warn('[EqSpectrum] poll error (backoff):', err);
                         errorBackoff = Math.min(errorBackoff * 2, 2000);
                         await new Promise(r => setTimeout(r, errorBackoff));
                     }

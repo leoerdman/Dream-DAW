@@ -304,7 +304,8 @@ async function buildRecentSubmenu(
                 }),
             );
         }
-    } catch {
+    } catch (err) {
+        console.warn('[NativeMenu] Failed to load recent projects:', err);
         recentItems.push(
             await MenuItem.new({
                 id: 'recent_error',

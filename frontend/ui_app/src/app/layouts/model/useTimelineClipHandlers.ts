@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import { beatDurationToFrames, beatToFrame, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, beatToFrame, DEFAULT_TIME_SIG_NUMERATOR, resolveBpm } from '@/shared/lib/audioMath';
 import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -79,7 +79,7 @@ export function useTimelineClipHandlers({
 
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
         // BUG-026: Use projectBpm as single source of truth — transportBpm can diverge during pending changes.
-        const bpm = Math.max(1, projectBpm ?? 120);
+        const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const storeState = useEngineStore.getState();
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
@@ -91,7 +91,7 @@ export function useTimelineClipHandlers({
 
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
         // BUG-026: Use projectBpm as single source of truth.
-        const bpm = Math.max(1, projectBpm ?? 120);
+        const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
         const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
@@ -225,7 +225,7 @@ export function useTimelineClipHandlers({
             return;
         }
         // BUG-026: Use projectBpm as single source of truth.
-        const bpm = Math.max(1, projectBpm ?? 120);
+        const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
         const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate));
@@ -273,7 +273,7 @@ export function useTimelineClipHandlers({
     // the same relative offset that the primary clip was dragged by.
     // ────────────────────────────────────────────────────────────────────────
     const handleClipDuplicate = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = Math.max(1, projectBpm ?? 120);
+        const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
         const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];

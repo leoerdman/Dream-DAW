@@ -94,8 +94,8 @@ export function useTimelineDnD({
                 const item = JSON.parse(raw) as BrowserDragItem;
                 commandBusRef.current.emit({ type: 'drop', item, trackIndex: track, beat });
             }
-        } catch {
-            // Ignore invalid drop payload
+        } catch (err) {
+            console.warn('[TimelineDnD] Invalid drop payload:', err);
         }
     }, [engineRef, canvasRef, commandBusRef]);
 

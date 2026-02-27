@@ -182,7 +182,8 @@ export function normalizePickedPath(picked: unknown): string | null {
             if (/^\/[A-Za-z]:/.test(normalized)) {
                 normalized = normalized.slice(1);
             }
-        } catch {
+        } catch (err) {
+            console.warn('[DeviceRack] normalizePickedPath URL parse fallback:', err);
             normalized = decodeURIComponent(normalized.replace(/^file:\/\//, ''));
         }
     }

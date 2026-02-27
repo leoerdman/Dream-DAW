@@ -60,12 +60,6 @@ export function createTrackProjectActions(
             // BUG-009: Guard track index bounds to prevent stale index access.
             if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
-                // BUG-011 FIX: Capture old value for rollback on IPC failure.
-                const trackId = get().tracks.allIds[trackIndex];
-                const oldVolume = trackId
-                    ? get().tracks.byId[trackId]?.volume
-                    : undefined;
-
                 set((s) => {
                     const tid = s.tracks.allIds[trackIndex];
                     const track = tid ? s.tracks.byId[tid] : null;
@@ -77,13 +71,22 @@ export function createTrackProjectActions(
                     throttledVolumeSends.set(
                         trackIndex,
                         throttle((nextVolume: number) => {
+                            // BUG-C02 FIX: Capture oldVolume at IPC-send time via get(),
+                            // NOT in the outer closure. The outer closure's oldVolume
+                            // becomes stale on the 2nd+ call when the throttle function
+                            // is reused from the Map.
+                            const trackId = get().tracks.allIds[trackIndex];
+                            const currentVolume = trackId
+                                ? get().tracks.byId[trackId]?.volume
+                                : undefined;
                             void engine
                                 .setTrackVolumeWithDeltas(trackIndex, nextVolume)
                                 .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackVolume'))
                                 .catch((e) => {
                                     // BUG-011 FIX: Revert optimistic update on failure.
-                                    if (oldVolume !== undefined) {
-                                        set((s) => patchTrackByIndex(s, trackIndex, { volume: oldVolume }));
+                                    // BUG-C02 FIX: rollback uses fresh `currentVolume` not stale closure.
+                                    if (currentVolume !== undefined) {
+                                        set((s) => patchTrackByIndex(s, trackIndex, { volume: currentVolume }));
                                     }
                                     set({ lastError: String(e) });
                                 });
@@ -102,12 +105,6 @@ export function createTrackProjectActions(
             // BUG-009: Guard track index bounds to prevent stale index access.
             if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
-                // BUG-011 FIX: Capture old value for rollback on IPC failure.
-                const trackId = get().tracks.allIds[trackIndex];
-                const oldPan = trackId
-                    ? get().tracks.byId[trackId]?.pan
-                    : undefined;
-
                 set((s) => {
                     const tid = s.tracks.allIds[trackIndex];
                     const track = tid ? s.tracks.byId[tid] : null;
@@ -119,13 +116,20 @@ export function createTrackProjectActions(
                     throttledPanSends.set(
                         trackIndex,
                         throttle((nextPan: number) => {
+                            // BUG-C03 FIX: Capture oldPan at IPC-send time via get(),
+                            // NOT in the outer closure. Same stale closure bug as BUG-C02.
+                            const trackId = get().tracks.allIds[trackIndex];
+                            const currentPan = trackId
+                                ? get().tracks.byId[trackId]?.pan
+                                : undefined;
                             void engine
                                 .setTrackPanWithDeltas(trackIndex, nextPan)
                                 .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackPan'))
                                 .catch((e) => {
                                     // BUG-011 FIX: Revert optimistic update on failure.
-                                    if (oldPan !== undefined) {
-                                        set((s) => patchTrackByIndex(s, trackIndex, { pan: oldPan }));
+                                    // BUG-C03 FIX: rollback uses fresh `currentPan` not stale closure.
+                                    if (currentPan !== undefined) {
+                                        set((s) => patchTrackByIndex(s, trackIndex, { pan: currentPan }));
                                     }
                                     set({ lastError: String(e) });
                                 });
@@ -195,8 +199,16 @@ export function createTrackProjectActions(
                 for (const fn of throttledPanSends.values()) fn.cancel?.();
                 throttledMasterVolumeSend.cancel?.();
 
+                // BUG-H07 FIX: Snapshot AND clear BEFORE async calls.
+                // Previously, clearing happened AFTER await — any new values added
+                // during the await (from concurrent UI interactions) would be lost.
                 const volumeEntries = Array.from(pendingVolumeValues.entries());
                 const panEntries = Array.from(pendingPanValues.entries());
+                const pendingMasterVolume = getPendingMasterVolume();
+                pendingVolumeValues.clear();
+                pendingPanValues.clear();
+                setPendingMasterVolume(null);
+
                 await Promise.all([
                     ...volumeEntries.map(async ([trackIndex, volume]) => {
                         const response = await engine.setTrackVolumeWithDeltas(trackIndex, volume);
@@ -207,13 +219,9 @@ export function createTrackProjectActions(
                         await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-pan');
                     }),
                 ]);
-                const pendingMasterVolume = getPendingMasterVolume();
                 if (pendingMasterVolume != null) {
                     await engine.setMasterVolume(pendingMasterVolume);
                 }
-                pendingVolumeValues.clear();
-                pendingPanValues.clear();
-                setPendingMasterVolume(null);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });
@@ -232,7 +240,12 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'setTrackDisabled');
                 set({ lastError: null });
             } catch (e) {
-                set({ lastError: String(e) });
+                // BUG-H06 FIX: Rollback optimistic update on IPC failure.
+                // Previously only set lastError, leaving UI out of sync with engine.
+                set((s) => ({
+                    ...patchTrackByIndex(s, trackIndex, { is_disabled: !disabled }),
+                    lastError: String(e),
+                }));
             }
         },
 
@@ -248,7 +261,12 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'setTrackSolo');
                 set({ lastError: null });
             } catch (e) {
-                set({ lastError: String(e) });
+                // BUG-H06 FIX: Rollback optimistic update on IPC failure.
+                // Previously only set lastError, leaving UI out of sync with engine.
+                set((s) => ({
+                    ...patchTrackByIndex(s, trackIndex, { is_solo: !soloed }),
+                    lastError: String(e),
+                }));
             }
         },
 

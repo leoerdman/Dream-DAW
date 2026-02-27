@@ -671,6 +671,12 @@ impl GraphRenderer {
                         let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
                         processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
 
+                        // BUG-G06b FIX: Sanitize NaN/Inf in parallel path (mirrors process_node).
+                        for i in 0..n {
+                            if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
+                            if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
+                        }
+
                         if matches!(&node.kind, NodeKind::MasterOutput) {
                             let master_n = n.min(output_left.len()).min(output_right.len());
                             output_left[..master_n].copy_from_slice(&buf.left[..master_n]);
@@ -705,6 +711,12 @@ impl GraphRenderer {
                         let node = dag.node(node_idx);
                         let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
                         processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
+
+                        // BUG-G06b FIX: Sanitize NaN/Inf (multi-node parallel path).
+                        for i in 0..n {
+                            if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
+                            if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
+                        }
                     }
                 }
             }
@@ -731,6 +743,13 @@ impl GraphRenderer {
                 let node = dag.node(node_idx);
                 let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
                 processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
+
+                // BUG-G06b FIX: Sanitize NaN/Inf (sequential fallback path).
+                for i in 0..n {
+                    if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
+                    if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
+                }
+
                 if matches!(&node.kind, NodeKind::MasterOutput) {
                     self.copy_master_output(node_idx, output_left, output_right, n);
                 }

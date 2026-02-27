@@ -1,4 +1,4 @@
-import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import type { KeyboardShortcutsConfig, KeyboardShortcutRuntimeContext } from './types';
@@ -106,7 +106,7 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
 
 export function resolveSplitFrame(playheadFrames: number, editCursorBeat: number | undefined): number {
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const splitBeat = Number.isFinite(editCursorBeat) && (editCursorBeat ?? -1) >= 0
         ? (editCursorBeat as number)

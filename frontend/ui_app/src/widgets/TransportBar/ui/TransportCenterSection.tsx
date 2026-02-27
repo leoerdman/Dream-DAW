@@ -1,5 +1,5 @@
 import { ArrowRight, Circle, Pencil, Play, Rewind, RotateCcw, Square } from 'lucide-react';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import * as engineApi from '@/shared/api/engine';
 import { ControlButton, PillSection, TransportBtn } from './TransportAtoms';
 import type { TransportCenterSectionProps } from './TransportSectionTypes';
@@ -40,7 +40,7 @@ export function TransportCenterSection(props: TransportCenterSectionProps) {
                     <TransportBtn icon={<Play size={13} fill="currentColor" />} title="Play" isActive={isPlaying} activeColor="var(--color-status-success)" activeBackground={false} onClick={() => { void engineApi.stopPreview().catch((err) => console.warn('[TransportBar] stopPreview before play failed:', err)); void enginePlay(); }} />
                     <TransportBtn icon={<Square size={13} fill="currentColor" />} title="Stop" onClick={() => { engineStop(); void stopRecordingIfNeeded(); }} />
                     <TransportBtn icon={<Circle size={12} fill="currentColor" />} title="Record" isActive={isRecording} activeColor="var(--color-status-record)" className={isRecording ? 'animate-pulse-record' : ''} onClick={() => { void handleRecordToggle(); }} />
-                    <TransportBtn icon={<RotateCcw size={13} />} title="Toggle Loop" isActive={isLooping} activeColor="var(--color-accent-primary)" onClick={() => { const next = !isLooping; if (next && loopStartFrames === 0 && loopEndFrames === 0) { const sr = resolveSampleRate(sampleRate); const currentBpm = bpm || 120; const posBeats = readPosBeats(); void engineSetLoop(true, beatToFrame(posBeats, currentBpm, sr), beatToFrame(posBeats + timeSigNum, currentBpm, sr)); } else { void engineSetLoop(next, loopStartFrames, loopEndFrames); } }} />
+                    <TransportBtn icon={<RotateCcw size={13} />} title="Toggle Loop" isActive={isLooping} activeColor="var(--color-accent-primary)" onClick={() => { const next = !isLooping; if (next && loopStartFrames === 0 && loopEndFrames === 0) { const sr = resolveSampleRate(sampleRate); const currentBpm = resolveBpm(bpm); const posBeats = readPosBeats(); void engineSetLoop(true, beatToFrame(posBeats, currentBpm, sr), beatToFrame(posBeats + timeSigNum, currentBpm, sr)); } else { void engineSetLoop(next, loopStartFrames, loopEndFrames); } }} />
                     <TransportBtn icon={<ArrowRight size={13} strokeWidth={followPlayhead ? 3 : 2} />} title="Follow Playhead" isActive={followPlayhead} activeColor="var(--color-accent-primary)" onClick={() => onFollowPlayheadChange?.(!followPlayhead)} />
                 </PillSection>
                 <PillSection>

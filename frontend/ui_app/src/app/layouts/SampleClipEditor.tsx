@@ -4,7 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatDurationToFrames, frameToBeat, resolveSampleRate, formatBeatsAsBBS } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
@@ -22,7 +22,7 @@ function toClipEntityState(clips: TimelineClip[]) {
 
 export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const sampleRate = useEngineStore((s) => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
-    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
+    const bpm = useEngineStore((s) => resolveBpm(s.projectBpm, s.transport.bpm));
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const beatsPerBar = useGridStore((s) => Math.max(1, Math.round(s.fixedNumerator || 4)));
@@ -107,7 +107,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         const base = Math.max(20, Math.min(300, Math.round(next.baseBpm)));
         const store = useEngineStore.getState();
         const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const projectTempo = store.projectBpm || store.transport.bpm || 120;
+        const projectTempo = resolveBpm(store.projectBpm, store.transport.bpm);
         const liveClip = store.timelineClips.find(c => c.id === clip.id);
         if (!liveClip) return;
         const sourceFrames = Math.max(1, liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);

@@ -42,6 +42,32 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, numbe
     '1/128': 128,
 };
 
+// ── BUG-L01-L05 SSOT: Bidirectional Division ↔ Denominator Mapping ──────
+// These two functions are the SINGLE SOURCE OF TRUTH for converting between
+// GridDivision strings and numeric denominators. All other files (useGridStore,
+// trackDeltaHandlers, etc.) MUST use these instead of inline ternaries/maps.
+
+/** Convert a GridDivision to its numeric denominator. Returns fallback if unknown. */
+export function divisionToDenominator(
+    division: GridDivision,
+    fallback = 16,
+): number {
+    if (division === 'OFF' || division === 'ADAPTIVE') return fallback;
+    return DIVISION_DIVISORS[division] ?? fallback;
+}
+
+/** Convert a numeric denominator to the closest GridDivision. */
+export function denominatorToGridDivision(denominator: number): GridDivision {
+    if (denominator <= 1) return '1/1';
+    if (denominator <= 2) return '1/2';
+    if (denominator <= 4) return '1/4';
+    if (denominator <= 8) return '1/8';
+    if (denominator <= 16) return '1/16';
+    if (denominator <= 32) return '1/32';
+    if (denominator <= 64) return '1/64';
+    return '1/128';
+}
+
 // ── Adaptive Grid ───────────────────────────────────────────────────────
 
 /**

@@ -71,7 +71,11 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.duration,
             type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
-            color: track?.color ?? DEFAULT_TRACK_COLOR,
+            // BUG-H10 FIX: Prefer color from delta data (backend may send custom clip color).
+            // Falls back to track color, then DEFAULT_TRACK_COLOR if track not found.
+            color: (typeof (delta.data as Record<string, unknown>).color === 'string'
+                ? (delta.data as Record<string, unknown>).color as string
+                : null) ?? track?.color ?? DEFAULT_TRACK_COLOR,
             filePath: delta.data.file_path ?? undefined,
             sourceOffset: delta.data.source_offset ?? 0,
             muted: false,

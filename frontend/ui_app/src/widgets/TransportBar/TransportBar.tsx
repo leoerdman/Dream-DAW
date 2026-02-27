@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/shared/hooks/useClickOutside';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { MIN_BPM, MAX_BPM, clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
 import * as engineApi from '@/shared/api/engine';
 import { useTransportEngineSlice, usePositionRef } from './model/useTransportEngineSlice';
 import {
@@ -73,8 +74,8 @@ export const TransportBar = ({
         });
         return () => cancelAnimationFrame(rafId);
     }, [bpm, bpmEditing]);
-    const timeSigNum = Math.max(1, Math.min(32, Math.round(timeSigNumerator || 4)));
-    const timeSigDen = Math.max(1, Math.min(32, Math.round(timeSigDenominator || 4)));
+    const timeSigNum = clampTimeSigNumerator(timeSigNumerator || 4);
+    const timeSigDen = clampTimeSigDenominator(timeSigDenominator || 4);
     const [keyMenuOpen, setKeyMenuOpen] = useState(false);
     const keyMenuRef = useRef<HTMLDivElement | null>(null);
     const [gridOpen, setGridOpen] = useState(false);
@@ -210,7 +211,7 @@ export const TransportBar = ({
             let total = 0;
             for (let i = 1; i < taps.length; i++) total += taps[i] - taps[i - 1];
             const avg = total / (taps.length - 1);
-            const detected = Math.min(999, Math.max(20, 60000 / avg));
+            const detected = Math.min(MAX_BPM, Math.max(MIN_BPM, 60000 / avg));
             const rounded = Math.round(detected * 100) / 100;
             engineSetBpm(rounded);
             setBpmText(rounded.toFixed(2));
@@ -220,7 +221,7 @@ export const TransportBar = ({
     const commitBpm = useCallback(() => {
         setBpmText((prev) => {
             const val = parseFloat(prev);
-            if (!isNaN(val) && val >= 20 && val <= 999) {
+            if (!isNaN(val) && val >= MIN_BPM && val <= MAX_BPM) {
                 const rounded = Math.round(val * 100) / 100;
                 engineSetBpm(rounded);
                 return rounded.toFixed(2);

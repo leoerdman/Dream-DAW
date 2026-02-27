@@ -4,7 +4,7 @@ import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import { defaultInternalPluginForTrack } from '@/shared/lib/internalPlugins';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 
 interface UseBrowserDnDOrchestratorArgs {
     tracks: EntityState<ProjectTrack>;
@@ -111,7 +111,7 @@ export const useBrowserDnDOrchestrator = ({
         if (item.type !== 'audio' && item.type !== 'midi') return;
         if (!item.path) return;
 
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = resolveBpm(projectBpm, transportBpm);
         const sr = resolveSampleRate(projectSampleRate);
         const positionFrames = beatToFrame(beat, bpm, sr);
         const resolvedTrackIndex = getTrackIndexById(track.id);

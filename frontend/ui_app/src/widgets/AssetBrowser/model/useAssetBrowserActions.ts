@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { fileTypeToItemType } from './assetBrowserUtils';
 import type { BrowserItem } from './assetBrowserSchema';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -258,7 +258,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             }
 
             const store = useEngineStore.getState();
-            const bpm = store.projectBpm || store.transport.bpm || 120;
+            const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
             const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
             const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
             if (enterNonceRef.current !== nonce) return;

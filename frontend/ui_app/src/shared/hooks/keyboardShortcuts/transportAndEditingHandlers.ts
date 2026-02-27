@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
@@ -15,7 +15,7 @@ async function flushLaneToEngine(laneId: string, tag: string): Promise<void> {
     const lane = useAutomationStore.getState().lanes[laneId];
     if (!lane) return;
     const store = useEngineStore.getState();
-    const currentBpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const currentSampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const points = lane.breakpoints.map((bp) => ({
         beat: Math.max(0, frameToBeat(beatToFrame(bp.beat, currentBpm, currentSampleRate), currentBpm, currentSampleRate)),
@@ -185,7 +185,7 @@ export async function handleAutomationShortcuts(
             lane = useAutomationStore.getState().lanes[laneId];
         }
         const store = useEngineStore.getState();
-        const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const cursorBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
             ? editCursorBeat
@@ -212,7 +212,7 @@ export async function handleAutomationShortcuts(
             l.trackId === trackId && (paramKey ? l.paramKey === paramKey : true));
         if (!lane) return true;
         const store = useEngineStore.getState();
-        const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const cursorBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
             ? editCursorBeat

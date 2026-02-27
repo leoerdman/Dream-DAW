@@ -484,20 +484,43 @@ impl SampleRackEngine {
     /// Render all active pads into stereo output buffers.
     #[inline]
     pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
-        // ENT-S2: Compute combined volume locally instead of mutating
-        // pad.volume during render. The previous pattern temporarily
-        // set pad.volume to (pad_vol * rack_vol), which is unsafe if
-        // the audio thread is preempted between the write and restore.
+        // BUG-C01 FIX (Enterprise): Compute combined volume locally and pass it
+        // to each voice's render() via the master_vol parameter.
+        //
+        // PREVIOUS PATTERN (UNSAFE):
+        //   let saved = pad.volume;
+        //   pad.volume = combined_vol;   // ← mutates shared state
+        //   pad.render(...);
+        //   pad.volume = saved;          // ← restore may never execute if preempted
+        //
+        // NEW PATTERN: Use the existing master_vol parameter path that already flows
+        // through SamplerEngine::render() → SamplerVoice::render(master_vol).
+        // pad.volume is never modified, eliminating the preemption race entirely.
         let rack_vol = self.volume;
         for pad in &mut self.pads {
             if pad.is_active() {
                 let combined_vol = pad.volume * rack_vol;
-                // Temporarily swap in combined volume for the render call,
-                // but use a save/restore that is as tight as possible.
-                let saved = pad.volume;
-                pad.volume = combined_vol;
-                pad.render(left_out, right_out, frame_count);
-                pad.volume = saved;
+                // Render voices with combined volume as master_vol.
+                // This avoids mutating pad.volume which was the race condition.
+                if let Some(sample) = &pad.sample {
+                    let sample_left = sample.left();
+                    let sample_right = sample.right();
+                    if sample.num_frames > 0 {
+                        for voice in &mut pad.voices {
+                            if !voice.active {
+                                continue;
+                            }
+                            voice.render(
+                                left_out,
+                                right_out,
+                                sample_left,
+                                sample_right,
+                                frame_count,
+                                combined_vol,
+                            );
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatDurationToFrames, beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
 
@@ -18,7 +18,7 @@ export async function handleCreateMidiClipRangeShortcut(
     const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
     const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
     const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);

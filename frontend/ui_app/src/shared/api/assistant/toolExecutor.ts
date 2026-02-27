@@ -2,7 +2,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
-import { resolveSampleRate } from '@/shared/lib/audioMath';
+import { resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
 import { AUTO_CLEANUP_TRACK_NAME_HINTS, ARRANGEMENT_TEMPLATES } from '@/shared/api/assistant/toolExecutor.constants.arrangement';
 import { BEAT_PATTERNS, CHORD_INTERVALS, SCALE_INTERVALS } from '@/shared/api/assistant/toolExecutor.constants.music';
@@ -70,7 +70,7 @@ async function executeToolInner(
             } catch { /* fallback */ }
             return JSON.stringify({
                 projectName,
-                bpm: state.projectBpm || state.transport.bpm || 120,
+                bpm: resolveBpm(state.projectBpm, state.transport.bpm),
                 sampleRate: resolveSampleRate(state.projectSampleRate),
                 isPlaying: state.transport.is_playing,
                 positionBeats: state.transport.position_beats ?? 0,
@@ -114,7 +114,7 @@ async function executeToolInner(
             return JSON.stringify({
                 isPlaying: t.is_playing,
                 positionFrames: t.position_frames,
-                bpm: state.projectBpm || t.bpm,
+                bpm: resolveBpm(state.projectBpm, t.bpm),
                 loopEnabled: t.loop_enabled,
                 loopStartFrames: t.loop_start,
                 loopEndFrames: t.loop_end,
@@ -216,7 +216,7 @@ async function executeToolInner(
             const clipDefs = args.clips as { trackIndex: number; samplePath: string; startBeat: number }[];
             if (!Array.isArray(clipDefs) || clipDefs.length === 0) return JSON.stringify({ error: 'clips array is required' });
             const stBatch = useEngineStore.getState();
-            const bpmBatch = stBatch.projectBpm || stBatch.transport.bpm || 120;
+            const bpmBatch = resolveBpm(stBatch.projectBpm, stBatch.transport.bpm);
             const srBatch = resolveSampleRate(stBatch.projectSampleRate);
             const fpbBatch = (60.0 / bpmBatch) * srBatch;
             let batchOverlapsRemoved = 0;
@@ -370,7 +370,7 @@ async function executeToolInner(
                 } catch { /* skip missing */ }
             }
             const st = useEngineStore.getState();
-            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const bpmVal = resolveBpm(st.projectBpm, st.transport.bpm);
             const srVal = resolveSampleRate(st.projectSampleRate);
             const framesPerBeat = (60.0 / bpmVal) * srVal;
             const posFrames = Math.round(startBeat * framesPerBeat);
@@ -389,7 +389,7 @@ async function executeToolInner(
             const clipId = args.clipId as string;
             const noteArgs = args.notes as Array<{ pitch: number; velocity: number; startBeat: number; durationBeats: number }>;
             const st2 = useEngineStore.getState();
-            const bpm2 = st2.projectBpm || st2.transport.bpm || 120;
+            const bpm2 = resolveBpm(st2.projectBpm, st2.transport.bpm);
             const sr2 = resolveSampleRate(st2.projectSampleRate);
             const fpb2 = (60.0 / bpm2) * sr2;
             const engineNotes = noteArgs.map(n => ({
@@ -442,7 +442,7 @@ async function executeToolInner(
                 } catch { /* skip missing */ }
             }
             const st3 = useEngineStore.getState();
-            const bpm3 = st3.projectBpm || st3.transport.bpm || 120;
+            const bpm3 = resolveBpm(st3.projectBpm, st3.transport.bpm);
             const sr3 = resolveSampleRate(st3.projectSampleRate);
             const fpb3 = (60.0 / bpm3) * sr3;
             const startFrames = Math.round(startBeat * fpb3);
@@ -455,7 +455,7 @@ async function executeToolInner(
             const newTrackIndex = args.newTrackIndex as number;
             const newPositionBeats = args.newPositionBeats as number;
             const stMove = useEngineStore.getState();
-            const fpbMove = (60.0 / (stMove.projectBpm || stMove.transport.bpm || 120)) * (resolveSampleRate(stMove.projectSampleRate));
+            const fpbMove = (60.0 / resolveBpm(stMove.projectBpm, stMove.transport.bpm)) * (resolveSampleRate(stMove.projectSampleRate));
             const posFrames = Math.round(newPositionBeats * fpbMove);
             const response = await engineApi.moveClipWithDeltas(clipId, newTrackIndex, posFrames);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-move-clip');
@@ -466,7 +466,7 @@ async function executeToolInner(
             let posFrames: number | undefined;
             if (args.newPositionBeats !== undefined) {
                 const stDup = useEngineStore.getState();
-                const fpbDup = (60.0 / (stDup.projectBpm || stDup.transport.bpm || 120)) * (resolveSampleRate(stDup.projectSampleRate));
+                const fpbDup = (60.0 / resolveBpm(stDup.projectBpm, stDup.transport.bpm)) * (resolveSampleRate(stDup.projectSampleRate));
                 posFrames = Math.round((args.newPositionBeats as number) * fpbDup);
             }
             const result = await engineApi.duplicateClipWithDeltas(clipId, posFrames);
@@ -477,7 +477,7 @@ async function executeToolInner(
             const clipId = args.clipId as string;
             const splitBeat = args.splitBeat as number;
             const stSplit = useEngineStore.getState();
-            const fpbSplit = (60.0 / (stSplit.projectBpm || stSplit.transport.bpm || 120)) * (resolveSampleRate(stSplit.projectSampleRate));
+            const fpbSplit = (60.0 / resolveBpm(stSplit.projectBpm, stSplit.transport.bpm)) * (resolveSampleRate(stSplit.projectSampleRate));
             const splitFrames = Math.round(splitBeat * fpbSplit);
             const result = await engineApi.splitClipWithDeltas(clipId, splitFrames);
             await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-split-clip');
@@ -488,7 +488,7 @@ async function executeToolInner(
             const fIn = args.fadeInBeats as number;
             const fOut = args.fadeOutBeats as number;
             const stFade = useEngineStore.getState();
-            const fpbFade = (60.0 / (stFade.projectBpm || stFade.transport.bpm || 120)) * (resolveSampleRate(stFade.projectSampleRate));
+            const fpbFade = (60.0 / resolveBpm(stFade.projectBpm, stFade.transport.bpm)) * (resolveSampleRate(stFade.projectSampleRate));
             const response = await engineApi.setClipFadesWithDeltas(
                 clipId,
                 Math.round(fIn * fpbFade),
@@ -550,7 +550,7 @@ async function executeToolInner(
         case 'set_loop_region': {
             const enabled = args.enabled as boolean;
             const stL = useEngineStore.getState();
-            const fpbL = (60.0 / (stL.projectBpm || stL.transport.bpm || 120)) * (resolveSampleRate(stL.projectSampleRate));
+            const fpbL = (60.0 / resolveBpm(stL.projectBpm, stL.transport.bpm)) * (resolveSampleRate(stL.projectSampleRate));
             const startF = Math.round((args.startBeat as number) * fpbL);
             const endF = Math.round((args.endBeat as number) * fpbL);
             const response = await engineApi.setLoopWithDeltas(enabled, startF, endF);
@@ -564,7 +564,7 @@ async function executeToolInner(
             const clip = clips.find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: 'Clip not found' });
             const stQ = useEngineStore.getState();
-            const bpmQ = stQ.projectBpm || stQ.transport.bpm || 120;
+            const bpmQ = resolveBpm(stQ.projectBpm, stQ.transport.bpm);
             const srQ = resolveSampleRate(stQ.projectSampleRate);
             const fpbQ = (60.0 / bpmQ) * srQ;
             const gridFrames = Math.round(grid * fpbQ);
@@ -587,7 +587,7 @@ async function executeToolInner(
             const clip = clips.find(c => c.id === clipId);
             if (!clip || !clip.midiNotes) return JSON.stringify({ error: 'Clip or notes not found' });
             const stH = useEngineStore.getState();
-            const fpbH = (60.0 / (stH.projectBpm || stH.transport.bpm || 120)) * (resolveSampleRate(stH.projectSampleRate));
+            const fpbH = (60.0 / resolveBpm(stH.projectBpm, stH.transport.bpm)) * (resolveSampleRate(stH.projectSampleRate));
             const humanized = clip.midiNotes.map(n => {
                 const delta = Math.round((Math.random() * 2 - 1) * range);
                 return { pitch: n.pitch, velocity: Math.max(1, Math.min(127, n.velocity + delta)), startFrames: Math.round(n.startBeat * fpbH), durationFrames: Math.round(n.durationBeats * fpbH) };
@@ -629,7 +629,7 @@ async function executeToolInner(
             }
             const totalSteps = Math.floor(dur / rate);
             const stArp = useEngineStore.getState();
-            const fpbArp = (60.0 / (stArp.projectBpm || stArp.transport.bpm || 120)) * (resolveSampleRate(stArp.projectSampleRate));
+            const fpbArp = (60.0 / resolveBpm(stArp.projectBpm, stArp.transport.bpm)) * (resolveSampleRate(stArp.projectSampleRate));
             const notes = [];
             for (let step = 0; step < totalSteps; step++) {
                 const pitch = sequence[step % sequence.length];
@@ -860,7 +860,7 @@ async function executeToolInner(
         }
         case 'resize_clip': {
             const st = useEngineStore.getState();
-            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const bpmVal = resolveBpm(st.projectBpm, st.transport.bpm);
             const srVal = resolveSampleRate(st.projectSampleRate);
             const fpb = (60.0 / bpmVal) * srVal;
             const newPosFrames = Math.round((args.newStartBeat as number) * fpb);
@@ -880,7 +880,7 @@ async function executeToolInner(
         }
         case 'set_clip_source_offset': {
             const st = useEngineStore.getState();
-            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const bpmVal = resolveBpm(st.projectBpm, st.transport.bpm);
             const srVal = resolveSampleRate(st.projectSampleRate);
             const fpb = (60.0 / bpmVal) * srVal;
             const offsetFrames = Math.round((args.offsetBeats as number) * fpb);
@@ -899,7 +899,7 @@ async function executeToolInner(
         case 'get_audio_file_duration': {
             const duration = await engineApi.getAudioFileDuration(args.path as string);
             const st = useEngineStore.getState();
-            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const bpmVal = resolveBpm(st.projectBpm, st.transport.bpm);
             const beatsPerSecond = bpmVal / 60.0;
             return JSON.stringify({
                 path: args.path,
@@ -1030,7 +1030,7 @@ async function executeToolInner(
         }
         case 'get_arrangement_overview': {
             const st = useEngineStore.getState();
-            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const bpmVal = resolveBpm(st.projectBpm, st.transport.bpm);
             const totalBeats = clips.reduce((max, c) => Math.max(max, c.startBeat + c.durationBeats), 0);
             const totalBars = Math.ceil(totalBeats / 4);
             const tracksOverview = tracks.map((t, i) => {
@@ -1065,7 +1065,7 @@ export function buildSystemPrompt(): string {
     const s = useEngineStore.getState();
     const tracks = getOrderedTracks(s);
     const clips = s.timelineClips;
-    const bpm = s.projectBpm || s.transport.bpm || 120;
+    const bpm = resolveBpm(s.projectBpm, s.transport.bpm);
     const sr = resolveSampleRate(s.projectSampleRate);
     const transport = s.transport;
     const trackList = tracks

@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand';
 import * as engine from '@/shared/api/engine';
+import { MIN_BPM, MAX_BPM, clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
 
 export function createTransportActions(
@@ -48,9 +49,8 @@ export function createTransportActions(
         },
 
         setBpm: async (bpm: number) => {
-            // BUG-036 FIX: Clamp BPM to valid range — was unbounded,
-            // allowing 0, negative, or 9999 values through.
-            const clamped = Math.max(20, Math.min(999, bpm));
+            // BUG-036 FIX: Clamp BPM to valid range — uses SSOT constants from audioMath.
+            const clamped = Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
             set((s) => ({ transport: { ...s.transport, bpm: clamped }, projectBpm: clamped }));
             markBpmPending(500);
             try {
@@ -64,12 +64,10 @@ export function createTransportActions(
 
         setTimeSignature: async (numerator: number, denominator: number) => {
             // BUG-059 FIX: Validate inputs — reject NaN/Infinity, enforce integer range,
-            // and snap denominator to nearest valid power-of-2 (1,2,4,8,16,32).
+            // SSOT: Uses shared clamp functions from audioMath.ts (max num 99, max denom 64).
             if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return;
-            const clampedNumerator = Math.max(1, Math.min(32, Math.round(numerator)));
-            const rawDenom = Math.max(1, Math.min(32, Math.round(denominator)));
-            // Snap to nearest power of 2 (standard: 1, 2, 4, 8, 16, 32)
-            const clampedDenominator = Math.pow(2, Math.round(Math.log2(rawDenom)));
+            const clampedNumerator = clampTimeSigNumerator(numerator);
+            const clampedDenominator = clampTimeSigDenominator(denominator);
             set((s) => ({
                 timeSigNumerator: clampedNumerator,
                 timeSigDenominator: clampedDenominator,

@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
@@ -97,7 +97,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             return true;
         }
         const store = useEngineStore.getState();
-        const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate);
         const cursorBeat = (ctx.editCursorBeat ?? -1) >= 0 ? (ctx.editCursorBeat as number) : frameToBeat(playheadFrames, bpm, sampleRate);
         const firstBeat = clipboardRef.current[0].startBeat;
@@ -244,7 +244,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:bounce-selection');
             } else if (marqueeSelection) {
                 const store = useEngineStore.getState();
-                const bpm = store.projectBpm || store.transport.bpm || 120;
+                const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
                 const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
                 const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
                 const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
@@ -265,7 +265,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.stopPropagation();
         const store = useEngineStore.getState();
         const transport = store.transport;
-        const bpm = store.projectBpm || transport.bpm || 120;
+        const bpm = resolveBpm(store.projectBpm, transport.bpm);
         const sr = resolveSampleRate(store.projectSampleRate, transport.sample_rate);
         const marqueeStartBeat = marqueeSelection ? Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat) : 0;
         const marqueeEndBeat = marqueeSelection ? Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat) : 0;

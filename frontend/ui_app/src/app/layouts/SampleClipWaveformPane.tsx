@@ -10,6 +10,7 @@ type Props = {
     gridStep: number;
     waveHeightScale: number;
     color: string;
+    beatsPerBar?: number;
 };
 
 export const SampleClipWaveformPane = ({
@@ -21,6 +22,7 @@ export const SampleClipWaveformPane = ({
     gridStep,
     waveHeightScale,
     color,
+    beatsPerBar: beatsPerBarProp = 4,
 }: Props) => {
     const bodyRef = useRef<HTMLDivElement>(null);
     const [bodyHeight, setBodyHeight] = useState(120);
@@ -36,7 +38,7 @@ export const SampleClipWaveformPane = ({
         return () => observer.disconnect();
     }, []);
 
-    const beatsPerBar = 4;
+    const beatsPerBar = Math.max(1, beatsPerBarProp);
     // ENTERPRISE FIX: Separate clip-duration render width from container min-width.
     // The waveform canvas and the colored clip-length bar must use the SAME width
     // (`clipWidth`). The container uses `Math.max(420, ...)` for scroll comfort only.

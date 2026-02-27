@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { resolveBpm } from '@/shared/lib/audioMath';
 import { useShallow } from 'zustand/react/shallow';
 import { computeTransportPosition } from './transportBarDomain';
 
@@ -26,7 +27,7 @@ export const useTransportEngineSlice = () =>
         }
         return {
             isPlaying: s.transport.is_playing,
-            bpm: s.projectBpm || s.transport.bpm || 120,
+            bpm: resolveBpm(s.projectBpm, s.transport.bpm),
             isLooping: s.transport.loop_enabled,
             loopStartFrames: s.transport.loop_start,
             loopEndFrames: s.transport.loop_end,

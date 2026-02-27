@@ -42,7 +42,11 @@ export function useTimelineDnD({
         const beat = engine.viewport.screenToBeats(e.clientX, rect);
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
-        engine.setDropTarget({ track, beat: Math.max(0, Math.round(beat)) });
+        // BUG-H05 FIX: Use snapBeat() for consistent preview position.
+        // Previously used Math.round(beat) which snapped to whole beats
+        // regardless of grid setting, causing visual mismatch with actual drop.
+        const { snapBeat } = useGridStore.getState();
+        engine.setDropTarget({ track, beat: Math.max(0, snapBeat(beat)) });
     }, [engineRef, canvasRef]);
 
     const handleDragLeave = useCallback(() => {
@@ -109,7 +113,10 @@ export function useTimelineDnD({
 
         const acceptance = canDropInZone(draggingItem, 'timeline-track');
         if (inside && acceptance.allowed && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
-            const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(dragCursorX, rect)));
+            // BUG-H04 FIX: Use snapBeat() for consistent ghost clip positioning,
+            // matching the drop handler and the drag-over handler.
+            const { snapBeat } = useGridStore.getState();
+            const beat = Math.max(0, snapBeat(engine.viewport.screenToBeats(dragCursorX, rect)));
             const track = engine.viewport.screenToTrack(dragCursorY, rect);
             engine.setDropTarget(null);
             const widthBeats = draggingItem.durationSeconds

@@ -49,9 +49,21 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackDisabledChanged') {
-        const nextDisabled = 'disabled' in delta.data
-            ? Boolean((delta.data as { disabled?: boolean }).disabled)
-            : Boolean((delta.data as { muted?: boolean }).muted);
+        // BUG-H11 FIX: Proper type narrowing instead of fragile dual-cast.
+        // Backend schema migrated from `muted` → `disabled`. Support both
+        // with explicit fallback and deprecation warning for old field.
+        const data = delta.data as Record<string, unknown>;
+        let nextDisabled: boolean;
+        if ('disabled' in data && typeof data.disabled === 'boolean') {
+            nextDisabled = data.disabled;
+        } else if ('muted' in data && typeof data.muted === 'boolean') {
+            nextDisabled = data.muted;
+        } else {
+            // BUG-H11 FIX: Neither field present — log warning and skip.
+            // Previously defaulted to `false`, silently un-disabling the track.
+            console.warn('[TrackDelta] TrackDisabledChanged: neither `disabled` nor `muted` field found — skipping.');
+            return true;
+        }
         patchTrack(state, delta.data.track_id, { is_disabled: nextDisabled });
         return true;
     }

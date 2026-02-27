@@ -36,8 +36,10 @@ export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
                 try {
                     const tl = useTimelineStore.getState();
                     await setArrangementViewport(tl.pixelsPerBeat, tl.scrollLeft, tl.scrollTop);
-                } catch {
-                    // Non-fatal: viewport sync failure should not block auto-save.
+                } catch (viewportErr) {
+                    // BUG-H08 FIX: Log instead of silently swallowing.
+                    // Persistent viewport sync failures were invisible.
+                    console.warn('[AutoSave] Viewport sync failed (non-fatal):', viewportErr);
                 }
                 const result = await autoSaveIfDirty();
                 if (result.saved) {

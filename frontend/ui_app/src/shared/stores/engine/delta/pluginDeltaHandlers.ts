@@ -120,7 +120,8 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
                 ...effects[existingIndex],
                 name: added.name,
                 plugin_id: added.plugin_id,
-                is_bypassed: false,
+                // BUG-P009 FIX: was hardcoded `false` — use delta data bypass state.
+                is_bypassed: deltaData.is_bypassed ?? effects[existingIndex].is_bypassed ?? false,
             };
         } else {
             const insert = Math.max(0, Math.min(delta.data.slot_index, effects.length));

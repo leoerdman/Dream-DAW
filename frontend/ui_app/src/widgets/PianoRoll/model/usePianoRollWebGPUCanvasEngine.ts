@@ -172,7 +172,10 @@ export function usePianoRollWebGPUCanvasEngine({
 
                 gpuRef.current = { device, context, pipeline, format, buffer: null };
                 setActive(true);
-            } catch {
+            } catch (err) {
+                // BUG-H02 FIX: Log error instead of silently swallowing.
+                // Blank PianoRoll canvas was impossible to diagnose without this.
+                console.warn('[WebGPU] PianoRoll GPU init failed, falling back to Canvas2D:', err);
                 setActive(false);
             }
         };

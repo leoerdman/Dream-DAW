@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
+import { clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
 import { applyProjectDeltasToState, extractSnapshotProjectMeta } from '@/shared/stores/engine/applyProjectDeltas';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
@@ -336,9 +337,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         nextKeySigTonic = delta.data.tonic;
                         nextKeySigMode = delta.data.mode;
                     } else if (delta.kind === 'TimeSignatureChanged') {
-                        // BUG-F010 FIX: Raised cap from 32 to 99/64 to match standard DAW limits.
-                        nextTimeSigNumerator = Math.max(1, Math.min(99, delta.data.numerator));
-                        nextTimeSigDenominator = Math.max(1, Math.min(64, delta.data.denominator));
+                        // BUG-F010 FIX: SSOT — uses shared clamp functions from audioMath.ts.
+                        nextTimeSigNumerator = clampTimeSigNumerator(delta.data.numerator);
+                        nextTimeSigDenominator = clampTimeSigDenominator(delta.data.denominator);
                         transportPatch.time_sig_numerator = nextTimeSigNumerator;
                         transportPatch.time_sig_denominator = nextTimeSigDenominator;
                         transportPatched = true;

@@ -8,7 +8,7 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
-import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import {
     BOTTOM_PANEL_HEIGHT_DEFAULT_PX,
     BOTTOM_PANEL_HEIGHT_MAX_PX,
@@ -16,7 +16,7 @@ import {
     BROWSER_WIDTH_DEFAULT_PX,
     BROWSER_WIDTH_MAX_PX,
     BROWSER_WIDTH_MIN_PX,
-    DEFAULT_BPM,
+
 } from '@/shared/config/layoutConstants';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
@@ -232,7 +232,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         trackIds: tracksEntity.allIds,
         tracksById: tracksEntity.byId,
         projectBpm,
-        transportBpm: transportBpm || DEFAULT_BPM,
+        transportBpm: resolveBpm(transportBpm),
         projectSampleRate,
         applyProjectDeltas,
     });
@@ -316,7 +316,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         queuedStartBeatRef,
     });
     const _loopBpm = useMemo(
-        () => Math.max(1, projectBpm || transportBpm || DEFAULT_BPM),
+        () => resolveBpm(projectBpm, transportBpm),
         [projectBpm, transportBpm],
     );
     const loopStartBeat = useMemo(
@@ -421,7 +421,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     } = useBrowserDnDOrchestrator({
         tracks: tracksEntity,
         projectBpm,
-        transportBpm: transportBpm || DEFAULT_BPM,
+        transportBpm: resolveBpm(transportBpm),
         projectSampleRate,
         importFile,
         applyProjectDeltas,
@@ -448,7 +448,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         handleOpenMidiClip,
     } = useTimelineClipHandlers({
         projectBpm,
-        transportBpm: transportBpm || DEFAULT_BPM,
+        transportBpm: resolveBpm(transportBpm),
         projectSampleRate,
         timelineClipsForView,
         selectedClipIds: selectedClipIdsForView,
@@ -484,7 +484,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         [setClipFadeCurves],
     );
     const timelineProps = useDawShellTimelineProps({
-        bpm: projectBpm || transportBpm || DEFAULT_BPM,
+        bpm: resolveBpm(projectBpm, transportBpm),
         clips: timelineClipsForView,
         editCursorBeat,
         editCursorTrackIndex,
@@ -591,7 +591,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 projectName={projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
                 selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
-                bpm={projectBpm || transportBpm || DEFAULT_BPM}
+                bpm={resolveBpm(projectBpm, transportBpm)}
                 sampleRate={projectSampleRate}
                 loopStartBeat={loopStartBeat}
                 loopEndBeat={loopEndBeat}

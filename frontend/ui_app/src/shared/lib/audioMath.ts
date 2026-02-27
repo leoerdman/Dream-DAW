@@ -18,7 +18,7 @@
  * to minimize floating-point error (single multiply before rounding).
  */
 export function beatToFrame(beat: number, bpm: number, sampleRate: number): number {
-    const safeBpm = Math.max(1, bpm || 120);
+    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
     return Math.round((beat * 60 * safeSr) / safeBpm);
 }
@@ -29,7 +29,7 @@ export function beatToFrame(beat: number, bpm: number, sampleRate: number): numb
  * Inverse of `beatToFrame`. Returns a floating-point beat value.
  */
 export function frameToBeat(frame: number, bpm: number, sampleRate: number): number {
-    const safeBpm = Math.max(1, bpm || 120);
+    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
     return (frame * safeBpm) / (60 * safeSr);
 }
@@ -38,7 +38,7 @@ export function frameToBeat(frame: number, bpm: number, sampleRate: number): num
  * Convert seconds to beats.
  */
 export function secondsToBeat(seconds: number, bpm: number): number {
-    const safeBpm = Math.max(1, bpm || 120);
+    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     return seconds * (safeBpm / 60);
 }
 
@@ -46,7 +46,7 @@ export function secondsToBeat(seconds: number, bpm: number): number {
  * Convert beats to seconds.
  */
 export function beatToSeconds(beat: number, bpm: number): number {
-    const safeBpm = Math.max(1, bpm || 120);
+    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     return (beat * 60) / safeBpm;
 }
 
@@ -57,7 +57,7 @@ export function beatToSeconds(beat: number, bpm: number): number {
  * when the value represents a duration rather than a position.
  */
 export function beatDurationToFrames(durationBeats: number, bpm: number, sampleRate: number): number {
-    const safeBpm = Math.max(1, bpm || 120);
+    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
     return Math.round((durationBeats * 60 * safeSr) / safeBpm);
 }
@@ -70,6 +70,58 @@ export function clampFramePosition(frame: number): number {
 }
 
 export const DEFAULT_SAMPLE_RATE = 44_100;
+
+// ── SSOT Constants ─────────────────────────────────────────────────────
+// These constants are the single source of truth for validation limits.
+// Every place that clamps time signature or BPM MUST use these values.
+
+/** Default BPM when no project or transport BPM is available. */
+export const DEFAULT_BPM = 120;
+
+/** Maximum allowed time-signature numerator (beats per bar). */
+export const MAX_TIME_SIG_NUMERATOR = 99;
+
+/** Maximum allowed time-signature denominator (beat unit). */
+export const MAX_TIME_SIG_DENOMINATOR = 64;
+
+/** Minimum BPM (inclusive). */
+export const MIN_BPM = 20;
+
+/** Maximum BPM (inclusive). */
+export const MAX_BPM = 999;
+
+/**
+ * Resolve the effective BPM from project → transport → fallback.
+ *
+ * This is the SSOT for BPM resolution — replaces the
+ * `store.projectBpm || store.transport.bpm || 120` pattern
+ * that was duplicated 40+ times across the codebase.
+ */
+export function resolveBpm(projectBpm?: number | null, transportBpm?: number | null): number {
+    if (typeof projectBpm === 'number' && Number.isFinite(projectBpm) && projectBpm > 0) {
+        return Math.max(1, projectBpm);
+    }
+    if (typeof transportBpm === 'number' && Number.isFinite(transportBpm) && transportBpm > 0) {
+        return Math.max(1, transportBpm);
+    }
+    return DEFAULT_BPM;
+}
+
+/**
+ * Clamp a time-signature numerator to the valid range [1, MAX_TIME_SIG_NUMERATOR].
+ */
+export function clampTimeSigNumerator(n: number): number {
+    return Math.max(1, Math.min(MAX_TIME_SIG_NUMERATOR, Math.round(n)));
+}
+
+/**
+ * Clamp a time-signature denominator to the nearest valid power-of-2
+ * within [1, MAX_TIME_SIG_DENOMINATOR].
+ */
+export function clampTimeSigDenominator(d: number): number {
+    const raw = Math.max(1, Math.min(MAX_TIME_SIG_DENOMINATOR, Math.round(d)));
+    return Math.pow(2, Math.round(Math.log2(raw)));
+}
 
 /**
  * Resolve effective sample-rate from primary/secondary candidates.

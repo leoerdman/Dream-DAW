@@ -1,4 +1,4 @@
-import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveBpm, resolveSampleRate, clampTimeSigNumerator, clampTimeSigDenominator } from '@/shared/lib/audioMath';
 import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
@@ -67,7 +67,7 @@ export function extractSnapshotProjectMeta(
         return null;
     }
 
-    const bpm = toFiniteNumber(project.pulse_map?.tempo_events?.[0]?.bpm, transport.bpm || 120);
+    const bpm = toFiniteNumber(project.pulse_map?.tempo_events?.[0]?.bpm, resolveBpm(transport.bpm));
     const sampleRate = resolveSampleRate(project.sample_rate, transport.sample_rate);
 
     const rawViewZoom = toFiniteNumber(
@@ -94,8 +94,8 @@ export function extractSnapshotProjectMeta(
     return {
         bpm,
         sampleRate,
-        timeSigNumerator: Math.max(1, toFiniteNumber(project.time_signature?.numerator ?? 4, 4)),
-        timeSigDenominator: Math.max(1, toFiniteNumber(project.time_signature?.denominator ?? 4, 4)),
+        timeSigNumerator: clampTimeSigNumerator(toFiniteNumber(project.time_signature?.numerator ?? 4, 4)),
+        timeSigDenominator: clampTimeSigDenominator(toFiniteNumber(project.time_signature?.denominator ?? 4, 4)),
         keySigEnabled: Boolean(project.key_sig_enabled ?? false),
         keySigTonic: String(project.key_sig_tonic ?? 'C'),
         keySigMode: String(project.key_sig_mode ?? 'Major'),
@@ -134,7 +134,7 @@ export function applyProjectDeltasToState(
         clearTrackControlCaches();
 
         if (project && Array.isArray(project.tracks)) {
-            const bpm = Math.max(1, project.pulse_map?.tempo_events?.[0]?.bpm ?? state.transport.bpm ?? 120);
+            const bpm = Math.max(1, project.pulse_map?.tempo_events?.[0]?.bpm ?? resolveBpm(state.transport.bpm));
             // ENTERPRISE FIX: Prefer PulseMap's sample_rate for consistency with backend
             // PulseMap.beats() which uses pulse_map.sample_rate for frame→beat conversion.
             const sampleRate = resolveSampleRate(
@@ -223,10 +223,16 @@ export function applyProjectDeltasToState(
             );
             const sanitizedTimelineClips = normalizeTimelineClips(timelineClips);
 
+            // BUG-P008 FIX: O(N) for-loop instead of O(2N) Object.fromEntries + .map().
+            const clipsByIdSnapshot: Record<string, typeof sanitizedTimelineClips[number]> = {};
+            for (let i = 0; i < sanitizedTimelineClips.length; i++) {
+                clipsByIdSnapshot[sanitizedTimelineClips[i].id] = sanitizedTimelineClips[i];
+            }
+
             return {
                 nextState: {
                     timelineClips: sanitizedTimelineClips,
-                    clipsById: Object.fromEntries(sanitizedTimelineClips.map((clip) => [clip.id, clip])),
+                    clipsById: clipsByIdSnapshot,
                     clips: toEntityState(sanitizedTimelineClips),
                     ...snapshotTrackState,
                 },
@@ -236,7 +242,7 @@ export function applyProjectDeltasToState(
         }
     }
 
-    const bpm = Math.max(1, state.projectBpm ?? state.transport.bpm ?? 120);
+    const bpm = resolveBpm(state.projectBpm, state.transport.bpm);
     const sampleRate = resolveSampleRate(state.projectSampleRate, state.transport.sample_rate);
 
     const canonicalTracks = resolveCanonicalTrackState(state);
@@ -284,10 +290,16 @@ export function applyProjectDeltasToState(
         working.tracks.byId,
     );
 
+    // BUG-P008 FIX: O(N) for-loop instead of O(2N) Object.fromEntries + .map().
+    const clipsByIdDelta: Record<string, typeof sanitizedTimelineClips[number]> = {};
+    for (let i = 0; i < sanitizedTimelineClips.length; i++) {
+        clipsByIdDelta[sanitizedTimelineClips[i].id] = sanitizedTimelineClips[i];
+    }
+
     return {
         nextState: {
             timelineClips: sanitizedTimelineClips,
-            clipsById: Object.fromEntries(sanitizedTimelineClips.map((clip) => [clip.id, clip])),
+            clipsById: clipsByIdDelta,
             clips: toEntityState(sanitizedTimelineClips),
             ...nextTrackState,
         },

@@ -10,6 +10,8 @@ interface Window {
     __dreamFlushPendingEdits?: () => Promise<void>;
     __dreamSelectedTrackId?: string;
     __dreamOpenExportModal?: () => void;
+    __dreamSaveProject?: () => Promise<void>;
+    __dreamSaveAsProject?: () => Promise<void>;
 }
 
 declare module 'lodash.throttle' {

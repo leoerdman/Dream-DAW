@@ -4,22 +4,17 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import {
     type GridDivision,
     divisionToInterval,
+    divisionToDenominator,
+    denominatorToGridDivision,
     snapToGrid,
 } from '@/shared/lib/gridSnap';
 import type { GridStore } from '@/shared/stores/useGridStore.types';
 // BUG-061: Added '1/64' for detailed MIDI editing.
 const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/64', '1/128', '1/1', '1/2', 'OFF'];
 const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64', '1/128'];
-function denominatorToDivision(denominator: number): GridDivision {
-    if (denominator <= 1) return '1/1';
-    if (denominator <= 2) return '1/2';
-    if (denominator <= 4) return '1/4';
-    if (denominator <= 8) return '1/8';
-    if (denominator <= 16) return '1/16';
-    if (denominator <= 32) return '1/32';
-    if (denominator <= 64) return '1/64';
-    return '1/128';
-}
+// BUG-L01-L05 SSOT: Local denominatorToDivision removed — now uses
+// denominatorToGridDivision() imported from '@/shared/lib/gridSnap'.
+// This was one of 5 duplicate mapping implementations.
 export const useGridStore = create<GridStore>((set, get) => ({
     // ── State ──────────────────────────────────────────────────────────
     division: '1/1',
@@ -34,11 +29,8 @@ export const useGridStore = create<GridStore>((set, get) => ({
     setDivision: (d: GridDivision) => {
         const nextFixed = d !== 'ADAPTIVE';
         const nextNumerator = 1;
-        // BUG-037 FIX: Replaced 7-level nested ternary with readable lookup map.
-        const DIVISION_TO_DENOMINATOR: Record<string, number> = {
-            '1/1': 1, '1/2': 2, '1/4': 4, '1/8': 8, '1/16': 16, '1/32': 32, '1/64': 64, '1/128': 128,
-        };
-        const nextDenominator = DIVISION_TO_DENOMINATOR[d] ?? get().fixedDenominator;
+        // BUG-L01-L05 SSOT: Use imported divisionToDenominator() from gridSnap.ts.
+        const nextDenominator = divisionToDenominator(d, get().fixedDenominator);
         const nextTriplet = false;
         const pending = {
             numerator: nextFixed ? nextNumerator : get().fixedNumerator,
@@ -78,7 +70,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const st = get();
         const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
             ? st.division
-            : denominatorToDivision(st.fixedDenominator);
+            : denominatorToGridDivision(st.fixedDenominator);
         const currentIndex = FIXED_DIVISION_ORDER.indexOf(baseDivision);
         const safeIndex = currentIndex < 0 ? 0 : currentIndex;
         const nextIndex = Math.min(FIXED_DIVISION_ORDER.length - 1, safeIndex + 1);
@@ -89,7 +81,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const st = get();
         const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
             ? st.division
-            : denominatorToDivision(st.fixedDenominator);
+            : denominatorToGridDivision(st.fixedDenominator);
         const currentIndex = FIXED_DIVISION_ORDER.indexOf(baseDivision);
         const safeIndex = currentIndex < 0 ? 0 : currentIndex;
         const nextIndex = Math.max(0, safeIndex - 1);
@@ -172,25 +164,9 @@ export const useGridStore = create<GridStore>((set, get) => ({
                 return;
             }
         }
-        const division: GridDivision = !fixed
-            ? 'ADAPTIVE'
-            : denominator === 1
-                ? '1/1'
-                : denominator === 2
-                    ? '1/2'
-                    : denominator === 4
-                        ? '1/4'
-                        : denominator === 8
-                            ? '1/8'
-                            : denominator === 16
-                                ? '1/16'
-                                : denominator === 32
-                                    ? '1/32'
-                                    : denominator === 64
-                                        ? '1/64'
-                                        : denominator === 128
-                                            ? '1/128'
-                                            : '1/16';
+        // BUG-C04 FIX: Use denominatorToDivision() — single source of truth.
+        // Previously an 8-level nested ternary with wrong '1/16' fallback.
+        const division: GridDivision = !fixed ? 'ADAPTIVE' : denominatorToGridDivision(denominator);
         set({
             division,
             triplet: ntoles === 3,
@@ -208,23 +184,8 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const nextPianoPencilMode = cfg.pianoPencilMode ?? get().pianoPencilMode;
         const nextFixed = nextDivision !== 'ADAPTIVE';
         const nextNumerator = 1;
-        const nextDenominator = nextDivision === '1/1'
-            ? 1
-            : nextDivision === '1/2'
-                ? 2
-                : nextDivision === '1/4'
-                    ? 4
-                    : nextDivision === '1/8'
-                        ? 8
-                        : nextDivision === '1/16'
-                            ? 16
-                            : nextDivision === '1/32'
-                                ? 32
-                                : nextDivision === '1/64'
-                                    ? 64
-                                    : nextDivision === '1/128'
-                                        ? 128
-                                        : get().fixedDenominator;
+        // BUG-L01-L05 SSOT: Use imported divisionToDenominator() from gridSnap.ts.
+        const nextDenominator = divisionToDenominator(nextDivision, get().fixedDenominator);
         set({
             division: nextDivision,
             triplet: Boolean(nextTriplet),

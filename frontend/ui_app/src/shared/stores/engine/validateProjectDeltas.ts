@@ -68,7 +68,12 @@ export function sanitizeProjectDeltas(raw: unknown): ProjectDelta[] {
         const kind = entry.kind;
         const data = entry.data;
         if (typeof kind !== 'string') continue;
-        if (!KNOWN_DELTA_KINDS.has(kind)) continue;
+        // BUG-H09 FIX: Log unknown delta kinds so backend-frontend desync is detectable.
+        // Previously silently dropped, making it impossible to diagnose missing features.
+        if (!KNOWN_DELTA_KINDS.has(kind)) {
+            console.warn(`[DeltaValidator] Unknown delta kind "${kind}" — dropped. Backend may be ahead of frontend.`);
+            continue;
+        }
         if (!isRecord(data)) continue;
         cleaned.push(entry as ProjectDelta);
     }

@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
 
@@ -28,7 +28,7 @@ function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv[
 
 async function splitRegionBoundaries(range: RegionBox): Promise<void> {
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const splitBeats = [range.startBeat, range.endBeat];
     const EPS = 1e-6;
@@ -56,7 +56,7 @@ export async function duplicateRegion(range: RegionBox): Promise<string[]> {
     if (sourceClips.length === 0) return [];
     const lenBeats = Math.max(0.0001, range.endBeat - range.startBeat);
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const responses = await Promise.all(
         sourceClips.map((clip) =>
@@ -83,7 +83,7 @@ export async function moveRegion(range: RegionBox, direction: -1 | 1): Promise<n
     if (Math.abs(deltaBeats) <= 1e-9) return 0;
 
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const responses = await Promise.all(
         clips.map((clip) => {
@@ -122,7 +122,7 @@ export async function swapRegions(regionA: RegionBox, regionB: RegionBox): Promi
     if (clipsA.length === 0 && clipsB.length === 0) return 0;
 
     const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const deltaBeat = regionB.startBeat - regionA.startBeat;
     const deltaTrack = regionB.startTrack - regionA.startTrack;

@@ -6,7 +6,7 @@ import {
     snapToTrackHeightLevel,
 } from '@/shared/config/trackHeightLevels';
 
-export const DEFAULT_BPM = 120;
+export { DEFAULT_BPM } from '@/shared/lib/audioMath';
 
 export const BROWSER_WIDTH_MIN_PX = 240;
 export const BROWSER_WIDTH_MAX_PX = 520;

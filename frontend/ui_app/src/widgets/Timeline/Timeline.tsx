@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -211,7 +211,7 @@ export const Timeline = (props: TimelineProps) => {
     const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => { });
     useEffect(() => {
         commitLoopRef.current = (loop) => {
-            const currentBpm = propsRef.current.bpm || 120;
+            const currentBpm = resolveBpm(propsRef.current.bpm);
             const currentSampleRate = resolveSampleRate(useEngineStore.getState().transport.sample_rate);
             const startFrames = beatToFrame(loop.start, currentBpm, currentSampleRate);
             const endFrames = beatToFrame(loop.end, currentBpm, currentSampleRate);

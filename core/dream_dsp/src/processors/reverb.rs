@@ -49,9 +49,11 @@ struct CombFilter {
 
 impl CombFilter {
     fn new(size: usize) -> Self {
+        // BUG-007 FIX: Clamp size to at least 1 to prevent division by zero in modulo.
+        let safe_size = size.max(1);
         Self {
-            buffer: vec![0.0; size],
-            buf_size: size,
+            buffer: vec![0.0; safe_size],
+            buf_size: safe_size,
             index: 0,
             filter_store: 0.0,
             feedback: 0.5,

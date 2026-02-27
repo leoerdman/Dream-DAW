@@ -280,7 +280,7 @@ async fn set_clip_fades_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(i64, i64), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
@@ -293,7 +293,7 @@ async fn set_clip_fades_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    execute_orchestrator_command(&project_state, &cmd)?;
+    let fades = execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
         project_state,
@@ -302,7 +302,7 @@ async fn set_clip_fades_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
-    Ok(())
+    Ok(fades)
 }
 
 #[tauri::command]
@@ -315,12 +315,9 @@ async fn set_clip_fades_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    let active_project_arc = active_project!(project_registry);
-    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
-    set_clip_fades_cmd(
+    let (actual_fade_in, actual_fade_out) = set_clip_fades_cmd(
         clip_id,
         fade_in_frames,
         fade_out_frames,
@@ -331,18 +328,11 @@ async fn set_clip_fades_with_deltas_cmd(
     )
     .await?;
 
-    let after_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
-
-    let mut deltas = Vec::new();
-    if before_state.fade_in_frames != after_state.fade_in_frames
-        || before_state.fade_out_frames != after_state.fade_out_frames
-    {
-        deltas.push(dream_models::delta::ProjectDelta::ClipFadesChanged {
-            clip_id: clip_uuid,
-            fade_in_frames: after_state.fade_in_frames,
-            fade_out_frames: after_state.fade_out_frames,
-        });
-    }
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipFadesChanged {
+        clip_id: clip_uuid,
+        fade_in_frames: actual_fade_in,
+        fade_out_frames: actual_fade_out,
+    }];
     Ok(DeltaMutationResponse { deltas })
 }
 

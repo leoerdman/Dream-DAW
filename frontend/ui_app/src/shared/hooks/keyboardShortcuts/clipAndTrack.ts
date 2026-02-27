@@ -54,10 +54,16 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const selected = timelineClips.filter((c) => targets.includes(c.id));
         if (selected.length < 2 || !selected.every((c) => c.trackIndex === selected[0].trackIndex)) return true;
         try {
-            const response = await engine.mergeClipsWithDeltas(selected.map((c) => c.id));
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-merge');
+            const hasAudio = selected.some((c) => c.type === 'audio');
+            if (hasAudio) {
+                const response = await engine.bounceSelectionToTrackWithDeltas({ clipIds: selected.map(c => c.id) });
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-bounce-clips');
+            } else {
+                const response = await engine.mergeClipsWithDeltas(selected.map((c) => c.id));
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-merge');
+            }
         } catch (err) {
-            console.error('[Shortcuts] Merge clips failed:', err);
+            console.error('[Shortcuts] Merge/Bounce clips failed:', err);
         }
         return true;
     }
@@ -126,15 +132,14 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 onClipSelectionChanged(results.map((r) => r.new_id));
             } else {
                 const allDeltas: Array<{ deltas: unknown[] }> = [];
-                const results = await Promise.all(clipboardRef.current.map((clip) => engine.duplicateClipWithDeltas(clip.id)));
-                allDeltas.push(...results);
-                for (let i = 0; i < results.length; i += 1) {
-                    const clip = clipboardRef.current[i];
+                const promises = clipboardRef.current.map((clip) => {
                     const destBeat = Math.max(0, cursorBeat + (clip.startBeat - firstBeat) + groupOffset);
+                    const destPositionFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                     const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
-                    const response = await engine.moveClipWithDeltas(results[i].new_id, targetTrack, Math.max(0, beatToFrame(destBeat, bpm, sampleRate)));
-                    allDeltas.push(response);
-                }
+                    return engine.duplicateClipWithDeltas(clip.id, destPositionFrames, targetTrack);
+                });
+                const results = await Promise.all(promises);
+                allDeltas.push(...results);
                 await useEngineStore.getState().applyProjectDeltas(allDeltas.flatMap((r) => r.deltas as never[]), 'shortcut-paste-cross-track');
                 onClipSelectionChanged(results.map((r) => r.new_id));
             }

@@ -21,12 +21,14 @@ pub struct DuplicateClipResult {
 pub struct DuplicateClipCommand {
     pub clip_id: Uuid,
     pub new_position_frames: Option<i64>,
+    pub target_track_index: Option<usize>,
 }
 
 impl DuplicateClipCommand {
     pub fn from_str_id(
         clip_id: &str,
         new_position_frames: Option<i64>,
+        target_track_index: Option<usize>,
     ) -> OrchestratorResult<Self> {
         let uuid = Uuid::parse_str(clip_id).map_err(|e| OrchestratorError::InvalidId {
             field: "clip_id",
@@ -36,6 +38,7 @@ impl DuplicateClipCommand {
         Ok(Self {
             clip_id: uuid,
             new_position_frames,
+            target_track_index,
         })
     }
 }
@@ -66,17 +69,17 @@ impl Command for DuplicateClipCommand {
             .any(|c| c.id == self.clip_id);
 
         let (new_id, new_position_frames) = if is_audio_clip {
-            let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos)?;
+            let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
             (dup.id, dup.position.sample_frame)
         } else {
-            let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?;
+            let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
             (dup.id, dup.position.sample_frame)
         };
 
         Ok(DuplicateClipResult {
             new_id,
             new_position_frames,
-            track_index,
+            track_index: self.target_track_index.unwrap_or(track_index),
         })
     }
 }

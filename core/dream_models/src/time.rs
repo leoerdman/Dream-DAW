@@ -223,7 +223,9 @@ impl TimePosition {
     /// Creates a `TimePosition` from beats.
     #[inline]
     pub const fn new(beats: f64) -> Self {
-        Self { beats }
+        // BUG-039 FIX: Prevent negative beats.
+        let valid_beats = if beats < 0.0 { 0.0 } else { beats };
+        Self { beats: valid_beats }
     }
 
     /// Creates from bars (1-indexed) and beats per bar.

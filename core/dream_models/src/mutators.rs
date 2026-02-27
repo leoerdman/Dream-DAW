@@ -449,6 +449,7 @@ pub fn duplicate_clip(
     project: &mut Project,
     clip_id: Uuid,
     new_position: Option<AbsoluteTime>,
+    target_track_idx: Option<usize>,
 ) -> Result<AudioClip, MutatorError> {
     let (track_idx, clip_idx) = find_clip_location(project, clip_id)?;
     // Prepare duplicate
@@ -462,7 +463,11 @@ pub fn duplicate_clip(
     dup.is_selected = true;
     // Deselect original
     project.tracks[track_idx].clips[clip_idx].is_selected = false;
-    let track = &mut project.tracks[track_idx];
+    let target_idx = target_track_idx.unwrap_or(track_idx);
+    if target_idx >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
+    }
+    let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
     handle_overlaps(track, &dup);
     let insert_pos = track
@@ -479,6 +484,7 @@ pub fn duplicate_midi_clip(
     project: &mut Project,
     clip_id: Uuid,
     new_position: Option<AbsoluteTime>,
+    target_track_idx: Option<usize>,
 ) -> Result<MidiClip, MutatorError> {
     let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
     // Prepare duplicate
@@ -492,7 +498,11 @@ pub fn duplicate_midi_clip(
     dup.is_selected = true;
     // Deselect original
     project.tracks[track_idx].midi_clips[clip_idx].is_selected = false;
-    let track = &mut project.tracks[track_idx];
+    let target_idx = target_track_idx.unwrap_or(track_idx);
+    if target_idx >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
+    }
+    let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
     handle_midi_overlaps(track, &dup);
     let insert_pos = track

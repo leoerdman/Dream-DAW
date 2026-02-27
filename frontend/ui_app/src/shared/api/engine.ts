@@ -458,7 +458,9 @@ export const updateMidiClip = (
             pitch: clampMidiPitch(n.pitch),
             velocity: clampMidiVelocity(n.velocity),
             start_frames: Math.max(0, Math.round(n.startFrames)),
-            duration_frames: Math.max(1, Math.round(n.durationFrames)),
+            // BUG-050 FIX: 1 frame at 48kHz is 0.00002s (inaudible click).
+            // Clamp to 480 frames (~10ms) as a playable minimum length.
+            duration_frames: Math.max(480, Math.round(n.durationFrames)),
         })),
     });
 export const updateMidiClipWithDeltas = (
@@ -756,15 +758,17 @@ export const splitClip = (clipId: string, splitFrame: number) =>
     invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
 export const splitClipWithDeltas = (clipId: string, splitFrame: number) =>
     invoke<SplitClipWithDeltasResponse>('split_clip_with_deltas_cmd', { clipId, splitFrame });
-export const duplicateClip = (clipId: string, newPositionFrames?: number) =>
+export const duplicateClip = (clipId: string, newPositionFrames?: number, targetTrackIndex?: number) =>
     invoke<DuplicateClipResponse>('duplicate_clip_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
+        targetTrackIndex: targetTrackIndex ?? null,
     });
-export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: number) =>
+export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: number, targetTrackIndex?: number) =>
     invoke<DuplicateClipWithDeltasResponse>('duplicate_clip_with_deltas_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
+        targetTrackIndex: targetTrackIndex ?? null,
     });
 export const mergeClips = (clipIds: string[]) =>
     invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });

@@ -225,13 +225,6 @@ pub struct RenderContext {
     /// Each buffer callback advances this index, ensuring later tracks
     /// get first pick on alternating callbacks for fair distribution.
     pro_warp_start_track: usize,
-
-    /// LOOP-CLICK-FIX: Frame offset within the current buffer where a loop
-    /// wrap occurred. When `Some(offset)`, a micro-crossfade is applied at
-    /// this position to eliminate the discontinuity click between the last
-    /// sample of the loop end and the first sample of the loop start.
-    /// Reset to `None` at the start of each `advance_playhead_by_frames()`.
-    pub loop_wrap_offset: Option<usize>,
 }
 
 pub fn soft_clip(sample: f32) -> f32 {
@@ -299,7 +292,6 @@ impl RenderContext {
             spectrum_producer: None,
             offline_mode: false,
             pro_warp_start_track: 0,
-            loop_wrap_offset: None,
         }
     }
 
@@ -675,7 +667,7 @@ impl RenderContext {
                         // AE-015 FIX: Apply head fade even for short clips.
                         // Previously skipped when safe_read_len < fade_len,
                         // causing clicks at the start of very short clips.
-                        if ac.is_clip_head {
+                        if ac.is_clip_head || ac.is_loop_wrap_fade_in {
                             let actual_fade = fade_len.min(safe_read_len);
                             if actual_fade > 0 {
                                 for i in 0..actual_fade {
@@ -692,7 +684,7 @@ impl RenderContext {
                         // AUD-093 FIX: Apply tail fade even when safe_read_len < fade_len.
                         // Very short clips (< fade_len frames) previously got no auto-fade
                         // at all, producing a click at the end.
-                        if ac.is_clip_tail {
+                        if ac.is_clip_tail || ac.is_loop_wrap_fade_out {
                             let actual_fade = fade_len.min(safe_read_len);
                             if actual_fade > 0 {
                                 let tail_start = offset + safe_read_len - actual_fade;
@@ -714,52 +706,9 @@ impl RenderContext {
         // BUG-65 FIX: Diagnostic counters for render pass.
         // AUDIT-S1-04: Removed log::trace! — log backend Mutex is RT-unsafe.
         let _ = (total_active, total_pool_hits);
-
-        // ── LOOP-CLICK-FIX: Apply micro-crossfade at loop wrap boundary ──
-        // When the buffer straddles the loop end→start transition, the audio
-        // from the end of the loop is concatenated with audio from the start.
-        // Without smoothing, the sample discontinuity causes an audible click.
-        // We apply a short Hann fade-out before the wrap and fade-in after.
-        if let Some(wrap_offset) = self.loop_wrap_offset {
-            let fade_len = self.fade_cache.fade_length;
-            // Only apply if the wrap point is well within the buffer and we
-            // have enough room for the fade on both sides.
-            if wrap_offset > 0 && wrap_offset < frame_count {
-                let fade_before = fade_len.min(wrap_offset);
-                let fade_after = fade_len.min(frame_count - wrap_offset);
-
-                for slot in &mut self.track_slots[..track_count] {
-                    if !slot.active {
-                        continue;
-                    }
-                    // Fade-out: ramp down the last `fade_before` frames before wrap
-                    if fade_before > 0 {
-                        let start = wrap_offset - fade_before;
-                        for i in 0..fade_before {
-                            // Map into the END portion of the fade_out table
-                            let table_idx = self.fade_cache.fade_length - fade_before + i;
-                            let gain = self.fade_cache.fade_out[table_idx];
-                            slot.buf_left[start + i] *= gain;
-                            slot.buf_right[start + i] *= gain;
-                        }
-                    }
-                    // Fade-in: ramp up the first `fade_after` frames after wrap
-                    if fade_after > 0 {
-                        for i in 0..fade_after {
-                            let gain = self.fade_cache.fade_in[i];
-                            slot.buf_left[wrap_offset + i] *= gain;
-                            slot.buf_right[wrap_offset + i] *= gain;
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Advances the playhead with exact fractional sample rate interpolation.
-    ///
-    /// LOOP-CLICK-FIX: Also captures the loop wrap frame offset so that a
-    /// micro-crossfade can be applied at the splice point.
     #[inline]
     pub fn advance_playhead_by_frames(&mut self, frame_count: usize) {
         let transport_loop = self
@@ -778,18 +727,8 @@ impl RenderContext {
         let (advance_frames, new_acc) =
             converter.playhead_advance(self.timeline_advance_accumulator);
         self.timeline_advance_accumulator = new_acc;
-        let frames_before_wrap = self.playhead
+        self.playhead
             .advance(advance_frames, transport_loop.as_ref());
-
-        // LOOP-CLICK-FIX: Detect loop wrap and record the device-domain offset.
-        // `frames_before_wrap < advance_frames` means the playhead wrapped.
-        // Convert the timeline-domain wrap offset to device-domain frames.
-        if frames_before_wrap < advance_frames {
-            let device_offset = converter.timeline_to_device_offset(frames_before_wrap);
-            self.loop_wrap_offset = Some(device_offset);
-        } else {
-            self.loop_wrap_offset = None;
-        }
     }
 
     /// Full render pipeline: fills track slots, sums into master bus, interleaves output.

@@ -159,7 +159,8 @@ export function useTimelineDnD({
             if (inside) {
                 const acceptance = canDropInZone(draggingItem, 'timeline-track');
                 if (acceptance.allowed) {
-                    const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
+                    const { snapBeat } = useGridStore.getState();
+                    const beat = Math.max(0, snapBeat(engine.viewport.screenToBeats(e.clientX, rect)));
                     const track = engine.viewport.screenToTrack(e.clientY, rect);
                     commandBusRef.current.emit({
                         type: 'drop',

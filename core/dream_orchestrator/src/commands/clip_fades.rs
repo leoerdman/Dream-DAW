@@ -37,11 +37,13 @@ impl SetClipFadesCommand {
 }
 
 impl Command for SetClipFadesCommand {
-    type Result = ();
+    type Result = (i64, i64);
 
-    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<(i64, i64)> {
         let mut project = ctx.lock_project()?;
         let mut updated = false;
+        let mut final_fade_in = 0;
+        let mut final_fade_out = 0;
 
         // Try audio clips first
         for track in &mut project.tracks {
@@ -60,6 +62,8 @@ impl Command for SetClipFadesCommand {
                 }
                 clip.fade_in_frames = fade_in;
                 clip.fade_out_frames = fade_out;
+                final_fade_in = fade_in;
+                final_fade_out = fade_out;
                 updated = true;
                 break;
             }
@@ -82,6 +86,8 @@ impl Command for SetClipFadesCommand {
                     }
                     clip.fade_in_frames = fade_in;
                     clip.fade_out_frames = fade_out;
+                    final_fade_in = fade_in;
+                    final_fade_out = fade_out;
                     updated = true;
                     break;
                 }
@@ -98,9 +104,9 @@ impl Command for SetClipFadesCommand {
         log::info!(
             "[Orchestrator] set_clip_fades clip={} fade_in={} fade_out={}",
             self.clip_id,
-            self.fade_in_frames.max(0),
-            self.fade_out_frames.max(0)
+            final_fade_in,
+            final_fade_out
         );
-        Ok(())
+        Ok((final_fade_in, final_fade_out))
     }
 }

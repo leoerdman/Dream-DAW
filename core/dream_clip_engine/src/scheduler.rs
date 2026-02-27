@@ -36,6 +36,14 @@ pub struct ActiveClip<'a> {
     /// `true` when this buffer contains the clip's last audio frame.
     /// Used by the render callback to apply a Hann fade-out (anti-click).
     pub is_clip_tail: bool,
+
+    /// `true` when the clip is being abruptly cut off because the playhead
+    /// wrapped to the loop start. Triggers a micro fade-out.
+    pub is_loop_wrap_fade_out: bool,
+
+    /// `true` when the clip is abruptly resuming after the playhead
+    /// wrapped to the loop start. Triggers a micro fade-in.
+    pub is_loop_wrap_fade_in: bool,
 }
 
 /// Allocation-free active clip descriptor for RT hot path.
@@ -48,6 +56,8 @@ pub struct ActiveClipInfo {
     pub frames_to_read: usize,
     pub is_clip_head: bool,
     pub is_clip_tail: bool,
+    pub is_loop_wrap_fade_out: bool,
+    pub is_loop_wrap_fade_in: bool,
 }
 
 /// Schedules clips for playback based on the current playhead position.
@@ -107,6 +117,8 @@ impl ClipScheduler {
                 frames_to_read,
                 is_clip_head,
                 is_clip_tail,
+                is_loop_wrap_fade_out: false,
+                is_loop_wrap_fade_in: false,
             });
         }
     }
@@ -175,6 +187,7 @@ impl ClipScheduler {
         // iterations; 16 is a generous safety margin.
         let mut safety_iterations = 0u32;
         const MAX_LOOP_ITERATIONS: u32 = 16;
+        let mut is_first_chunk = true;
 
         while frames_remaining > 0 {
             safety_iterations += 1;
@@ -191,17 +204,41 @@ impl ClipScheduler {
             // decreases — causing an infinite loop on the RT thread.
             if chunk_frames == 0 {
                 current_playhead = loop_region.start;
+                is_first_chunk = false;
                 continue;
             }
 
             Self::fill_active(clips, current_playhead, chunk_frames, tmp);
+            
+            // If this chunk pushes the playhead exactly to the end of the loop,
+            // the clips active at the end will be forcefully cut.
+            let reaches_loop_end = current_playhead + (chunk_frames as i64) >= loop_region.end;
+
             for mut clip in tmp.iter().copied() {
                 clip.buffer_offset += current_buffer_offset;
+                
+                // Set the loop wrap boundary flags so the renderer knows to crossfade them
+                if is_first_chunk && reaches_loop_end && !clip.is_clip_tail {
+                    clip.is_loop_wrap_fade_out = true;
+                }
+                if !is_first_chunk && !clip.is_clip_head {
+                    clip.is_loop_wrap_fade_in = true;
+                }
+                
+                // STAGE3 BUG-FIX: If a clip spans the loop, playhead = 0 might mistakenly 
+                // trigger `is_clip_head` because `clip_start` is also 0. It is NOT the head;
+                // it's just wrapping. Override it, the loop_wrap_fade_in will handle it.
+                if !is_first_chunk && clip.is_clip_head && clip.source_start_frame > clips[clip.clip_index].source_offset.sample_frame {
+                    // Only applies if we've already been reading from the clip
+                    clip.is_clip_head = false;
+                }
+
                 out.push(clip);
             }
 
             frames_remaining -= chunk_frames;
             current_buffer_offset += chunk_frames;
+            is_first_chunk = false;
 
             if frames_remaining > 0 {
                 // Wrap around to loop start
@@ -266,6 +303,8 @@ impl ClipScheduler {
                 frames_to_read: info.frames_to_read,
                 is_clip_head: info.is_clip_head,
                 is_clip_tail: info.is_clip_tail,
+                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
+                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
             })
             .collect()
     }
@@ -318,6 +357,8 @@ impl ClipScheduler {
                 frames_to_read: info.frames_to_read,
                 is_clip_head: info.is_clip_head,
                 is_clip_tail: info.is_clip_tail,
+                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
+                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
             })
             .collect()
     }
@@ -408,6 +449,8 @@ mod tests {
                 frames_to_read: info.frames_to_read,
                 is_clip_head: info.is_clip_head,
                 is_clip_tail: info.is_clip_tail,
+                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
+                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
             })
             .collect()
     }
@@ -437,6 +480,8 @@ mod tests {
                 frames_to_read: info.frames_to_read,
                 is_clip_head: info.is_clip_head,
                 is_clip_tail: info.is_clip_tail,
+                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
+                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
             })
             .collect()
     }

@@ -499,13 +499,17 @@ fn write_wav_header(
     sample_rate: u32,
     channels: u16,
     bits_per_sample: u16,
-    data_size: u32,
+    data_size: u64,
 ) -> std::io::Result<()> {
     use std::io::{Seek, SeekFrom, Write};
 
     let block_align = channels * (bits_per_sample / 8);
     let byte_rate = sample_rate * block_align as u32;
-    let chunk_size = 36 + data_size; // "RIFF" chunk size = 36 + data size
+    
+    // BUG-006 FIX: Handle >4GB files. Standard WAV limits data chunk to 4GB.
+    // Clamp to u32::MAX to avoid integer overflow which corrupts the file structure.
+    let safe_data_size = data_size.min(0xFFFF_FFD0) as u32;
+    let chunk_size = 36 + safe_data_size; // "RIFF" chunk size = 36 + data size
 
     file.seek(SeekFrom::Start(0))?;
 
@@ -526,7 +530,7 @@ fn write_wav_header(
 
     // data sub-chunk
     file.write_all(b"data")?;
-    file.write_all(&data_size.to_le_bytes())?;
+    file.write_all(&safe_data_size.to_le_bytes())?;
 
     Ok(())
 }
@@ -647,7 +651,7 @@ fn recording_worker(
                     bits_per_sample,
                     // Cap at u32::MAX to prevent silent overflow corruption.
                     // WAV spec uses u32 for data chunk size (~4GB max).
-                    data_bytes.min(u32::MAX as u64) as u32,
+                    data_bytes.min(u32::MAX as u64),
                 )
                 .map_err(|e| RecordingError::IoError(format!("Header flush failed: {e}")))?;
 
@@ -689,7 +693,7 @@ fn recording_worker(
         sample_rate,
         ch,
         bits_per_sample,
-        final_data_bytes.min(u32::MAX as u64) as u32,
+        final_data_bytes.min(u32::MAX as u64),
     )
     .map_err(|e| RecordingError::IoError(format!("Final header write failed: {e}")))?;
 

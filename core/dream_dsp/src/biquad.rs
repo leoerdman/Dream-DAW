@@ -271,9 +271,13 @@ impl BiquadFilter {
         self.x1 = x;
         self.y2 = self.y1;
         // BUG-85 FIX: Flush denormals in IIR feedback to prevent CPU spikes on x86.
-        // BUG-008 FIX: Return the flushed value so downstream biquad stages
-        // never process denormals (previously returned raw `y` which could be denormal).
-        self.y1 = if y.is_normal() || y == 0.0 { y } else { 0.0 };
+        // BUG-008 FIX: Prevent silent loss of signal on infinity/NaN by isolating
+        // the subnormal flush. is_normal() misses infinity. Using absolute value threshold.
+        self.y1 = if y.is_finite() {
+            if y.abs() < 1e-15 { 0.0 } else { y }
+        } else {
+            0.0 // flush extreme explosions
+        };
 
         self.y1
     }

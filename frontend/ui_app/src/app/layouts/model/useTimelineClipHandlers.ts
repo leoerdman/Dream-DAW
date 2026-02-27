@@ -303,18 +303,9 @@ export function useTimelineClipHandlers({
             const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
             const safeTrack = snapToVisibleTrack(targetTrack);
             try {
-                // Step 1: Duplicate the clip at the target position
-                const dupResponse = await engineApi.duplicateClipWithDeltas(id, positionFrames);
+                const dupResponse = await engineApi.duplicateClipWithDeltas(id, positionFrames, safeTrack);
                 await applyProjectDeltas(dupResponse.deltas, 'clip-duplicate-drag');
                 const newId = dupResponse.new_id;
-
-                // Step 2: If the target track differs from the source, move the new clip
-                const sourceClip = liveState.clips.byId[id] ?? liveState.clipsById[id];
-                const sourceTrack = sourceClip?.trackIndex ?? 0;
-                if (safeTrack !== sourceTrack) {
-                    const moveResponse = await engineApi.moveClipWithDeltas(newId, safeTrack, positionFrames);
-                    await applyProjectDeltas(moveResponse.deltas, 'clip-duplicate-drag-move');
-                }
                 return newId;
             } catch (err) {
                 console.error('[Dream] duplicateClip (Cmd+Drag) failed:', err);

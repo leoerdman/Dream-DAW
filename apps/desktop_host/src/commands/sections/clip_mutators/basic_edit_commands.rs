@@ -373,6 +373,7 @@ async fn delete_clip_with_deltas_cmd(
 async fn duplicate_clip_cmd(
     clip_id: String,
     new_position_frames: Option<i64>,
+    target_track_index: Option<usize>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -386,6 +387,7 @@ async fn duplicate_clip_cmd(
     let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
         &clip_id,
         new_position_frames,
+        target_track_index,
     )
     .map_err(|e| e.to_string())?;
 
@@ -408,6 +410,7 @@ async fn duplicate_clip_cmd(
 async fn duplicate_clip_with_deltas_cmd(
     clip_id: String,
     new_position_frames: Option<i64>,
+    target_track_index: Option<usize>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -422,6 +425,7 @@ async fn duplicate_clip_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
         &clip_id,
         new_position_frames,
+        target_track_index,
     )
     .map_err(|e| e.to_string())?;
 

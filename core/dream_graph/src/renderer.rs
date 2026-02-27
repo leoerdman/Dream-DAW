@@ -33,6 +33,7 @@ fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
 #[cfg(target_arch = "x86_64")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "avx2")]
 unsafe fn mix_in_place_avx2(dst: &mut [f32], src: &[f32], count: usize) {
     use std::arch::x86_64::*;
 
@@ -53,6 +54,7 @@ unsafe fn mix_in_place_avx2(dst: &mut [f32], src: &[f32], count: usize) {
 #[cfg(target_arch = "x86_64")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "sse")]
 unsafe fn mix_in_place_sse(dst: &mut [f32], src: &[f32], count: usize) {
     use std::arch::x86_64::*;
 
@@ -73,6 +75,7 @@ unsafe fn mix_in_place_sse(dst: &mut [f32], src: &[f32], count: usize) {
 #[cfg(target_arch = "aarch64")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
 unsafe fn mix_in_place_neon(dst: &mut [f32], src: &[f32], count: usize) {
     use std::arch::aarch64::*;
 
@@ -192,11 +195,29 @@ impl PdcDelayLine {
             let frac = self.frac_delay;
             for i in 0..n {
                 let wp = (self.write_pos + i) & self.mask;
-                let rp0 = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
-                let rp1 = (rp0 + self.capacity - 1) & self.mask;
-                let delayed_l = self.buffer_left[rp0] * (1.0 - frac) + self.buffer_left[rp1] * frac;
-                let delayed_r =
-                    self.buffer_right[rp0] * (1.0 - frac) + self.buffer_right[rp1] * frac;
+                
+                // BUG-060 FIX: When delay_samples == 0, rp0 aligns with wp representing 0 delay.
+                // However buffer_left[wp] won't be written continuously until further down. 
+                // We tap the exact live sample left[i] as the delay=0 source, and buffer_left[rp1] 
+                // as the delay=1 source to interpolate correctly.
+                let delayed_l = if self.delay_samples == 0 {
+                    let rp1 = (wp + self.capacity - 1) & self.mask;
+                    left[i] * (1.0 - frac) + self.buffer_left[rp1] * frac
+                } else {
+                    let rp0 = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
+                    let rp1 = (rp0 + self.capacity - 1) & self.mask;
+                    self.buffer_left[rp0] * (1.0 - frac) + self.buffer_left[rp1] * frac
+                };
+
+                let delayed_r = if self.delay_samples == 0 {
+                    let rp1 = (wp + self.capacity - 1) & self.mask;
+                    right[i] * (1.0 - frac) + self.buffer_right[rp1] * frac
+                } else {
+                    let rp0 = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
+                    let rp1 = (rp0 + self.capacity - 1) & self.mask;
+                    self.buffer_right[rp0] * (1.0 - frac) + self.buffer_right[rp1] * frac
+                };
+
                 self.buffer_left[wp] = left[i];
                 self.buffer_right[wp] = right[i];
                 left[i] = delayed_l;

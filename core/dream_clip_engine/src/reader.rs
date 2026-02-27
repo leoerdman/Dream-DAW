@@ -88,6 +88,60 @@ impl ClipReader {
         ((a * t + b) * t + c) * t + d
     }
 
+    #[inline(always)]
+    fn sample_sinc_windowed(source: &[f32], pos: f64, num_taps: isize) -> f32 {
+        if source.is_empty() {
+            return 0.0;
+        }
+        let last = (source.len() - 1) as f64;
+        if !(0.0..=last).contains(&pos) {
+            return 0.0;
+        }
+        if source.len() < num_taps as usize {
+            return Self::sample_cubic(source, pos);
+        }
+
+        let Some(idx_usize) = Self::safe_floor_index(pos, source.len() - 1) else {
+            return 0.0;
+        };
+        let idx = idx_usize as isize;
+        let max = (source.len() - 1) as isize;
+
+        let half_taps = num_taps / 2;
+        let mut sum = 0.0;
+        let mut weight_sum = 0.0;
+
+        for n in (idx - half_taps + 1)..=(idx + half_taps) {
+            let i = n.clamp(0, max) as usize;
+            let x = pos - n as f64;
+            
+            let sinc = if x.abs() < 1e-7 {
+                1.0
+            } else {
+                let pi_x = std::f64::consts::PI * x;
+                pi_x.sin() / pi_x
+            };
+
+            let w_pos = x / half_taps as f64; // [-1.0, 1.0]
+            if w_pos <= -1.0 || w_pos >= 1.0 {
+                continue;
+            }
+            
+            // Hann window: 0.5 * (1 + cos(pi * x))
+            let window = 0.5 * (1.0 + (std::f64::consts::PI * w_pos).cos());
+            let weight = sinc * window;
+            
+            sum += source[i] as f64 * weight;
+            weight_sum += weight;
+        }
+
+        if weight_sum.abs() > 1e-7 {
+            (sum / weight_sum) as f32
+        } else {
+            0.0
+        }
+    }
+
     /// Reads samples from a source buffer and writes them into the output,
     /// applying gain and micro-fades.
     ///
@@ -207,10 +261,11 @@ impl ClipReader {
         // AUD-10X FIX: By default, Standard warp mode previously used linear interpolation,
         // which introduced severe "bitcrusher" aliasing noise on sample rate mismatches or
         // basic time stretching. We now default to Catmull-Rom Cubic for ALL stretches.
+        // BUG-A003 FIX: Implemented genuine high-quality Sinc Resampling (32-tap Hann-windowed) for Pro mode
         let read_sample = |src: &[f32], pos: f64| -> f32 {
             match mode {
                 WarpResampleMode::Standard => Self::sample_cubic(src, pos),
-                WarpResampleMode::Pro => Self::sample_cubic(src, pos),
+                WarpResampleMode::Pro => Self::sample_sinc_windowed(src, pos, 32),
             }
         };
 

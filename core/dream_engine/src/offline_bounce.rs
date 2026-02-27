@@ -98,6 +98,9 @@ struct RenderRoutingCtx<'a> {
     routing: &'a [Option<usize>],
     sidechains: &'a [Vec<Option<usize>>],
     post_sum_mask: &'a [bool],
+    track_latencies: &'a [u32],
+    max_tracking_delay: u32,
+    pdc_buffers: &'a mut [DelayBuffer],
     plugin_registry: &'a HashMap<uuid::Uuid, PluginInstanceArc>,
     external_fx_map: &'a [Vec<ExternalPluginRuntimeSlot>],
     bpm: f64,
@@ -140,6 +143,37 @@ pub struct OfflineRenderer {
     /// Cancellation flag - set to true to abort the bounce.
     /// The bouncer checks this flag during each render iteration.
     pub cancel_flag: Arc<AtomicBool>,
+}
+
+struct DelayBuffer {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    write_idx: usize,
+}
+
+impl DelayBuffer {
+    fn new() -> Self {
+        Self { left: Vec::new(), right: Vec::new(), write_idx: 0 }
+    }
+    fn len(&self) -> usize { self.left.len() }
+    fn resize(&mut self, size: usize) {
+        self.left.resize(size, 0.0);
+        self.right.resize(size, 0.0);
+        self.write_idx = self.write_idx.min(size.saturating_sub(1));
+    }
+    fn process_stereo(&mut self, in_out_l: &mut [f32], in_out_r: &mut [f32]) {
+        let size = self.left.len();
+        if size == 0 { return; }
+        for i in 0..in_out_l.len() {
+            let out_l = self.left[self.write_idx];
+            let out_r = self.right[self.write_idx];
+            self.left[self.write_idx] = in_out_l[i];
+            self.right[self.write_idx] = in_out_r[i];
+            in_out_l[i] = out_l;
+            in_out_r[i] = out_r;
+            self.write_idx = (self.write_idx + 1) % size;
+        }
+    }
 }
 
 impl OfflineRenderer {
@@ -729,7 +763,13 @@ impl OfflineRenderer {
                         // ── VST3 FX slot ──
                         if let Some(instance_id) = runtime_slot.instance_id {
                             if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
-                                let mut host = plugin_mtx.lock();
+                                // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
+                                let mut host = loop {
+                                    if let Some(guard) = plugin_mtx.try_lock() {
+                                        break guard;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(1));
+                                };
                                 let transport = TransportContext {
                                     sample_rate: ctx.sample_rate,
                                     position_samples: ctx.playhead_pos,
@@ -886,8 +926,8 @@ impl OfflineRenderer {
             track_slots_len,
             ctx.routing,
             ctx.sidechains,
-            &[], // Offline bounce processes plugins per-slot; graph-level PDC not needed
-            0,
+            ctx.track_latencies,
+            ctx.max_tracking_delay as u64,
         );
 
         render_ctx.master_bus.clear(frame_count);
@@ -1069,6 +1109,23 @@ impl OfflineRenderer {
                 ctx.bounce_scratch_right,
             );
 
+            // ── PDC (Plugin Delay Compensation) ──
+            if let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
+                .find(|e| e.from == node_idx)
+                .map(|e| e.delay_samples)
+            {
+                if delay_frames > 0 {
+                    let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                    if delay_buf.len() != delay_frames as usize {
+                        delay_buf.resize(delay_frames as usize);
+                    }
+                    delay_buf.process_stereo(
+                        &mut slot.buf_left[..frame_count],
+                        &mut slot.buf_right[..frame_count],
+                    );
+                }
+            }
+
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
             if enabled {
@@ -1195,7 +1252,13 @@ impl OfflineRenderer {
                                 );
                                 continue;
                             };
-                            let mut host = plugin_mtx.lock();
+                            // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
+                            let mut host = loop {
+                                if let Some(guard) = plugin_mtx.try_lock() {
+                                    break guard;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            };
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let main_inputs: [&[f32]; 2] =
                                 [&master_l[..frame_count], &master_r[..frame_count]];
@@ -1863,6 +1926,33 @@ impl OfflineRenderer {
         let max_tail_frames = (project_sr as usize * 2).min(384000);
         let total_with_tail = total_frames + max_tail_frames;
 
+        // EXP-PDC FIX: Compute track latencies for PDC during export
+        let track_slots_len = render_ctx.track_slots.len();
+        let mut track_latencies = Vec::with_capacity(track_slots_len);
+        for track_idx in 0..track_slots_len {
+            let track_latency = if let Some(slots) = external_fx_map.get(track_idx) {
+                slots
+                    .iter()
+                    .filter(|slot| !slot.is_bypassed)
+                    .filter_map(|slot| slot.instance_id)
+                    .map(|instance_id| {
+                        plugin_registry
+                            .get(&instance_id)
+                            .and_then(|arc| arc.try_lock())
+                            .map(|p| p.latency_samples())
+                            .unwrap_or(0)
+                    })
+                    .sum::<u32>()
+            } else {
+                0
+            };
+            track_latencies.push(track_latency);
+        }
+        let max_tracking_delay = track_latencies.iter().copied().max().unwrap_or(0);
+        let mut pdc_buffers: Vec<DelayBuffer> = (0..track_slots_len)
+            .map(|_| DelayBuffer::new())
+            .collect();
+
         // Single-pass render into contiguous RAM at Project SR
         let mut mix_l = vec![0.0f32; total_with_tail];
         let mut mix_r = vec![0.0f32; total_with_tail];
@@ -1959,6 +2049,9 @@ impl OfflineRenderer {
                 routing: &routing,
                 sidechains: &sidechains,
                 post_sum_mask: &post_sum_mask,
+                track_latencies: &track_latencies,
+                max_tracking_delay,
+                pdc_buffers: &mut pdc_buffers,
                 plugin_registry,
                 external_fx_map,
                 bpm: self.config.bpm,
@@ -2083,7 +2176,13 @@ impl OfflineRenderer {
                                 let Some(plugin_mtx) = plugin_registry.get(&instance_id) else {
                                     continue;
                                 };
-                                let mut host = plugin_mtx.lock();
+                                // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
+                                let mut host = loop {
+                                    if let Some(guard) = plugin_mtx.try_lock() {
+                                        break guard;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(1));
+                                };
                                 let main_inputs: [&[f32]; 2] =
                                     [&tail_slice_l[..actual], &tail_slice_r[..actual]];
                                 let transport = dream_plugins::TransportContext {

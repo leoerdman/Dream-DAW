@@ -68,7 +68,11 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.stopPropagation();
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
-        if (selected.length > 0) clipboardRef.current = selected.map((c) => ({ ...c }));
+        if (selected.length > 0) {
+            clipboardRef.current = selected.map((c) => ({ ...c }));
+            // Also copy to global (backend) clipboard for cross-project paste.
+            void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
+        }
         return true;
     }
 
@@ -87,8 +91,20 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const anchorTrackIndex = clipboardRef.current[0].trackIndex;
         const selectedTrackIdx = selectedTrackIndex;
         const trackDelta = selectedTrackIdx >= 0 ? selectedTrackIdx - anchorTrackIndex : 0;
+
+        // Detect cross-project paste: check if clipboard clip IDs exist in current project.
+        const clipIdsInProject = new Set(timelineClips.map((c) => c.id));
+        const isCrossProject = clipboardRef.current.length > 0
+            && !clipboardRef.current.some((c) => clipIdsInProject.has(c.id));
+
         try {
-            if (trackDelta === 0) {
+            if (isCrossProject) {
+                // Cross-project paste: use the global backend clipboard.
+                const targetTrack = Math.max(0, Math.min(trackIds.length - 1, anchorTrackIndex + trackDelta));
+                const posFrames = Math.max(0, beatToFrame(cursorBeat + groupOffset, bpm, sampleRate));
+                const response = await engine.pasteClipsFromGlobalClipboard(targetTrack, posFrames);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-cross-project');
+            } else if (trackDelta === 0) {
                 const results = await Promise.all(clipboardRef.current.map((clip) => engine.duplicateClipWithDeltas(clip.id, Math.max(0, beatToFrame(cursorBeat + (clip.startBeat - firstBeat) + groupOffset, bpm, sampleRate)))));
                 await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'shortcut-paste-same-track');
                 onClipSelectionChanged(results.map((r) => r.new_id));
@@ -120,6 +136,8 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
         if (selected.length === 0) return true;
         clipboardRef.current = selected.map((c) => ({ ...c }));
+        // Also copy to global clipboard for cross-project cut+paste.
+        void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
         // Optimistic removal: instantly remove from canvas before async IPC
         const rollback = optimisticRemoveClips(selected.map((c) => c.id));
         onClipSelectionChanged([]);

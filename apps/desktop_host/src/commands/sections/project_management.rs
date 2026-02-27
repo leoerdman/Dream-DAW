@@ -1282,7 +1282,7 @@ fn paste_clips_from_global_clipboard(
         let mut new_clip = src_clip.clone();
         new_clip.id = Uuid::new_v4();
         let offset = src_clip.position.sample_frame - earliest_frame;
-        new_clip.position = dream_models::project::AbsoluteTime::new(position_frames + offset);
+        new_clip.position = AbsoluteTime::new(position_frames + offset);
         project.tracks[track_index].clips.push(new_clip);
         pasted_count += 1;
     }
@@ -1292,7 +1292,7 @@ fn paste_clips_from_global_clipboard(
         let mut new_clip = src_clip.clone();
         new_clip.id = Uuid::new_v4();
         let offset = src_clip.position.sample_frame - earliest_frame;
-        new_clip.position = dream_models::project::AbsoluteTime::new(position_frames + offset);
+        new_clip.position = AbsoluteTime::new(position_frames + offset);
         project.tracks[track_index].midi_clips.push(new_clip);
         pasted_count += 1;
     }
@@ -1384,8 +1384,6 @@ fn paste_track_from_global_clipboard(
         effect.regenerate_ids();
     }
 
-    // Route to master by default.
-    new_track.output_bus_id = None;
 
     push_undo(project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;

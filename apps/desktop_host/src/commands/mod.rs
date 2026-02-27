@@ -130,6 +130,11 @@ pub(crate) fn invoke_handler()
         switch_project_tab,
         close_project_tab,
         list_open_projects,
+        // Cross-Project Global Clipboard
+        copy_clips_to_global_clipboard,
+        paste_clips_from_global_clipboard,
+        copy_track_to_global_clipboard,
+        paste_track_from_global_clipboard,
         // Settings
         get_settings,
         update_settings,

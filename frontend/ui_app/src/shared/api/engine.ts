@@ -553,6 +553,16 @@ export const closeProjectTab = (id: string) =>
     invoke<CloseProjectTabResponse>('close_project_tab', { id });
 export const listOpenProjects = () =>
     invoke<ProjectTabInfo[]>('list_open_projects');
+
+// ── Cross-Project Global Clipboard ──
+export const copyClipsToGlobalClipboard = (clipIds: string[]) =>
+    invoke<number>('copy_clips_to_global_clipboard', { clipIds });
+export const pasteClipsFromGlobalClipboard = (trackIndex: number, positionFrames: number) =>
+    invoke<DeltaMutationResponse>('paste_clips_from_global_clipboard', { trackIndex, positionFrames });
+export const copyTrackToGlobalClipboard = (trackIndex: number) =>
+    invoke<string>('copy_track_to_global_clipboard', { trackIndex });
+export const pasteTrackFromGlobalClipboard = (insertIndex?: number) =>
+    invoke<DeltaMutationResponse>('paste_track_from_global_clipboard', { insertIndex: insertIndex ?? null });
 export interface ArrangementViewportState {
     pixels_per_beat: number | null;
     scroll_left: number | null;

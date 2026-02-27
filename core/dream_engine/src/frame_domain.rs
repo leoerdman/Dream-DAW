@@ -56,8 +56,8 @@ impl FrameDomainConverter {
     // ── Ratio bounds ───────────────────────────────────────────────────
     // Guard against pathological SR mismatches (e.g. 8kHz device, 192kHz
     // timeline).  Clamp to 8× which covers all professional scenarios.
-    const RATIO_MIN: f64 = 0.125;
-    const RATIO_MAX: f64 = 8.0;
+    const RATIO_MIN: f64 = 0.05;
+    const RATIO_MAX: f64 = 20.0;
 
     /// Creates a new converter for the current audio callback.
     ///

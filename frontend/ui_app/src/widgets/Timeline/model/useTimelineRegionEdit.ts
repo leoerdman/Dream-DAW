@@ -88,19 +88,17 @@ export function useTimelineRegionEdit({
         const store = useEngineStore.getState();
         const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const responses = await Promise.all(
-            sourceClips.map((clip) =>
-                engine.duplicateClipWithDeltas(
-                    clip.id,
-                    Math.max(0, beatToFrame(clip.startBeat + lenBeats, currentBpm, sampleRate)),
-                ),
-            ),
+        const response = await engine.duplicateMultipleClipsWithDeltas(
+            sourceClips.map((clip) => ({
+                id: clip.id,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + lenBeats, currentBpm, sampleRate)),
+            }))
         );
         await useEngineStore.getState().applyProjectDeltas(
-            responses.flatMap((response) => response.deltas),
+            response.deltas,
             'timeline:region-duplicate',
         );
-        setStatusInfo(`Region Duplicate: ${responses.length} clip(s)`);
+        setStatusInfo(`Region Duplicate: ${sourceClips.length} clip(s)`);
     };
 
     const runMoveRegion = async (direction: -1 | 1) => {
@@ -115,20 +113,18 @@ export function useTimelineRegionEdit({
         const store = useEngineStore.getState();
         const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const responses = await Promise.all(
-            sourceClips.map((clip) =>
-                engine.moveClipWithDeltas(
-                    clip.id,
-                    clip.trackIndex,
-                    Math.max(0, beatToFrame(Math.max(0, clip.startBeat + deltaBeats), currentBpm, sampleRate)),
-                ),
-            ),
+        const response = await engine.moveMultipleClipsWithDeltas(
+            sourceClips.map((clip) => ({
+                id: clip.id,
+                newTrackIndex: clip.trackIndex,
+                newPositionFrames: Math.max(0, beatToFrame(Math.max(0, clip.startBeat + deltaBeats), currentBpm, sampleRate)),
+            }))
         );
         await useEngineStore.getState().applyProjectDeltas(
-            responses.flatMap((response) => response.deltas),
+            response.deltas,
             'timeline:region-move',
         );
-        setStatusInfo(`Region Move ${direction < 0 ? 'Left' : 'Right'}: ${responses.length} clip(s)`);
+        setStatusInfo(`Region Move ${direction < 0 ? 'Left' : 'Right'}: ${sourceClips.length} clip(s)`);
     };
 
     const runSwapRegions = async () => {
@@ -148,12 +144,20 @@ export function useTimelineRegionEdit({
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const deltaBeat = regionB.startBeat - regionA.startBeat;
         const deltaTrack = regionB.startTrack - regionA.startTrack;
-        const responses = await Promise.all([
-            ...clipsA.map((clip) => engine.moveClipWithDeltas(clip.id, clip.trackIndex + deltaTrack, Math.max(0, beatToFrame(clip.startBeat + deltaBeat, currentBpm, sampleRate)))),
-            ...clipsB.map((clip) => engine.moveClipWithDeltas(clip.id, clip.trackIndex - deltaTrack, Math.max(0, beatToFrame(clip.startBeat - deltaBeat, currentBpm, sampleRate)))),
+        const response = await engine.moveMultipleClipsWithDeltas([
+            ...clipsA.map((clip) => ({
+                id: clip.id,
+                newTrackIndex: clip.trackIndex + deltaTrack,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + deltaBeat, currentBpm, sampleRate)),
+            })),
+            ...clipsB.map((clip) => ({
+                id: clip.id,
+                newTrackIndex: clip.trackIndex - deltaTrack,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat - deltaBeat, currentBpm, sampleRate)),
+            })),
         ]);
         await useEngineStore.getState().applyProjectDeltas(
-            responses.flatMap((response) => response.deltas),
+            response.deltas,
             'timeline:region-swap',
         );
         setStatusInfo(`Region Swap: ${clipsA.length + clipsB.length} clip(s)`);

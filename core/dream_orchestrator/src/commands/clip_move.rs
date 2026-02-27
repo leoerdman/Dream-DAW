@@ -99,3 +99,72 @@ impl Command for MoveClipCommand {
         Ok(MoveClipResult { old_track_index })
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MoveMultipleClipsCommand
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct MoveMultipleClipsCommand {
+    /// List of (clip_id, new_track_index, new_position_frames)
+    pub clips: Vec<(Uuid, usize, i64)>,
+}
+
+impl Command for MoveMultipleClipsCommand {
+    type Result = Vec<(Uuid, MoveClipResult)>;
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
+        let mut project = ctx.lock_project()?;
+        let mut results = Vec::with_capacity(self.clips.len());
+
+        for (clip_id, new_track_index, new_position_frames) in &self.clips {
+            if *new_track_index >= project.tracks.len() {
+                continue; // Skip invalid moves instead of failing entire transaction
+            }
+
+            if *new_position_frames < 0 {
+                continue;
+            }
+
+            let new_position = AbsoluteTime::new(*new_position_frames);
+            let mut old_track_index_opt = None;
+
+            for (idx, track) in project.tracks.iter().enumerate() {
+                if track.clips.iter().any(|clip| clip.id == *clip_id)
+                    || track.midi_clips.iter().any(|clip| clip.id == *clip_id)
+                {
+                    old_track_index_opt = Some(idx);
+                    break;
+                }
+            }
+
+            let old_track_index = match old_track_index_opt {
+                Some(idx) => idx,
+                None => continue,
+            };
+
+            let audio_err = mutators::move_clip(
+                &mut project,
+                *clip_id,
+                *new_track_index,
+                new_position,
+            );
+
+            if audio_err.is_err() {
+                if mutators::move_midi_clip(
+                    &mut project,
+                    *clip_id,
+                    *new_track_index,
+                    new_position,
+                )
+                .is_err()
+                {
+                    continue;
+                }
+            }
+
+            results.push((*clip_id, MoveClipResult { old_track_index }));
+        }
+
+        Ok(results)
+    }
+}

@@ -205,6 +205,9 @@ export class WaveformCache {
 
         if (oldestKey) {
             this._cache.delete(oldestKey);
+            // BUG-055 FIX: Simultaneously garbage collect unresolved fetch error tracking
+            // to prevent unbounded Map leaks spanning the lifetime of the SPA window.
+            this._lastWarnAtByKey.delete(oldestKey);
         }
     }
 }

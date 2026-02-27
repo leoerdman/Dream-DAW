@@ -535,15 +535,12 @@ impl EssenceSynthEngine {
                 }
 
                 // ── LFO Modulation Targets ──
-                // BUG-017 FIX: Use fast linear approximation for small pitch mod.
-                // 2^(x/12) ≈ 1 + x*ln(2)/12 for |x| < 1 semitone.
+                // BUG-058 FIX: Use uniform `powf` calculation for pitch_mod. 
+                // Contextually switching between approximation math directly below 2.0 semitones
+                // generated micro-clicks when depth continuously crossed the boundary dynamically.
                 let pitch_mod = if matches!(lfo_target, LfoTarget::Pitch) {
                     let semitones = lfo_val * 2.0; // ±2 semitones
-                    if semitones.abs() < 2.0 {
-                        1.0 + semitones * (std::f64::consts::LN_2 / 12.0)
-                    } else {
-                        2.0_f64.powf(semitones / 12.0)
-                    }
+                    2.0_f64.powf(semitones / 12.0)
                 } else {
                     1.0
                 };
@@ -594,6 +591,17 @@ impl EssenceSynthEngine {
                     base_g
                 };
 
+                // BUG-063 FIX: Denormal flush moved BEFORE mathematical routing! 
+                // Previously, denormals reached the `v1 / v2` matrices, forcing the CPU 
+                // to incur massive subnormal multiplier stalls for at least one block 
+                // before the flush macro saved it.
+                if voice.filter_state.ic1eq.abs() < 1e-18 {
+                    voice.filter_state.ic1eq = 0.0;
+                }
+                if voice.filter_state.ic2eq.abs() < 1e-18 {
+                    voice.filter_state.ic2eq = 0.0;
+                }
+
                 let ic1eq = voice.filter_state.ic1eq;
                 let ic2eq = voice.filter_state.ic2eq;
                 let input = raw;
@@ -608,14 +616,6 @@ impl EssenceSynthEngine {
 
                 voice.filter_state.ic1eq = 2.0 * v1 - ic1eq;
                 voice.filter_state.ic2eq = 2.0 * v2 - ic2eq;
-
-                // Denormal flush
-                if voice.filter_state.ic1eq.abs() < 1e-18 {
-                    voice.filter_state.ic1eq = 0.0;
-                }
-                if voice.filter_state.ic2eq.abs() < 1e-18 {
-                    voice.filter_state.ic2eq = 0.0;
-                }
 
                 let lp = v2;
                 let bp = v1;

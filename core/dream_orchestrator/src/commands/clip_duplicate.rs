@@ -83,3 +83,58 @@ impl Command for DuplicateClipCommand {
         })
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DuplicateMultipleClipsCommand
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct DuplicateMultipleClipsCommand {
+    pub clips: Vec<(Uuid, Option<i64>, Option<usize>)>,
+}
+
+impl Command for DuplicateMultipleClipsCommand {
+    type Result = Vec<DuplicateClipResult>;
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
+        let mut project = ctx.lock_project()?;
+        let mut results = Vec::with_capacity(self.clips.len());
+
+        for (clip_id, dest_pos, dest_track) in &self.clips {
+            let target_pos = dest_pos.map(AbsoluteTime::new);
+            
+            let track_index = match project.tracks.iter().position(|track| {
+                track.clips.iter().any(|c| c.id == *clip_id)
+                    || track.midi_clips.iter().any(|c| c.id == *clip_id)
+            }) {
+                Some(idx) => idx,
+                None => continue,
+            };
+
+            let is_audio_clip = project.tracks[track_index]
+                .clips
+                .iter()
+                .any(|c| c.id == *clip_id);
+
+            // Using the mutators internally pushes the updates into the active project snapshot.
+            if is_audio_clip {
+                if let Ok(dup) = mutators::duplicate_clip(&mut project, *clip_id, target_pos, *dest_track) {
+                    results.push(DuplicateClipResult {
+                        new_id: dup.id,
+                        new_position_frames: dup.position.sample_frame,
+                        track_index: dest_track.unwrap_or(track_index),
+                    });
+                }
+            } else {
+                if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
+                    results.push(DuplicateClipResult {
+                        new_id: dup.id,
+                        new_position_frames: dup.position.sample_frame,
+                        track_index: dest_track.unwrap_or(track_index),
+                    });
+                }
+            };
+        }
+
+        Ok(results)
+    }
+}

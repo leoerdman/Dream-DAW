@@ -81,9 +81,14 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
         }
         const spanBeats = Math.max(0.0001, maxEnd - minStart);
         const sampleRate = resolveSampleRate(store.projectSampleRate);
-        const results = await Promise.all(selected.map((clip) => engine.duplicateClipWithDeltas(clip.id, Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate)))));
-        await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'keyboard:duplicate-clips');
-        const nextSelection = results.map((r) => r.new_id);
+        const results = await engine.duplicateMultipleClipsWithDeltas(selected.map((clip) => ({
+            id: clip.id,
+            newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate))
+        })));
+        await useEngineStore.getState().applyProjectDeltas(results.deltas, 'keyboard:duplicate-clips');
+        const nextSelection = results.deltas
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((d) => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
         onClipSelectionChanged(nextSelection);
         useStatusStore.getState().setInfo(`Duplicate: ${nextSelection.length} clip(s)`);
         return nextSelection;
@@ -117,11 +122,15 @@ export async function nudgeSelectedClips(
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const responses = await Promise.all(selected.map((clip) => {
+    const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
         const nextBeat = Math.max(0, clip.startBeat + deltaBeats);
-        return engine.moveClipWithDeltas(clip.id, clip.trackIndex, Math.max(0, beatToFrame(nextBeat, bpm, sampleRate)));
+        return {
+            id: clip.id,
+            newTrackIndex: clip.trackIndex,
+            newPositionFrames: Math.max(0, beatToFrame(nextBeat, bpm, sampleRate))
+        };
     }));
-    await useEngineStore.getState().applyProjectDeltas(responses.flatMap((response) => response.deltas), 'keyboard:nudge-time');
+    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-time');
     const stepLabel = resolveNudgeStepLabel(coarse);
     useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'left' : 'right'} ${stepLabel} (${selected.length} clip(s))`);
     return selected.map((clip) => clip.id);
@@ -154,11 +163,15 @@ export async function nudgeSelectedClipsTrack(
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const responses = await Promise.all(selected.map((clip) => {
+    const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
         const nextTrack = Math.max(0, Math.min(maxTrackIndex, clip.trackIndex + deltaTrack));
-        return engine.moveClipWithDeltas(clip.id, nextTrack, Math.max(0, beatToFrame(clip.startBeat, bpm, sampleRate)));
+        return {
+            id: clip.id,
+            newTrackIndex: nextTrack,
+            newPositionFrames: Math.max(0, beatToFrame(clip.startBeat, bpm, sampleRate))
+        };
     }));
-    await useEngineStore.getState().applyProjectDeltas(responses.flatMap((response) => response.deltas), 'keyboard:nudge-track');
+    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-track');
     const stepLabel = resolveNudgeStepLabel(coarse);
     useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'up' : 'down'} ${Math.abs(deltaTrack)} track(s) • ${stepLabel} (${selected.length} clip(s))`);
     return selected.map((clip) => clip.id);

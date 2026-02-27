@@ -74,6 +74,59 @@ async fn move_clip_with_deltas_cmd(
     Ok(DeltaMutationResponse { deltas })
 }
 
+#[derive(serde::Deserialize)]
+pub struct MoveClipRequestPayload {
+    pub id: String,
+    pub new_track_index: usize,
+    pub new_position_frames: i64,
+}
+
+#[tauri::command]
+async fn move_multiple_clips_with_deltas_cmd(
+    requests: Vec<MoveClipRequestPayload>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    push_undo_coalesced(&project_state)?;
+
+    let mut valid_clips = Vec::with_capacity(requests.len());
+    for req in requests {
+        if let Ok(uid) = Uuid::parse_str(&req.id) {
+            valid_clips.push((uid, req.new_track_index, req.new_position_frames));
+        }
+    }
+
+    let cmd = dream_orchestrator::commands::MoveMultipleClipsCommand { clips: valid_clips };
+    let results = execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut deltas = Vec::with_capacity(results.len());
+    for (clip_id, res) in results {
+        // Find matching request to push delta new track & pos
+        if let Some((_, new_track, new_pos)) = cmd.clips.iter().find(|(id, _, _)| *id == clip_id) {
+            deltas.push(dream_models::delta::ProjectDelta::ClipMoved {
+                clip_id,
+                old_track_index: res.old_track_index,
+                new_track_index: *new_track,
+                new_position: *new_pos,
+            });
+        }
+    }
+
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
+
+    Ok(DeltaMutationResponse { deltas })
+}
+
 /// Resizes a clip to a new position and duration.
 #[tauri::command]
 async fn resize_clip_cmd(
@@ -447,6 +500,64 @@ async fn duplicate_clip_with_deltas_cmd(
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: result.new_id.to_string(),
+        deltas,
+    })
+}
+
+#[derive(serde::Deserialize)]
+pub struct DuplicateClipRequestPayload {
+    pub id: String,
+    pub new_position_frames: Option<i64>,
+    pub target_track_index: Option<usize>,
+}
+
+#[tauri::command]
+async fn duplicate_multiple_clips_with_deltas_cmd(
+    requests: Vec<DuplicateClipRequestPayload>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DuplicateClipWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    push_undo(&project_state)?;
+
+    let mut valid_clips = Vec::with_capacity(requests.len());
+    for req in requests {
+        if let Ok(uid) = Uuid::parse_str(&req.id) {
+            valid_clips.push((uid, req.new_position_frames, req.target_track_index));
+        }
+    }
+
+    let cmd = dream_orchestrator::commands::DuplicateMultipleClipsCommand { clips: valid_clips };
+    let results = execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut deltas = Vec::with_capacity(results.len());
+    let mut last_new_id = String::new();
+
+    // Map the new IDs relative to their input source parent
+    for (idx, res) in results.into_iter().enumerate() {
+        if let Some((src_id, _, _)) = cmd.clips.get(idx) {
+            deltas.push(dream_models::delta::ProjectDelta::ClipDuplicated {
+                source_clip_id: *src_id,
+                new_clip_id: res.new_id,
+                new_position: res.new_position_frames,
+            });
+            last_new_id = res.new_id.to_string();
+        }
+    }
+
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
+
+    Ok(DuplicateClipWithDeltasResponse {
+        new_id: last_new_id,
         deltas,
     })
 }

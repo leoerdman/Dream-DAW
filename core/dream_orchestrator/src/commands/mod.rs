@@ -55,11 +55,11 @@ pub use clip_bounce::{
 pub use clip_clamp_source_offset::ClampClipSourceOffsetCommand;
 pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_delete::DeleteClipCommand;
-pub use clip_duplicate::DuplicateClipCommand;
-pub use clip_fades::SetClipFadesCommand;
-pub use clip_merge::MergeClipsCommand;
-pub use clip_midi_update::{SetMidiClipEnvelopesCommand, UpdateMidiClipCommand};
-pub use clip_move::MoveClipCommand;
+pub use clip_duplicate::{DuplicateClipCommand, DuplicateClipResult, DuplicateMultipleClipsCommand};
+pub use clip_fades::{SetClipFadesCommand, SetClipFadesResult};
+pub use clip_merge::{MergeClipsCommand, MergeClipsResult};
+pub use clip_midi_update::{UpdateMidiClipNotesCommand, UpdateMidiClipNotesResult};
+pub use clip_move::{MoveClipCommand, MoveClipResult, MoveMultipleClipsCommand};
 pub use clip_mute::{MuteClipCommand, MuteClipsBatchCommand};
 pub use clip_pitch::SetClipPitchCommand;
 pub use clip_resize::ResizeClipCommand;

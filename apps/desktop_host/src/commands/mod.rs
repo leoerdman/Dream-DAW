@@ -206,10 +206,12 @@ pub(crate) fn invoke_handler()
         // Clip Editing
         move_clip_cmd,
         move_clip_with_deltas_cmd,
+        move_multiple_clips_with_deltas_cmd,
         split_clip_cmd,
         split_clip_with_deltas_cmd,
         duplicate_clip_cmd,
         duplicate_clip_with_deltas_cmd,
+        duplicate_multiple_clips_with_deltas_cmd,
         merge_clips_cmd,
         merge_clips_with_deltas_cmd,
         delete_clip_cmd,

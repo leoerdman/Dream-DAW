@@ -127,21 +127,32 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 const response = await engine.pasteClipsFromGlobalClipboard(targetTrack, posFrames);
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-cross-project');
             } else if (trackDelta === 0) {
-                const results = await Promise.all(clipboardRef.current.map((clip) => engine.duplicateClipWithDeltas(clip.id, Math.max(0, beatToFrame(cursorBeat + (clip.startBeat - firstBeat) + groupOffset, bpm, sampleRate)))));
-                await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'shortcut-paste-same-track');
-                onClipSelectionChanged(results.map((r) => r.new_id));
+                const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => ({
+                    id: clip.id,
+                    newPositionFrames: Math.max(0, beatToFrame(cursorBeat + (clip.startBeat - firstBeat) + groupOffset, bpm, sampleRate)),
+                    targetTrackIndex: undefined
+                })));
+                await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-same-track');
+                const nextSelection = results.deltas
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    .filter(d => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+                onClipSelectionChanged(nextSelection);
             } else {
-                const allDeltas: Array<{ deltas: unknown[] }> = [];
-                const promises = clipboardRef.current.map((clip) => {
+                const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => {
                     const destBeat = Math.max(0, cursorBeat + (clip.startBeat - firstBeat) + groupOffset);
                     const destPositionFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                     const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
-                    return engine.duplicateClipWithDeltas(clip.id, destPositionFrames, targetTrack);
-                });
-                const results = await Promise.all(promises);
-                allDeltas.push(...results);
-                await useEngineStore.getState().applyProjectDeltas(allDeltas.flatMap((r) => r.deltas as never[]), 'shortcut-paste-cross-track');
-                onClipSelectionChanged(results.map((r) => r.new_id));
+                    return {
+                        id: clip.id,
+                        newPositionFrames: destPositionFrames,
+                        targetTrackIndex: targetTrack
+                    };
+                }));
+                await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-cross-track');
+                const nextSelection = results.deltas
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    .filter(d => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+                onClipSelectionChanged(nextSelection);
             }
         } catch (err) {
             console.error('[Shortcuts] Paste clip failed:', err);

@@ -18,6 +18,8 @@ use crate::driver::executor::audio_thread_process::process_midi_events;
 use crate::driver::automation::{
     apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
 };
+pub(crate) mod audio_thread_track_pass;
+use audio_thread_track_pass::{TrackPassContext, process_track_graph_node};
 use crate::driver::midi_dispatcher::PluginNoteTracker;
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_graph::GraphRenderer;
@@ -26,6 +28,11 @@ use dream_plugins::TransportContext;
 
 /// Safe test tone amplitude: -10 dBFS to avoid clipping during development.
 const TEST_TONE_AMPLITUDE: f32 = 0.316_227_76;
+
+// BUG-088, BUG-099 FIX: Moved static diagnostic counters out of function scopes
+static GC_OVERFLOW_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TOPOLOGY_OVERFLOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static PANIC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn start_audio_thread_on_device_impl(
@@ -176,10 +183,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // if it completes the ref drop. We use a wait-free rtrb ring buffer to send
     // disconnected Arcs to a background thread for safe disposal.
     let (mut gc_producer, mut gc_consumer) = rtrb::RingBuffer::<std::sync::Arc<dyn std::any::Any + Send + Sync>>::new(4096);
-    // BUG-A055 FIX: Atomic overflow counter — tracks how many times the GC ring
-    // buffer was full, causing an Arc to be dropped on the RT thread. This is
-    // exposed via rt_debug_stats for diagnostic visibility.
-    static GC_OVERFLOW_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    // BUG-A055 FIX: Atomic overflow counter — exposed via rt_debug_stats for diagnostic visibility.
     match std::thread::Builder::new()
         .name("dream-audio-gc".into())
         .spawn(move || {
@@ -283,8 +287,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             if deferred_topology.len() >= 4096 {
                                 // BUG-RT002 FIX: Track overflow via atomic counter AND
                                 // expose count in rt_debug_stats for diagnostic visibility.
-                                static TOPOLOGY_OVERFLOW: std::sync::atomic::AtomicU32 =
-                                    std::sync::atomic::AtomicU32::new(0);
                                 let count = TOPOLOGY_OVERFLOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 // Only drop oldest when truly saturated — log the first few overflows.
                                 if count < 3 {
@@ -583,351 +585,38 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         .copied()
                                         .unwrap_or(false);
 
-                                    // 1. Unify Working Buffer
-                                    // GraphRenderer clears `left/right` before calling track_processor.
-                                    // For group/bus tracks (post_sum_processed), upstream routed audio
-                                    // is already present in `left/right`, so we MIX in the track's own
-                                    // source buffer (if it has local clips/instrument output).
-                                    // For source tracks, we copy their source buffer directly.
-                                    if post_sum_processed {
-                                        for i in 0..c {
-                                            left[i] += slot.buf_left[i];
-                                            right[i] += slot.buf_right[i];
-                                        }
-                                    } else {
-                                        left[..c].copy_from_slice(&slot.buf_left[..c]);
-                                        right[..c].copy_from_slice(&slot.buf_right[..c]);
-                                    }
+                                    let mut ctx = TrackPassContext {
+                                        c,
+                                        track_idx,
+                                        post_sum_processed,
+                                        slot,
+                                        external_fx_map,
+                                        automation,
+                                        playhead_pos,
+                                        sample_rate_f64,
+                                        process_ctx: &process_ctx,
+                                        plugin_registry_ref,
+                                        external_left: &mut external_left,
+                                        external_right: &mut external_right,
+                                        midi_snap,
+                                        midi_playhead_pos,
+                                        timeline_frame_count,
+                                        frame_converter: &frame_converter,
+                                        vst3_midi_scratch: &mut vst3_midi_scratch,
+                                        plugin_rt_midi_queue: &mut plugin_rt_midi_queue,
+                                        vst3_flush_per_track: &vst3_flush_per_track,
+                                        vst3_note_trackers: &mut vst3_note_trackers,
+                                        midi_schedule_scratch: &mut midi_schedule_scratch,
+                                        midi_schedule_tmp: &mut midi_schedule_tmp,
+                                        is_playing,
+                                        bpm,
+                                        time_sig_numerator,
+                                        time_sig_denominator,
+                                        timeline_sample_rate: render_ctx.timeline_sample_rate,
+                                        loop_region: render_ctx.loop_region.clone(),
+                                    };
 
-                                    // 2. Process Inserts (Native FX + VSTs in chain order)
-                                    // All inserts now operate in-place on the graph's `left/right` buffer.
-                                    if let Some(runtime_slots) = external_fx_map.get(track_idx) {
-                                        if runtime_slots.is_empty() {
-                                            if !slot.device_chain.is_empty() {
-                                                slot.device_chain.process_with_context(
-                                                    &mut left[..c],
-                                                    &mut right[..c],
-                                                    &process_ctx,
-                                                );
-                                            }
-                                        } else {
-                                            // Keep internal-only chains resilient to transient
-                                            // external_fx snapshot skew: when there are no
-                                            // external processors and no internal sidechain
-                                            // routes, process the whole native chain directly.
-                                            let has_external = runtime_slots
-                                                .iter()
-                                                .any(|s| s.instance_id.is_some());
-                                            let has_internal_sidechain = runtime_slots.iter().any(
-                                                |s| {
-                                                    s.internal_slot_index.is_some()
-                                                        && s.sidechain_track_index.is_some()
-                                                },
-                                            );
-                                            // RT-SYNC FIX: Validate that runtime_slots
-                                            // internal_slot_index values are in bounds for
-                                            // the current DeviceChain. During rebuild, the
-                                            // snapshot may reference indices that don't exist
-                                            // yet (chain commands are still in the queue).
-                                            // Fall back to safe sequential processing.
-                                            let chain_len = slot.device_chain.len();
-                                            let indices_valid = runtime_slots.iter().all(|s| {
-                                                s.internal_slot_index
-                                                    .is_none_or(|idx| idx < chain_len)
-                                            });
-                                            if (!has_external && !has_internal_sidechain)
-                                                || !indices_valid
-                                            {
-                                                if !slot.device_chain.is_empty() {
-                                                    slot.device_chain.process_with_context(
-                                                        &mut left[..c],
-                                                        &mut right[..c],
-                                                        &process_ctx,
-                                                    );
-                                                }
-                                            } else {
-                                            for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
-                                                // BYPASS-FIX: Skip processing for bypassed slots.
-                                                // Audio passes through unmodified. The slot stays
-                                                // in the snapshot to keep subsequent indices stable,
-                                                // preventing sidechain routing dropout.
-                                                if runtime_slot.is_bypassed {
-                                                    continue;
-                                                }
-                                                let source_ptrs = runtime_slot
-                                                    .sidechain_track_index
-                                                    .and_then(|src_idx| sidechain_resolver(src_idx + 1));
-                                                
-                                                let (sc_l, sc_r) = if let Some((ptr_l, ptr_r)) = source_ptrs {
-                                                    unsafe {
-                                                        (
-                                                            Some(std::slice::from_raw_parts(ptr_l, c)),
-                                                            Some(std::slice::from_raw_parts(ptr_r, c))
-                                                        )
-                                                    }
-                                                } else {
-                                                    (None, None)
-                                                };
-
-                                                if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                                                    slot.device_chain.process_slot_with_sidechain_ctx(
-                                                        internal_idx,
-                                                        &mut left[..c],
-                                                        &mut right[..c],
-                                                        sc_l,
-                                                        sc_r,
-                                                        &process_ctx,
-                                                    );
-                                                    continue;
-                                                }
-
-                                                if let Some(instance_id) = runtime_slot.instance_id {
-                                            let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
-                                            // AUD-601 FIX: Diagnose missing plugin instances.
-                                            // BUG-002 FIX: Removed log::warn! — RT-unsafe Mutex.
-                                            static MISS_COUNT: std::sync::atomic::AtomicU32 =
-                                                std::sync::atomic::AtomicU32::new(0);
-                                            MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                            continue;
-                                        };
-                                        // BUG-007 FIX: Do NOT skip per-track VSTs during export.
-                                        // The offline renderer must process ALL plugins for correct
-                                        // exported audio. Previously, export_active=true caused
-                                        // all VST effects to be silently skipped in bounced output.
-                                                    // CRACKLE-FIX-1: Copy input into external buffers BEFORE
-                                                    // attempting lock. On lock miss, the dry signal is already
-                                                    // in external_left/right, so the copy-back below produces
-                                                    // clean passthrough instead of a one-buffer audio gap.
-                                                    external_left[..c].copy_from_slice(&left[..c]);
-                                                    external_right[..c].copy_from_slice(&right[..c]);
-
-                                                    if let Some(mut host) = plugin_mtx.try_lock() {
-                                                        // Lock acquired — full plugin processing
-                                                        apply_external_plugin_param_automation_block(
-                                                            &mut host,
-                                                            automation.get(track_idx),
-                                                            runtime_slot,
-                                                            runtime_slot_idx,
-                                                            playhead_pos,
-                                                        );
-                                                        let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
-                                                        let sc_pair: Option<[&[f32]; 2]> = if let Some((ptr_l, ptr_r)) = source_ptrs {
-                                                            unsafe {
-                                                                Some([
-                                                                    std::slice::from_raw_parts(ptr_l, c),
-                                                                    std::slice::from_raw_parts(ptr_r, c),
-                                                                ])
-                                                            }
-                                                        } else {
-                                                            None
-                                                        };
-
-                                                        let device_playhead_pos = if render_ctx.timeline_sample_rate > 0.0 {
-                                                            (playhead_pos as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
-                                                        } else {
-                                                            playhead_pos
-                                                        };
-
-                                                        let device_loop_start = render_ctx.loop_region.as_ref()
-                                                            .map(|r| if render_ctx.timeline_sample_rate > 0.0 {
-                                                                (r.start as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
-                                                            } else {
-                                                                r.start
-                                                            })
-                                                            .unwrap_or(0);
-
-                                                        let device_loop_end = render_ctx.loop_region.as_ref()
-                                                            .map(|r| if render_ctx.timeline_sample_rate > 0.0 {
-                                                                (r.end as f64 / render_ctx.timeline_sample_rate * sample_rate_f64).round() as i64
-                                                            } else {
-                                                                r.end
-                                                            })
-                                                            .unwrap_or(0);
-
-                                                        let transport = TransportContext {
-                                                            sample_rate: sample_rate_f64,
-                                                            position_samples: device_playhead_pos,
-                                                            tempo: bpm,
-                                                            is_playing,
-                                                            is_recording: false,
-                                                            time_sig_numerator: i32::from(time_sig_numerator),
-                                                            time_sig_denominator: i32::from(time_sig_denominator),
-                                                            cycle_active: render_ctx.loop_region.is_some(),
-                                                            loop_start_samples: device_loop_start,
-                                                            loop_end_samples: device_loop_end,
-                                                        };
-                                                        host.set_transport_context(transport);
-
-                                                        vst3_midi_scratch.clear();
-                                                        if track_idx < plugin_rt_midi_queue.len() {
-                                                            vst3_midi_scratch.append(&mut plugin_rt_midi_queue[track_idx]);
-                                                        }
-                                                        if vst3_flush_per_track.get(track_idx).copied().unwrap_or(false)
-                                                            && track_idx < vst3_note_trackers.len()
-                                                        {
-                                                            vst3_note_trackers[track_idx].flush_all(&mut vst3_midi_scratch);
-                                                        }
-
-                                                        let mut split_offset_device: Option<usize> = None;
-
-                                                        if is_playing
-                                                            && let Some(midi_track) = midi_snap.get(track_idx)
-                                                        {
-                                                            let _fx = &midi_track.fx;
-                                                            let midi_loop_region = render_ctx
-                                                                .loop_region
-                                                                .as_ref()
-                                                                .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
-                                                            midi_schedule_scratch.clear();
-                                                            MidiScheduler::fill_active_looped_with_tmp(
-                                                                &midi_track.clips,
-                                                                midi_playhead_pos,
-                                                                timeline_frame_count,
-                                                                midi_loop_region.as_ref(),
-                                                                &mut midi_schedule_scratch,
-                                                                &mut midi_schedule_tmp,
-                                                            );
-                                                            let tracker = if track_idx < vst3_note_trackers.len() {
-                                                                Some(&mut vst3_note_trackers[track_idx])
-                                                            } else {
-                                                                None
-                                                            };
-
-                                                            split_offset_device = process_midi_events(
-                                                                midi_track,
-                                                                midi_playhead_pos,
-                                                                timeline_frame_count,
-                                                                midi_loop_region.as_ref(),
-                                                                &frame_converter,
-                                                                &mut midi_schedule_scratch,
-                                                                &mut midi_schedule_tmp,
-                                                                &mut vst3_midi_scratch,
-                                                                tracker,
-                                                            );
-                                                        }
-
-                                                        let mut out_slices: [&mut [f32]; 2] = [
-                                                            &mut external_left[..c],
-                                                            &mut external_right[..c],
-                                                        ];
-
-                                                        if let Some(split_at) = split_offset_device.filter(|&s| s > 0 && s < c) {
-                                                            // SUB-BUFFER SPLITTING (ENTERPRISE FIX for Loop Wrap)
-                                                            // 100% Zero Allocation. vst3_midi_scratch is already sorted by sample_offset.
-                                                            let split_i32 = split_at as i32;
-                                                            let split_idx = vst3_midi_scratch.partition_point(|ev| ev.sample_offset < split_i32);
-
-                                                            let main_before = [&main_inputs[0][..split_at], &main_inputs[1][..split_at]];
-                                                            let main_after = [&main_inputs[0][split_at..], &main_inputs[1][split_at..]];
-                                                            
-                                                            let sc_before = sc_pair.map(|p| [&p[0][..split_at], &p[1][..split_at]]);
-                                                            let sc_after = sc_pair.map(|p| [&p[0][split_at..], &p[1][split_at..]]);
-
-                                                            let (out_l, out_r) = out_slices.split_at_mut(1);
-                                                            let (out_l_before, out_l_after) = out_l[0].split_at_mut(split_at);
-                                                            let (out_r_before, out_r_after) = out_r[0].split_at_mut(split_at);
-
-                                                            let mut out_before: [&mut [f32]; 2] = [out_l_before, out_r_before];
-                                                            let mut out_after: [&mut [f32]; 2] = [out_l_after, out_r_after];
-
-                                                            // 1. Process block BEFORE loop wrap
-                                                            if host.process_with_sidechain(
-                                                                &main_before,
-                                                                sc_before.as_ref().map(|p| p.as_slice()),
-                                                                &mut out_before,
-                                                                split_at,
-                                                                &vst3_midi_scratch[..split_idx],
-                                                            ).is_err() {
-                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                            }
-                                                            
-                                                            // 2. Adjust sample offsets for the events AFTER wrap
-                                                            for ev in &mut vst3_midi_scratch[split_idx..] {
-                                                                ev.sample_offset -= split_i32;
-                                                            }
-
-                                                            // 3. Process block AFTER loop wrap
-                                                            if host.process_with_sidechain(
-                                                                &main_after,
-                                                                sc_after.as_ref().map(|p| p.as_slice()),
-                                                                &mut out_after,
-                                                                c - split_at,
-                                                                &vst3_midi_scratch[split_idx..],
-                                                            ).is_err() {
-                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                            }
-                                                        } else if host.process_with_sidechain(
-                                                            &main_inputs,
-                                                            sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                                            &mut out_slices,
-                                                            c,
-                                                            &vst3_midi_scratch,
-                                                        ).is_err() {
-                                                            static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
-                                                                std::sync::atomic::AtomicU32::new(0);
-                                                            PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                        }
-                                                    } else {
-                                                        // CRACKLE-FIX-1: Lock contended — dry passthrough.
-                                                        // external_left/right already contain the input signal
-                                                        // (copied above). No audio gap — just unprocessed pass-through.
-                                                        static LOCK_MISS: std::sync::atomic::AtomicU32 =
-                                                            std::sync::atomic::AtomicU32::new(0);
-                                                        LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                    }
-
-                                                    // Always copy external buffers back and sanitize,
-                                                    // regardless of whether plugin was processed or skipped.
-                                                    left[..c].copy_from_slice(&external_left[..c]);
-                                                    right[..c].copy_from_slice(&external_right[..c]);
-
-                                                    // AUD-506 FIX: Sanitize per-track VST output.
-                                                    // NaN/Inf from a misbehaving plugin would
-                                                    // poison the strip, metering, graph summing,
-                                                    // and ultimately the master bus.
-                                                    for si in 0..c {
-                                                        if !left[si].is_finite() {
-                                                            left[si] = 0.0;
-                                                        }
-                                                        if !right[si].is_finite() {
-                                                            right[si] = 0.0;
-                                                        }
-                                                    }
-                                                } // end if instance_id
-                                            } // end for runtime_slot
-                                            } // end else (per-slot loop)
-                                        }
-                                    } else if !slot.device_chain.is_empty() {
-                                        slot.device_chain.process_with_context(
-                                            &mut left[..c],
-                                            &mut right[..c],
-                                            &process_ctx,
-                                        );
-                                    }
-                                    // 3. Process Mixer Strip (Volume, Pan, Mute, Solo output gate)
-                                    if slot.strip.is_output_enabled() {
-                                        slot.strip.process_stereo(
-                                            &mut left[..c],
-                                            &mut right[..c],
-                                        );
-                                    } else {
-                                        left[..c].fill(0.0);
-                                        right[..c].fill(0.0);
-                                    }
-
-                                    if let Some(lane) = automation.get(track_idx) {
-                                        apply_track_mixer_automation_sample_accurate(
-                                            &mut left[..c],
-                                            &mut right[..c],
-                                            playhead_pos,
-                                            (!lane.volume.is_empty())
-                                                .then_some(lane.volume.as_slice()),
-                                            (!lane.pan.is_empty())
-                                                .then_some(lane.pan.as_slice()),
-                                        );
-                                    }
+                                    process_track_graph_node(left, right, &mut ctx, sidechain_resolver);
 
                                     // 4. Per-track metering (graph pass)
                                     if let Some((meter_l, meter_r)) =
@@ -937,22 +626,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         let rms_r = linear_to_db(compute_rms(&right[..c]));
                                         let peak_l = linear_to_db(compute_peak(&left[..c]));
                                         let peak_r = linear_to_db(compute_peak(&right[..c]));
-                                        // BUG-012 FIX: Use store_peak_decay for proper peak-hold with decay.
-                                        // Previously used store_peak(peak.max(load_peak())), but baseline
-                                        // decay at L237 already reset to METER_FLOOR_DB — making .max()
-                                        // dead code. Now uses the same decay-based approach as master meters.
                                         let track_decay = peak_decay_for_block(sample_rate_f64, c);
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
                                         meter_l.store_peak_decay(peak_l, track_decay);
                                         meter_r.store_peak_decay(peak_r, track_decay);
                                     }
-
-                                    // SSOT-FIX: Publish post-insert/post-strip track output
-                                    // back into slot buffers so downstream sidechain taps
-                                    // read the processed signal, not stale pre-FX source data.
-                                    slot.buf_left[..c].copy_from_slice(&left[..c]);
-                                    slot.buf_right[..c].copy_from_slice(&right[..c]);
                                 }
                             },
                             |_node, _left, _right, _count, _resolver| {},
@@ -1075,8 +754,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         );
                         #[cfg(not(debug_assertions))]
                         {
-                            static PANIC_COUNT: std::sync::atomic::AtomicU32 =
-                                std::sync::atomic::AtomicU32::new(0);
                             PANIC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                     }

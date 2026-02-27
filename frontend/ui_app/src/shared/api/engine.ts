@@ -750,6 +750,10 @@ export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrame
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
 export const moveClipWithDeltas = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
+
+export const moveMultipleClipsWithDeltas = (
+    requests: Array<{ id: string; newTrackIndex: number; newPositionFrames: number }>
+) => invoke<DeltaMutationResponse>('move_multiple_clips_with_deltas_cmd', { requests });
 export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
     invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
 export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
@@ -770,6 +774,10 @@ export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: numb
         newPositionFrames: newPositionFrames ?? null,
         targetTrackIndex: targetTrackIndex ?? null,
     });
+
+export const duplicateMultipleClipsWithDeltas = (
+    requests: Array<{ id: string; newPositionFrames?: number; targetTrackIndex?: number }>
+) => invoke<DuplicateClipWithDeltasResponse>('duplicate_multiple_clips_with_deltas_cmd', { requests });
 export const mergeClips = (clipIds: string[]) =>
     invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
 export const mergeClipsWithDeltas = (clipIds: string[]) =>

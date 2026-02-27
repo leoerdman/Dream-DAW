@@ -134,63 +134,44 @@ export function useTimelineClipHandlers({
             return clamped;
         };
 
-        const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
-            const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
-            const safeTrack = snapToVisibleTrack(targetTrack, 0);
-            try {
-                return await engineApi.moveClipWithDeltas(id, safeTrack, positionFrames);
-            } catch (err) {
-                if (isClipNotFoundError(err)) {
-                    pruneGhostClip(id);
-                    return null;
-                }
-                throw err;
-            }
-        };
-
         const run = async () => {
-            if (!moveAsGroup) {
-                const response = await moveOne(clipId, newStartBeat, newTrackIndex);
-                if (!response) return;
-                await applyProjectDeltas(response.deltas, 'clip-move');
-                return;
+            let clipsToMove: TimelineClip[];
+            if (moveAsGroup) {
+                const seen = new Set<string>();
+                clipsToMove = selectedClipIds
+                    .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                    .filter((clip): clip is TimelineClip => Boolean(clip))
+                    .filter((clip) => {
+                        if (!selectedSet.has(clip.id)) return false;
+                        if (seen.has(clip.id)) return false;
+                        seen.add(clip.id);
+                        return true;
+                    });
+            } else {
+                clipsToMove = [dragged];
             }
 
             const deltaBeat = newStartBeat - dragged.startBeat;
             const deltaTrack = newTrackIndex - dragged.trackIndex;
-            const seen = new Set<string>();
-            const selectedClips = selectedClipIds
-                .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
-                .filter((clip): clip is TimelineClip => Boolean(clip))
-                .filter((clip) => {
-                    if (!selectedSet.has(clip.id)) return false;
-                    if (seen.has(clip.id)) return false;
-                    seen.add(clip.id);
-                    return true;
-                });
-            const moveErrors: string[] = [];
-            for (const clip of selectedClips) {
-                const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                const targetTrack = snapToVisibleTrack(
-                    Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack)),
-                    deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0),
-                );
-                try {
-                    const response = await moveOne(clip.id, targetBeat, targetTrack);
-                    if (!response) continue;
-                    // Apply per-clip deltas immediately to keep UI consistent even if
-                    // later clips in the same group fail validation/not-found checks.
-                    await applyProjectDeltas(response.deltas, 'clip-move-group');
-                } catch (err) {
-                    if (isClipNotFoundError(err)) {
-                        pruneGhostClip(clip.id);
-                        continue;
-                    }
-                    moveErrors.push(err instanceof Error ? err.message : String(err));
+            const preferredDirection = deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0);
+
+            const requests = clipsToMove.map((clip) => {
+                const targetBeat = moveAsGroup ? Math.max(0, clip.startBeat + deltaBeat) : newStartBeat;
+                const targetTrack = snapToVisibleTrack(Math.max(0, Math.min(trackCountRaw - 1, moveAsGroup ? clip.trackIndex + deltaTrack : newTrackIndex)), preferredDirection);
+                const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
+                return { id: clip.id, newTrackIndex: targetTrack, newPositionFrames: positionFrames };
+            });
+
+            try {
+                const response = await engineApi.moveMultipleClipsWithDeltas(requests);
+                await applyProjectDeltas(response.deltas, moveAsGroup ? 'clip-move-group' : 'clip-move');
+            } catch (err) {
+                if (isClipNotFoundError(err)) {
+                    // Not ideal grouping behavior if one deletes mid-drag, but avoids total failure.
+                    for (const req of requests) pruneGhostClip(req.id);
+                    return;
                 }
-            }
-            if (moveErrors.length > 0) {
-                throw new Error(`Group move completed with ${moveErrors.length} error(s): ${moveErrors.join('; ')}`);
+                throw err;
             }
         };
 
@@ -299,57 +280,46 @@ export function useTimelineClipHandlers({
             return clamped;
         };
 
-        const duplicateOne = async (id: string, targetBeat: number, targetTrack: number): Promise<string | null> => {
-            const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
-            const safeTrack = snapToVisibleTrack(targetTrack);
-            try {
-                const dupResponse = await engineApi.duplicateClipWithDeltas(id, positionFrames, safeTrack);
-                await applyProjectDeltas(dupResponse.deltas, 'clip-duplicate-drag');
-                const newId = dupResponse.new_id;
-                return newId;
-            } catch (err) {
-                console.error('[Dream] duplicateClip (Cmd+Drag) failed:', err);
-                useStatusStore.getState().setError(
-                    `Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
-                return null;
-            }
-        };
-
         const run = async () => {
-            if (!duplicateAsGroup) {
-                const newId = await duplicateOne(clipId, newStartBeat, newTrackIndex);
-                if (newId) {
-                    setSelectedClipIds([newId]);
-                }
-                return;
+            let clipsToDuplicate: TimelineClip[];
+            if (duplicateAsGroup) {
+                const seen = new Set<string>();
+                clipsToDuplicate = selectedClipIds
+                    .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                    .filter((clip): clip is TimelineClip => Boolean(clip))
+                    .filter((clip) => {
+                        if (!selectedSet.has(clip.id)) return false;
+                        if (seen.has(clip.id)) return false;
+                        seen.add(clip.id);
+                        return true;
+                    });
+            } else {
+                clipsToDuplicate = [dragged];
             }
 
-            // Multi-clip: compute delta from the primary clip's drag
             const deltaBeat = newStartBeat - dragged.startBeat;
             const deltaTrack = newTrackIndex - dragged.trackIndex;
-            const newIds: string[] = [];
-            const seen = new Set<string>();
 
-            const selectedClips = selectedClipIds
-                .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
-                .filter((clip): clip is TimelineClip => Boolean(clip))
-                .filter((clip) => {
-                    if (!selectedSet.has(clip.id)) return false;
-                    if (seen.has(clip.id)) return false;
-                    seen.add(clip.id);
-                    return true;
-                });
+            const requests = clipsToDuplicate.map((clip) => {
+                const targetBeat = duplicateAsGroup ? Math.max(0, clip.startBeat + deltaBeat) : newStartBeat;
+                const targetTrack = snapToVisibleTrack(Math.max(0, Math.min(trackCountRaw - 1, duplicateAsGroup ? clip.trackIndex + deltaTrack : newTrackIndex)));
+                const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
+                return { id: clip.id, newPositionFrames: positionFrames, targetTrackIndex: targetTrack };
+            });
 
-            for (const clip of selectedClips) {
-                const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                const targetTrack = Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack));
-                const newId = await duplicateOne(clip.id, targetBeat, targetTrack);
-                if (newId) newIds.push(newId);
-            }
+            try {
+                const response = await engineApi.duplicateMultipleClipsWithDeltas(requests);
+                await applyProjectDeltas(response.deltas, 'clip-duplicate-drag');
+                const newIds = response.deltas
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    .filter((d) => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
 
-            if (newIds.length > 0) {
-                setSelectedClipIds(newIds);
+                if (newIds.length > 0) {
+                    setSelectedClipIds(newIds);
+                }
+            } catch (err) {
+                console.error('[Dream] Cmd+Drag duplicate failed:', err);
+                useStatusStore.getState().setError(`Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         };
 

@@ -227,7 +227,10 @@ impl TrackColor {
             TrackColor::Rose,
             TrackColor::Slate,
         ];
-        ALL[index % ALL.len()]
+        // BUG-064 FIX: Use a prime stride (7) to distribute colors evenly.
+        // A direct modulo (index % 16) produces a sequential rainbow rainbow gradient
+        // which creates indistinguishable contiguous segments on very large projects.
+        ALL[(index * 7) % ALL.len()]
     }
 }
 
@@ -744,6 +747,18 @@ impl DeviceRack {
 
     /// Total latency of the rack (max of all chain latencies).
     pub fn total_latency_frames(&self) -> u32 {
+        self.internal_latency_frames_with_depth(0)
+    }
+
+    // BUG-059 FIX: Prevent unbounded recursion stack overflow.
+    // If a corrupted or malicious project file connects racks within racks cyclically 
+    // or past a stack threshold, crash the parsing execution. 
+    fn internal_latency_frames_with_depth(&self, depth: u8) -> u32 {
+        if depth > 32 {
+            // Cutoff traversal returning zero block so upstream latency calculations 
+            // bypass processing the broken chains instead of panicking.
+            return 0; 
+        }
         self.chains
             .iter()
             .map(|chain| {
@@ -751,7 +766,7 @@ impl DeviceRack {
                     .devices
                     .iter()
                     .filter(|d| !d.is_bypassed())
-                    .map(|d| d.latency_frames())
+                    .map(|d| d.latency_frames_with_depth(depth + 1))
                     .sum::<u32>()
             })
             .max()
@@ -795,9 +810,14 @@ impl DeviceNode {
 
     /// Returns the latency in sample frames.
     pub fn latency_frames(&self) -> u32 {
+        self.latency_frames_with_depth(0)
+    }
+
+    /// Internal recursive function limiting iteration depths to avoid stack panics (`Bug-059`).
+    pub fn latency_frames_with_depth(&self, depth: u8) -> u32 {
         match self {
             Self::Single(slot) => slot.latency_frames,
-            Self::Rack(rack) => rack.total_latency_frames(),
+            Self::Rack(rack) => rack.internal_latency_frames_with_depth(depth),
         }
     }
 

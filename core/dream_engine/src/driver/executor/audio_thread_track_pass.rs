@@ -1,0 +1,332 @@
+use std::collections::HashMap;
+use uuid::Uuid;
+
+use dream_clip_engine::midi_scheduler::ScheduledNote;
+use dream_dsp::device_slot::ProcessContext;
+use dream_plugins::{MidiEvent, TransportContext};
+use crate::driver::PluginInstanceArc;
+use crate::driver::LoopRegion;
+
+use crate::driver::{
+    automation::{
+        apply_external_plugin_param_automation_block,
+        apply_track_mixer_automation_sample_accurate,
+    },
+    midi_dispatcher::PluginNoteTracker,
+};
+use crate::frame_domain::FrameDomainConverter;
+use crate::driver::executor::render_context::TrackSlot;
+use crate::driver::snapshots::{ExternalPluginRuntimeSlot, MidiSnapshot, MidiTrack, TrackAutomationState};
+
+use crate::driver::executor::audio_thread_process::process_midi_events;
+
+pub(crate) struct TrackPassContext<'a> {
+    pub c: usize,
+    pub track_idx: usize,
+    pub post_sum_processed: bool,
+    pub slot: &'a mut TrackSlot,
+    pub external_fx_map: &'a [Vec<ExternalPluginRuntimeSlot>],
+    pub automation: &'a [TrackAutomationState],
+    pub playhead_pos: i64,
+    pub sample_rate_f64: f64,
+    pub process_ctx: &'a ProcessContext,
+    pub plugin_registry_ref: &'a HashMap<Uuid, PluginInstanceArc>,
+    pub external_left: &'a mut [f32],
+    pub external_right: &'a mut [f32],
+    pub midi_snap: &'a MidiSnapshot,
+    pub midi_playhead_pos: i64,
+    pub timeline_frame_count: usize,
+    pub frame_converter: &'a FrameDomainConverter,
+    pub vst3_midi_scratch: &'a mut Vec<MidiEvent>,
+    pub plugin_rt_midi_queue: &'a mut [Vec<MidiEvent>],
+    pub vst3_flush_per_track: &'a [bool],
+    pub vst3_note_trackers: &'a mut [PluginNoteTracker],
+    pub midi_schedule_scratch: &'a mut Vec<ScheduledNote>,
+    pub midi_schedule_tmp: &'a mut Vec<ScheduledNote>,
+    pub is_playing: bool,
+    pub bpm: f64,
+    pub time_sig_numerator: u8,
+    pub time_sig_denominator: u8,
+    pub timeline_sample_rate: f64,
+    pub loop_region: Option<LoopRegion>,
+}
+
+pub(crate) fn process_track_graph_node(
+    left: &mut [f32],
+    right: &mut [f32],
+    ctx: &mut TrackPassContext,
+    sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
+) {
+    let c = ctx.c;
+    // 1. Unify Working Buffer
+    if ctx.post_sum_processed {
+        for i in 0..c {
+            left[i] += ctx.slot.buf_left[i];
+            right[i] += ctx.slot.buf_right[i];
+        }
+    } else {
+        left[..c].copy_from_slice(&ctx.slot.buf_left[..c]);
+        right[..c].copy_from_slice(&ctx.slot.buf_right[..c]);
+    }
+
+    // 2. Process Inserts (Native FX + VSTs in chain order)
+    if let Some(runtime_slots) = ctx.external_fx_map.get(ctx.track_idx) {
+        if runtime_slots.is_empty() {
+            if !ctx.slot.device_chain.is_empty() {
+                ctx.slot.device_chain.process_with_context(
+                    &mut left[..c],
+                    &mut right[..c],
+                    ctx.process_ctx,
+                );
+            }
+        } else {
+            let has_external = runtime_slots.iter().any(|s| s.instance_id.is_some());
+            let has_internal_sidechain = runtime_slots.iter().any(|s| {
+                s.internal_slot_index.is_some() && s.sidechain_track_index.is_some()
+            });
+
+            let chain_len = ctx.slot.device_chain.len();
+            let indices_valid = runtime_slots.iter().all(|s| {
+                s.internal_slot_index.is_none_or(|idx| idx < chain_len)
+            });
+            if (!has_external && !has_internal_sidechain) || !indices_valid {
+                if !ctx.slot.device_chain.is_empty() {
+                    ctx.slot.device_chain.process_with_context(
+                        &mut left[..c],
+                        &mut right[..c],
+                        ctx.process_ctx,
+                    );
+                }
+            } else {
+                for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                    if runtime_slot.is_bypassed { continue; }
+                    let source_ptrs = runtime_slot
+                        .sidechain_track_index
+                        .and_then(|src_idx| sidechain_resolver(src_idx + 1));
+                    
+                    let (sc_l, sc_r) = if let Some((ptr_l, ptr_r)) = source_ptrs {
+                        unsafe {
+                            (
+                                Some(std::slice::from_raw_parts(ptr_l, c)),
+                                Some(std::slice::from_raw_parts(ptr_r, c))
+                            )
+                        }
+                    } else {
+                        (None, None)
+                    };
+
+                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                        ctx.slot.device_chain.process_slot_with_sidechain_ctx(
+                            internal_idx,
+                            &mut left[..c],
+                            &mut right[..c],
+                            sc_l,
+                            sc_r,
+                            ctx.process_ctx,
+                        );
+                        continue;
+                    }
+
+                    if let Some(instance_id) = runtime_slot.instance_id {
+                        let Some(plugin_mtx) = ctx.plugin_registry_ref.get(&instance_id) else {
+                            static MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                            MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            continue;
+                        };
+
+                        ctx.external_left[..c].copy_from_slice(&left[..c]);
+                        ctx.external_right[..c].copy_from_slice(&right[..c]);
+
+                        if let Some(mut host) = plugin_mtx.try_lock() {
+                            apply_external_plugin_param_automation_block(
+                                &mut host,
+                                ctx.automation.get(ctx.track_idx),
+                                runtime_slot,
+                                runtime_slot_idx,
+                                ctx.playhead_pos,
+                            );
+                            let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
+                            let sc_pair: Option<[&[f32]; 2]> = if let Some((ptr_l, ptr_r)) = source_ptrs {
+                                unsafe {
+                                    Some([
+                                        std::slice::from_raw_parts(ptr_l, c),
+                                        std::slice::from_raw_parts(ptr_r, c),
+                                    ])
+                                }
+                            } else { None };
+
+                            let device_playhead_pos = if ctx.timeline_sample_rate > 0.0 {
+                                (ctx.playhead_pos as f64 / ctx.timeline_sample_rate * ctx.sample_rate_f64).round() as i64
+                            } else { ctx.playhead_pos };
+
+                            let device_loop_start = ctx.loop_region.as_ref()
+                                .map(|r| if ctx.timeline_sample_rate > 0.0 {
+                                    (r.start as f64 / ctx.timeline_sample_rate * ctx.sample_rate_f64).round() as i64
+                                } else { r.start }).unwrap_or(0);
+
+                            let device_loop_end = ctx.loop_region.as_ref()
+                                .map(|r| if ctx.timeline_sample_rate > 0.0 {
+                                    (r.end as f64 / ctx.timeline_sample_rate * ctx.sample_rate_f64).round() as i64
+                                } else { r.end }).unwrap_or(0);
+
+                            let transport = TransportContext {
+                                sample_rate: ctx.sample_rate_f64,
+                                position_samples: device_playhead_pos,
+                                tempo: ctx.bpm,
+                                is_playing: ctx.is_playing,
+                                is_recording: false,
+                                time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                                time_sig_denominator: i32::from(ctx.time_sig_denominator),
+                                cycle_active: ctx.loop_region.is_some(),
+                                loop_start_samples: device_loop_start,
+                                loop_end_samples: device_loop_end,
+                            };
+                            host.set_transport_context(transport);
+
+                            ctx.vst3_midi_scratch.clear();
+                            if ctx.track_idx < ctx.plugin_rt_midi_queue.len() {
+                                ctx.vst3_midi_scratch.append(&mut ctx.plugin_rt_midi_queue[ctx.track_idx]);
+                            }
+                            if ctx.vst3_flush_per_track.get(ctx.track_idx).copied().unwrap_or(false)
+                                && ctx.track_idx < ctx.vst3_note_trackers.len()
+                            {
+                                ctx.vst3_note_trackers[ctx.track_idx].flush_all(ctx.vst3_midi_scratch);
+                            }
+
+                            let mut split_offset_device: Option<usize> = None;
+
+                            if ctx.is_playing
+                                && let Some(midi_track) = ctx.midi_snap.get(ctx.track_idx)
+                            {
+                                let midi_loop_region = ctx.loop_region
+                                    .as_ref()
+                                    .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
+                                ctx.midi_schedule_scratch.clear();
+                                dream_clip_engine::midi_scheduler::MidiScheduler::fill_active_looped_with_tmp(
+                                    &midi_track.clips,
+                                    ctx.midi_playhead_pos,
+                                    ctx.timeline_frame_count,
+                                    midi_loop_region.as_ref(),
+                                    ctx.midi_schedule_scratch,
+                                    ctx.midi_schedule_tmp,
+                                );
+                                let tracker = if ctx.track_idx < ctx.vst3_note_trackers.len() {
+                                    Some(&mut ctx.vst3_note_trackers[ctx.track_idx])
+                                } else { None };
+
+                                split_offset_device = process_midi_events(
+                                    midi_track,
+                                    ctx.midi_playhead_pos,
+                                    ctx.timeline_frame_count,
+                                    midi_loop_region.as_ref(),
+                                    ctx.frame_converter,
+                                    ctx.midi_schedule_scratch,
+                                    ctx.midi_schedule_tmp,
+                                    ctx.vst3_midi_scratch,
+                                    tracker,
+                                );
+                            }
+
+                            let mut out_slices: [&mut [f32]; 2] = [
+                                &mut ctx.external_left[..c],
+                                &mut ctx.external_right[..c],
+                            ];
+
+                            if let Some(split_at) = split_offset_device.filter(|&s| s > 0 && s < c) {
+                                let split_i32 = split_at as i32;
+                                let split_idx = ctx.vst3_midi_scratch.partition_point(|ev| ev.sample_offset < split_i32);
+
+                                let main_before = [&main_inputs[0][..split_at], &main_inputs[1][..split_at]];
+                                let main_after = [&main_inputs[0][split_at..], &main_inputs[1][split_at..]];
+                                
+                                let sc_before = sc_pair.map(|p| [&p[0][..split_at], &p[1][..split_at]]);
+                                let sc_after = sc_pair.map(|p| [&p[0][split_at..], &p[1][split_at..]]);
+
+                                let (out_l, out_r) = out_slices.split_at_mut(1);
+                                let (out_l_before, out_l_after) = out_l[0].split_at_mut(split_at);
+                                let (out_r_before, out_r_after) = out_r[0].split_at_mut(split_at);
+
+                                let mut out_before: [&mut [f32]; 2] = [out_l_before, out_r_before];
+                                let mut out_after: [&mut [f32]; 2] = [out_l_after, out_r_after];
+
+                                if host.process_with_sidechain(
+                                    &main_before,
+                                    sc_before.as_ref().map(|p| p.as_slice()),
+                                    &mut out_before,
+                                    split_at,
+                                    &ctx.vst3_midi_scratch[..split_idx],
+                                ).is_err() {
+                                    static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                    PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                
+                                for ev in &mut ctx.vst3_midi_scratch[split_idx..] {
+                                    ev.sample_offset -= split_i32;
+                                }
+
+                                if host.process_with_sidechain(
+                                    &main_after,
+                                    sc_after.as_ref().map(|p| p.as_slice()),
+                                    &mut out_after,
+                                    c - split_at,
+                                    &ctx.vst3_midi_scratch[split_idx..],
+                                ).is_err() {
+                                    static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                    PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            } else if host.process_with_sidechain(
+                                &main_inputs,
+                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                &mut out_slices,
+                                c,
+                                ctx.vst3_midi_scratch,
+                            ).is_err() {
+                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        } else {
+                            static LOCK_MISS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                            LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+
+                        left[..c].copy_from_slice(&ctx.external_left[..c]);
+                        right[..c].copy_from_slice(&ctx.external_right[..c]);
+
+                        for si in 0..c {
+                            if !left[si].is_finite() { left[si] = 0.0; }
+                            if !right[si].is_finite() { right[si] = 0.0; }
+                        }
+                    }
+                }
+            }
+        }
+    } else if !ctx.slot.device_chain.is_empty() {
+        ctx.slot.device_chain.process_with_context(
+            &mut left[..c],
+            &mut right[..c],
+            ctx.process_ctx,
+        );
+    }
+
+    // 3. Process Mixer Strip
+    if ctx.slot.strip.is_output_enabled() {
+        ctx.slot.strip.process_stereo(&mut left[..c], &mut right[..c]);
+    } else {
+        left[..c].fill(0.0);
+        right[..c].fill(0.0);
+    }
+
+    if let Some(lane) = ctx.automation.get(ctx.track_idx) {
+        apply_track_mixer_automation_sample_accurate(
+            &mut left[..c],
+            &mut right[..c],
+            ctx.playhead_pos,
+            (!lane.volume.is_empty()).then_some(lane.volume.as_slice()),
+            (!lane.pan.is_empty()).then_some(lane.pan.as_slice()),
+        );
+    }
+
+    // SSOT-FIX: Publish post-insert/post-strip track output
+    ctx.slot.buf_left[..c].copy_from_slice(&left[..c]);
+    ctx.slot.buf_right[..c].copy_from_slice(&right[..c]);
+}

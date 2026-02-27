@@ -32,6 +32,30 @@ export function resetTelemetryModuleState(): void {
     lastMeterTickMs = 0;
 }
 
+/**
+ * Resets the 4-second Peak Hold TS for a given track,
+ * which signals the smoother to drop the hold value immediately on the next tick.
+ */
+export function resetTelemetryPeaks(trackIndex: number | 'master'): void {
+    if (!latestMeters) return;
+
+    if (trackIndex === 'master') {
+        latestMeters.master_left.peak_hold_ts = 0;
+        latestMeters.master_right.peak_hold_ts = 0;
+        if (smoothedMeters) {
+            smoothedMeters.master_left.peak_hold_ts = 0;
+            smoothedMeters.master_right.peak_hold_ts = 0;
+        }
+    } else if (latestMeters.tracks[trackIndex]) {
+        latestMeters.tracks[trackIndex][0].peak_hold_ts = 0;
+        latestMeters.tracks[trackIndex][1].peak_hold_ts = 0;
+        if (smoothedMeters && smoothedMeters.tracks[trackIndex]) {
+            smoothedMeters.tracks[trackIndex][0].peak_hold_ts = 0;
+            smoothedMeters.tracks[trackIndex][1].peak_hold_ts = 0;
+        }
+    }
+}
+
 interface SandboxSlotUpdateEvent {
     instanceId?: string;
     instanceIds?: string[];

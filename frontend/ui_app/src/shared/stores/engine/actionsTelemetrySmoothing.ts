@@ -28,6 +28,7 @@ function smoothMeterReading(
     prev: MeteringSnapshot['master_left'] | undefined,
     next: MeteringSnapshot['master_left'],
     dtSec: number,
+    nowMs: number,
 ): MeteringSnapshot['master_left'] {
     const prevRms = prev?.rms ?? METER_FLOOR_DB;
     const prevPeak = prev?.peak ?? METER_FLOOR_DB;
@@ -36,10 +37,34 @@ function smoothMeterReading(
     const rmsAttack = alphaFromTau(dtSec, RMS_ATTACK_TAU_SEC);
     const rmsRelease = alphaFromTau(dtSec, RMS_RELEASE_TAU_SEC);
 
+    const smoothedRms = smoothDb(next.rms, prevRms, rmsAttack, rmsRelease);
+    const smoothedPeak = smoothDb(next.peak, prevPeak, peakAttack, peakRelease);
+
+    let peakHold = prev?.peak_hold ?? METER_FLOOR_DB;
+    let peakHoldTs = prev?.peak_hold_ts ?? nowMs;
+
+    // Maintain absolute maximum over a 4-second window
+    if (smoothedPeak >= peakHold) {
+        peakHold = smoothedPeak;
+        peakHoldTs = nowMs;
+    } else if (nowMs - peakHoldTs > 4000) {
+        // 4000ms elapsed without a new high; drop to current smoothed peak
+        peakHold = smoothedPeak;
+        peakHoldTs = nowMs;
+    }
+
+    // Support manual UI reset (set to 0)
+    if (prev?.peak_hold_ts === 0) {
+        peakHold = smoothedPeak;
+        peakHoldTs = nowMs;
+    }
+
     return {
-        rms: smoothDb(next.rms, prevRms, rmsAttack, rmsRelease),
-        peak: smoothDb(next.peak, prevPeak, peakAttack, peakRelease),
+        rms: smoothedRms,
+        peak: smoothedPeak,
         clipping: next.clipping,
+        peak_hold: peakHold,
+        peak_hold_ts: peakHoldTs,
     };
 }
 
@@ -55,15 +80,15 @@ export function smoothMeterSnapshot(
     const tracks: MeteringSnapshot['tracks'] = next.tracks.map((track, i) => {
         const prevTrack = prev?.tracks[i];
         return [
-            smoothMeterReading(prevTrack?.[0], track[0], dtSec),
-            smoothMeterReading(prevTrack?.[1], track[1], dtSec),
+            smoothMeterReading(prevTrack?.[0], track[0], dtSec, nowMs),
+            smoothMeterReading(prevTrack?.[1], track[1], dtSec, nowMs),
         ];
     });
     return {
         snapshot: {
             tracks,
-            master_left: smoothMeterReading(prev?.master_left, next.master_left, dtSec),
-            master_right: smoothMeterReading(prev?.master_right, next.master_right, dtSec),
+            master_left: smoothMeterReading(prev?.master_left, next.master_left, dtSec, nowMs),
+            master_right: smoothMeterReading(prev?.master_right, next.master_right, dtSec, nowMs),
         },
         nextTickMs: nowMs,
     };

@@ -107,8 +107,8 @@ export const SessionWorkspace = ({
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
                             const contrast = getContrastColor(track.color) === 'black'
-                                ? 'color-mix(in srgb, var(--color-text-primary) 92%, transparent)'
-                                : 'color-mix(in srgb, var(--color-text-on-accent) 96%, transparent)';
+                                ? 'color-mix(in srgb, #000000 85%, transparent)'
+                                : 'color-mix(in srgb, #ffffff 95%, transparent)';
                             const isSelectedTrack = selectedTrackId === track.id;
                             return (
                                 <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)', display: 'flex', flexDirection: 'column' }}>
@@ -136,8 +136,8 @@ export const SessionWorkspace = ({
                                         const isSelected = clip ? selectedSessionClipIdSafe === clip.id : false;
                                         const clipText = clip
                                             ? (getContrastColor(clip.color) === 'black'
-                                                ? 'color-mix(in srgb, var(--color-text-primary) 92%, transparent)'
-                                                : 'color-mix(in srgb, var(--color-text-on-accent) 96%, transparent)')
+                                                ? 'color-mix(in srgb, #000000 85%, transparent)'
+                                                : 'color-mix(in srgb, #ffffff 95%, transparent)')
                                             : 'var(--color-text-tertiary)';
                                         const isPlayingClip = clip ? (playingSessionClipByTrackSafe[track.id] === clip.id && isPlaying) : false;
                                         return (

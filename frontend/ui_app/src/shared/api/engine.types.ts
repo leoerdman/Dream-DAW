@@ -29,6 +29,8 @@ export interface MeterReading {
     rms: number;
     peak: number;
     clipping: boolean;
+    peak_hold?: number;
+    peak_hold_ts?: number;
 }
 
 /** Full metering snapshot — mirrors Rust `MeteringSnapshot`. */

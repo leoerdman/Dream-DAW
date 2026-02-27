@@ -1,11 +1,10 @@
 
-
 interface MasterLaneGridStyle {
     backgroundColor: string;
 }
 
-function snapPhysical(value: number): number {
-    const dpr = window.devicePixelRatio || 1;
+export function snapPhysical(value: number): number {
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
     return Math.round(value * dpr) / dpr;
 }
 
@@ -45,10 +44,9 @@ export function buildMasterLaneGridLines(
 
     const barLines = new Set<number>();
     const subLines = new Set<number>();
-    const snappedScrollX = snapPhysical(scrollX - alignmentOffsetPx);
     for (let beat = startBeat; beat <= endBeat; beat += gridStepBeats) {
         const barPhase = beat / beatsPerBar;
-        const x = snapPhysical(beat * ppb) - snappedScrollX;
+        const x = snapPhysical(beat * ppb - scrollX + alignmentOffsetPx);
         if (x < -1 || x > viewportWidth + 1) continue;
         if (!Number.isFinite(x)) continue;
         if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) {

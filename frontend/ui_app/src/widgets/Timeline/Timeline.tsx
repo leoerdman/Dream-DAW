@@ -10,7 +10,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
-import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
+import { buildMasterLaneGridLines, buildMasterLaneGridStyle, snapPhysical } from './lib/masterLaneGrid';
 
 import { AutomationOverlay } from './AutomationOverlay';
 import { TimelineMasterLane } from './TimelineMasterLane';
@@ -21,6 +21,7 @@ import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from 
 import { useTimelineClipSync } from './model/useTimelineClipSync';
 import { useTimelineRegionEdit } from './model/useTimelineRegionEdit';
 import { useTimelineViewportSync } from './model/useTimelineViewportSync';
+
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
@@ -114,10 +115,8 @@ export const Timeline = (props: TimelineProps) => {
         () => buildMasterLaneGridStyle(),
         [],
     );
-    const loopStartX = loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const loopEndX = loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const loopStartLineX = Math.round(loopStartX);
-    const loopEndLineX = Math.round(loopEndX);
+    const loopStartLineX = snapPhysical(loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
+    const loopEndLineX = snapPhysical(loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
     const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
     const loopRightX = Math.max(loopStartLineX, loopEndLineX);
     const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < effectiveViewportWidth;
@@ -267,8 +266,7 @@ export const Timeline = (props: TimelineProps) => {
         engine.onFrameDrawn = (snapshot) => {
             const lane = masterLaneRef.current;
             if (!lane) return;
-            const dpr = window.devicePixelRatio || 1;
-            const x = Math.round((snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX) * dpr) / dpr;
+            const x = snapPhysical((snapshot.playheadBeat * snapshot.pixelsPerBeat) - snapshot.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
             const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
             lane.style.setProperty('--master-playhead-x', `${x}px`);
             lane.style.setProperty('--master-playhead-visible', visible);

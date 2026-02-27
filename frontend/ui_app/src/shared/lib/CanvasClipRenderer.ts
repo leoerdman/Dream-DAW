@@ -226,11 +226,10 @@ export class CanvasClipRenderer {
         // ── P1: Batch subdivision lines into one path ──
         ctx.fillStyle = theme.gridLine;
         ctx.beginPath();
-        const snappedScrollX = snapPhysical(vp.scrollX);
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
-            const x = snapPhysical(beat * ppb) - snappedScrollX;
+            const x = snapPhysical(beat * ppb - vp.scrollX);
             if (x < -1 || x > vpW + 1) continue;
             ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
@@ -242,7 +241,7 @@ export class CanvasClipRenderer {
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
-            const x = snapPhysical(beat * ppb) - snappedScrollX;
+            const x = snapPhysical(beat * ppb - vp.scrollX);
             if (x < -1 || x > vpW + 1) continue;
             ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
@@ -419,12 +418,17 @@ export class CanvasClipRenderer {
         // The user specifically requested clips to sit exactly *between* grid lines.
         // If grid lines are 1px on whole pixels, clips should occupy exact bounds without arbitrary insets.
         const inset = 0;
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const snappedScrollY = snapPhysical(vp.scrollY);
-        const x = snapPhysical(clip.startBeat * ppb) - snappedScrollX;
-        const w = snapPhysical((clip.startBeat + clip.durationBeats) * ppb) - snappedScrollX - x;
+        const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+        const px = 1 / dpr; // 1 physical device pixel
 
-        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(clip.trackIndex)) - snappedScrollY + inset;
+        const rawX = snapPhysical(clip.startBeat * ppb - vp.scrollX);
+        const rawW = snapPhysical((clip.startBeat + clip.durationBeats) * ppb - vp.scrollX) - rawX;
+
+        // Push left edge by 1 pixel to reveal the grid line underneath without overlapping the adjacent clip.
+        const x = rawX + px;
+        const w = Math.max(px * 2, rawW - px);
+
+        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY) + inset;
         const h = trackH - (inset * 2);
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
@@ -813,8 +817,7 @@ export class CanvasClipRenderer {
         canvasH: number,
         theme: TimelineTheme,
     ): void {
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const x = snapPhysical(playheadBeat * vp.pixelsPerBeat) - snappedScrollX;
+        const x = snapPhysical(playheadBeat * vp.pixelsPerBeat - vp.scrollX);
         if (x < -10 || x > vp.viewportWidth + 10) return;
 
         const rulerH = vp.rulerHeight;
@@ -836,8 +839,7 @@ export class CanvasClipRenderer {
         trackEnd: number,
     ): void {
         if (beat < 0) return; // Hidden when clip is selected (mutual exclusivity)
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const cursorX = snapPhysical(beat * vp.pixelsPerBeat) - snappedScrollX;
+        const cursorX = snapPhysical(beat * vp.pixelsPerBeat - vp.scrollX);
         if (cursorX < -2 || cursorX > vp.viewportWidth + 2) return;
 
         const yStart = vp.rulerHeight + vp.trackOffsetY(Math.min(trackStart, trackEnd)) - vp.scrollY;
@@ -869,9 +871,8 @@ export class CanvasClipRenderer {
     ): void {
         if (!loop || !loop.enabled) return;
 
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const x1 = snapPhysical(loop.start * vp.pixelsPerBeat) - snappedScrollX;
-        const x2 = snapPhysical(loop.end * vp.pixelsPerBeat) - snappedScrollX;
+        const x1 = snapPhysical(loop.start * vp.pixelsPerBeat - vp.scrollX);
+        const x2 = snapPhysical(loop.end * vp.pixelsPerBeat - vp.scrollX);
         const y = vp.rulerHeight;
         const h = vp.viewportHeight - y;
 
@@ -890,10 +891,8 @@ export class CanvasClipRenderer {
     ): void {
         if (!target) return;
 
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const x = snapPhysical(target.beat * vp.pixelsPerBeat) - snappedScrollX;
-        const snappedScrollY = snapPhysical(vp.scrollY);
-        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(target.track)) - snappedScrollY;
+        const x = snapPhysical(target.beat * vp.pixelsPerBeat - vp.scrollX);
+        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(target.track) - vp.scrollY);
         const w = snapPhysical(4 * vp.pixelsPerBeat); // 1 bar default width
         const h = vp.trackHeightAt(target.track);
 
@@ -911,14 +910,12 @@ export class CanvasClipRenderer {
     ): void {
         if (!marquee) return;
 
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const snappedScrollY = snapPhysical(vp.scrollY);
-        const x1 = snapPhysical(Math.min(marquee.startBeat, marquee.endBeat) * vp.pixelsPerBeat) - snappedScrollX;
-        const x2 = snapPhysical(Math.max(marquee.startBeat, marquee.endBeat) * vp.pixelsPerBeat) - snappedScrollX;
+        const x1 = snapPhysical(Math.min(marquee.startBeat, marquee.endBeat) * vp.pixelsPerBeat - vp.scrollX);
+        const x2 = snapPhysical(Math.max(marquee.startBeat, marquee.endBeat) * vp.pixelsPerBeat - vp.scrollX);
         const minTrack = Math.min(marquee.startTrack, marquee.endTrack);
         const maxTrack = Math.max(marquee.startTrack, marquee.endTrack);
-        const y1 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack)) - snappedScrollY;
-        const y2 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1)) - snappedScrollY;
+        const y1 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY);
+        const y2 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY);
 
         ctx.fillStyle = rgba(255, 255, 255, 0.06);
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
@@ -941,11 +938,9 @@ export class CanvasClipRenderer {
     ): void {
         if (!ghost) return;
 
-        const snappedScrollX = snapPhysical(vp.scrollX);
-        const snappedScrollY = snapPhysical(vp.scrollY);
-        const x = snapPhysical(ghost.beat * vp.pixelsPerBeat) - snappedScrollX;
-        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(ghost.trackIndex)) - snappedScrollY;
-        const w = snapPhysical((ghost.beat + ghost.widthBeats) * vp.pixelsPerBeat) - snappedScrollX - x;
+        const x = snapPhysical(ghost.beat * vp.pixelsPerBeat - vp.scrollX);
+        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(ghost.trackIndex) - vp.scrollY);
+        const w = snapPhysical((ghost.beat + ghost.widthBeats) * vp.pixelsPerBeat - vp.scrollX) - x;
         const h = vp.trackHeightAt(ghost.trackIndex) - 2;
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
 

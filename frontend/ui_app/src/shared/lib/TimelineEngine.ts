@@ -1133,8 +1133,10 @@ export class TimelineEngine {
                 canvas.style.cursor = 'pointer';
             } else if (hit.type === 'clip' && hit.fadeHandle) {
                 canvas.style.cursor = 'ew-resize';
-            } else if (hit.type === 'clip' && hit.edge) {
-                canvas.style.cursor = 'ew-resize';
+            } else if (hit.type === 'clip' && hit.edge === 'left') {
+                canvas.style.cursor = 'w-resize';
+            } else if (hit.type === 'clip' && hit.edge === 'right') {
+                canvas.style.cursor = 'e-resize';
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
             } else if (hit.type === 'clip' && hit.region === 'body') {
@@ -1211,7 +1213,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeLeft: {
-                canvas.style.cursor = 'ew-resize';
+                canvas.style.cursor = 'w-resize';
                 if (!this._drag.clipId) break;
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
@@ -1245,7 +1247,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeRight: {
-                canvas.style.cursor = 'ew-resize';
+                canvas.style.cursor = 'e-resize';
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
 

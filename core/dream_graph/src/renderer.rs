@@ -301,8 +301,7 @@ unsafe fn sum_node_inputs_raw(
             );
         }
     } else {
-        // BUG-001 FIX: Zero-alloc fallback — iterate edges directly instead of
-        // collecting into a Vec. Heap allocation on the RT thread causes dropouts.
+        // BUG-001 FIX: Zero-alloc fallback for direct routing
         for edge in dag
             .graph()
             .edges_directed(node_idx, petgraph::Direction::Incoming)

@@ -65,7 +65,7 @@ fn set_sample_rack_pad_volume_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_vol = volume.clamp(0.0, 2.0);
@@ -140,7 +140,7 @@ fn set_sample_rack_pad_mute_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_mute_cmd(track_id, pad_index, muted, handle, project_registry, app)?;
@@ -216,7 +216,7 @@ fn set_sample_rack_pad_solo_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_solo_cmd(track_id, pad_index, soloed, handle, project_registry, app)?;
@@ -304,7 +304,7 @@ fn set_sample_rack_pad_adsr_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_attack = attack.clamp(0.001, 10.0);
@@ -394,7 +394,7 @@ fn set_sample_rack_pad_filter_cutoff_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_cutoff = cutoff.clamp(20.0, 20000.0);
@@ -494,7 +494,7 @@ fn set_sample_rack_pad_sample_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_sample_cmd(

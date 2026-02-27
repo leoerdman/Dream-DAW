@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 import { MixerChannelStrip } from './MixerChannelStrip';
 import { MasterStrip } from './MasterStrip';
 
@@ -42,6 +43,12 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
                         onPanChange={(pan) => setTrackPan(index, pan)}
                         onToggleDisabled={() => setTrackDisabled(index, !track.is_disabled)}
                         onToggleSolo={() => setTrackSolo(index, !track.is_solo)}
+                        onToggleArm={() => {
+                            void engineApi
+                                .armTrackWithDeltas(index, !track.is_armed)
+                                .then(res => useEngineStore.getState().applyProjectDeltas(res.deltas, 'mixer:arm'))
+                                .catch(console.error);
+                        }}
                     />
                 );
             })}

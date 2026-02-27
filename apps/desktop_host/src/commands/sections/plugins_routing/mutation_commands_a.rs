@@ -201,7 +201,7 @@ fn add_plugin_to_track_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let _ = add_plugin_to_track_impl(
         payload,
         project_registry.clone(),
@@ -226,7 +226,7 @@ fn add_plugin_to_track_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let result = add_plugin_to_track_impl(
         payload,
         project_registry.clone(),
@@ -261,7 +261,7 @@ fn remove_plugin_from_track_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -503,7 +503,7 @@ fn set_internal_plugin_param_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)

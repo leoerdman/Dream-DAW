@@ -182,7 +182,7 @@ fn set_external_plugin_param_for_slot_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let normalized = value.clamp(0.0, 1.0);

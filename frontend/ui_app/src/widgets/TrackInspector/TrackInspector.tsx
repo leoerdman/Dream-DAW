@@ -3,6 +3,7 @@ import { TrackInspectorHeader } from '@/widgets/TrackInspector/ui/TrackInspector
 import { TrackInspectorMasterRow } from '@/widgets/TrackInspector/ui/TrackInspectorMasterRow';
 import { TrackInspectorOverlays } from '@/widgets/TrackInspector/ui/TrackInspectorOverlays';
 import { TrackInspectorTrackList } from '@/widgets/TrackInspector/ui/TrackInspectorTrackList';
+import { TrackParameterAutomationMenu } from '@/widgets/TrackInspector/ui/TrackParameterAutomationMenu';
 
 interface TrackInspectorProps {
     selectedTrackId: string;
@@ -65,6 +66,7 @@ export const TrackInspector = ({
                 mixerFocusMode={mixerFocusMode}
             />
             <TrackInspectorOverlays logic={logic} />
+            <TrackParameterAutomationMenu logic={logic} />
         </div>
     );
 };

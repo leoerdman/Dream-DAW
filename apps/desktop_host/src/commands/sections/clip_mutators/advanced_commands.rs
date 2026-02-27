@@ -247,7 +247,7 @@ async fn set_automation_points_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let normalized_param_id = param_id.trim().to_string();
 
@@ -255,7 +255,7 @@ async fn set_automation_points_with_deltas_cmd(
         track_id,
         param_id,
         points.clone(),
-        project_state,
+        project_registry,
         automation_runtime,
         app,
     )
@@ -312,7 +312,7 @@ async fn arm_track_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     arm_track_cmd(track_index, armed, project_registry, app).await?;
 
     Ok(DeltaMutationResponse {

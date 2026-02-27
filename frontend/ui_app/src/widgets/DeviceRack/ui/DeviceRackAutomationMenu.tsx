@@ -146,9 +146,11 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                             autoCtxMenu.paramName,
                             paramKey,
                         );
-                        if (!useAutomationStore.getState().globalVisible) {
-                            logic.toggleGlobalAutomation();
-                        }
+                        useAutomationStore.setState((s) => {
+                            const nextExpanded = new Set(s.expandedTracks);
+                            nextExpanded.add(selectedTrackId);
+                            return { expandedTracks: nextExpanded, globalVisible: true };
+                        });
                         logic.setAutoCtxMenu(null);
                     }}
                     style={autoCtxMenuItemStyle}
@@ -161,7 +163,7 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                         e.currentTarget.style.color = 'var(--color-text-primary)';
                     }}
                 >
-                    <span style={{ marginRight: 8, opacity: 0.8 }}>⊕</span> Automate
+                    <span style={{ marginRight: 8, opacity: 0.8 }}>⊕</span> Add Automation
                 </button>
             )}
             <button

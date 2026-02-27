@@ -2,11 +2,6 @@ fn resolve_audio_clip_state(
     project_state: &crate::state_managers::ProjectState,
     clip_id: Uuid,
 ) -> Result<dream_orchestrator::queries::AudioClipState, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolveAudioClipStateQuery { clip_id },
@@ -17,11 +12,6 @@ fn resolve_audio_clip_timeline_bounds(
     project_state: &crate::state_managers::ProjectState,
     clip_id: Uuid,
 ) -> Result<(i64, i64), String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let project = project_state.project.lock().map_err(|_| "failed to lock".to_string())?;
     let clip = project
         .tracks

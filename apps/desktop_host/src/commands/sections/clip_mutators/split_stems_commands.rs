@@ -154,7 +154,7 @@ async fn split_track_to_stems_cmd(
     }
 
     let result = place_stem_files_on_new_tracks(
-        &project_registry,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,

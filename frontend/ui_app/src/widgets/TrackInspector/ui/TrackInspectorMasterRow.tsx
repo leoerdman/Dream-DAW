@@ -50,6 +50,16 @@ export function TrackInspectorMasterRow({
             onPanChange={() => { }}
             onOutputChange={() => { }}
             onInputChange={() => { }}
+            onVolumeContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                logic.setAutoCtxMenu({ x: e.clientX, y: e.clientY, trackId: 'master', paramName: 'Volume' });
+            }}
+            onPanContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                logic.setAutoCtxMenu({ x: e.clientX, y: e.clientY, trackId: 'master', paramName: 'Pan' });
+            }}
             onContextMenu={(e) => {
                 e.preventDefault();
                 logic.setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });

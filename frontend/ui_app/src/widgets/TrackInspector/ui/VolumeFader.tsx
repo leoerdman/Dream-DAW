@@ -8,6 +8,7 @@ export type VolumeFaderProps = {
     compact?: boolean;
     showZeroTick?: boolean;
     controlHeight?: number;
+    onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 };
 
 export const VolumeFader = ({
@@ -16,6 +17,7 @@ export const VolumeFader = ({
     compact = false,
     showZeroTick = true,
     controlHeight,
+    onContextMenu,
 }: VolumeFaderProps) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -79,6 +81,7 @@ export const VolumeFader = ({
         <div data-testid="track-volume-fader" style={{ display: 'flex', alignItems: 'center', minWidth: trackWidth, flexShrink: 0 }}>
             <div
                 ref={trackRef}
+                onContextMenu={onContextMenu}
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -127,8 +130,9 @@ export const VolumeFader = ({
                     position: 'absolute', left: 0, top: 0, bottom: 0,
                     width: `${faderPos * 100}%`,
                     background: faderPos > zeroTickPos
-                        ? 'linear-gradient(to right, var(--color-status-info), var(--color-port-audio))'
-                        : 'var(--color-status-info)',
+                        ? 'linear-gradient(to right, color-mix(in srgb, var(--color-accent-primary) 80%, black), var(--color-status-warning))'
+                        : 'var(--color-accent-primary)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)',
                     borderRadius: 'var(--radius-xs)',
                     transition: isDragging ? 'none' : 'width 60ms linear',
                 }} />

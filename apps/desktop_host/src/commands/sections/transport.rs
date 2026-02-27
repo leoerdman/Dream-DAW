@@ -305,7 +305,7 @@ fn set_bpm_with_deltas(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_bpm(
         bpm,
         handle,
@@ -366,7 +366,7 @@ fn set_time_signature_with_deltas(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_time_signature(numerator, denominator, handle, project_registry.clone())?;
     Ok(TransportDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TimeSignatureChanged {
@@ -480,7 +480,7 @@ fn set_loop_with_deltas(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     set_loop(
         enabled,
         start_frames,

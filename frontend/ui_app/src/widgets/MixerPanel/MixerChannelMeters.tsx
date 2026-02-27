@@ -45,8 +45,13 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     const peakDbR = meterPair?.[1]?.peak ?? -96;
 
     return (
-        <div style={{ textAlign: 'center', fontSize: 7, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '0 0 2px', flexShrink: 0 }}>
-            L {Number.isFinite(peakDbL) ? formatDb(peakDbL) : '-inf'} / R {Number.isFinite(peakDbR) ? formatDb(peakDbR) : '-inf'}
+        <div style={{ display: 'flex', gap: 2, justifyContent: 'center', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '1px 0 2px', flexShrink: 0 }}>
+            <div style={{ width: 22, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                {Number.isFinite(peakDbL) && peakDbL > -90 ? formatDb(peakDbL) : '-∞'}
+            </div>
+            <div style={{ width: 22, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                {Number.isFinite(peakDbR) && peakDbR > -90 ? formatDb(peakDbR) : '-∞'}
+            </div>
         </div>
     );
 });

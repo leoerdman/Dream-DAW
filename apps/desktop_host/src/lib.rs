@@ -82,8 +82,7 @@ mod plugin_sandbox_recovery;
 mod state_managers;
 pub use commands::payloads::*;
 pub(crate) use state_managers::{
-    AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState,
-    ProjectRegistry, ProjectState, RecordingRuntime, SpectrumState,
+    AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState, ProjectState, RecordingRuntime, SpectrumState,
 };
 
 // ── Sync Engine & Snapshot Builders ─────────────────────────────────────

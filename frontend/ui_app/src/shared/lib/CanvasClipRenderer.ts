@@ -35,9 +35,7 @@ export class CanvasClipRenderer {
     /** Reusable buffer for visible-clip filtering (avoids per-frame allocation). */
     private _filteredClips: TimelineClipData[] = [];
 
-    /** Cached highlight gradient (reused across clips within a frame). */
-    private _highlightGrad: CanvasGradient | null = null;
-    private _highlightGradCtx: CanvasRenderingContext2D | null = null;
+
 
     constructor(waveformCache: WaveformCache) {
         this._waveformCache = waveformCache;
@@ -443,7 +441,8 @@ export class CanvasClipRenderer {
             ctx.globalAlpha = 0.35;
         }
 
-        const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
+        // Premium Ableton-style borders and colors
+        const r = Math.min(2, w / 2, h / 2); // 2px radius looks sharply professional
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.clip();
 
@@ -452,25 +451,23 @@ export class CanvasClipRenderer {
 
         const headerH = Math.min(HEADER_HEIGHT, h);
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
-        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 1)`;
+        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 0.95)`;
         ctx.fillRect(x, y + 1, w, headerH);
 
-        const dividerR = Math.max(0, Math.round(headerR * 0.72)), dividerG = Math.max(0, Math.round(headerG * 0.72)), dividerB = Math.max(0, Math.round(headerB * 0.72));
-        ctx.strokeStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.62)`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, y + 1 + headerH);
-        ctx.lineTo(x + w, y + 1 + headerH);
-        ctx.stroke();
+        // Crisp 1px dark divider
+        const dividerR = Math.max(0, Math.round(headerR * 0.5)), dividerG = Math.max(0, Math.round(headerG * 0.5)), dividerB = Math.max(0, Math.round(headerB * 0.5));
+        ctx.fillStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.8)`;
+        ctx.fillRect(x, y + 1 + headerH, w, 1);
 
-        if (h > headerH) {
-            const bodyR = Math.max(0, Math.round(headerR * 0.84)), bodyG = Math.max(0, Math.round(headerG * 0.84)), bodyB = Math.max(0, Math.round(headerB * 0.84));
-            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.8)`;
-            ctx.fillRect(x, y + 1 + headerH, w, h - headerH);
+        if (h > headerH + 1) {
+            // Sleek darker body background
+            const bodyR = Math.max(0, Math.round(headerR * 0.60)), bodyG = Math.max(0, Math.round(headerG * 0.60)), bodyB = Math.max(0, Math.round(headerB * 0.60));
+            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.85)`;
+            ctx.fillRect(x, y + 2 + headerH, w, h - headerH - 1);
         }
 
         if (clip.muted) {
-            ctx.fillStyle = rgba(116, 122, 132, 0.42);
+            ctx.fillStyle = rgba(80, 85, 95, 0.45);
             ctx.fillRect(x, y + 1, w, h);
         }
 
@@ -534,17 +531,10 @@ export class CanvasClipRenderer {
             }
         }
 
-        // ── P3: Reuse cached highlight gradient (avoids createLinearGradient per clip) ──
-        if (!this._highlightGrad || this._highlightGradCtx !== ctx) {
-            this._highlightGrad = ctx.createLinearGradient(0, 0, 0, 3);
-            this._highlightGrad.addColorStop(0, rgba(255, 255, 255, 0.25));
-            this._highlightGrad.addColorStop(1, rgba(255, 255, 255, 0));
-            this._highlightGradCtx = ctx;
-        }
+        // Crisp upper bezel instead of a blurry gradient
         ctx.save();
-        ctx.translate(x, y + 1);
-        ctx.fillStyle = this._highlightGrad;
-        ctx.fillRect(0, 0, w, 3);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.fillRect(x, y + 1, w, 1);
         ctx.restore();
 
         ctx.restore();
@@ -564,9 +554,17 @@ export class CanvasClipRenderer {
         if (!clip.selected) {
             ctx.save();
             if (isTrackDisabled) ctx.globalAlpha = 0.25;
-            ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;
+            const borderR = Math.max(0, rgb.r - 40), borderG = Math.max(0, rgb.g - 40), borderB = Math.max(0, rgb.b - 40);
+            ctx.strokeStyle = `rgba(${borderR}, ${borderG}, ${borderB}, 0.85)`;
             ctx.lineWidth = 1;
             this._roundRect(ctx, x, y + 1, w, h, r);
+            ctx.stroke();
+
+            // Subtle top inner highlight for 3D body feel
+            ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y + 2);
+            ctx.lineTo(x + w - r, y + 2);
             ctx.stroke();
             ctx.restore();
         }

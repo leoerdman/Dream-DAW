@@ -74,16 +74,24 @@ export function MasterStrip() {
             {/* 3. I/O Routing Section */}
             <div style={{ padding: '4px 3px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--surface-2) 40%, transparent)' }}>
                 <div style={{
-                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', marginBottom: 2, border: '1px solid var(--color-divider)'
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)',
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 4px', marginBottom: 2,
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)', cursor: 'pointer',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 1px rgba(0,0,0,0.1)'
                 }}>
-                    All Ins
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>All Ins</span>
+                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)' }}>▼</span>
                 </div>
                 <div style={{
-                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', border: '1px solid var(--color-divider)'
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)',
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 4px',
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)', cursor: 'pointer',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 1px rgba(0,0,0,0.1)'
                 }}>
-                    Ext. Out
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Ext. Out</span>
+                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)' }}>▼</span>
                 </div>
             </div>
 
@@ -105,15 +113,17 @@ export function MasterStrip() {
                     style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
                 >
                     {/* Fader Groove */}
-                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 4, background: 'var(--surface-elevated)', border: '1px solid var(--color-divider)', borderRadius: 2 }} />
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }} />
 
                     {/* Fader Handle */}
                     <div style={{
-                        position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 4px)`, height: 8,
-                        background: 'var(--text-primary)', borderRadius: 1, border: '1px solid rgba(0,0,0,0.5)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.5)', pointerEvents: 'none'
+                        position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 5px)`, height: 10,
+                        background: trackColor, borderRadius: 2, border: '1px solid rgba(0,0,0,0.7)',
+                        boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                        <div style={{ position: 'absolute', left: 1, right: 1, top: '50%', transform: 'translateY(-50%)', height: 1, background: 'rgba(0,0,0,0.4)' }} />
+                        {/* Thumb indicator line */}
+                        <div style={{ width: '80%', height: 2, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
                     </div>
                 </div>
 
@@ -133,8 +143,13 @@ export function MasterStrip() {
                 <div style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)' }}>
                     {formatDb(volumeDb)}
                 </div>
-                <div style={{ textAlign: 'center', fontSize: 7, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '0px 0 2px', flexShrink: 0 }}>
-                    L {formatDb(peakL)} / R {formatDb(peakR)}
+                <div style={{ display: 'flex', gap: 2, justifyContent: 'center', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '1px 0 2px', flexShrink: 0 }}>
+                    <div style={{ width: 22, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                        {Number.isFinite(peakL) && peakL > -90 ? formatDb(peakL) : '-∞'}
+                    </div>
+                    <div style={{ width: 22, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                        {Number.isFinite(peakR) && peakR > -90 ? formatDb(peakR) : '-∞'}
+                    </div>
                 </div>
             </div>
         </div>

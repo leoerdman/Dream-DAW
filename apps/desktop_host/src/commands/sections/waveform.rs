@@ -255,7 +255,7 @@ pub async fn get_peaks(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     get_peaks_by_clip_id(clip_id, lod_level, project_registry.clone(), clip_pool_state).await
 }
 
@@ -273,6 +273,6 @@ pub async fn get_peaks_binary(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     get_peaks_by_clip_id(clip_id, lod_level, project_registry.clone(), clip_pool_state).await
 }

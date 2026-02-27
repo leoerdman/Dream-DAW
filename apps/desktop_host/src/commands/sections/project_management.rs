@@ -13,7 +13,7 @@ fn import_ableton_project(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     open_project(
         path,
         project_registry.clone(),

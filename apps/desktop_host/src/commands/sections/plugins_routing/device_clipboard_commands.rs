@@ -136,7 +136,7 @@ fn paste_device_to_track_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (_result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,
@@ -167,7 +167,7 @@ fn paste_device_to_track_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let (result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,

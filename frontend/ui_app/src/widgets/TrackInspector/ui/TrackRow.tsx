@@ -32,6 +32,8 @@ interface TrackRowProps {
     onPanChange?: (pan: number) => void;
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
+    onVolumeContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onPanContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
@@ -70,6 +72,8 @@ export const TrackRow = ({
     onPanChange,
     onOutputChange,
     onInputChange,
+    onVolumeContextMenu,
+    onPanContextMenu,
     onContextMenu,
     onHeaderPointerDown,
     onHeaderClick,
@@ -210,6 +214,8 @@ export const TrackRow = ({
                 onToggleArm={onToggleArm}
                 onVolumeChange={onVolumeChange}
                 onPanChange={onPanChange}
+                onVolumeContextMenu={onVolumeContextMenu}
+                onPanContextMenu={onPanContextMenu}
             />
 
             {isGroupDropTarget && isGroup && (

@@ -2,7 +2,6 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use arc_swap::ArcSwapOption;
 use uuid::Uuid;
-use parking_lot::RwLock;
 
 use crate::state_managers::ProjectState;
 

@@ -436,7 +436,7 @@ fn replace_missing_plugin_slot_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let _ = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
@@ -462,7 +462,7 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let track_id_raw = payload.track_id.clone();
     let track_id = Uuid::parse_str(&track_id_raw)
         .map_err(|_| format!("Invalid track_id: {}", track_id_raw))?;

@@ -15,6 +15,7 @@ interface ChannelStripProps {
     onPanChange: (pan: number) => void;
     onToggleDisabled: () => void;
     onToggleSolo: () => void;
+    onToggleArm: () => void;
 }
 
 export const MixerChannelStrip = memo(function MixerChannelStrip({
@@ -26,6 +27,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     onPanChange,
     onToggleDisabled,
     onToggleSolo,
+    onToggleArm,
 }: ChannelStripProps) {
     const faderRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -33,15 +35,16 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const volumeDb = gainToDb(track.volume ?? 1);
     const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
     const panVal = track.pan ?? 0;
-    
+
     // Ableton 11 styling constants
     const trackColor = track.color || 'var(--color-accent-primary)';
     const headerTextColor = getContrastColor(trackColor) === 'black'
         ? 'var(--token-color-hex-000000)'
         : 'var(--color-text-bright)';
-    
+
     const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
+    const isArmed = track.is_armed;
     const isMidi = track.track_type === 'midi';
 
     const applyVolume = useCallback((clientY: number) => {
@@ -89,32 +92,40 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             >
                 {track.name || `Track ${trackIndex + 1}`}
             </div>
-            
+
             {/* 2. Empty Session Slots Area (Pushes I/O and Mixer to Bottom) */}
             <div style={{ flex: 1, minHeight: 40, borderBottom: '1px solid var(--color-divider)' }} />
 
             {/* 3. I/O Routing Section */}
             <div style={{ padding: '4px 3px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--surface-2) 40%, transparent)' }}>
                 <div style={{
-                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', 
-                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', marginBottom: 2, border: '1px solid var(--color-divider)'
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)',
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 4px', marginBottom: 2,
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)', cursor: 'pointer',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 1px rgba(0,0,0,0.1)'
                 }}>
-                    {track.input ? track.input : (isMidi ? 'All Ins' : 'Ext. In')}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.input ? track.input : (isMidi ? 'All Ins' : 'Ext. In')}</span>
+                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)' }}>▼</span>
                 </div>
                 <div style={{
-                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', 
-                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', border: '1px solid var(--color-divider)'
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)',
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 4px',
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)', cursor: 'pointer',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 1px rgba(0,0,0,0.1)'
                 }}>
-                    {track.output ? track.output : 'Master'}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.output ? track.output : 'Master'}</span>
+                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)' }}>▼</span>
                 </div>
             </div>
 
             {/* 4. Mixer Section (Pan, Activator, Solo) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 4px 4px', flexShrink: 0, background: 'color-mix(in srgb, var(--surface-1) 30%, transparent)' }}>
-                
+
                 {/* Pan Dial */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: 42, height: 12, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)' }}>
+                    <div style={{ position: 'relative', width: 42, height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)' }}>
                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
                         <div style={{ position: 'absolute', top: 1, left: `calc(${((panVal + 1) / 2) * 100}% - 3px)`, width: 6, height: 8, borderRadius: 1, background: 'var(--color-accent-primary)' }} />
                         <input
@@ -131,29 +142,48 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
 
                 {/* Track Activator & Solo */}
                 <div style={{ display: 'flex', flexDirection: 'row', gap: 3, justifyContent: 'center', marginTop: 2 }}>
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }} 
-                        title={isDisabled ? 'Track Off' : 'Track On'} 
-                        style={{ 
-                            flex: 1, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                            fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0, 
-                            background: !isDisabled ? 'var(--color-status-warning)' : 'var(--surface-elevated)', 
-                            color: !isDisabled ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)', 
-                            boxShadow: !isDisabled ? '0 0 4px rgba(255,180,0,0.3)' : 'none',
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
+                        title={isDisabled ? 'Track Off' : 'Track On'}
+                        style={{
+                            flex: 1, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                            background: !isDisabled ? 'var(--color-status-warning)' : 'var(--surface-elevated)',
+                            color: !isDisabled ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
+                            boxShadow: !isDisabled ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(255,180,0,0.4)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
                         }}>
                         {trackIndex + 1}
                     </button>
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onToggleSolo(); }} 
-                        title="Solo" 
-                        style={{ 
-                            width: 20, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                            fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0, 
-                            background: isSoloed ? 'var(--color-status-info)' : 'var(--surface-elevated)', 
-                            color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)', 
-                            boxShadow: isSoloed ? '0 0 4px rgba(0,180,255,0.3)' : 'none',
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleSolo(); }}
+                        title="Solo"
+                        style={{
+                            width: 20, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                            background: isSoloed ? 'var(--color-status-solo)' : 'var(--surface-elevated)',
+                            color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
+                            boxShadow: isSoloed ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(0,180,255,0.4)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
                         }}>
                         S
+                    </button>
+                </div>
+
+                {/* Record Arm */}
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 1 }}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleArm(); }}
+                        title="Arm for recording"
+                        style={{
+                            width: '100%', height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: isArmed ? 'color-mix(in srgb, var(--color-status-record) 80%, black)' : 'var(--surface-elevated)',
+                            border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                            boxShadow: isArmed ? 'inset 0 -1px 0 rgba(0,0,0,0.3), 0 0 6px rgba(255,59,48,0.5)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
+                        }}>
+                        <span style={{
+                            width: 8, height: 8, borderRadius: '50%',
+                            background: isArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
+                            boxShadow: isArmed ? '0 0 3px rgba(255,255,255,0.8)' : 'none'
+                        }} />
                     </button>
                 </div>
             </div>
@@ -172,16 +202,17 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
                 >
                     {/* Fader Groove */}
-                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 4, background: 'var(--surface-elevated)', border: '1px solid var(--color-divider)', borderRadius: 2 }} />
-                    
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }} />
+
                     {/* Fader Handle */}
-                    <div style={{ 
-                        position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 4px)`, height: 8, 
-                        background: trackColor, borderRadius: 1, border: '1px solid rgba(0,0,0,0.5)', 
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.5)', pointerEvents: 'none' 
+                    <div style={{
+                        position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 5px)`, height: 10,
+                        background: trackColor, borderRadius: 2, border: '1px solid rgba(0,0,0,0.7)',
+                        boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
                         {/* Thumb indicator line */}
-                        <div style={{ position: 'absolute', left: 1, right: 1, top: '50%', transform: 'translateY(-50%)', height: 1, background: 'rgba(255,255,255,0.4)' }} />
+                        <div style={{ width: '80%', height: 2, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
                     </div>
                 </div>
 

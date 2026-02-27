@@ -66,6 +66,7 @@ export function useTrackInspectorLogic({
 
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
+    const [autoCtxMenu, setAutoCtxMenu] = useState<{ x: number; y: number; trackId: string; paramName: string } | null>(null);
     const [headerSelectedTrackIdSet, setHeaderSelectedTrackIdSet] = useState<Set<string>>(new Set());
     const keepHeaderSelectionOnNextTrackSelectionSyncRef = useRef(false);
     const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
@@ -289,6 +290,7 @@ export function useTrackInspectorLogic({
         collapsedGroups,
         rowHeightsByTrackId,
         contextMenu,
+        autoCtxMenu,
         colorPickerState,
         renamingTrackId,
         renameValue,
@@ -308,6 +310,7 @@ export function useTrackInspectorLogic({
         setLastHeaderClickedTrackId,
         setRenameValue,
         setContextMenu,
+        setAutoCtxMenu,
         setColorPickerState,
         toggleDisabled,
         toggleSolo,

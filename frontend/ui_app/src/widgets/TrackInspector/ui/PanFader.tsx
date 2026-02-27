@@ -6,6 +6,7 @@ export type PanFaderProps = {
     onPanChange: (pan: number) => void;
     compact?: boolean;
     controlHeight?: number;
+    onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 };
 
 export const PanFader = ({
@@ -13,6 +14,7 @@ export const PanFader = ({
     onPanChange,
     compact = false,
     controlHeight,
+    onContextMenu,
 }: PanFaderProps) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const isDraggingRef = useRef(false);
@@ -68,6 +70,7 @@ export const PanFader = ({
         <div data-testid="track-pan-fader" style={{ display: 'flex', alignItems: 'center', minWidth: trackWidth, flexShrink: 0 }}>
             <div
                 ref={trackRef}
+                onContextMenu={onContextMenu}
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();

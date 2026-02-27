@@ -147,9 +147,11 @@ pub(crate) fn spawn_background_runtime_threads(
                 );
 
                 if dream_plugins::vst3_host::take_plugin_state_dirty() {
-                    let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
-                    if let Ok(project) = pstate.project.lock() {
-                        let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                    let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
+                    if let Some(pstate) = registry.get_active_project() {
+                        if let Ok(project) = pstate.project.lock() {
+                            let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                        }
                     }
                 }
 
@@ -160,12 +162,14 @@ pub(crate) fn spawn_background_runtime_threads(
                     let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
                     let plugin_host_state: tauri::State<'_, PluginHostState> =
                         telemetry_app.state();
-                    let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
+                    let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
                     plugin_host_state.publish_registry();
-                    if let Ok(project) = pstate.project.lock() {
-                        let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-                        clip_pool_state
-                            .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+                    if let Some(pstate) = registry.get_active_project() {
+                        if let Ok(project) = pstate.project.lock() {
+                            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                            clip_pool_state
+                                .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+                        }
                     }
                 }
             }
@@ -211,8 +215,9 @@ pub(crate) fn spawn_background_runtime_threads(
 
                 if !failed_slot_ids.is_empty() || !recovered_slot_ids.is_empty() {
                     let clip_pool_state: tauri::State<'_, ClipPoolState> = sandbox_app.state();
-                    let project_state: tauri::State<'_, ProjectState> = sandbox_app.state();
-                    if let Ok(mut project) = project_state.project.lock() {
+                    let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = sandbox_app.state();
+                    if let Some(project_state) = registry.get_active_project() {
+                        if let Ok(mut project) = project_state.project.lock() {
                         let bypassed_changed = if failed_slot_ids.is_empty() {
                             0
                         } else {
@@ -261,6 +266,7 @@ pub(crate) fn spawn_background_runtime_threads(
                         }
                     }
                 }
+            }
             }
             for crash in crashes {
                 if recoveries.iter().any(|r| r.instance_id == crash.instance_id) {

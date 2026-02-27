@@ -282,6 +282,16 @@ export function TrackInspectorTrackList({
                                 onOutputChange={(targetId) => { void logic.setTrackOutput(track.id, targetId); }}
                                 onInputChange={(inputId) => { void logic.setTrackInput(track.id, inputId); }}
                                 onContextMenu={(e) => logic.handleContextMenu(e, track.id, trackIndex)}
+                                onVolumeContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    logic.setAutoCtxMenu({ x: e.clientX, y: e.clientY, trackId: track.id, paramName: 'Volume' });
+                                }}
+                                onPanContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    logic.setAutoCtxMenu({ x: e.clientX, y: e.clientY, trackId: track.id, paramName: 'Pan' });
+                                }}
                                 onHeaderPointerDown={(e) => logic.beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={logic.groupDropTargetId === track.id}
                                 groupStripeColor={track.groupId ? (logic.trackById.get(track.groupId)?.color ?? track.color) : track.color}

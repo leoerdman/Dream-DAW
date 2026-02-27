@@ -18,6 +18,8 @@ interface TrackRowMixerProps {
     onToggleArm: () => void;
     onVolumeChange?: (gain: number) => void;
     onPanChange?: (pan: number) => void;
+    onVolumeContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onPanContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export function TrackRowMixer({
@@ -35,6 +37,8 @@ export function TrackRowMixer({
     onToggleArm,
     onVolumeChange,
     onPanChange,
+    onVolumeContextMenu,
+    onPanContextMenu,
 }: TrackRowMixerProps) {
     const isMeterActive = !track.isDisabled && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
@@ -66,9 +70,9 @@ export function TrackRowMixer({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            background: isActive ? 'var(--color-status-success)' : 'var(--surface-elevated)',
-                            color: isActive ? 'var(--color-text-on-color)' : 'var(--text-muted)',
-                            border: 'none',
+                            background: isActive ? 'var(--color-accent-primary)' : 'var(--surface-elevated)',
+                            color: isActive ? 'var(--color-text-on-accent)' : 'color-mix(in srgb, var(--text-muted) 60%, transparent)',
+                            border: isActive ? 'none' : '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                             borderRadius: 'var(--radius-xs)',
                             fontSize: 'var(--font-size-micro)',
                             fontWeight: 'var(--font-weight-bold)',
@@ -90,10 +94,10 @@ export function TrackRowMixer({
                             alignItems: 'center',
                             justifyContent: 'center',
                             background: track.isSoloed
-                                ? 'var(--color-accent-primary)'
-                                : 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-elevated))',
-                            color: track.isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            border: track.isSoloed ? 'none' : 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 18%, transparent)',
+                                ? 'var(--color-status-solo)'
+                                : 'color-mix(in srgb, var(--color-status-solo) 8%, var(--surface-elevated))',
+                            color: track.isSoloed ? 'var(--color-text-on-color)' : 'var(--color-text-secondary)',
+                            border: track.isSoloed ? 'none' : '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                             borderRadius: 'var(--radius-xs)',
                             fontSize: 'var(--font-size-micro)',
                             fontWeight: 'var(--font-weight-bold)',
@@ -103,11 +107,11 @@ export function TrackRowMixer({
                         }}
                         onMouseEnter={(e) => {
                             if (track.isSoloed) return;
-                            e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 12%, var(--surface-elevated))';
+                            e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-solo) 12%, var(--surface-elevated))';
                         }}
                         onMouseLeave={(e) => {
                             if (track.isSoloed) return;
-                            e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-elevated))';
+                            e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-solo) 8%, var(--surface-elevated))';
                         }}
                     >
                         S
@@ -134,10 +138,10 @@ export function TrackRowMixer({
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.faderColWidth, minWidth: layout.faderColWidth, maxWidth: layout.faderColWidth, minHeight: compactControlHeight * 2 + 4, justifyContent: 'center' }}>
                     {onVolumeChange && (
-                        <VolumeFader volumeLinear={track.volume} onVolumeChange={onVolumeChange} compact showZeroTick controlHeight={compactControlHeight} />
+                        <VolumeFader volumeLinear={track.volume} onVolumeChange={onVolumeChange} onContextMenu={onVolumeContextMenu} compact showZeroTick controlHeight={compactControlHeight} />
                     )}
                     {!isMaster && onPanChange && (
-                        <PanFader pan={track.pan} onPanChange={onPanChange} compact controlHeight={compactControlHeight} />
+                        <PanFader pan={track.pan} onPanChange={onPanChange} onContextMenu={onPanContextMenu} compact controlHeight={compactControlHeight} />
                     )}
                 </div>
             )}

@@ -310,6 +310,13 @@ impl SharedPluginRegistry {
         self.generation.fetch_add(1, Ordering::Release);
     }
 
+    pub fn clear_and_return_arc(
+        &self,
+    ) -> std::sync::Arc<std::collections::HashMap<Uuid, PluginInstanceArc>> {
+        self.generation.fetch_add(1, Ordering::Release);
+        self.inner.swap(std::sync::Arc::new(std::collections::HashMap::new()))
+    }
+
     pub fn load(
         &self,
     ) -> arc_swap::Guard<std::sync::Arc<std::collections::HashMap<Uuid, PluginInstanceArc>>> {

@@ -45,7 +45,7 @@ fn get_project_snapshot_delta(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let _project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     Err("get_project_snapshot_delta is disabled in strict delta mode".to_string())
 }
 

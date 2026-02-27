@@ -413,7 +413,7 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
 async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    fn preferred_project_dialog_dir(project_state: &crate::state_managers::ProjectState) -> Option<std::path::PathBuf>  {
+    fn preferred_project_dialog_dir(project_state: &crate::state_managers::ProjectState) -> Option<std::path::PathBuf> {
         if let Ok(folder_guard) = project_state.project_folder.lock()
             && let Some(folder) = folder_guard.as_ref()
             && folder.exists()
@@ -461,12 +461,12 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
 async fn save_project_dialog(
     app: tauri::AppHandle,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<Option<String>, String>  {
+) -> Result<Option<String>, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     use tauri_plugin_dialog::DialogExt;
 
-    fn preferred_project_dialog_dir(project_state: &crate::state_managers::ProjectState) -> Option<std::path::PathBuf>  {
+    fn preferred_project_dialog_dir(project_state: &crate::state_managers::ProjectState) -> Option<std::path::PathBuf> {
         if let Ok(folder_guard) = project_state.project_folder.lock()
             && let Some(folder) = folder_guard.as_ref()
             && folder.exists()

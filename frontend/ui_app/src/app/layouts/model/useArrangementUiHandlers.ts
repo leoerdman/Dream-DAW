@@ -43,7 +43,7 @@ export function useArrangementUiHandlers({
     }, [queuedStartBeatRef, setEditCursorBeat, setEditCursorTrackIndex, setEditCursorTrackIndexEnd]);
 
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
-        console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
+        // Drop browser item onto the timeline at the given track and beat.
         void dropBrowserItemOnTimeline(item, trackIndex, beat)
             .catch((err) => console.error('[DawShell] browser drop failed:', err));
     }, [dropBrowserItemOnTimeline]);

@@ -268,12 +268,18 @@ impl PluginInstance for SandboxedPluginInstance {
     fn set_parameter(&mut self, index: u32, value: f64) -> Result<(), PluginError> {
         // Debounce: Only send if the value changed significantly to prevent IPC flood
         // from flat automation curves or high-frequency UI dragging.
-        if let Some(&last_val) = self.param_cache.get(&index) {
-            if (last_val - value).abs() < 1e-6 {
+        // Uses linear scan on pre-allocated Vec (no heap allocation on RT thread).
+        if let Some(entry) = self.param_cache.iter().find(|(i, _)| *i == index) {
+            if (entry.1 - value).abs() < 1e-6 {
                 return Ok(());
             }
         }
-        self.param_cache.insert(index, value);
+        // Update or insert (no allocation since Vec is pre-allocated with_capacity(64))
+        if let Some(entry) = self.param_cache.iter_mut().find(|(i, _)| *i == index) {
+            entry.1 = value;
+        } else {
+            self.param_cache.push((index, value));
+        }
 
         if let Some(ref sender) = self.ipc_sender {
             let msg = PluginHostControlMessage::SetParameter {

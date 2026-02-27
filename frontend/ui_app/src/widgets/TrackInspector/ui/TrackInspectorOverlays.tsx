@@ -53,11 +53,6 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                         const ctxTrack = logic.tracks.find((t) => t.id === logic.contextMenu?.trackId);
                         return !!ctxTrack && (ctxTrack.type === 'group' || !!ctxTrack.groupId);
                     })()}
-                    canBounceGroup={(() => {
-                        if (!logic.contextMenu?.trackId) return false;
-                        const ctxTrack = logic.tracks.find((t) => t.id === logic.contextMenu?.trackId);
-                        return !!ctxTrack && ctxTrack.type === 'group';
-                    })()}
                     onDelete={() => {
                         if (!logic.contextMenu?.trackId) return;
                         logic.handleDeleteTrack(logic.contextMenu.trackId);
@@ -72,22 +67,6 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     onPaintClips={() => {
                         if (!logic.contextMenu?.trackId) return;
                         logic.handlePaintClipsWithTrackColor(logic.contextMenu.trackId);
-                    }}
-                    onBounceTrack={() => {
-                        if (!logic.contextMenu?.trackId) return;
-                        logic.handleBounceTrack(logic.contextMenu.trackId);
-                    }}
-                    onBounceGroup={() => {
-                        if (!logic.contextMenu?.trackId) return;
-                        logic.handleBounceGroup(logic.contextMenu.trackId);
-                    }}
-                    onPaintGroupColor={() => {
-                        if (!logic.contextMenu?.trackId) return;
-                        logic.handlePaintGroupColor(logic.contextMenu.trackId);
-                    }}
-                    onSplitToStems={() => {
-                        if (!logic.contextMenu?.trackId) return;
-                        logic.handleSplitTrackToStems(logic.contextMenu.trackId);
                     }}
                     onDismiss={dismissAll}
                 />

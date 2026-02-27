@@ -438,11 +438,13 @@ export class CanvasClipRenderer {
         if (isTrackDisabled) {
             ctx.globalAlpha = 0.25;
         } else if (automationVisible) {
-            ctx.globalAlpha = 0.35;
+            // BUG-052 FIX: 0.35 was too dim — clips were unreadable.
+            // 0.55 keeps automation visible while keeping clip content legible.
+            ctx.globalAlpha = 0.55;
         }
 
         // Premium Ableton-style borders and colors
-        const r = Math.min(2, w / 2, h / 2); // 2px radius looks sharply professional
+        const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.clip();
 

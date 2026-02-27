@@ -159,7 +159,7 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                     for (let i = 0; i < audioFiles.length; i++) {
                         await importFile(audioFiles[i], i);
                     }
-                    console.log(`[DawShell] Imported ${audioFiles.length} audio file(s)`);
+
                 } finally {
                     importingRef.current = false;
                 }

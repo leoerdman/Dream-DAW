@@ -3,7 +3,7 @@
 fn get_routing_targets(
     track_id: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<Vec<RoutingTarget>, String>  {
+) -> Result<Vec<RoutingTarget>, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     let source_id =

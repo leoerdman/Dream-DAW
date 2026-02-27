@@ -33,7 +33,7 @@ export function ProjectTabBar() {
                 return (
                     <div
                         key={tab.id}
-                        onClick={() => setActiveProject(tab.id)}
+                        onClick={() => void setActiveProject(tab.id)}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -108,7 +108,7 @@ export function ProjectTabBar() {
                             title="Close Project"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                closeProjectTab(tab.id);
+                                void closeProjectTab(tab.id);
                             }}
                         >
                             <X size={12} />
@@ -145,12 +145,7 @@ export function ProjectTabBar() {
                 title="New Project"
                 onClick={(e) => {
                     e.stopPropagation();
-                    addProjectTab({
-                        id: crypto.randomUUID(),
-                        name: 'Untitled',
-                        filePath: null,
-                        isDirty: false
-                    });
+                    void addProjectTab();
                 }}
             >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

@@ -19,15 +19,16 @@
 import { create } from 'zustand';
 
 // ── Constants ────────────────────────────────────────────────────────────
+// BUG-036 FIX: Export so ViewportMachine and other modules share the same bounds.
 
 /** Minimum SPP — maximum zoom in. At 44.1kHz, ~5.8ms per pixel. */
-const MIN_SPP = 4;
+export const MIN_SPP = 4;
 
 /** Maximum SPP — maximum zoom out. At 44.1kHz, ~93 seconds per pixel. */
-const MAX_SPP = 65536;
+export const MAX_SPP = 65536;
 
 /** Default zoom level. At 44.1kHz: ~5.8ms per pixel — comfortable overview. */
-const DEFAULT_SPP = 256;
+export const DEFAULT_SPP = 256;
 
 /** Mip level boundaries (must match Rust `MIP_FACTORS`). */
 const MIP_FACTORS = [256, 1024, 4096, 16384] as const;
@@ -127,6 +128,8 @@ export const useViewportStore = create<ViewportStore>((set, get) => ({
     },
 
     setZoom: (spp: number, anchorX?: number) => {
+        // BUG-035 FIX: Guard against NaN/infinite from edge-case pinch-zoom or external API.
+        if (!Number.isFinite(spp)) return;
         const state = get();
         const newSpp = Math.min(MAX_SPP, Math.max(MIN_SPP, spp));
         applyZoom(state, newSpp, anchorX, set);

@@ -27,7 +27,7 @@ fn load_descriptor_in_process(
 fn resolve_plugin_slot_states_by_plugin_id(
     project_state: &crate::state_managers::ProjectState,
     plugin_id: &str,
-) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String>  {
+) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String> {
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolvePluginSlotsByPluginIdQuery {

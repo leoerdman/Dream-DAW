@@ -1,9 +1,13 @@
 
 
-/** Minimum pixels per beat — maximum zoom in. */
+// BUG-096: These are ViewportMachine-specific PPB (pixels-per-beat) zoom limits.
+// Note: useViewportStore uses SPP (samples-per-pixel) domain — separate zoom scale.
+// Both have independent clamp bounds for their respective coordinate systems.
+
+/** Minimum pixels per beat — maximum zoom out. */
 const MIN_PPB = 4;
 
-/** Maximum pixels per beat — maximum zoom out to overview. */
+/** Maximum pixels per beat — maximum zoom in to overview. */
 const MAX_PPB = 200;
 
 /** Exponential zoom factor per wheel tick. Professional DAWs use 1.06-1.10. */
@@ -195,6 +199,8 @@ export class ViewportMachine {
      * Optionally anchors at a specific screen X.
      */
     setZoom(ppb: number, anchorClientX?: number): void {
+        // BUG-035 FIX: Guard against NaN/infinite from edge-case input (e.g. pinch-zoom division-by-zero).
+        if (!Number.isFinite(ppb)) return;
         const newPpb = Math.max(MIN_PPB, Math.min(MAX_PPB, ppb));
         if (anchorClientX !== undefined && this._container) {
             this._applyAnchoredZoom(newPpb, anchorClientX);

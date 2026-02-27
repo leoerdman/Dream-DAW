@@ -278,10 +278,11 @@ impl DspProcessor for GateProcessor {
             self.sc_state_r = 0.0;
             if len > 0 {
                 let sc_in_l = sidechain_left
-                    .and_then(|sc| sc.get(0).copied())
+                    // BUG-024 FIX: .get(0) → .first() per clippy::get_first.
+                    .and_then(|sc| sc.first().copied())
                     .unwrap_or(left[0]);
                 let sc_in_r = sidechain_right
-                    .and_then(|sc| sc.get(0).copied())
+                    .and_then(|sc| sc.first().copied())
                     .unwrap_or(right[0]);
                 self.sc_prev_l = sc_in_l;
                 self.sc_prev_r = sc_in_r;

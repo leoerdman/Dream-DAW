@@ -53,7 +53,6 @@ export const useDragStore = create<DragState>((set, get) => ({
     cursorY: 0,
 
     startDrag: (item, cursorX, cursorY) => {
-        console.log('[DragStore] startDrag', item.name);
         set({
             draggingItem: item,
             cursorX: cursorX ?? 0,
@@ -80,7 +79,6 @@ export const useDragStore = create<DragState>((set, get) => ({
             _cleanupSafetyMouseUp = null;
             setTimeout(() => {
                 if (get().draggingItem) {
-                    console.log('[DragStore] safety-net endDrag (no drop zone handled it)');
                     get().endDrag();
                 }
             }, 0);
@@ -92,10 +90,7 @@ export const useDragStore = create<DragState>((set, get) => ({
     },
 
     endDrag: () => {
-        set((state) => {
-            if (state.draggingItem) {
-                console.log('[DragStore] endDrag');
-            }
+        set(() => {
             return { draggingItem: null };
         });
         _cleanupMouseMove?.();

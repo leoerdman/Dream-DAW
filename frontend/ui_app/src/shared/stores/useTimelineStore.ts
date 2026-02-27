@@ -53,22 +53,30 @@ export const useTimelineStore = create<TimelineState>((set) => ({
 
     // BUG-021: Optimized to avoid creating intermediate `next` object on every
     // scroll tick (~60Hz). Directly checks and returns only changed fields.
+    // BUG-019 FIX: Build partial explicitly instead of relying on `...false` JS quirk.
     setLayout: (values) => set((state) => {
-        const ppb = values.pixelsPerBeat !== undefined && values.pixelsPerBeat !== state.pixelsPerBeat ? values.pixelsPerBeat : undefined;
-        const th = values.trackHeight !== undefined && values.trackHeight !== state.trackHeight ? values.trackHeight : undefined;
-        const cr = values.canvasRect !== undefined && values.canvasRect !== state.canvasRect ? values.canvasRect : undefined;
-        const sl = values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft ? values.scrollLeft : undefined;
-        const st = values.scrollTop !== undefined && values.scrollTop !== state.scrollTop ? values.scrollTop : undefined;
-        const rh = values.rulerHeight !== undefined && values.rulerHeight !== state.rulerHeight ? values.rulerHeight : undefined;
-        if (ppb === undefined && th === undefined && cr === undefined && sl === undefined && st === undefined && rh === undefined) return state;
-        return {
-            ...(ppb !== undefined && { pixelsPerBeat: ppb }),
-            ...(th !== undefined && { trackHeight: th }),
-            ...(cr !== undefined && { canvasRect: cr }),
-            ...(sl !== undefined && { scrollLeft: sl }),
-            ...(st !== undefined && { scrollTop: st }),
-            ...(rh !== undefined && { rulerHeight: rh }),
-        };
+        const partial: Partial<TimelineState> = {};
+        let changed = false;
+        if (values.pixelsPerBeat !== undefined && values.pixelsPerBeat !== state.pixelsPerBeat) {
+            partial.pixelsPerBeat = values.pixelsPerBeat; changed = true;
+        }
+        if (values.trackHeight !== undefined && values.trackHeight !== state.trackHeight) {
+            partial.trackHeight = values.trackHeight; changed = true;
+        }
+        if (values.canvasRect !== undefined && values.canvasRect !== state.canvasRect) {
+            partial.canvasRect = values.canvasRect; changed = true;
+        }
+        if (values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft) {
+            partial.scrollLeft = values.scrollLeft; changed = true;
+        }
+        if (values.scrollTop !== undefined && values.scrollTop !== state.scrollTop) {
+            partial.scrollTop = values.scrollTop; changed = true;
+        }
+        if (values.rulerHeight !== undefined && values.rulerHeight !== state.rulerHeight) {
+            partial.rulerHeight = values.rulerHeight; changed = true;
+        }
+        if (!changed) return state;
+        return partial;
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({

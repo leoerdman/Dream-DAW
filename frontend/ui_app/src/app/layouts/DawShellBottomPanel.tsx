@@ -130,9 +130,30 @@ export function DawShellBottomPanel({
                     onPointerUp={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
                     onPointerCancel={bottomPanelMode === 'rack' ? onRackDragCancel : undefined}
                     title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack' : 'Resize Panel'}
-                    className="absolute top-0 left-0 right-0 h-[6px] cursor-ns-resize hover:bg-white/5 transition-colors"
-                    style={{ zIndex: 'var(--z-modal)', touchAction: 'none' }}
-                />
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 6,
+                        cursor: 'ns-resize',
+                        zIndex: 'var(--z-modal)',
+                        touchAction: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    {/* Visual drag indicator pill */}
+                    <div style={{
+                        width: 56,
+                        height: 2,
+                        borderRadius: 1,
+                        background: 'var(--color-text-tertiary, rgba(255,255,255,0.15))',
+                        transition: 'background 0.15s',
+                        pointerEvents: 'none',
+                    }} />
+                </div>
             )}
             {bottomPanelMode === 'rack' ? (
                 <ErrorBoundary module="Device Rack">

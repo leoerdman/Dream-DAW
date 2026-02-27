@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { MixerChannelStrip } from './MixerChannelStrip';
@@ -9,7 +9,7 @@ interface MixerPanelProps {
     onSelectTrack: (trackId: string) => void;
 }
 
-export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) {
+export const MixerPanel = memo(function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const tracksEntity = useEngineStore((s) => s.tracks);
     const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
@@ -17,13 +17,43 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
     const setTrackDisabled = useEngineStore((s) => s.setTrackDisabled);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
 
+    // Stable callback factories — these return the same function reference
+    // as long as the store actions don't change (they never do in zustand).
+    const handleVolumeChange = useCallback((index: number, gain: number) => {
+        setTrackVolume(index, gain);
+    }, [setTrackVolume]);
+
+    const handlePanChange = useCallback((index: number, pan: number) => {
+        setTrackPan(index, pan);
+    }, [setTrackPan]);
+
+    const handleToggleDisabled = useCallback((index: number, isDisabled: boolean) => {
+        setTrackDisabled(index, !isDisabled);
+    }, [setTrackDisabled]);
+
+    const handleToggleSolo = useCallback((index: number, isSolo: boolean) => {
+        setTrackSolo(index, !isSolo);
+    }, [setTrackSolo]);
+
+    const handleToggleArm = useCallback((index: number, isArmed: boolean) => {
+        void engineApi
+            .armTrackWithDeltas(index, !isArmed)
+            .then(res => useEngineStore.getState().applyProjectDeltas(res.deltas, 'mixer:arm'))
+            .catch(console.error);
+    }, []);
+
     return (
         <div
             ref={scrollRef}
-            className="w-full h-full flex flex-row overflow-x-auto overflow-y-hidden"
             style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'row',
+                overflowX: 'auto',
+                overflowY: 'hidden',
                 background: 'var(--color-bg-canvas)',
-                gap: 0, // Using border right on strips
+                gap: 0,
                 padding: '0 0px',
                 scrollbarWidth: 'thin',
                 scrollbarColor: 'color-mix(in srgb, var(--text-primary) 18%, transparent) transparent',
@@ -39,20 +69,15 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
                         trackIndex={index}
                         isSelected={trackId === selectedTrackId}
                         onSelect={() => onSelectTrack(trackId)}
-                        onVolumeChange={(gain) => setTrackVolume(index, gain)}
-                        onPanChange={(pan) => setTrackPan(index, pan)}
-                        onToggleDisabled={() => setTrackDisabled(index, !track.is_disabled)}
-                        onToggleSolo={() => setTrackSolo(index, !track.is_solo)}
-                        onToggleArm={() => {
-                            void engineApi
-                                .armTrackWithDeltas(index, !track.is_armed)
-                                .then(res => useEngineStore.getState().applyProjectDeltas(res.deltas, 'mixer:arm'))
-                                .catch(console.error);
-                        }}
+                        onVolumeChange={handleVolumeChange}
+                        onPanChange={handlePanChange}
+                        onToggleDisabled={handleToggleDisabled}
+                        onToggleSolo={handleToggleSolo}
+                        onToggleArm={handleToggleArm}
                     />
                 );
             })}
             <MasterStrip />
         </div>
     );
-}
+});

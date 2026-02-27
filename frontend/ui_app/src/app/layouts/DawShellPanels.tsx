@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getContrastColor } from '@/shared/lib/colorUtils';
@@ -59,6 +59,39 @@ export const SessionWorkspace = ({
     const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
     const [draggingMixerEdge, setDraggingMixerEdge] = useState(false);
 
+    // ── Horizontal scroll synchronization ──
+    // Session clips (top) and mixer tracks (bottom) must scroll as one unit.
+    const sessionScrollRef = useRef<HTMLDivElement>(null);
+    const mixerScrollRef = useRef<HTMLDivElement>(null);
+    const isSyncingRef = useRef(false);
+
+    const syncScroll = useCallback((source: 'session' | 'mixer') => {
+        if (isSyncingRef.current) return;
+        isSyncingRef.current = true;
+        const from = source === 'session' ? sessionScrollRef.current : mixerScrollRef.current;
+        const to = source === 'session' ? mixerScrollRef.current : sessionScrollRef.current;
+        if (from && to) {
+            to.scrollLeft = from.scrollLeft;
+        }
+        // Use rAF to break the re-entrant scroll event cycle
+        requestAnimationFrame(() => { isSyncingRef.current = false; });
+    }, []);
+
+    const onSessionScroll = useCallback(() => syncScroll('session'), [syncScroll]);
+    const onMixerScroll = useCallback(() => syncScroll('mixer'), [syncScroll]);
+
+    // Attach scroll listeners
+    useEffect(() => {
+        const sessionEl = sessionScrollRef.current;
+        const mixerEl = mixerScrollRef.current;
+        if (sessionEl) sessionEl.addEventListener('scroll', onSessionScroll, { passive: true });
+        if (mixerEl) mixerEl.addEventListener('scroll', onMixerScroll, { passive: true });
+        return () => {
+            if (sessionEl) sessionEl.removeEventListener('scroll', onSessionScroll);
+            if (mixerEl) mixerEl.removeEventListener('scroll', onMixerScroll);
+        };
+    }, [onSessionScroll, onMixerScroll]);
+
     return (
         <div style={{
             flex: 1,
@@ -70,7 +103,7 @@ export const SessionWorkspace = ({
             borderLeft: 'var(--space-px) solid var(--color-divider)',
         }}>
             <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden' }}>
-                <div style={{ overflow: 'auto', minHeight: 0 }}>
+                <div ref={sessionScrollRef} style={{ overflow: 'auto', minHeight: 0 }}>
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
                             const contrast = getContrastColor(track.color) === 'black'
@@ -257,14 +290,16 @@ export const SessionWorkspace = ({
                         transition: 'background 0.1s linear',
                     }}
                 />
-                <SessionWorkspaceMixerTracks
-                    tracks={tracks}
-                    applyProjectDeltas={applyProjectDeltas}
-                    setTrackDisabled={setTrackDisabled}
-                    setTrackSolo={setTrackSolo}
-                    setTrackVolume={setTrackVolume}
-                    setTrackPan={setTrackPan}
-                />
+                <div ref={mixerScrollRef} style={{ overflow: 'auto', minHeight: 0 }}>
+                    <SessionWorkspaceMixerTracks
+                        tracks={tracks}
+                        applyProjectDeltas={applyProjectDeltas}
+                        setTrackDisabled={setTrackDisabled}
+                        setTrackSolo={setTrackSolo}
+                        setTrackVolume={setTrackVolume}
+                        setTrackPan={setTrackPan}
+                    />
+                </div>
                 <SessionMasterStrip
                     width={SESSION_MASTER_WIDTH}
                     masterVolume={masterVolume}

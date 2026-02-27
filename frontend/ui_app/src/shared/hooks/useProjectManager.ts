@@ -212,8 +212,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     /** Manually create a backup. */
     const handleBackup = useCallback(async () => {
         try {
-            const path = await engineApi.createBackup();
-            console.log('[ProjectManager] Backup created:', path);
+            await engineApi.createBackup();
         } catch (err) {
             // Silently ignore backup failures (no folder set yet)
             console.debug('[ProjectManager] Backup skipped:', err);

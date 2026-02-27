@@ -527,6 +527,32 @@ export const eagerActivateExternalPlugins = () =>
 export const getRecentProjects = () =>
     invoke<RecentProject[]>('get_recent_projects');
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
+
+// ── Multi-Project Tab Management ──
+export interface ProjectTabInfo {
+    id: string;
+    name: string;
+    filePath: string | null;
+    isDirty: boolean;
+}
+export interface CreateProjectTabResponse {
+    id: string;
+    name: string;
+    deltas: ProjectDelta[];
+}
+export interface CloseProjectTabResponse {
+    closedId: string;
+    newActiveId: string | null;
+    deltas?: ProjectDelta[];
+}
+export const createProjectTab = () =>
+    invoke<CreateProjectTabResponse>('create_project_tab');
+export const switchProjectTab = (id: string) =>
+    invoke<DeltaMutationResponse>('switch_project_tab', { id });
+export const closeProjectTab = (id: string) =>
+    invoke<CloseProjectTabResponse>('close_project_tab', { id });
+export const listOpenProjects = () =>
+    invoke<ProjectTabInfo[]>('list_open_projects');
 export interface ArrangementViewportState {
     pixels_per_beat: number | null;
     scroll_left: number | null;

@@ -68,7 +68,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             });
             await syncProjectHistory();
             onProjectChange?.();
-            console.log('[FileMenu] New project created');
+
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
@@ -91,7 +91,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             });
             await syncProjectHistory();
             onProjectChange?.();
-            console.log('[FileMenu] Opened project:', path);
+
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
@@ -112,7 +112,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             });
             await syncProjectHistory();
             onProjectChange?.();
-            console.log('[FileMenu] Opened recent:', path);
+
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
@@ -130,7 +130,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (!path) return; // Cancelled
             await engineApi.saveProjectAs(path);
             await syncProjectHistory();
-            console.log('[FileMenu] Project saved as:', path);
+
         } catch (err) {
             console.error('[FileMenu] Save As failed:', err);
         }
@@ -146,10 +146,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncArrangementViewport();
             await engineApi.saveProject();
             await syncProjectHistory();
-            console.log('[FileMenu] Project saved');
+
         } catch (err) {
             // If no path set, fallback to Save As
-            console.log('[FileMenu] Save failed, trying Save As...', err);
+            // BUG-041 FIX: console.log removed. If no path, fallback to Save As.
             handleSaveAs();
         }
     }, [handleSaveAs, syncProjectHistory, syncArrangementViewport]);

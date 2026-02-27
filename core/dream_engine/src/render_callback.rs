@@ -140,6 +140,12 @@ impl TrackSlot {
             .min(self.buf_right.len());
         self.buf_left[..n].fill(0.0);
         self.buf_right[..n].fill(0.0);
+        // BUG-014 FIX: Also clear external plugin scratch buffers.
+        // Without this, leftover audio from a removed plugin leaks
+        // into subsequent buffers.
+        let ext_n = n.min(self.ext_left.len()).min(self.ext_right.len());
+        self.ext_left[..ext_n].fill(0.0);
+        self.ext_right[..ext_n].fill(0.0);
         self.active = false;
     }
 }
@@ -709,7 +715,7 @@ impl RenderContext {
         self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
 
         // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
-        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
+        let decay = peak_decay_for_block(self.sample_rate, frame_count);
         for track_idx in 0..self.track_slots.len() {
             let slot = &mut self.track_slots[track_idx];
             if !slot.active {
@@ -735,8 +741,8 @@ impl RenderContext {
 
                 meter_l.store_rms(rms_l);
                 meter_r.store_rms(rms_r);
-                meter_l.store_peak_decay(peak_l, track_decay);
-                meter_r.store_peak_decay(peak_r, track_decay);
+                meter_l.store_peak_decay(peak_l, decay);
+                meter_r.store_peak_decay(peak_r, decay);
             }
         }
 
@@ -767,15 +773,14 @@ impl RenderContext {
         let m_peak_l = linear_to_db(compute_peak(master_l));
         let m_peak_r = linear_to_db(compute_peak(master_r));
 
-        let master_decay = peak_decay_for_block(self.sample_rate, frame_count);
         self.meter_bank.master_left().store_rms(m_rms_l);
         self.meter_bank.master_right().store_rms(m_rms_r);
         self.meter_bank
             .master_left()
-            .store_peak_decay(m_peak_l, master_decay);
+            .store_peak_decay(m_peak_l, decay);
         self.meter_bank
             .master_right()
-            .store_peak_decay(m_peak_r, master_decay);
+            .store_peak_decay(m_peak_r, decay);
 
         // AUD-043 FIX: Precompute safe frame count to avoid per-frame branch.
         let safe_frames = if self.channels >= 2 {

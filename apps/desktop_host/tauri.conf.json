@@ -22,7 +22,7 @@
                 "hiddenTitle": true,
                 "backgroundColor": "#0f0f0f",
                 "maximizable": true,
-                "maximized": false,
+                "maximized": true,
                 "center": true,
                 "visible": false
             },

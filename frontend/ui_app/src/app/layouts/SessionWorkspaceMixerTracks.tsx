@@ -25,7 +25,7 @@ export function SessionWorkspaceMixerTracks({
     setTrackPan,
 }: SessionWorkspaceMixerTracksProps) {
     return (
-        <div style={{ display: 'flex', minHeight: 0, height: '100%', overflowX: 'auto', alignItems: 'stretch' }}>
+        <div style={{ display: 'flex', minHeight: 0, height: '100%', minWidth: 'max-content', alignItems: 'stretch' }}>
             {tracks.map((track, trackIndex) => (
                 <SessionWorkspaceMixerTrackStrip
                     key={`mix-${track.id}`}

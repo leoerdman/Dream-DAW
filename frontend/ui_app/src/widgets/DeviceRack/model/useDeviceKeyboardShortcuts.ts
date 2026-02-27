@@ -27,9 +27,9 @@ export function useDeviceKeyboardShortcuts(
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 try {
-                    const deviceName = await engineApi.copyDeviceFromTrack(selectedTrack.id, selectedDeviceIds[0]);
+                    await engineApi.copyDeviceFromTrack(selectedTrack.id, selectedDeviceIds[0]);
                     statusClear();
-                    console.log(`[DeviceRack] Copied device: ${deviceName}`);
+
                 } catch (err) {
                     console.error('[DeviceRack] copyDeviceFromTrack failed:', err);
                     statusError('Failed to copy device.');
@@ -44,7 +44,7 @@ export function useDeviceKeyboardShortcuts(
                     const response = await engineApi.pasteDeviceToTrackWithDeltas(selectedTrack.id, 'auto');
                     await applyProjectDeltas(response.deltas, 'device-rack:paste-device');
                     statusClear();
-                    console.log('[DeviceRack] Pasted device to track:', selectedTrack.id);
+
                 } catch (err) {
                     console.error('[DeviceRack] pasteDeviceToTrack failed:', err);
                     statusError(String(err));

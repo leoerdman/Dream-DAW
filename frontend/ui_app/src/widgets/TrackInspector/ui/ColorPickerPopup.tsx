@@ -38,7 +38,7 @@ export const ColorPickerPopup = ({
     const clampedY = Math.min(y, window.innerHeight - popupHeight - 8);
 
     const node = (
-        <div ref={ref} style={{
+        <div ref={ref} data-color-picker style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
             background: 'var(--color-bg-elevated)', border: 'var(--space-px) solid var(--color-border-subtle)',
             borderRadius: 'var(--radius-xl)', padding: 8, zIndex: 'var(--z-menu)',

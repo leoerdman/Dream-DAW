@@ -259,7 +259,10 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     );
     useEffect(() => {
         if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
-        if (!tracksEntity.byId[selectedTrackId]) setSelectedTrackId(tracksEntity.allIds[0]);
+        // Auto-select first real track when tracks load (instead of staying on 'master')
+        if (selectedTrackId === 'master' || !tracksEntity.byId[selectedTrackId]) {
+            setSelectedTrackId(tracksEntity.allIds[0]);
+        }
     }, [tracksEntity, selectedTrackId]);
     useEffect(() => {
         if (selectedTrackIds.length === 0) return;

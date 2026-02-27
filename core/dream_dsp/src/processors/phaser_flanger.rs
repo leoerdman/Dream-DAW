@@ -128,7 +128,7 @@ impl DspProcessor for PhaserFlangerProcessor {
 
             // LFO (sine)
             let phase = self.lfo_phase as f32;
-            let phase_r_offset = (stereo_off as f32) / std::f32::consts::TAU;
+            let phase_r_offset = (stereo_off / std::f64::consts::TAU) as f32;
             let lfo_l = crate::fast_math::fast_sin(phase);
             let lfo_r = crate::fast_math::fast_sin(phase + phase_r_offset);
             self.lfo_phase += rate as f64 / sr as f64;

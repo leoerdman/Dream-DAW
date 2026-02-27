@@ -52,7 +52,11 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
-    const pxPerBeat = 82 * zoomX;
+    /** BUG-016 FIX: Named constant for sample editor's own base pixels-per-beat.
+     *  This is independent of the arrangement timeline's zoom — the sample editor
+     *  uses its own zoom context via `zoomX`. */
+    const SAMPLE_EDITOR_BASE_PPB = 82;
+    const pxPerBeat = SAMPLE_EDITOR_BASE_PPB * zoomX;
 
     const commitPitch = useCallback(async (val: number) => {
         const nextPitch = Math.max(-48, Math.min(48, val));

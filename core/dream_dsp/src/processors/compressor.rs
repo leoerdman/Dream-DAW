@@ -415,8 +415,9 @@ impl DspProcessor for CompressorProcessor {
             self.sc_hp_state_l = 0.0;
             self.sc_hp_state_r = 0.0;
             if len > 0 {
-                self.sc_hp_prev_l = sidechain_left.and_then(|sc| sc.get(0).copied()).unwrap_or(left[0]);
-                self.sc_hp_prev_r = sidechain_right.and_then(|sc| sc.get(0).copied()).unwrap_or(right[0]);
+                // BUG-024 FIX: .get(0) → .first() per clippy::get_first.
+                self.sc_hp_prev_l = sidechain_left.and_then(|sc| sc.first().copied()).unwrap_or(left[0]);
+                self.sc_hp_prev_r = sidechain_right.and_then(|sc| sc.first().copied()).unwrap_or(right[0]);
             }
         }
 

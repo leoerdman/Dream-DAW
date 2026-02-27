@@ -422,6 +422,48 @@ export const Timeline = (props: TimelineProps) => {
                         zIndex: 'var(--z-timeline-canvas)',
                     }}
                 />
+                {/* ── Loop bracket lines above clips ── */}
+                {loopVisible && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            pointerEvents: 'none',
+                            zIndex: 'var(--z-timeline-overlays)',
+                        }}
+                    >
+                        {/* Loop region fill */}
+                        <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            left: Math.max(0, loopLeftX),
+                            width: Math.max(0, Math.min(effectiveViewportWidth, loopRightX) - Math.max(0, loopLeftX)),
+                            background: 'var(--color-timeline-loop-fill)',
+                            opacity: 0.35,
+                        }} />
+                        {/* Loop start line */}
+                        <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            left: loopStartLineX,
+                            width: 1,
+                            background: 'var(--color-timeline-loop-border)',
+                            opacity: 0.8,
+                        }} />
+                        {/* Loop end line */}
+                        <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            left: loopEndLineX,
+                            width: 1,
+                            background: 'var(--color-timeline-loop-border)',
+                            opacity: 0.8,
+                        }} />
+                    </div>
+                )}
                 {props.automationVisible && (
                     <div
                         className="timeline-layer-overlays"
@@ -429,6 +471,7 @@ export const Timeline = (props: TimelineProps) => {
                             position: 'absolute',
                             inset: 0,
                             pointerEvents: 'none',
+                            zIndex: 'var(--z-timeline-overlays)',
                         }}
                     >
                         <AutomationOverlay

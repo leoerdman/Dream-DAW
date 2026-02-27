@@ -64,9 +64,9 @@ export interface EngineStore {
     markDirty: () => void;
     /** BUG-001: Clear the dirty flag (called after save). */
     clearDirty: () => void;
-    setActiveProject: (id: string) => void;
-    addProjectTab: (tab: ProjectTab) => void;
-    closeProjectTab: (id: string) => void;
+    setActiveProject: (id: string) => Promise<void>;
+    addProjectTab: () => Promise<void>;
+    closeProjectTab: (id: string) => Promise<void>;
     setProjectDirtyState: (id: string, isDirty: boolean) => void;
     togglePlay: () => Promise<void>;
     play: () => Promise<void>;
@@ -148,7 +148,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,
     connected: false,
     activeProjectId: null,
-    openProjects: [{ id: 'default', name: 'Untitled', filePath: null, isDirty: false }], // Start with one tab
+    openProjects: [], // BUG-051 FIX: Start empty — populated from backend on connect. Old 'default' id mismatched backend UUIDs.
     isDirty: false, // Legacy fallback, to be replaced by tab-specific dirty state
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
@@ -192,22 +192,54 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
         return { isDirty: false };
     }),
-    setActiveProject: (id) => set({ activeProjectId: id }),
-    addProjectTab: (tab) => set((s) => ({
-        openProjects: [...s.openProjects, tab],
-        activeProjectId: tab.id // Auto-focus new tab
-    })),
-    closeProjectTab: (id) => set((s) => {
-        const remaining = s.openProjects.filter(t => t.id !== id);
-        if (remaining.length === 0) {
-            // Can't close last tab, or if we do, spawn a new one
-            return s;
+    setActiveProject: async (id) => {
+        const state = get();
+        if (id === state.activeProjectId) return;
+        try {
+            const response = await engine.switchProjectTab(id);
+            set({ activeProjectId: id });
+            if (response.deltas?.length) {
+                await get().applyProjectDeltas(response.deltas, 'multi-project:switch');
+            }
+        } catch (e) {
+            console.error('[MultiProject] switchProjectTab failed:', e);
         }
-        const newActiveId = s.activeProjectId === id
-            ? remaining[remaining.length - 1].id // If we closed the active tab, focus the last one
-            : s.activeProjectId;
-        return { openProjects: remaining, activeProjectId: newActiveId };
-    }),
+    },
+    addProjectTab: async () => {
+        try {
+            const response = await engine.createProjectTab();
+            const newTab: ProjectTab = {
+                id: response.id,
+                name: response.name,
+                filePath: null,
+                isDirty: false,
+            };
+            set((s) => ({
+                openProjects: [...s.openProjects, newTab],
+                activeProjectId: response.id,
+            }));
+            if (response.deltas?.length) {
+                await get().applyProjectDeltas(response.deltas, 'multi-project:create');
+            }
+        } catch (e) {
+            console.error('[MultiProject] createProjectTab failed:', e);
+        }
+    },
+    closeProjectTab: async (id) => {
+        const state = get();
+        if (state.openProjects.length <= 1) return; // Cannot close last tab
+        try {
+            const response = await engine.closeProjectTab(id);
+            const remaining = state.openProjects.filter(t => t.id !== id);
+            const newActiveId = response.newActiveId ?? state.activeProjectId;
+            set({ openProjects: remaining, activeProjectId: newActiveId });
+            if (response.deltas?.length) {
+                await get().applyProjectDeltas(response.deltas, 'multi-project:close-switch');
+            }
+        } catch (e) {
+            console.error('[MultiProject] closeProjectTab failed:', e);
+        }
+    },
     setProjectDirtyState: (id, isDirty) => set((s) => ({
         openProjects: s.openProjects.map(t => t.id === id ? { ...t, isDirty } : t)
     })),
@@ -351,11 +383,29 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             });
             // BUG-001: Mark project dirty for any mutation-type delta.
             // Snapshot replacements (project open) reset dirty; everything else marks dirty.
-            const isSnapshotReason = reason.startsWith('open') || reason.startsWith('last-project') || reason.endsWith(':new') || reason.includes(':new-project');
+            const isSnapshotReason = reason.startsWith('open') || reason.startsWith('last-project') || reason.endsWith(':new') || reason.includes(':new-project') || reason.startsWith('multi-project:');
             if (!isSnapshotReason) {
                 get().markDirty();
             } else {
                 set({ isDirty: false });
+            }
+
+            // Sync tab name from snapshot (project open / switch / create)
+            const snapshotDelta = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
+            if (snapshotDelta?.data && typeof snapshotDelta.data === 'object') {
+                const project = (snapshotDelta.data as { project?: { name?: string } }).project;
+                if (project?.name) {
+                    const activeId = get().activeProjectId;
+                    if (activeId) {
+                        set((s) => ({
+                            openProjects: s.openProjects.map(t =>
+                                t.id === activeId
+                                    ? { ...t, name: project.name!, isDirty: !isSnapshotReason }
+                                    : t
+                            ),
+                        }));
+                    }
+                }
             }
             if (unhandledDeltaKinds.length > 0) {
                 // BUG-041: Downgrade to warn — unhandled deltas are non-fatal.

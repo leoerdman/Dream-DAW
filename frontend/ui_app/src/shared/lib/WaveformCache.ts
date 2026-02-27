@@ -45,6 +45,12 @@ export class WaveformCache {
     private readonly _pending = new Map<string, Promise<Float32Array | null>>();
     private readonly _lastWarnAtByKey = new Map<string, number>();
 
+    /**
+     * Called when async peak data arrives and is cached.
+     * Allows the TimelineEngine to schedule a redraw so waveforms appear.
+     */
+    public onDataReady: (() => void) | null = null;
+
     // ── Public API ────────────────────────────────────────────────────
 
     /**
@@ -115,6 +121,8 @@ export class WaveformCache {
                         lastAccessed: performance.now(),
                     });
                     this._evictIfNeeded();
+                    // Notify engine that new waveform data is available for drawing
+                    this.onDataReady?.();
                 }
                 return floats;
             })

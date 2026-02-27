@@ -310,13 +310,6 @@ impl SharedPluginRegistry {
         self.generation.fetch_add(1, Ordering::Release);
     }
 
-    pub fn clear_and_return_arc(
-        &self,
-    ) -> std::sync::Arc<std::collections::HashMap<Uuid, PluginInstanceArc>> {
-        self.generation.fetch_add(1, Ordering::Release);
-        self.inner.swap(std::sync::Arc::new(std::collections::HashMap::new()))
-    }
-
     pub fn load(
         &self,
     ) -> arc_swap::Guard<std::sync::Arc<std::collections::HashMap<Uuid, PluginInstanceArc>>> {
@@ -325,6 +318,20 @@ impl SharedPluginRegistry {
 
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// Atomically clears the registry and returns the previous `Arc`.
+    ///
+    /// Used during shutdown to ensure the audio thread releases its reference
+    /// to plugin instances before they are dropped on the main thread.
+    /// The caller can poll `Arc::strong_count()` on the returned `Arc` to wait
+    /// for the audio thread to finish its current processing cycle.
+    pub fn clear_and_return_arc(
+        &self,
+    ) -> Arc<std::collections::HashMap<Uuid, PluginInstanceArc>> {
+        let old = self.inner.swap(Arc::new(std::collections::HashMap::new()));
+        self.generation.fetch_add(1, Ordering::Release);
+        old
     }
 }
 

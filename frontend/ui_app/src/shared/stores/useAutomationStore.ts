@@ -68,6 +68,12 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     toggleGlobalVisible: () => set((s) => ({ globalVisible: !s.globalVisible })),
 
     addLane: (trackId, paramName, paramKey, color = 'var(--token-color-hex-58a6ff)') => {
+        // BUG-038 FIX: Prevent duplicate automation lanes for the same parameter on a track.
+        const existing = Object.values(get().lanes).find(
+            (l) => l.trackId === trackId && l.paramKey === paramKey,
+        );
+        if (existing) return existing.id;
+
         const id = genId();
         const lane: AutomationLane = {
             id,

@@ -37,26 +37,22 @@ pub(crate) fn safe_set_window_title(app: &tauri::AppHandle, title: &str) {
     //    This path never touches AppKit and is always safe.
     let _ = app.emit("__internal_set_title", title);
 
-    // 2. Update the native title bar — isolated via catch_unwind + thread.
-    let title_owned = title.to_string();
+    // 2. Update the native title bar — isolated via catch_unwind.
+    //    BUG-017 FIX: Previously spawned a new OS thread for every title update
+    //    (~500μs + 64KB stack per call). Now uses catch_unwind directly,
+    //    which is sufficient to absorb panics from corrupted ObjC runtime.
+    //    Note: SIGILL can't be caught by catch_unwind regardless.
     if let Some(window) = app.get_webview_window("main") {
-        // Spawn a detached thread specifically for the native title update.
-        // If the ObjC runtime is corrupted, the SIGILL will kill only
-        // this thread instead of the entire process.
-        let _ = std::thread::Builder::new()
-            .name("set-title-guard".into())
-            .stack_size(64 * 1024) // small stack — title setting is trivial
-            .spawn(move || {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let _ = window.set_title(&title_owned);
-                }));
-                if let Err(err) = result {
-                    log::error!(
-                        "[Window] set_title panicked (likely ObjC runtime corruption from VST plugin): {:?}",
-                        err
-                    );
-                }
-            });
+        let title_owned = title.to_string();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = window.set_title(&title_owned);
+        }));
+        if let Err(err) = result {
+            log::error!(
+                "[Window] set_title panicked (likely ObjC runtime corruption from VST plugin): {:?}",
+                err
+            );
+        }
     }
 }
 
@@ -115,10 +111,10 @@ impl ProjectState {
         let mut dirty = self.is_dirty.lock().map_err(|e| e.to_string())?;
         let was_dirty = *dirty;
         *dirty = true;
-        if !was_dirty
-            && let Some(app) = app
-        {
-            safe_set_window_title(app, &format!("Dream DAW — {}*", project_name));
+        if !was_dirty {
+            if let Some(app) = app {
+                safe_set_window_title(app, &format!("Dream DAW — {}*", project_name));
+            }
         }
         Ok(())
     }

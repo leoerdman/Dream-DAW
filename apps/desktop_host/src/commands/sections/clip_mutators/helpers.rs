@@ -12,7 +12,7 @@ pub(super) fn rebuild_clip_views_and_mark_dirty(
     handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
     mode: ClipRebuildMode,
-) -> Result<(), String>  {
+) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     match mode {
         ClipRebuildMode::ClipsOnly => clip_pool_state.rebuild_clips_only(&project),
@@ -28,7 +28,7 @@ pub(super) fn rebuild_clips_only_and_mark_dirty(
     project_state: &crate::state_managers::ProjectState,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
-) -> Result<(), String>  {
+) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
@@ -40,7 +40,7 @@ pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
     project_state: &crate::state_managers::ProjectState,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
-) -> Result<(), String>  {
+) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);
@@ -52,7 +52,7 @@ pub(super) fn rebuild_automation_and_mark_dirty(
     project_state: &crate::state_managers::ProjectState,
     automation_runtime: &tauri::State<'_, AutomationRuntime>,
     app: &tauri::AppHandle,
-) -> Result<(), String>  {
+) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| format!("Project lock poisoned: {e}"))?;
     rebuild_automation_snapshot_from_project(&project, automation_runtime);
     drop(project);
@@ -127,7 +127,7 @@ pub(super) fn place_bounced_file_on_new_track(
     clip_start_frame: i64,
     new_track_name: &str,
     insert_after_index: Option<usize>,
-) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String>  {
+) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String> {
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
     push_undo(project_state)?;

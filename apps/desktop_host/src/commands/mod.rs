@@ -1,6 +1,7 @@
 use super::*;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
+use crate::state_managers::project_registry::active_project;
 
 type DeviceNode = dream_models::project::DeviceNode;
 
@@ -118,12 +119,17 @@ pub(crate) fn invoke_handler()
         import_ableton_project,
         get_recent_projects,
         get_project_status,
-        auto_resolve_missing_plugins_with_deltas_cmd,
+         auto_resolve_missing_plugins_with_deltas_cmd,
         auto_resolve_missing_plugins_report_with_deltas_cmd,
         set_arrangement_viewport_cmd,
         get_arrangement_viewport_cmd,
         set_arrangement_grid_cmd,
         set_arrangement_grid_with_deltas_cmd,
+        // Multi-Project Tabs
+        create_project_tab,
+        switch_project_tab,
+        close_project_tab,
+        list_open_projects,
         // Settings
         get_settings,
         update_settings,

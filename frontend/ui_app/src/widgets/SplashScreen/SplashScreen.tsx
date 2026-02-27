@@ -76,24 +76,28 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
                 startTelemetryLoop()
                 if (isDev) console.debug('[StartupManager] step 2: startTelemetryLoop DONE')
 
-                // 2.5. Sync the frontend tab bar with the real backend project UUID.
-                // The store starts with a placeholder 'default' ID — replace it now.
+                // 2.5. Populate the tab bar with real backend project info.
+                // The store starts with a placeholder 'default' tab — replace it
+                // with the actual project list from the backend.
                 try {
-                    const realId = await withTimeout(engineApi.getActiveProjectId(), 2000, 'getActiveProjectId')
-                    const store = useEngineStore.getState()
-                    if (store.openProjects.length === 1 && store.openProjects[0].id === 'default') {
-                        store.setActiveProject(realId)
-                        // Replace the placeholder tab with the real ID
+                    const projects = await withTimeout(engineApi.listOpenProjects(), 2000, 'listOpenProjects')
+                    if (projects.length > 0) {
+                        const tabs = projects.map(p => ({
+                            id: p.id,
+                            name: p.name,
+                            filePath: p.filePath,
+                            isDirty: p.isDirty,
+                        }))
+                        // Find the active project ID from the backend.
+                        const activeId = await withTimeout(engineApi.getActiveProjectId(), 1000, 'getActiveProjectId')
                         useEngineStore.setState({
-                            activeProjectId: realId,
-                            openProjects: store.openProjects.map(t =>
-                                t.id === 'default' ? { ...t, id: realId } : t
-                            ),
+                            activeProjectId: activeId,
+                            openProjects: tabs,
                         })
+                        if (isDev) console.debug('[StartupManager] step 2.5: synced tabs =', tabs, 'activeId =', activeId)
                     }
-                    if (isDev) console.debug('[StartupManager] step 2.5: synced project ID =', realId)
                 } catch (e) {
-                    console.warn('[StartupManager] step 2.5: getActiveProjectId failed:', e)
+                    console.warn('[StartupManager] step 2.5: listOpenProjects failed:', e)
                 }
 
                 // 3. Honor startup behavior: open last project on launch if selected.

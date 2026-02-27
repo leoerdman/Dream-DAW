@@ -60,7 +60,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                     await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:new');
                 });
                 onProjectChange?.();
-                console.log('[NativeMenu] New project created');
+
             } catch (err) {
                 console.error('[NativeMenu] New project failed:', err);
             }
@@ -85,7 +85,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                     }
                 });
                 onProjectChange?.();
-                console.log('[NativeMenu] Opened project:', path);
+
             } catch (err) {
                 console.error('[NativeMenu] Open failed:', err);
             }
@@ -110,7 +110,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 await engineApi.saveProject();
                 await syncProjectHistory();
                 useStatusStore.getState().setInfo('Project saved');
-                console.log('[NativeMenu] Project saved');
+
             } catch (err) {
                 console.error('[NativeMenu] Save failed:', err);
                 useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -153,7 +153,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 await applyProjectDeltas(response.deltas, 'native-menu-undo');
                 await syncProjectHistory();
                 onProjectChange?.();
-                console.log('[NativeMenu] Undo');
+
             } catch (err) {
                 console.error('[NativeMenu] Undo failed:', err);
             }
@@ -169,7 +169,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 await applyProjectDeltas(response.deltas, 'native-menu-redo');
                 await syncProjectHistory();
                 onProjectChange?.();
-                console.log('[NativeMenu] Redo');
+
             } catch (err) {
                 console.error('[NativeMenu] Redo failed:', err);
             }
@@ -200,7 +200,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         items: [appSubmenu, fileSubmenu, editSubmenu, windowSubmenu],
     });
     await menu.setAsAppMenu();
-    console.log('[NativeMenu] macOS menu bar initialized');
+
 }
 async function handleSaveAs() {
     try {
@@ -218,7 +218,7 @@ async function handleSaveAs() {
         await engineApi.saveProjectAs(path);
         await syncProjectHistory();
         useStatusStore.getState().setInfo(`Project saved as: ${path.split('/').pop()}`);
-        console.log('[NativeMenu] Project saved as:', path);
+
     } catch (err) {
         console.error('[NativeMenu] Save As failed:', err);
         useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -240,23 +240,23 @@ async function buildRecentSubmenu(
                         text: label,
                         action: async () => {
                             try {
-                                console.warn('[NativeMenu:OpenRecent] path=', rp.path);
+                                // BUG-041 FIX: Debug console.warn removed from production.
                                 await withProjectLoad('native-menu:open-recent', async () => {
                                     const isAbleton = rp.path.toLowerCase().endsWith('.als');
                                     if (isAbleton) {
-                                        console.warn('[NativeMenu:OpenRecent] importing ALS...');
+
                                         const response = await engineApi.importAbletonProject(rp.path);
                                         await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
-                                        console.warn('[NativeMenu:OpenRecent] ALS import done, snapshot applied');
+
                                     } else {
-                                        console.warn('[NativeMenu:OpenRecent] opening...');
+
                                         const response = await engineApi.openProject(rp.path);
                                         await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
-                                        console.warn('[NativeMenu:OpenRecent] open done, snapshot applied');
+
                                     }
                                 });
                                 onProjectChange?.();
-                                console.log('[NativeMenu] Opened recent:', rp.path);
+
                             } catch (err) {
                                 console.error('[NativeMenu] Open recent failed:', err);
                             }

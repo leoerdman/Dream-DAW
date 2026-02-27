@@ -36,5 +36,6 @@ interface FocusPanelState {
  */
 export const useFocusPanelStore = create<FocusPanelState>((set) => ({
     activePanel: 'arrangement',
-    setActivePanel: (panel) => set({ activePanel: panel }),
+    // BUG-098 FIX: Guard against redundant state updates on every mousedown.
+    setActivePanel: (panel) => set((s) => s.activePanel === panel ? s : { activePanel: panel }),
 }));

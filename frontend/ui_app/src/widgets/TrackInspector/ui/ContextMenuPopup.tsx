@@ -12,14 +12,9 @@ export type ContextMenuPopupProps = {
     onGroup: () => void;
     onUngroup: () => void;
     canUngroup: boolean;
-    canBounceGroup: boolean;
     onDelete: () => void;
     onChangeColor: () => void;
     onPaintClips: () => void;
-    onBounceTrack: () => void;
-    onBounceGroup: () => void;
-    onPaintGroupColor: () => void;
-    onSplitToStems: () => void;
     onDismiss: () => void;
 };
 
@@ -34,14 +29,9 @@ export const ContextMenuPopup = ({
     onGroup,
     onUngroup,
     canUngroup,
-    canBounceGroup,
     onDelete,
     onChangeColor,
     onPaintClips,
-    onBounceTrack,
-    onBounceGroup,
-    onPaintGroupColor,
-    onSplitToStems,
     onDismiss,
 }: ContextMenuPopupProps) => {
     const ref = useRef<HTMLDivElement>(null);
@@ -50,7 +40,11 @@ export const ContextMenuPopup = ({
 
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
+            // Don't dismiss if clicking inside the color picker portal
+            const target = e.target as Node;
+            const colorPicker = document.querySelector('[data-color-picker]');
+            if (colorPicker && colorPicker.contains(target)) return;
+            if (ref.current && !ref.current.contains(target)) onDismiss();
         };
         const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
         document.addEventListener('mousedown', handleClick);
@@ -76,13 +70,11 @@ export const ContextMenuPopup = ({
             clearTimeout(hoverTimerRef.current);
             hoverTimerRef.current = null;
         }
-        // Don't hide color picker on leave — keep it open for interaction
+        colorHoverFiredRef.current = false;
     }, []);
 
     const clampedX = Math.min(x, window.innerWidth - 196);
-    const menuHeight = showTrackActions
-        ? (canBounceGroup ? 414 : 346)
-        : 82;
+    const menuHeight = showTrackActions ? 300 : 82;
     const clampedY = Math.min(y, window.innerHeight - menuHeight);
 
     const itemStyle: React.CSSProperties = {
@@ -125,6 +117,7 @@ export const ContextMenuPopup = ({
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📋</span> Duplicate Track
                     </button>
                     <button style={itemStyle}
+                        onClick={(e) => { e.stopPropagation(); onChangeColor(); }}
                         onMouseEnter={e => {
                             e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)';
                             handleColorHoverEnter();
@@ -134,36 +127,11 @@ export const ContextMenuPopup = ({
                             handleColorHoverLeave();
                         }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Change Color
-                        <span style={{ marginLeft: 'auto', fontSize: 'var(--font-size-xs)', opacity: 0.5 }}>▸</span>
                     </button>
                     <button style={itemStyle} onClick={onPaintClips}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🖌</span> Paint Clips As Track
-                    </button>
-                    <button style={itemStyle} onClick={onBounceTrack}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📀</span> Bounce Track
-                    </button>
-                    {canBounceGroup && (
-                        <button style={itemStyle} onClick={onBounceGroup}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📦</span> Bounce Group
-                        </button>
-                    )}
-                    {canBounceGroup && (
-                        <button style={itemStyle} onClick={onPaintGroupColor}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Paint Group Color
-                        </button>
-                    )}
-                    <button style={itemStyle} onClick={onSplitToStems}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🧪</span> Split To 4 Stems
                     </button>
                     <button style={itemStyle} onClick={onGroup}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}

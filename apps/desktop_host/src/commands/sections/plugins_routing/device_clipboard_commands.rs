@@ -29,7 +29,8 @@ fn copy_device_from_track_cmd(
     )?;
 
     let device_name = device_node.name().to_owned();
-    let mut clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
+    // Use GLOBAL device clipboard (cross-project capable).
+    let mut clipboard = project_registry.global_device_clipboard.lock().map_err(|e| e.to_string())?;
     *clipboard = Some(device_node);
 
     log::info!("[IPC] copy_device_from_track_cmd(track={track_id}, device={device_id}, name='{device_name}')");
@@ -50,11 +51,11 @@ fn paste_device_to_track_impl(
     handle: &tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: &tauri::State<'_, PluginHostState>,
     app: &tauri::AppHandle,
-) -> Result<(dream_orchestrator::commands::PasteDeviceToTrackResult, Option<String>), String>  {
+) -> Result<(dream_orchestrator::commands::PasteDeviceToTrackResult, Option<String>), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    // Read clipboard (don't consume it — allow multiple pastes).
-    let clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
+    // Read GLOBAL clipboard (don't consume — allow multiple pastes).
+    let clipboard = project_registry.global_device_clipboard.lock().map_err(|e| e.to_string())?;
     let Some(ref source_node) = *clipboard else {
         return Err("Device clipboard is empty".to_string());
     };

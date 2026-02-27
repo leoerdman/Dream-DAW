@@ -911,3 +911,516 @@ async fn auto_save_if_dirty(
     log::info!("[AutoSave] Project auto-saved → {}", path.display());
     Ok(serde_json::json!({ "saved": true, "path": path.display().to_string() }))
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Multi-Project Tab Management
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Creates a brand-new empty project as a separate tab.
+///
+/// Unlike `new_project` (which replaces the active project), this creates
+/// an additional `ProjectState` in the registry and switches to it.
+#[tauri::command]
+fn create_project_tab(
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    // 1. Create a fresh ProjectState with a new UUID.
+    let new_state = std::sync::Arc::new(crate::state_managers::ProjectState::new());
+    let new_id = new_state.id;
+
+    // 2. Initialize an empty project in it.
+    let mut new_project = dream_models::project::Project::default();
+    new_project.normalize_invariants();
+    refresh_offline_flags(&mut new_project);
+    *new_state.project.lock().map_err(|e| e.to_string())? = new_project.clone();
+    new_state.record_history("create_tab", "created new project tab".to_string())?;
+
+    // 3. Register in the registry and switch to it (both visual + audio).
+    project_registry.add_project(new_state);
+    project_registry.set_active_project(new_id);
+    project_registry.set_audio_active_project(new_id);
+
+    // 4. Unload old plugins and rebuild engine snapshots for the empty project.
+    let _ = plugin_host_state.unload_all_instances();
+    clip_pool_state.rebuild_snapshot(&new_project);
+    clip_pool_state.rebuild_external_fx_snapshot(
+        &new_project,
+        plugin_host_state.slot_instance_snapshot().as_ref(),
+    );
+    plugin_host_state.publish_registry();
+    rebuild_automation_snapshot_from_project(&new_project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&new_project, &handle);
+    rebuild_sampler_snapshot_from_project(&new_project, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&new_project, &handle)?;
+    sync_transport_from_project(&new_project, &handle)?;
+    sync_track_mix_state_from_project(&new_project, &handle)?;
+
+    // 5. Update window title
+    crate::state_managers::project_state::safe_set_window_title(
+        &app,
+        &format!("Dream DAW — {}", new_project.name),
+    );
+
+    log::info!(
+        "[MultiProject] Created new project tab: id={}, name='{}'",
+        new_id,
+        new_project.name
+    );
+
+    Ok(serde_json::json!({
+        "id": new_id.to_string(),
+        "name": new_project.name,
+        "deltas": [dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(new_project),
+        }],
+    }))
+}
+
+/// Switches the **visually active** project tab (UI-only).
+///
+/// This does NOT swap the audio engine — the engine continues rendering
+/// the previously playing project. Engine swap is deferred to `play()`.
+/// This makes tab switching instant with zero audio interruption.
+#[tauri::command]
+fn switch_project_tab(
+    id: String,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let target_id = uuid::Uuid::parse_str(&id)
+        .map_err(|e| format!("Invalid project UUID '{}': {}", id, e))?;
+
+    let target_state = project_registry
+        .get_project(&target_id)
+        .ok_or_else(|| format!("Project tab '{}' not found in registry", id))?;
+
+    // Only change the VISUAL active project — engine stays on audio_active_project.
+    project_registry.set_active_project(target_id);
+
+    // Return full project data so frontend can render it immediately.
+    let project = target_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+
+    // Update window title to reflect the visually-focused project.
+    let is_dirty = *target_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    let title_suffix = if is_dirty { "*" } else { "" };
+    crate::state_managers::project_state::safe_set_window_title(
+        &app,
+        &format!("Dream DAW — {}{}", project.name, title_suffix),
+    );
+
+    log::info!(
+        "[MultiProject] UI switched to project tab: id={}, name='{}' (engine unchanged)",
+        target_id,
+        project.name
+    );
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
+}
+
+/// Closes a project tab and removes it from the registry.
+///
+/// If closing the active tab, automatically switches to the most recent
+/// remaining tab. Cannot close the last project — returns an error.
+#[tauri::command]
+fn close_project_tab(
+    id: String,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    let target_id = uuid::Uuid::parse_str(&id)
+        .map_err(|e| format!("Invalid project UUID '{}': {}", id, e))?;
+
+    // Cannot close the last project.
+    if project_registry.project_count() <= 1 {
+        return Err("Cannot close the last project tab".to_string());
+    }
+
+    // Check if we're closing the visually-active or audio-active tab.
+    let is_visual_active = project_registry
+        .get_active_project()
+        .map(|p| p.id == target_id)
+        .unwrap_or(false);
+    let is_audio_active = project_registry
+        .get_audio_active_project_id()
+        .map(|id| id == target_id)
+        .unwrap_or(false);
+
+    // Remove from registry.
+    let _removed = project_registry
+        .remove_project(&target_id)
+        .ok_or_else(|| format!("Project tab '{}' not found", id))?;
+
+    let response = if is_visual_active {
+        // Pick a new active project (any remaining one).
+        let new_active = project_registry
+            .first_remaining()
+            .ok_or("No remaining projects after close")?;
+
+        let new_id = new_active.id;
+        project_registry.set_active_project(new_id);
+
+        // Get the new project data for the UI.
+        let project = new_active
+            .project
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone();
+
+        // If we also closed the audio-active project, swap the engine too.
+        if is_audio_active {
+            project_registry.set_audio_active_project(new_id);
+
+            let _ = plugin_host_state.unload_all_instances();
+            clip_pool_state.rebuild_snapshot(&project);
+            clip_pool_state.rebuild_external_fx_snapshot(
+                &project,
+                plugin_host_state.slot_instance_snapshot().as_ref(),
+            );
+            plugin_host_state.publish_registry();
+            clip_pool_state.load_project_clips(&project);
+            rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+            rebuild_midi_snapshot_from_project(&project, &handle);
+            rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+            rebuild_runtime_device_chains_from_project(&project, &handle)?;
+            sync_transport_from_project(&project, &handle)?;
+            sync_track_mix_state_from_project(&project, &handle)?;
+        }
+
+        let is_dirty = *new_active.is_dirty.lock().map_err(|e| e.to_string())?;
+        let title_suffix = if is_dirty { "*" } else { "" };
+        crate::state_managers::project_state::safe_set_window_title(
+            &app,
+            &format!("Dream DAW — {}{}", project.name, title_suffix),
+        );
+
+        log::info!(
+            "[MultiProject] Closed tab {} → switched to '{}' (id={})",
+            id,
+            project.name,
+            new_id
+        );
+
+        serde_json::json!({
+            "closedId": id,
+            "newActiveId": new_id.to_string(),
+            "deltas": [dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project),
+            }],
+        })
+    } else if is_audio_active {
+        // We're closing an inactive visual tab that happens to be the audio-active one.
+        // The engine needs to swap to the current visual project.
+        let visual_project = project_registry
+            .get_active_project()
+            .ok_or("No active project")?;
+        let visual_id = visual_project.id;
+        project_registry.set_audio_active_project(visual_id);
+
+        let project = visual_project
+            .project
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone();
+
+        let _ = plugin_host_state.unload_all_instances();
+        clip_pool_state.rebuild_snapshot(&project);
+        clip_pool_state.rebuild_external_fx_snapshot(
+            &project,
+            plugin_host_state.slot_instance_snapshot().as_ref(),
+        );
+        plugin_host_state.publish_registry();
+        clip_pool_state.load_project_clips(&project);
+        rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+        rebuild_midi_snapshot_from_project(&project, &handle);
+        rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+        rebuild_runtime_device_chains_from_project(&project, &handle)?;
+        sync_transport_from_project(&project, &handle)?;
+        sync_track_mix_state_from_project(&project, &handle)?;
+
+        log::info!("[MultiProject] Closed audio-active tab {}, engine swapped to visual tab", id);
+        serde_json::json!({
+            "closedId": id,
+            "newActiveId": null,
+        })
+    } else {
+        log::info!("[MultiProject] Closed inactive tab {}", id);
+        serde_json::json!({
+            "closedId": id,
+            "newActiveId": null,
+        })
+    };
+
+    Ok(response)
+}
+
+/// Returns lightweight metadata for all open project tabs.
+///
+/// Used by the frontend tab bar to display project names and dirty indicators.
+#[tauri::command]
+fn list_open_projects(
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<Vec<crate::state_managers::project_registry::ProjectInfo>, String> {
+    Ok(project_registry.list_project_infos())
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Cross-Project Global Clipboard Commands
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Copies selected clips to the global (cross-project) clipboard.
+///
+/// Serializes the full clip data from the active project so it can be
+/// pasted into any open project, including a different one.
+#[tauri::command]
+fn copy_clips_to_global_clipboard(
+    clip_ids: Vec<String>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<usize, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let source_project_id = active_project_arc.id.to_string();
+    let mut clips = Vec::new();
+    let mut midi_clips = Vec::new();
+
+    let clip_id_set: std::collections::HashSet<String> = clip_ids.into_iter().collect();
+
+    for track in &project.tracks {
+        for clip in &track.clips {
+            if clip_id_set.contains(&clip.id.to_string()) {
+                clips.push(clip.clone());
+            }
+        }
+        for clip in &track.midi_clips {
+            if clip_id_set.contains(&clip.id.to_string()) {
+                midi_clips.push(clip.clone());
+            }
+        }
+    }
+
+    let total = clips.len() + midi_clips.len();
+    if total == 0 {
+        return Err("No matching clips found to copy".to_string());
+    }
+
+    let clipboard_data = crate::state_managers::project_registry::GlobalClipData {
+        source_project_id,
+        clips,
+        midi_clips,
+    };
+
+    let mut cb = project_registry.global_clip_clipboard.lock().map_err(|e| e.to_string())?;
+    *cb = Some(clipboard_data);
+
+    log::info!("[GlobalClipboard] Copied {} clip(s) to global clipboard", total);
+    Ok(total)
+}
+
+/// Pastes clips from the global clipboard into the active project.
+///
+/// Creates new clips with fresh UUIDs at the specified track and position.
+/// Works cross-project since the clipboard contains fully serialized clip data.
+#[tauri::command]
+fn paste_clips_from_global_clipboard(
+    track_index: usize,
+    position_frames: i64,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+
+    // Read clipboard (don't consume — allow multiple pastes).
+    let cb = project_registry.global_clip_clipboard.lock().map_err(|e| e.to_string())?;
+    let clipboard_data = cb.as_ref().ok_or("Global clip clipboard is empty")?;
+
+    // Find the earliest position to compute relative offsets.
+    let mut earliest_frame = i64::MAX;
+    for clip in &clipboard_data.clips {
+        earliest_frame = earliest_frame.min(clip.position.sample_frame);
+    }
+    for clip in &clipboard_data.midi_clips {
+        earliest_frame = earliest_frame.min(clip.position.sample_frame);
+    }
+    if earliest_frame == i64::MAX {
+        earliest_frame = 0;
+    }
+
+    push_undo(project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    // Ensure the target track exists.
+    if track_index >= project.tracks.len() {
+        return Err(format!(
+            "Track index {} out of range (project has {} tracks)",
+            track_index,
+            project.tracks.len()
+        ));
+    }
+
+    let mut pasted_count = 0;
+
+    // Paste audio clips.
+    for src_clip in &clipboard_data.clips {
+        let mut new_clip = src_clip.clone();
+        new_clip.id = Uuid::new_v4();
+        let offset = src_clip.position.sample_frame - earliest_frame;
+        new_clip.position = dream_models::project::AbsoluteTime::new(position_frames + offset);
+        project.tracks[track_index].clips.push(new_clip);
+        pasted_count += 1;
+    }
+
+    // Paste MIDI clips.
+    for src_clip in &clipboard_data.midi_clips {
+        let mut new_clip = src_clip.clone();
+        new_clip.id = Uuid::new_v4();
+        let offset = src_clip.position.sample_frame - earliest_frame;
+        new_clip.position = dream_models::project::AbsoluteTime::new(position_frames + offset);
+        project.tracks[track_index].midi_clips.push(new_clip);
+        pasted_count += 1;
+    }
+
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, None)?;
+
+    log::info!(
+        "[GlobalClipboard] Pasted {} clip(s) from global clipboard to track {}",
+        pasted_count,
+        track_index
+    );
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
+}
+
+/// Copies a full track (clips, MIDI, devices, automation) to the global clipboard.
+#[tauri::command]
+fn copy_track_to_global_clipboard(
+    track_index: usize,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    if track_index >= project.tracks.len() {
+        return Err(format!(
+            "Track index {} out of range (project has {} tracks)",
+            track_index,
+            project.tracks.len()
+        ));
+    }
+
+    let track = project.tracks[track_index].clone();
+    let track_name = track.name.clone();
+
+    let mut cb = project_registry.global_track_clipboard.lock().map_err(|e| e.to_string())?;
+    *cb = Some(track);
+
+    log::info!("[GlobalClipboard] Copied track '{}' (index={}) to global clipboard", track_name, track_index);
+    Ok(track_name)
+}
+
+/// Pastes a track from the global clipboard into the active project.
+///
+/// Regenerates all UUIDs, routes output to Master, loads external plugins.
+/// Returns a snapshot delta for the frontend to rebuild its state.
+#[tauri::command]
+fn paste_track_from_global_clipboard(
+    insert_index: Option<usize>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+
+    // Read clipboard (don't consume — allow multiple pastes).
+    let cb = project_registry.global_track_clipboard.lock().map_err(|e| e.to_string())?;
+    let source_track = cb.as_ref().ok_or("Global track clipboard is empty")?.clone();
+    drop(cb);
+
+    // Regenerate all UUIDs for independence.
+    let mut new_track = source_track;
+    new_track.id = Uuid::new_v4();
+    new_track.name = format!("{} (Copy)", new_track.name);
+
+    // Regenerate clip UUIDs.
+    for clip in &mut new_track.clips {
+        clip.id = Uuid::new_v4();
+    }
+    for clip in &mut new_track.midi_clips {
+        clip.id = Uuid::new_v4();
+    }
+
+    // Regenerate device UUIDs.
+    if let Some(ref mut inst) = new_track.instrument {
+        inst.regenerate_ids();
+    }
+    for effect in &mut new_track.effects {
+        effect.regenerate_ids();
+    }
+
+    // Route to master by default.
+    new_track.output_bus_id = None;
+
+    push_undo(project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let idx = insert_index.unwrap_or(project.tracks.len());
+    let clamped_idx = idx.min(project.tracks.len());
+    project.tracks.insert(clamped_idx, new_track);
+
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    // Rebuild engine snapshots for the updated project.
+    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_external_fx_snapshot(
+        &project,
+        plugin_host_state.slot_instance_snapshot().as_ref(),
+    );
+    plugin_host_state.publish_registry();
+    clip_pool_state.load_project_clips(&project);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&project, &handle)?;
+    sync_transport_from_project(&project, &handle)?;
+    sync_track_mix_state_from_project(&project, &handle)?;
+
+    log::info!(
+        "[GlobalClipboard] Pasted track at index {} in project '{}'",
+        clamped_idx,
+        project_name
+    );
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
+}

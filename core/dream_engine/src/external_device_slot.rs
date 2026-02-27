@@ -167,9 +167,7 @@ impl DeviceProcessor for ExternalDeviceSlot {
         // Previously, sc_n could be < n, causing the plugin to read stale
         // data beyond the sidechain buffer end.
         let has_sidechain = sidechain_left.is_some() && sidechain_right.is_some();
-        if has_sidechain {
-            let sc_l = sidechain_left.unwrap();
-            let sc_r = sidechain_right.unwrap();
+        if let (Some(sc_l), Some(sc_r)) = (sidechain_left, sidechain_right) {
             let avail = n.min(sc_l.len()).min(sc_r.len());
             self.sc_left[..avail].copy_from_slice(&sc_l[..avail]);
             self.sc_right[..avail].copy_from_slice(&sc_r[..avail]);

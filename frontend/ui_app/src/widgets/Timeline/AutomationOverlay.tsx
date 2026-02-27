@@ -9,7 +9,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useMemo, memo, useEffect } from 'react';
+import { useMemo, memo, useEffect, useRef } from 'react';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -68,11 +68,21 @@ export const AutomationOverlay = memo(function AutomationOverlay({
 
     const addLane = useAutomationStore((s) => s.addLane);
 
-    // Auto-initialize Volume lanes for every track when Automation is opened.
+    // BUG-039 FIX: Track initialization to prevent re-running on every toggle.
+    // The duplicate prevention in addLane (BUG-038) makes re-runs safe but wasteful.
+    const hasInitializedRef = useRef(false);
+    const previousTrackCountRef = useRef(0);
+
+    // Auto-initialize Volume lanes for every track when Automation is first opened.
     // NOTE: We read tracksById lazily inside the effect to avoid re-triggering
     // on every track state mutation (volume, pan, solo, etc.).
     useEffect(() => {
         if (!visible) return;
+        // Only reinitialize if track count changed (e.g., track added/removed)
+        if (hasInitializedRef.current && trackCount === previousTrackCountRef.current) return;
+        hasInitializedRef.current = true;
+        previousTrackCountRef.current = trackCount;
+
         const state = useAutomationStore.getState();
         const currentLanes = Object.values(state.lanes);
         const currentTracksById = useEngineStore.getState().tracks.byId;
@@ -176,7 +186,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                         borderBottom: isFirstLane
                                             ? 'none'
                                             : 'var(--space-px) solid var(--color-divider)',
-                                        zIndex: isFirstLane ? 'var(--z-timeline-canvas)' : 'var(--z-timeline-overlays)',
+                                        zIndex: 'var(--z-timeline-overlays)',
                                     }}
                                 >
                                     {!isFirstLane && (

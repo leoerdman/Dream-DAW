@@ -124,6 +124,11 @@ export class TimelineEngine {
         this._automationVisible = config.automationVisible ?? false;
 
         this._waveformCache = new WaveformCache();
+        // ENTERPRISE: When async waveform data arrives, schedule a redraw
+        // so clips show waveforms immediately after project open.
+        this._waveformCache.onDataReady = () => {
+            this._requestRedraw();
+        };
         this._renderer = new CanvasClipRenderer(this._waveformCache);
         this._viewport = new ViewportMatrix(config.viewport);
 

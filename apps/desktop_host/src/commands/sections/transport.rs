@@ -20,8 +20,136 @@ fn beat_to_engine_frames(beat: f64, pulse_map: Option<&dream_models::pulse_map::
     ((beat.max(0.0) * 60.0 / bpm) * sr).round() as i64
 }
 
+/// Ensures the audio engine is rendering the visually-active project.
+///
+/// If the user switched tabs (visual ≠ audio), this function:
+///  1. Stops playback of the old project
+///  2. Swaps ALL engine snapshots to the new project
+///  3. Loads external plugins
+///  4. Updates `audio_active_project_id`
+///
+/// Called by `play()` and `toggle_playback()` before starting playback.
+/// Returns `true` if an engine swap occurred.
+fn ensure_engine_on_active_project(
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    automation_runtime: &tauri::State<'_, AutomationRuntime>,
+    handle: &tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: &tauri::State<'_, PluginHostState>,
+) -> Result<bool, String> {
+    let visual_id_guard = project_registry.active_project_id.load();
+    let audio_id_guard = project_registry.audio_active_project_id.load();
+
+    let visual_id = visual_id_guard
+        .as_deref()
+        .ok_or("No visual active project")?;
+    let audio_id = audio_id_guard.as_deref();
+
+    // If already on the correct project, nothing to do.
+    if audio_id == Some(visual_id) {
+        return Ok(false);
+    }
+
+    let target_state = project_registry
+        .get_project(visual_id)
+        .ok_or("Visual active project not found in registry")?;
+
+    // 1. Stop playback of the old project.
+    let _ = push_command(handle, EngineCommand::SetPlay(false));
+    {
+        let mut state = handle
+            .playback_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        state.is_playing = false;
+    }
+
+    // 2. Swap ALL engine snapshots to the new project.
+    let project = target_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+
+    let _ = plugin_host_state.unload_all_instances();
+    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_external_fx_snapshot(
+        &project,
+        plugin_host_state.slot_instance_snapshot().as_ref(),
+    );
+    plugin_host_state.publish_registry();
+    clip_pool_state.load_project_clips(&project);
+    rebuild_automation_snapshot_from_project(&project, automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, handle);
+    rebuild_sampler_snapshot_from_project(&project, clip_pool_state, handle);
+    rebuild_runtime_device_chains_from_project(&project, handle)?;
+    sync_transport_from_project(&project, handle)?;
+    sync_track_mix_state_from_project(&project, handle)?;
+
+    // 3. Preload external plugins.
+    let mut external_slots: Vec<dream_models::project::PluginSlot> = Vec::new();
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            for slot in inst.collect_plugin_slots() {
+                let pid = slot.plugin_id.as_str();
+                if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+                    external_slots.push(slot.clone());
+                }
+            }
+        }
+        for node in &track.effects {
+            for slot in node.collect_plugin_slots() {
+                let pid = slot.plugin_id.as_str();
+                if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+                    external_slots.push(slot.clone());
+                }
+            }
+        }
+    }
+    if !external_slots.is_empty() {
+        if let Some(err) =
+            crate::commands::plugins_routing_helpers::load_external_slots_best_effort(
+                &external_slots,
+                plugin_host_state,
+                "deferred_engine_swap",
+            )
+        {
+            log::warn!("[MultiProject] Plugin preload on engine swap: {}", err);
+        }
+    }
+
+    // 4. Update audio_active_project_id.
+    project_registry.set_audio_active_project(*visual_id);
+
+    log::info!(
+        "[MultiProject] Engine swapped to project '{}' (id={})",
+        project.name,
+        visual_id
+    );
+
+    Ok(true)
+}
+
 #[tauri::command]
-fn play(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
+fn play(
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    // Deferred engine swap: if the user switched tabs, swap now before playing.
+    let swapped = ensure_engine_on_active_project(
+        &project_registry,
+        &clip_pool_state,
+        &automation_runtime,
+        &handle,
+        &plugin_host_state,
+    )?;
+    if swapped {
+        log::info!("[IPC] play() — engine swapped to active project before playback");
+    }
+
     // BUG-011 FIX: Single lock scope instead of double-lock.
     let mut state = handle
         .playback_state
@@ -53,7 +181,13 @@ fn stop(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
 
 /// Toggle play/stop.
 #[tauri::command]
-fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, String> {
+fn toggle_playback(
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<bool, String> {
     // BUG-013 FIX: Keep lock across read+write+command push to prevent TOCTOU race.
     let mut state = handle
         .playback_state
@@ -63,7 +197,22 @@ fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, 
     let new_state = !state.is_playing;
     let timeline_sample_rate = state.sample_rate;
 
+    // If toggling to PLAY and we're on a different project, swap engine first.
     if new_state {
+        drop(state); // Release lock before engine swap (which takes its own locks).
+        let _ = ensure_engine_on_active_project(
+            &project_registry,
+            &clip_pool_state,
+            &automation_runtime,
+            &handle,
+            &plugin_host_state,
+        )?;
+        // Re-acquire lock after potential swap.
+        state = handle
+            .playback_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+
         push_command(
             &handle,
             EngineCommand::SetTimelineSampleRate(timeline_sample_rate),

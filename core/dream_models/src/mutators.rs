@@ -307,13 +307,10 @@ pub fn split_clip(
         fade_out_frames: 0,
         // BUG-H7 FIX: Clamp inherited fade_in to not exceed new left duration
         fade_in_frames: original.fade_in_frames.min(left_duration / 2),
-        // BUG-C3 FIX: Proportionally split warp_source_duration_frames
-        warp_source_duration_frames: if original.warp_source_duration_frames > 0 {
-            let ratio = left_duration as f64 / original.duration.sample_frame.max(1) as f64;
-            clamp_f64_to_i64((original.warp_source_duration_frames as f64 * ratio).round())
-        } else {
-            0
-        },
+        // WARP-003 FIX: Both split halves reference the same source file.
+        // Keep the FULL original warp_source_duration_frames — the source_offset
+        // already indicates which portion each half reads from.
+        warp_source_duration_frames: original.warp_source_duration_frames,
         ..original.clone()
     };
     // Right half: new UUID, starts at split point, offset adjusted
@@ -328,13 +325,8 @@ pub fn split_clip(
         // BUG-H7 FIX: Clamp inherited fade_out to not exceed new right duration
         fade_out_frames: original.fade_out_frames.min(right_duration / 2),
         is_selected: false,
-        // BUG-C3 FIX: Proportionally split warp_source_duration_frames
-        warp_source_duration_frames: if original.warp_source_duration_frames > 0 {
-            let ratio = right_duration as f64 / original.duration.sample_frame.max(1) as f64;
-            clamp_f64_to_i64((original.warp_source_duration_frames as f64 * ratio).round())
-        } else {
-            0
-        },
+        // WARP-003 FIX: Both split halves keep the FULL original source length.
+        warp_source_duration_frames: original.warp_source_duration_frames,
         ..original.clone()
     };
     let result = SplitResult {

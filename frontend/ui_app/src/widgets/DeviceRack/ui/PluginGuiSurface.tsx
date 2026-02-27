@@ -182,7 +182,7 @@ export const PluginGuiSurface = ({
         if (!eqContextMenu) return;
         const handler = () => setEqContextMenu(null);
         window.addEventListener('mousedown', handler);
-        return () => removeEventListener('mousedown', handler);
+        return () => window.removeEventListener('mousedown', handler);
     }, [eqContextMenu]);
 
     if (device.effectType === 'waveSynth') {

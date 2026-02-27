@@ -295,7 +295,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
         }
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
-        const beatsPerBar = store.transport.time_sig_numerator ?? DEFAULT_TIME_SIG_NUMERATOR;
+        const beatsPerBar = store.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         if (endBeat - startBeat < beatsPerBar) endBeat = startBeat + beatsPerBar;
         store.setLoop(true, beatToFrame(startBeat, bpm, sr), beatToFrame(endBeat, bpm, sr));
         return true;

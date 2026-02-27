@@ -16,6 +16,6 @@ export function useTrackInspectorHeightSync(
             setRowHeightOverrides({});
         };
         window.addEventListener('dream:track-heights-reset', onReset as EventListener);
-        return () => removeEventListener('dream:track-heights-reset', onReset as EventListener);
+        return () => window.removeEventListener('dream:track-heights-reset', onReset as EventListener);
     }, [setRowHeightOverrides]);
 }

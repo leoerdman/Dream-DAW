@@ -80,7 +80,9 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({
-            restoreSeq: (state.restoreSeq + 1) % Number.MAX_SAFE_INTEGER,
+            // BUG-A065 FIX: Simple increment — MAX_SAFE_INTEGER modulo is unnecessary
+            // and introduces bias. Monotonic increment is safe for any practical session.
+            restoreSeq: state.restoreSeq + 1,
             restorePixelsPerBeat: Number.isFinite(pixelsPerBeat) ? pixelsPerBeat : 20,
             restoreScrollLeft: Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0,
             restoreScrollTop: Number.isFinite(scrollTop) ? Math.max(0, scrollTop as number) : null,

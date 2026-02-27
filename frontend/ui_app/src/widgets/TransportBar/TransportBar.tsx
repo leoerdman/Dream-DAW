@@ -176,7 +176,7 @@ export const TransportBar = ({
             }
         };
         window.addEventListener('keydown', onKeyDown);
-        return () => removeEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
     }, []);
 
     // Drag handling
@@ -274,7 +274,7 @@ export const TransportBar = ({
             }
         };
         window.addEventListener('keydown', onKeyDown);
-        return () => removeEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
     }, [keyMenuOpen, gridOpen]);
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>

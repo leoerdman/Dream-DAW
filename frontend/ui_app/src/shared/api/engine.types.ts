@@ -170,4 +170,6 @@ export interface ProjectStatus {
     isDirty: boolean;
     filePath: string | null;
     projectFolder: string | null;
+    /** BUG-A003 FIX: Canonical project name from backend (SSOT for tab display). */
+    projectName: string;
 }

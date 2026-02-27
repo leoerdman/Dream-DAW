@@ -504,7 +504,8 @@ fn get_recent_projects(
     Ok(recent.projects)
 }
 
-/// Returns whether the project has unsaved changes and the current file path.
+/// Returns whether the project has unsaved changes, the current file path,
+/// and the canonical project name (SSOT for tab display).
 #[tauri::command]
 fn get_project_status(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
@@ -514,10 +515,14 @@ fn get_project_status(
     let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let file_path = project_state.file_path.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_folder = project_state.project_folder.lock().map_err(|_| "Mutex poisoned".to_string())?;
+    // BUG-A003 FIX: Include project name so frontend can sync tab names from
+    // the single source of truth (backend project state) instead of parsing paths.
+    let project_name = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?.name.clone();
     Ok(serde_json::json!({
         "isDirty": is_dirty,
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
         "projectFolder": project_folder.as_ref().map(|p| p.display().to_string()),
+        "projectName": project_name,
     }))
 }
 

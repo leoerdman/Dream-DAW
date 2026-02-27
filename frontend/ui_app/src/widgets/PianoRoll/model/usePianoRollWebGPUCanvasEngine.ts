@@ -1,13 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// BUG-A036 FIX: Proper WebGPU types — no `any` needed.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 type GpuState = {
-    device: any;
-    context: any;
-    pipeline: any;
-    format: string;
-    buffer: any | null;
+    device: GPUDevice;
+    context: GPUCanvasContext;
+    pipeline: GPURenderPipeline;
+    format: GPUTextureFormat;
+    buffer: GPUBuffer | null;
 };
 const GPU_BUFFER_USAGE_VERTEX = 0x0020;
 const GPU_BUFFER_USAGE_COPY_DST = 0x0008;
@@ -99,7 +99,8 @@ export function usePianoRollWebGPUCanvasEngine({
         let disposed = false;
         const init = async () => {
             const canvas = gpuCanvasRef.current;
-            const navGpu = (navigator as Navigator & { gpu?: any }).gpu;
+            // BUG-A036 FIX: navigator.gpu is properly typed via globals.d.ts.
+            const navGpu = navigator.gpu;
             if (!canInit || !canvas || !navGpu) {
                 setActive(false);
                 return;

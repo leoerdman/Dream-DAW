@@ -84,8 +84,8 @@ export function useTimelineClipHandlers({
         const storeState = useEngineStore.getState();
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
         const beatsPerBar = storeState.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
-        const positionFrames = beatToFrame(beat, bpm, sampleRate);
-        const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sampleRate);
+        const positionFrames = Math.round(beatToFrame(beat, bpm, sampleRate));
+        const durationFrames = Math.round(beatDurationToFrames(beatsPerBar, bpm, sampleRate));
         void createMidiClip(trackIndex, positionFrames, durationFrames);
     }, [createMidiClip, projectBpm, projectSampleRate]);
 
@@ -135,7 +135,7 @@ export function useTimelineClipHandlers({
         };
 
         const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
-            const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sampleRate);
+            const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
             const safeTrack = snapToVisibleTrack(targetTrack, 0);
             try {
                 return await engineApi.moveClipWithDeltas(id, safeTrack, positionFrames);
@@ -227,8 +227,8 @@ export function useTimelineClipHandlers({
         // BUG-026: Use projectBpm as single source of truth.
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
-        const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
-        const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate));
+        const newPositionFrames = Math.round(beatToFrame(newStartBeat, bpm, sampleRate));
+        const newDurationFrames = Math.round(Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate)));
 
         void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)
             .then(async (response) => {
@@ -300,7 +300,7 @@ export function useTimelineClipHandlers({
         };
 
         const duplicateOne = async (id: string, targetBeat: number, targetTrack: number): Promise<string | null> => {
-            const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sampleRate);
+            const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
             const safeTrack = snapToVisibleTrack(targetTrack);
             try {
                 // Step 1: Duplicate the clip at the target position

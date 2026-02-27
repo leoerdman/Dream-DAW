@@ -8,6 +8,14 @@ import { createTransportActions } from '@/shared/stores/engine/actionsTransport'
 import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
+
+// BUG-A017 FIX: Module-level constant — avoids re-creating a Set on every delta application.
+const SNAPSHOT_REASONS = new Set([
+    'open', 'open-project', 'last-project', 'last-project:restore',
+    'engine:new', 'keyboard:new', 'native-menu:new', 'multi-project:new',
+    'auto-recovery:restore', 'project-manager:new-project',
+    'multi-project:switch',
+]);
 import { createTelemetryActions, getLatestMetersSnapshot, setBpmPendingUntil, resetTelemetryPeaks } from '@/shared/stores/engine/actionsTelemetry';
 import type {
     TransportState,
@@ -398,12 +406,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // BUG-001: Mark project dirty for any mutation-type delta.
             // Snapshot replacements (project open) reset dirty; everything else marks dirty.
             // BUG-F015 FIX: Explicit allow-set instead of fragile prefix/suffix matching.
-            const SNAPSHOT_REASONS = new Set([
-                'open', 'open-project', 'last-project', 'last-project:restore',
-                'engine:new', 'keyboard:new', 'native-menu:new', 'multi-project:new',
-                'auto-recovery:restore', 'project-manager:new-project',
-                'multi-project:switch',
-            ]);
+            // BUG-A017 FIX: SNAPSHOT_REASONS is now module-level (zero alloc per call).
             const isSnapshotReason = SNAPSHOT_REASONS.has(reason) || reason.startsWith('multi-project:');
             if (!isSnapshotReason) {
                 get().markDirty();

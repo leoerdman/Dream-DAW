@@ -668,6 +668,7 @@ pub struct RackChain {
     pub is_solo: bool,
     /// Whether this chain is muted.
     #[serde(default, alias = "is_mute")]
+    #[ts(rename = "is_disabled")]
     pub is_disabled: bool,
     /// Chain volume (0.0–2.0, 1.0 = unity).
     #[serde(default = "default_unity")]
@@ -966,6 +967,7 @@ pub struct AudioClip {
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
     #[serde(default, alias = "is_muted")]
+    #[ts(rename = "is_disabled")]
     pub is_disabled: bool,
 
     /// Optional color override (uses track color when `None`).
@@ -1250,6 +1252,7 @@ pub struct Track {
 
     /// Whether this track is disabled.
     #[serde(alias = "is_mute")]
+    #[ts(rename = "is_disabled")]
     pub is_disabled: bool,
 
     /// Whether this track is armed for recording.

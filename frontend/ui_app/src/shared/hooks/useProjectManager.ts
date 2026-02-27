@@ -6,8 +6,22 @@ import { useTimelineStore } from '../../shared/stores/useTimelineStore';
 import { applyDeltasWithSnapshotSync } from '../../shared/stores/engine/snapshotSync';
 import { dreamGlobals } from '../../shared/lib/dreamGlobals';
 import { withProjectLoad } from '../../shared/lib/projectLoadGuard';
+
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Extract a human-readable project name from a Save As result path. */
+function extractProjectNameFromPath(filePath: string): string | null {
+    const segments = filePath.replace(/\\/g, '/').split('/');
+    const basename = segments.pop();
+    if (!basename) return null;
+    // Strip .ddpj extension and any legacy .dream.json suffix
+    return basename
+        .replace(/\.ddpj$/i, '')
+        .replace(/\.dream\.json$/i, '')
+        .replace(/\.json$/i, '')
+        .trim() || null;
+}
 export interface ProjectManagerState {
     isDirty: boolean;
     filePath: string | null;
@@ -81,6 +95,27 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 useEngineStore.getState().clearDirty();
             }
 
+            // BUG-A003 FIX: Sync tab name from backend SSOT.
+            // The backend project name is the canonical source — update
+            // the active tab to match, fixing stale names after Save As.
+            if (status.projectName) {
+                const engineState = useEngineStore.getState();
+                const activeId = engineState.activeProjectId;
+                if (activeId) {
+                    const tabs = engineState.openProjects;
+                    const activeTab = tabs.find((t) => t.id === activeId);
+                    if (activeTab && activeTab.name !== status.projectName) {
+                        useEngineStore.setState({
+                            openProjects: tabs.map((t) =>
+                                t.id === activeId
+                                    ? { ...t, name: status.projectName, filePath: status.filePath }
+                                    : t,
+                            ),
+                        });
+                    }
+                }
+            }
+
             // Sync window title with dirty state (adds/removes *)
             await engineApi.syncTitle();
         } catch (err) {
@@ -125,8 +160,20 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 // Brand new project — show Save As dialog
                 const path = await pickSavePath();
                 if (path) {
-                    await engineApi.saveProjectAs(path);
+                    const resultPath = await engineApi.saveProjectAs(path);
                     await syncProjectHistory();
+                    // Sync tab name from the saved file path
+                    const newName = extractProjectNameFromPath(resultPath ?? path);
+                    if (newName) {
+                        const activeId = useEngineStore.getState().activeProjectId;
+                        if (activeId) {
+                            useEngineStore.setState((s) => ({
+                                openProjects: s.openProjects.map(t =>
+                                    t.id === activeId ? { ...t, name: newName, filePath: resultPath ?? path } : t
+                                ),
+                            }));
+                        }
+                    }
                 }
             }
             await refreshStatus();
@@ -155,8 +202,20 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             await syncArrangementViewport();
             const path = await pickSavePath();
             if (path) {
-                await engineApi.saveProjectAs(path);
+                const resultPath = await engineApi.saveProjectAs(path);
                 await syncProjectHistory();
+                // Sync tab name from the saved file path
+                const newName = extractProjectNameFromPath(resultPath ?? path);
+                if (newName) {
+                    const activeId = useEngineStore.getState().activeProjectId;
+                    if (activeId) {
+                        useEngineStore.setState((s) => ({
+                            openProjects: s.openProjects.map(t =>
+                                t.id === activeId ? { ...t, name: newName, filePath: resultPath ?? path } : t
+                            ),
+                        }));
+                    }
+                }
                 await refreshStatus();
             }
         } catch (err) {

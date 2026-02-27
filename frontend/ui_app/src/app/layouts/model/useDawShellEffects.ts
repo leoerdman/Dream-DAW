@@ -127,6 +127,9 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
         let unlisten: (() => void) | undefined;
         let cancelled = false;
         const setup = async () => {
+            // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
+            // be injected yet when Vite hot-reloads the JS context.
+            if (!(window as any).__TAURI_INTERNALS__) return;
             const unlistenHover = await listen('tauri://drag-over', () => {
                 if (!dreamGlobals.isInAppDrag()) {
                     // no-op
@@ -197,6 +200,9 @@ export function useAudioFailoverRecovery(args: {
         let unlisten: (() => void) | null = null;
         let cancelled = false;
         const setup = async () => {
+            // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
+            // be injected yet when Vite hot-reloads the JS context.
+            if (!(window as any).__TAURI_INTERNALS__) return;
             const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
                 const now = Date.now();
                 if (recoveringAudioRef.current) return;
@@ -233,15 +239,15 @@ export function useAudioFailoverRecovery(args: {
 export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
     useEffect(() => {
         startTelemetryLoop();
+        // Permanent retry: if telemetry dies mid-session (error, delta reset, etc.),
+        // this ensures it recovers automatically within 2 seconds.
         const retryId = setInterval(() => {
             const running = useEngineStore.getState().telemetryRunning;
             if (!running) {
                 console.warn('[Dream] Telemetry not running — retrying startTelemetryLoop()');
                 startTelemetryLoop();
-            } else {
-                clearInterval(retryId);
             }
-        }, 500);
+        }, 2000);
         return () => clearInterval(retryId);
     }, [startTelemetryLoop]);
 }
@@ -256,6 +262,9 @@ export function useAlsImportSummaryStatus(): void {
         let unlisten: (() => void) | null = null;
         let cancelled = false;
         const setup = async () => {
+            // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
+            // be injected yet when Vite hot-reloads the JS context.
+            if (!(window as any).__TAURI_INTERNALS__) return;
             const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
                 const p = event.payload;
                 const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;

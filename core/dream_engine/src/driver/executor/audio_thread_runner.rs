@@ -175,8 +175,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // Dropping an ArcSwap Guard on the audio thread invokes the system allocator
     // if it completes the ref drop. We use a wait-free rtrb ring buffer to send
     // disconnected Arcs to a background thread for safe disposal.
-    let (mut gc_producer, mut gc_consumer) = rtrb::RingBuffer::<std::sync::Arc<dyn std::any::Any + Send + Sync>>::new(1024);
-    std::thread::Builder::new()
+    let (mut gc_producer, mut gc_consumer) = rtrb::RingBuffer::<std::sync::Arc<dyn std::any::Any + Send + Sync>>::new(4096);
+    // BUG-A055 FIX: Atomic overflow counter — tracks how many times the GC ring
+    // buffer was full, causing an Arc to be dropped on the RT thread. This is
+    // exposed via rt_debug_stats for diagnostic visibility.
+    static GC_OVERFLOW_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    match std::thread::Builder::new()
         .name("dream-audio-gc".into())
         .spawn(move || {
             loop {
@@ -185,8 +189,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-        })
-        .unwrap();
+        }) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("[dream-audio-gc] WARN: Failed to spawn GC thread: {e}. Arc pointers will leak but audio will continue.");
+        }
+    }
 
     let mut prev_clip_snap = clip_snapshot.load_full();
     let mut prev_routing_snap = std::sync::Arc::clone(&*routing_snapshot.load());
@@ -366,7 +374,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let current_clip_snap = clip_snapshot.load_full();
                         if !std::sync::Arc::ptr_eq(&current_clip_snap, &prev_clip_snap) {
                             let old = std::mem::replace(&mut prev_clip_snap, current_clip_snap.clone());
-                            let _ = gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                            if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
+                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
                         }
                         let snapshot = &current_clip_snap;
                         let track_count = snapshot.len().min(MAX_TRACKS);
@@ -374,7 +384,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let current_prepared_snap = std::sync::Arc::clone(&*prepared_graph_snapshot.load());
                         if !std::sync::Arc::ptr_eq(&current_prepared_snap, &prev_prepared_snap) {
                             let old = std::mem::replace(&mut prev_prepared_snap, current_prepared_snap.clone());
-                            let _ = gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                            if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
+                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
                         }
                         let prepared = &current_prepared_snap;
 
@@ -395,7 +407,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let current_routing_snap = std::sync::Arc::clone(&*routing_snapshot.load());
                         if !std::sync::Arc::ptr_eq(&current_routing_snap, &prev_routing_snap) {
                             let old = std::mem::replace(&mut prev_routing_snap, current_routing_snap.clone());
-                            let _ = gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                            if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
+                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
                         }
                         let routing_now = &current_routing_snap;
 
@@ -418,7 +432,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let current_midi_snap = midi_snapshot.load_full();
                         if !std::sync::Arc::ptr_eq(&current_midi_snap, &prev_midi_snap) {
                             let old = std::mem::replace(&mut prev_midi_snap, current_midi_snap.clone());
-                            let _ = gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                            if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
+                                GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
                         }
                         let midi_snap = &current_midi_snap;
 
@@ -454,7 +470,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             let current_clip_pool = std::sync::Arc::clone(&*clip_pool.load());
                             if !std::sync::Arc::ptr_eq(&current_clip_pool, &prev_clip_pool) {
                                 let old = std::mem::replace(&mut prev_clip_pool, current_clip_pool.clone());
-                                let _ = gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                                if gc_producer.push(old as std::sync::Arc<dyn std::any::Any + Send + Sync>).is_err() {
+                                    GC_OVERFLOW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                             let pool_snap = &current_clip_pool;
 

@@ -8,8 +8,7 @@ import { buildTrackStatePatch as storeHelpersBuildTrackStatePatch, toEntityState
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
-// BUG-009/010 FIX: Import reset functions for module-level state cleanup.
-import { resetTelemetryModuleState } from './actionsTelemetry';
+// Track control cache reset for project-level operations.
 import { clearTrackControlCaches } from './actionsTrackProjectThrottle';
 import type {
     DeltaApplyResult,
@@ -52,7 +51,11 @@ function buildTrackStatePatch(
     const byId = state.tracks.byId;
     const allIds = state.tracks.allIds.length > 0
         ? state.tracks.allIds
-        : Object.keys(byId); // Fallback if arrays got desynced or empty in working state
+        : (() => {
+            // BUG-A010 FIX: Log when fallback triggers — indicates EntityState desync.
+            console.warn('[Delta] buildTrackStatePatch: allIds empty, falling back to Object.keys(byId). Track order may be incorrect.');
+            return Object.keys(byId);
+        })();
 
     return storeHelpersBuildTrackStatePatch(allIds, byId);
 }
@@ -131,9 +134,11 @@ export function applyProjectDeltasToState(
     if (snapshotDelta && snapshotDelta.data && typeof snapshotDelta.data === 'object') {
         const project = (snapshotDelta.data as { project?: Project }).project;
 
-        // BUG-009/010 FIX: Reset module-level state that survives project reloads.
-        // Must be called before rebuilding tracks/clips from the new snapshot.
-        resetTelemetryModuleState();
+        // BUG-009/010 FIX: Clear track control caches that survive project reloads.
+        // NOTE: We do NOT call resetTelemetryModuleState() here — that kills all
+        // telemetry listeners (transport position, meters, plugin sandbox), which
+        // freezes the playhead cursor. Telemetry reset belongs only in full
+        // project-switch paths (SplashScreen / explicit project open).
         clearTrackControlCaches();
 
         if (project && Array.isArray(project.tracks)) {

@@ -245,8 +245,24 @@ async function handleSaveAs() {
         }
         const path = await engineApi.saveProjectDialog();
         if (!path) return;
-        await engineApi.saveProjectAs(path);
+        const resultPath = await engineApi.saveProjectAs(path);
         await syncProjectHistory();
+        // Sync tab name from the saved file path
+        const segments = (resultPath ?? path).replace(/\\/g, '/').split('/');
+        const basename = segments.pop();
+        if (basename) {
+            const newName = basename.replace(/\.ddpj$/i, '').replace(/\.dream\.json$/i, '').replace(/\.json$/i, '').trim();
+            if (newName) {
+                const activeId = useEngineStore.getState().activeProjectId;
+                if (activeId) {
+                    useEngineStore.setState((s) => ({
+                        openProjects: s.openProjects.map(t =>
+                            t.id === activeId ? { ...t, name: newName, filePath: resultPath ?? path } : t
+                        ),
+                    }));
+                }
+            }
+        }
         useStatusStore.getState().setInfo(`Project saved as: ${path.split('/').pop()}`);
 
     } catch (err) {

@@ -29,3 +29,70 @@ declare module 'lodash.throttle' {
         options?: ThrottleOptions,
     ): ThrottledFunc<(...args: A) => R>;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// BUG-A036 FIX: Minimal WebGPU type stubs
+// Only the APIs actually used by Dream DAW's PianoRoll GPU renderer.
+// Replace with `@webgpu/types` when WebGPU stabilizes in WKWebView.
+// ═══════════════════════════════════════════════════════════════
+
+type GPUTextureFormat = string;
+
+interface GPUBuffer {
+    destroy(): void;
+}
+
+interface GPUDevice {
+    createShaderModule(descriptor: { code: string }): GPUShaderModule;
+    createRenderPipeline(descriptor: Record<string, unknown>): GPURenderPipeline;
+    createBuffer(descriptor: { size: number; usage: number; mappedAtCreation?: boolean }): GPUBuffer;
+    createCommandEncoder(): GPUCommandEncoder;
+    queue: GPUQueue;
+}
+
+interface GPUShaderModule { }
+
+interface GPURenderPipeline { }
+
+interface GPUQueue {
+    writeBuffer(buffer: GPUBuffer, offset: number, data: Float32Array): void;
+    submit(commandBuffers: GPUCommandBuffer[]): void;
+}
+
+interface GPUCommandEncoder {
+    beginRenderPass(descriptor: Record<string, unknown>): GPURenderPassEncoder;
+    finish(): GPUCommandBuffer;
+}
+
+interface GPUCommandBuffer { }
+
+interface GPURenderPassEncoder {
+    setPipeline(pipeline: GPURenderPipeline): void;
+    setVertexBuffer(slot: number, buffer: GPUBuffer): void;
+    draw(vertexCount: number, instanceCount?: number, firstVertex?: number, firstInstance?: number): void;
+    end(): void;
+}
+
+interface GPUCanvasContext {
+    configure(config: { device: GPUDevice; format: GPUTextureFormat; alphaMode?: string }): void;
+    getCurrentTexture(): GPUTexture;
+}
+
+interface GPUTexture {
+    createView(): GPUTextureView;
+}
+
+interface GPUTextureView { }
+
+interface GPUAdapter {
+    requestDevice(): Promise<GPUDevice>;
+}
+
+interface GPU {
+    requestAdapter(): Promise<GPUAdapter | null>;
+    getPreferredCanvasFormat(): GPUTextureFormat;
+}
+
+interface Navigator {
+    gpu?: GPU;
+}

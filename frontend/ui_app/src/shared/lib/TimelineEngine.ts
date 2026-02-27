@@ -513,6 +513,9 @@ export class TimelineEngine {
             });
         }
 
+        // Force canvas redraw when clip set changes (e.g. after delete).
+        this._requestRedraw();
+
         // ENTERPRISE: Append Cmd+Drag ghost clips to the draw list
         if (hasGhosts) {
             return [...base, ...this._cmdDragGhosts];
@@ -945,7 +948,9 @@ export class TimelineEngine {
 
                 if (hit.edge === 'left') {
                     this.onClipClick?.(hit.clipId, false, false);
-                    const allowStretch = e.shiftKey;
+                    // WARP-004 FIX: Only allow stretch if clip has warp enabled.
+                    // Non-warped clips should trim, not stretch.
+                    const allowStretch = e.shiftKey && (clip.isWarped === true);
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -971,7 +976,8 @@ export class TimelineEngine {
                 }
                 if (hit.edge === 'right') {
                     this.onClipClick?.(hit.clipId, false, false);
-                    const allowStretch = e.shiftKey;
+                    // WARP-004 FIX: Only allow stretch if clip has warp enabled.
+                    const allowStretch = e.shiftKey && (clip.isWarped === true);
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,

@@ -141,7 +141,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             }
         };
         window.addEventListener('keydown', handler);
-        return () => removeEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
     }, [isOpen, onClose]);
 
     const handleRescan = useCallback(async () => {

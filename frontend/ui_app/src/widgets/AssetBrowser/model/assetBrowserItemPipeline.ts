@@ -192,12 +192,26 @@ export function computeBrowserItems(params: {
         const q = debouncedQuery.trim();
         base = base
             .map((item) => {
-                const searchText = `${item.name} ${item.format ?? ''} ${item.meta ?? ''}${item.pluginSource ? ` ${item.pluginSource}` : ''}`;
-                return { item, score: fuzzyScore(searchText, q) };
+                const fullText = `${item.name} ${item.format ?? ''} ${item.meta ?? ''}${item.pluginSource ? ` ${item.pluginSource}` : ''}`;
+                const fullScore = fuzzyScore(fullText, q);
+                if (fullScore === null) return null;
+
+                // Score against name alone — name matches are the most relevant.
+                const nameScore = fuzzyScore(item.name, q);
+                // If the query matches the name directly, use a halved name score
+                // (massive bonus). Otherwise fall back to the full-text score.
+                const effectiveScore = nameScore !== null
+                    ? nameScore * 0.5
+                    : fullScore + 20; // penalty for meta-only matches
+
+                // Tiny length penalty: shorter names = tighter match = higher rank
+                const lengthPenalty = item.name.length * 0.01;
+
+                return { item, score: effectiveScore + lengthPenalty };
             })
-            .filter((entry) => entry.score !== null)
+            .filter((entry): entry is { item: BrowserItem; score: number } => entry !== null)
             .sort((a, b) => {
-                if (a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
+                if (a.score !== b.score) return a.score - b.score;
                 return a.item.name.toLowerCase().localeCompare(b.item.name.toLowerCase());
             })
             .map((entry) => entry.item);

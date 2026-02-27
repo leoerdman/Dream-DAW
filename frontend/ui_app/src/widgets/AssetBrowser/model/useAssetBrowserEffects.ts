@@ -106,7 +106,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             }
         };
         window.addEventListener('keydown', handler);
-        return () => removeEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
     }, [searchRef, selectedCategoryId, setSelectedCategoryId]);
     useEffect(() => {
         const input = searchRef.current;

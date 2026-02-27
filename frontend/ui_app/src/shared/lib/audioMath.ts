@@ -20,8 +20,7 @@
 export function beatToFrame(beat: number, bpm: number, sampleRate: number): number {
     const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
     const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
-    // BUG-Q003 FIX: Use Math.floor to ensure strictly non-overlapping sample intervals
-    return Math.floor((beat * 60 * safeSr) / safeBpm);
+    return Math.round((beat * 60 * safeSr) / safeBpm);
 }
 
 /**
@@ -64,7 +63,7 @@ export function getSamplesPerBeat(bpm: number, sampleRate: number): number {
 }
 
 export function beatDurationToFrames(durationBeats: number, bpm: number, sampleRate: number): number {
-    return durationBeats * getSamplesPerBeat(bpm, sampleRate);
+    return Math.round(durationBeats * getSamplesPerBeat(bpm, sampleRate));
 }
 
 // Ensure 0 is avoided for playback rates
@@ -104,7 +103,7 @@ export const MAX_BPM = 999;
  * Resolve the effective BPM from project → transport → fallback.
  *
  * This is the SSOT for BPM resolution — replaces the
- * `store.transport.bpm || store.transport.bpm || 120` pattern
+ * `store.projectBpm || store.transport.bpm || 120` pattern
  * that was duplicated 40+ times across the codebase.
  */
 export function resolveBpm(projectBpm?: number | null, transportBpm?: number | null): number {
@@ -244,11 +243,5 @@ export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_
         wholeBeats -= safeBeatsPerBar;
         bars += 1;
     }
-    // Carry overflow into bars if wholeBeats exceeds beatsPerBar.
-    let adjustedBars = bars;
-    if (wholeBeats >= safeBeatsPerBar) {
-        wholeBeats -= safeBeatsPerBar;
-        adjustedBars += 1;
-    }
-    return `${adjustedBars}.${wholeBeats}.${sixteenths}`;
+    return `${bars}.${wholeBeats}.${sixteenths}`;
 }

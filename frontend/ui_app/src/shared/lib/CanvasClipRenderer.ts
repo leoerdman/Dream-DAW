@@ -499,9 +499,9 @@ export class CanvasClipRenderer {
 
         if (bodyH > 8) {
             if (clip.type === 'audio' && clip.durationSamples) {
-                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackDisabled, x, w);
+                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true, x, w);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackDisabled, x);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true, x);
             }
         }
 
@@ -560,10 +560,9 @@ export class CanvasClipRenderer {
             const inset = bw / 2;
             const borderR = Math.max(0, r - inset);
 
-            if (clip.selected) {
+            if (clip.selected && !isTrackDisabled) {
                 // Single white stroke
                 ctx.save();
-                if (isTrackDisabled) ctx.globalAlpha = 0.25;
                 ctx.strokeStyle = SELECTION_GLOW_COLOR;
                 ctx.lineWidth = bw;
                 this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
@@ -572,11 +571,11 @@ export class CanvasClipRenderer {
             } else {
                 const hdrColor = clip.muted
                     ? 'rgba(110, 115, 125, 0.8)'
-                    : `rgb(${headerR}, ${headerG}, ${headerB})`;
+                    : (isTrackDisabled ? `rgba(${headerR}, ${headerG}, ${headerB}, 0.95)` : `rgb(${headerR}, ${headerG}, ${headerB})`);
                 const bR = Math.max(0, Math.round(headerR * 0.60)), bG = Math.max(0, Math.round(headerG * 0.60)), bB = Math.max(0, Math.round(headerB * 0.60));
                 const bdyColor = clip.muted
                     ? 'rgba(80, 85, 95, 0.8)'
-                    : `rgb(${bR}, ${bG}, ${bB})`;
+                    : (isTrackDisabled ? `rgba(${bR}, ${bG}, ${bB}, 0.85)` : `rgb(${bR}, ${bG}, ${bB})`);
 
                 // Header-zone stroke (clipped to header area)
                 ctx.save();

@@ -7,15 +7,12 @@ interface ClipFadeHandlesProps {
     fadeOut: number;
     onFadeInChange?: (fraction: number) => void;
     onFadeOutChange?: (fraction: number) => void;
-    onResizeLeft?: (deltaPx: number) => void;
-    onResizeRight?: (deltaPx: number) => void;
     onSlip?: (deltaPx: number) => void;
     isSelected?: boolean;
     color?: string;
 }
 
 const HANDLE_SIZE = 8;
-const EDGE_WIDTH = 5;
 const FADE_MIN_PX = 4;
 
 
@@ -26,8 +23,6 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
     fadeOut,
     onFadeInChange,
     onFadeOutChange,
-    onResizeLeft,
-    onResizeRight,
     onSlip,
     isSelected = false,
     color = 'var(--color-accent-primary)',
@@ -83,20 +78,6 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             });
         },
         [startDrag, fadeOutPx, width, onFadeOutChange],
-    );
-
-    const handleResizeLeftDrag = useCallback(
-        (e: React.MouseEvent) => {
-            startDrag(e, (delta) => onResizeLeft?.(delta));
-        },
-        [startDrag, onResizeLeft],
-    );
-
-    const handleResizeRightDrag = useCallback(
-        (e: React.MouseEvent) => {
-            startDrag(e, (delta) => onResizeRight?.(delta));
-        },
-        [startDrag, onResizeRight],
     );
 
     const handleSlipDrag = useCallback(
@@ -215,41 +196,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                 </svg>
             </div>
 
-            <div
-                onMouseDown={handleResizeLeftDrag}
-                onMouseEnter={() => setHoveredHandle('resizeL')}
-                onMouseLeave={() => setHoveredHandle(null)}
-                style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    width: EDGE_WIDTH,
-                    height,
-                    cursor: 'ew-resize',
-                    pointerEvents: showHandles ? 'all' : 'none',
-                    background: hoveredHandle === 'resizeL' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
-                    borderLeft: hoveredHandle === 'resizeL' ? `var(--space-0-5) solid ${color}` : 'none',
-                    transition: `all var(--transition-micro)`,
-                }}
-            />
 
-            <div
-                onMouseDown={handleResizeRightDrag}
-                onMouseEnter={() => setHoveredHandle('resizeR')}
-                onMouseLeave={() => setHoveredHandle(null)}
-                style={{
-                    position: 'absolute',
-                    right: 0,
-                    top: 0,
-                    width: EDGE_WIDTH,
-                    height,
-                    cursor: 'ew-resize',
-                    pointerEvents: showHandles ? 'all' : 'none',
-                    background: hoveredHandle === 'resizeR' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
-                    borderRight: hoveredHandle === 'resizeR' ? `var(--space-0-5) solid ${color}` : 'none',
-                    transition: `all var(--transition-micro)`,
-                }}
-            />
 
             {showHandles && onSlip && (
                 <div

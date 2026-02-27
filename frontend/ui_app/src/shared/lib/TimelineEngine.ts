@@ -705,9 +705,10 @@ export class TimelineEngine {
                 }
 
                 let edge: 'left' | 'right' | undefined;
-                if (Math.abs(localX - clipLeftPx) <= EDGE_GRIP_PX) {
+                const edgeWidth = Math.min(clipWidthPx * 0.4, Math.max(4, clipWidthPx * 0.1));
+                if (localX >= clipLeftPx - 2 && localX <= clipLeftPx + edgeWidth) {
                     edge = 'left';
-                } else if (Math.abs(localX - clipRightPx) <= EDGE_GRIP_PX) {
+                } else if (localX <= clipRightPx + 2 && localX >= clipRightPx - edgeWidth) {
                     edge = 'right';
                 }
 
@@ -1129,14 +1130,15 @@ export class TimelineEngine {
         if (this._drag.mode === DragMode.None) {
             const hit = this.hitTest(e.clientX, e.clientY);
             this._syncHoveredClip(hit.type === 'clip' && hit.clipId ? hit.clipId : null);
+
             if (hit.type === 'clip' && hit.fadeCurveHandle) {
                 canvas.style.cursor = 'pointer';
             } else if (hit.type === 'clip' && hit.fadeHandle) {
                 canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.edge === 'left') {
-                canvas.style.cursor = 'w-resize';
+                canvas.style.cursor = 'default';
             } else if (hit.type === 'clip' && hit.edge === 'right') {
-                canvas.style.cursor = 'e-resize';
+                canvas.style.cursor = 'default';
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
             } else if (hit.type === 'clip' && hit.region === 'body') {
@@ -1213,7 +1215,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeLeft: {
-                canvas.style.cursor = 'w-resize';
+                canvas.style.cursor = 'default';
                 if (!this._drag.clipId) break;
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
@@ -1247,7 +1249,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeRight: {
-                canvas.style.cursor = 'e-resize';
+                canvas.style.cursor = 'default';
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
 

@@ -17,10 +17,14 @@ import {
     rgba,
 
     SELECTION_GLOW_COLOR,
-    snapCanvasLineX,
 } from './CanvasClipRenderer.constants';
 
 export type { GhostClipData, LoopRegion, TimelineClipData } from './CanvasClipRenderer.types';
+
+function snapPhysical(value: number): number {
+    const dpr = window.devicePixelRatio || 1;
+    return Math.round(value * dpr) / dpr;
+}
 
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
@@ -150,11 +154,15 @@ export class CanvasClipRenderer {
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
-        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
+
+        const hasClipSelection = clips.some(c => c.selected);
+        if (!hasClipSelection) {
+            this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
+        }
 
         ctx.restore();
 
-        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme);
+        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme, clips);
 
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
     }
@@ -221,7 +229,7 @@ export class CanvasClipRenderer {
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
-            const x = Math.round(vp.beatsToScreenX(beat));
+            const x = snapPhysical(vp.beatsToScreenX(beat));
             if (x < -1 || x > vpW + 1) continue;
             ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
@@ -233,7 +241,7 @@ export class CanvasClipRenderer {
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
-            const x = Math.round(vp.beatsToScreenX(beat));
+            const x = snapPhysical(vp.beatsToScreenX(beat));
             if (x < -1 || x > vpW + 1) continue;
             ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
@@ -243,7 +251,7 @@ export class CanvasClipRenderer {
         ctx.fillStyle = theme.trackDivider;
         ctx.beginPath();
         for (let i = 0; i <= vp.trackCount; i++) {
-            const y = Math.round(rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY);
+            const y = snapPhysical(rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY);
             if (y < rulerH - 1 || y > vpH + 1) continue;
             ctx.rect(0, y, vpW, 1);
         }
@@ -261,6 +269,7 @@ export class CanvasClipRenderer {
         editCursorBeat: number,
         loop: LoopRegion | null,
         theme: TimelineTheme,
+        clips: TimelineClipData[],
     ): void {
         ctx.save();
         const rulerH = vp.rulerHeight;
@@ -286,19 +295,15 @@ export class CanvasClipRenderer {
             const x = vp.beatsToScreenX(beat);
             if (x < -50 || x > vp.viewportWidth + 10) continue;
 
+            const roundedX = snapPhysical(x);
             const barNumber = Math.floor(beat / beatsPerBar) + 1;
-            ctx.fillText(String(barNumber), x, 2);
+            ctx.fillText(String(barNumber), roundedX, 2);
 
-            ctx.strokeStyle = theme.rulerText;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            const tickX = snapCanvasLineX(x, 1);
-            ctx.moveTo(tickX, rulerH - 8);
-            ctx.lineTo(tickX, rulerH);
-            ctx.stroke();
+            ctx.fillStyle = theme.rulerText;
+            ctx.fillRect(roundedX, rulerH - 8, 1, 8);
         }
 
-        const phX = vp.beatsToScreenX(playheadBeat);
+        const phX = snapPhysical(vp.beatsToScreenX(playheadBeat));
         if (phX >= -5 && phX <= vp.viewportWidth + 5) {
             ctx.fillStyle = theme.playhead;
             ctx.beginPath();
@@ -309,20 +314,23 @@ export class CanvasClipRenderer {
             ctx.fill();
         }
 
-        const ecX = vp.beatsToScreenX(editCursorBeat);
-        if (ecX >= -5 && ecX <= vp.viewportWidth + 5) {
-            ctx.fillStyle = theme.editCursor;
-            ctx.beginPath();
-            ctx.moveTo(ecX, rulerH);
-            ctx.lineTo(ecX - 5, rulerH - 6);
-            ctx.lineTo(ecX + 5, rulerH - 6);
-            ctx.closePath();
-            ctx.fill();
+        const hasClipSelection = clips.some(c => c.selected);
+        if (!hasClipSelection) {
+            const ecX = snapPhysical(vp.beatsToScreenX(editCursorBeat));
+            if (ecX >= -5 && ecX <= vp.viewportWidth + 5) {
+                ctx.fillStyle = theme.editCursor;
+                ctx.beginPath();
+                ctx.moveTo(ecX, rulerH);
+                ctx.lineTo(ecX - 5, rulerH - 6);
+                ctx.lineTo(ecX + 5, rulerH - 6);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
 
         if (loop) {
-            const lStart = vp.beatsToScreenX(loop.start);
-            const lEnd = vp.beatsToScreenX(loop.end);
+            const lStart = snapPhysical(vp.beatsToScreenX(loop.start));
+            const lEnd = snapPhysical(vp.beatsToScreenX(loop.end));
 
             ctx.fillStyle = theme.loopBorder;
 
@@ -337,12 +345,8 @@ export class CanvasClipRenderer {
                 ctx.fill();
 
                 if (loop.enabled) {
-                    ctx.strokeStyle = theme.loopBorder;
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    ctx.moveTo(lStart, 0);
-                    ctx.lineTo(lStart, rulerH);
-                    ctx.stroke();
+                    ctx.fillStyle = theme.loopBorder;
+                    ctx.fillRect(lStart, 0, 1, rulerH);
                 }
                 ctx.restore();
             }
@@ -358,12 +362,8 @@ export class CanvasClipRenderer {
                 ctx.fill();
 
                 if (loop.enabled) {
-                    ctx.strokeStyle = theme.loopBorder;
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    ctx.moveTo(lEnd, 0);
-                    ctx.lineTo(lEnd, rulerH);
-                    ctx.stroke();
+                    ctx.fillStyle = theme.loopBorder;
+                    ctx.fillRect(lEnd, 0, 1, rulerH);
                 }
                 ctx.restore();
             }
@@ -418,9 +418,12 @@ export class CanvasClipRenderer {
         // The user specifically requested clips to sit exactly *between* grid lines.
         // If grid lines are 1px on whole pixels, clips should occupy exact bounds without arbitrary insets.
         const inset = 0;
-        const x = Math.round(vp.beatsToScreenX(clip.startBeat));
-        const y = Math.round(vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY) + inset;
-        const w = Math.round(clip.durationBeats * ppb);
+        const xLeftRaw = vp.beatsToScreenX(clip.startBeat);
+        const xRightRaw = xLeftRaw + clip.durationBeats * ppb;
+        const x = snapPhysical(xLeftRaw);
+        const w = snapPhysical(xRightRaw) - x;
+
+        const y = snapPhysical(vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY) + inset;
         const h = trackH - (inset * 2);
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
@@ -438,8 +441,23 @@ export class CanvasClipRenderer {
         }
 
         // Premium Ableton-style borders and colors
-        const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
-        this._roundRect(ctx, x, y, w, h, r);
+        // Rounding the radius so it does not result in float bounding boxes
+        const r = Math.floor(Math.min(CLIP_RADIUS, w / 2, h / 2));
+        ctx.beginPath();
+        if (r > 0) {
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+        } else {
+            ctx.rect(x, y, w, h);
+        }
+        ctx.closePath();
         ctx.clip();
 
         const rgbBase = this._parseColor(clip.color);
@@ -800,10 +818,10 @@ export class CanvasClipRenderer {
         const rulerH = vp.rulerHeight;
 
         // Single clean 1px playhead line — no glow
-        // snapCanvasLineX ensures the 1px line sits exactly in the center of the pixel
+        // snapPhysical ensures the line sits perfectly on the physical device pixel grid.
         ctx.save();
         ctx.fillStyle = theme.playhead;
-        const finalX = Math.round(x);
+        const finalX = snapPhysical(x);
         ctx.fillRect(finalX, rulerH, 1, Math.max(0, canvasH - rulerH));
         ctx.restore();
     }
@@ -821,7 +839,7 @@ export class CanvasClipRenderer {
 
         const yStart = vp.rulerHeight + vp.trackOffsetY(Math.min(trackStart, trackEnd)) - vp.scrollY;
         const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
-        const cursorX = Math.round(x);
+        const cursorX = snapPhysical(x);
 
 
         // Smooth pulse to avoid hard on/off flicker.
@@ -858,8 +876,8 @@ export class CanvasClipRenderer {
         ctx.fillRect(x1, y, x2 - x1, h);
 
         ctx.fillStyle = theme.loopBorder;
-        ctx.fillRect(Math.round(x1), y, 1, Math.max(0, h));
-        ctx.fillRect(Math.round(x2), y, 1, Math.max(0, h));
+        ctx.fillRect(snapPhysical(x1), y, 1, Math.max(0, h));
+        ctx.fillRect(snapPhysical(x2), y, 1, Math.max(0, h));
     }
 
     private _drawDropTarget(
@@ -898,10 +916,10 @@ export class CanvasClipRenderer {
         ctx.fillStyle = rgba(255, 255, 255, 0.06);
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
-        const sx1 = Math.round(x1);
-        const sx2 = Math.round(x2);
-        const sy1 = Math.round(y1);
-        const sy2 = Math.round(y2);
+        const sx1 = snapPhysical(x1);
+        const sx2 = snapPhysical(x2);
+        const sy1 = snapPhysical(y1);
+        const sy2 = snapPhysical(y2);
         ctx.fillStyle = rgba(255, 255, 255, 0.78);
         ctx.fillRect(sx1, sy1, sx2 - sx1, 1);
         ctx.fillRect(sx1, sy2 - 1, sx2 - sx1, 1);
@@ -957,15 +975,19 @@ export class CanvasClipRenderer {
         x: number, y: number, w: number, h: number, r: number,
     ): void {
         ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
-        ctx.arcTo(x + w, y, x + w, y + r, r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-        ctx.lineTo(x + r, y + h);
-        ctx.arcTo(x, y + h, x, y + h - r, r);
-        ctx.lineTo(x, y + r);
-        ctx.arcTo(x, y, x + r, y, r);
+        if (r > 0) {
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+        } else {
+            ctx.rect(x, y, w, h);
+        }
         ctx.closePath();
     }
 

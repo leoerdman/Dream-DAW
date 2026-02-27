@@ -1014,9 +1014,6 @@ export class TimelineEngine {
                     this.onClipClick?.(hit.clipId, isShift, isCtrl);
                 }
 
-                this.setEditCursor(clip.startBeat, hit.trackIndex, hit.trackIndex);
-                this.onEditCursorChange?.(clip.startBeat, hit.trackIndex, hit.trackIndex);
-
                 const coMovers = new Map<string, { beat: number; track: number }>();
                 for (const sc of this._clips) {
                     if (sc.selected && sc.id !== hit.clipId) {

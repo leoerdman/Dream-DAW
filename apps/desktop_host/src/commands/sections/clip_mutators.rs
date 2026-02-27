@@ -54,7 +54,7 @@ struct SplitTrackToStemsPayload {
 }
 
 #[path = "clip_mutators/helpers.rs"]
-mod helpers;
+pub(crate) mod helpers;
 use helpers::{
     build_local_pool_for_project, collect_added_track_and_clip_deltas, place_bounced_file_on_new_track,
     place_stem_files_on_new_tracks,

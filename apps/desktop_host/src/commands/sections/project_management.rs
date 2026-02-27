@@ -1379,6 +1379,9 @@ fn paste_clips_from_global_clipboard(
     track_index: usize,
     position_frames: i64,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
@@ -1450,14 +1453,27 @@ fn paste_clips_from_global_clipboard(
         pasted_count += 1;
     }
 
-    let project_name = project.name.clone();
+    let project_name = project.clone().name;
     project_state.mark_dirty(&project_name, None)?;
+    drop(project); // Ensure lock is released before invoking engine rebuilds
+
+    let rebuilt_project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+
+    // Rebuild the engine snapshot so the backend audio systems are aware of the new clips!
+    super::clip_mutators::helpers::rebuild_clip_views_and_mark_dirty(
+        project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        super::clip_mutators::helpers::ClipRebuildMode::ClipsOnly,
+    )?;
 
     log::info!(
         "[GlobalClipboard] Pasted {} clip(s) from global clipboard to track {}",
         pasted_count,
         track_index
     );
+
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {

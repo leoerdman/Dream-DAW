@@ -424,10 +424,13 @@ export class CanvasClipRenderer {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
 
-        const x = vp.beatsToScreenX(clip.startBeat);
-        const y = vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY;
-        const w = clip.durationBeats * ppb;
-        const h = trackH;
+        // ── 1px inset so clip doesn't overlap grid lines or track borders ──
+        // The user specifically requested clips to sit exactly *between* grid lines.
+        const inset = 1;
+        const x = vp.beatsToScreenX(clip.startBeat) + inset;
+        const y = vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY + inset;
+        const w = (clip.durationBeats * ppb) - (inset * 2);
+        const h = trackH - (inset * 2);
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
         if (y + h < vp.rulerHeight || y > vp.viewportHeight + 10) return;
@@ -802,6 +805,7 @@ export class CanvasClipRenderer {
         const rulerH = vp.rulerHeight;
 
         // Single clean 1px playhead line — no glow
+        // snapCanvasLineX ensures the 1px line sits exactly in the center of the pixel
         ctx.save();
         ctx.strokeStyle = theme.playhead;
         ctx.lineWidth = 1;

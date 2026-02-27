@@ -263,6 +263,28 @@ impl PluginHostState {
     }
     pub(crate) fn shutdown_all_plugins(&self) {
         log::info!("[PluginHostState] Initiating graceful plugin shutdown...");
+
+        // CRITICAL FIX: Ensure audio thread is no longer processing plugins.
+        // We clear the registry and wait for the audio thread to drop its Guard.
+        // This guarantees Vst3Instance::drop occurs on the MAIN thread, preventing
+        // EXC_BAD_ACCESS in C++ destructors/ObjC runtime during process exit.
+        if let Some(registry) = &self.plugin_registry {
+            let old_arc = registry.clear_and_return_arc();
+            let mut waits = 0;
+            while std::sync::Arc::strong_count(&old_arc) > 1 {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                waits += 1;
+                if waits >= 2000 {
+                    log::warn!(
+                        "[PluginHostState] Audio thread held registry for >2s during shutdown"
+                    );
+                    break;
+                }
+            }
+            log::info!("[PluginHostState] Registry safely relinquished by audio thread after {}ms", waits);
+            drop(old_arc);
+        }
+
         match self.host.lock() {
             Ok(mut host) => host.shutdown_all(),
             Err(e) => log::error!(

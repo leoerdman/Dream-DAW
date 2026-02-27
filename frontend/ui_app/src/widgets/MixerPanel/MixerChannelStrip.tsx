@@ -73,7 +73,7 @@ const PAN_SLIDER_INPUT_STYLE: React.CSSProperties = { position: 'absolute', inse
 
 const FADER_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 };
 const FADER_TRACK_STYLE: React.CSSProperties = { flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' };
-const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-bg-overlay)' };
+const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' };
 
 export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
@@ -95,7 +95,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const panVal = track.pan ?? 0;
 
     const trackColor = track.color || 'var(--color-accent-primary)';
-    const headerTextColor = getContrastColor(trackColor) === 'black' ? 'var(--token-color-hex-000000)' : 'var(--color-text-on-accent)';
+    const headerTextColor = getContrastColor(trackColor) === 'black' ? 'var(--color-text-primary)' : 'var(--color-text-on-accent)';
     const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
     const isArmed = track.is_armed;
@@ -135,7 +135,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 position: 'relative',
                 overflow: 'hidden',
                 width: STRIP_WIDTH, minWidth: STRIP_WIDTH, maxWidth: STRIP_WIDTH, height: '100%',
-                background: isSelected ? 'var(--color-bg-panel)' : 'color-mix(in srgb, var(--color-bg-panel) 90%, black)',
+                background: isSelected ? 'var(--color-bg-panel)' : 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-base))',
                 borderRight: `${STRIP_GAP}px solid var(--color-divider)`,
                 cursor: 'pointer',
             }}

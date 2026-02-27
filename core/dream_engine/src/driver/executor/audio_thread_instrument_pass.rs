@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::driver::midi_dispatcher::{ActiveMappedNote, clamp_midi_pitch, quantize_to_scale};
 use crate::essence_synth::EssenceSynthEngine;
+use crate::flow_synth::FlowSynthEngine;
 use crate::frame_domain::FrameDomainConverter;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 
@@ -12,6 +13,7 @@ pub(super) fn render_instrument_sources(
     sampler_engines: &mut [SamplerEngine],
     sample_rack_engines: &mut [SampleRackEngine],
     essence_engines: &mut [EssenceSynthEngine],
+    flow_engines: &mut [FlowSynthEngine],
     midi_note_states: &mut [MidiNoteMapState],
     plugin_rt_midi_queue: &mut [Vec<MidiEvent>],
     rt_midi_uid_counter: &mut u64,
@@ -32,6 +34,9 @@ pub(super) fn render_instrument_sources(
             sample_rack_engines[track_idx].all_notes_off();
             if track_idx < essence_engines.len() {
                 essence_engines[track_idx].all_notes_off();
+            }
+            if track_idx < flow_engines.len() {
+                flow_engines[track_idx].all_notes_off();
             }
             midi_note_states[track_idx].active_notes.clear();
             if track_idx < plugin_rt_midi_queue.len() {
@@ -54,6 +59,11 @@ pub(super) fn render_instrument_sources(
         } else {
             None
         };
+        let mut flow = if track_idx < flow_engines.len() {
+            Some(&mut flow_engines[track_idx])
+        } else {
+            None
+        };
         let slot = &mut render_ctx.track_slots[track_idx];
         let frame_count = converter.device_frames();
         let timeline_frame_count = converter.timeline_frames();
@@ -65,7 +75,10 @@ pub(super) fn render_instrument_sources(
         let sampler_active_instrument = engine.has_sample();
         let rack_has_samples = rack.has_any_sample();
         let essence_explicitly_enabled = essence.as_ref().is_some_and(|e| e.is_enabled());
+        let flow_explicitly_enabled = flow.as_ref().is_some_and(|e| e.is_enabled());
+        
         let use_essence = essence_explicitly_enabled && !sampler_active_instrument && !rack_has_samples;
+        let use_flow = flow_explicitly_enabled; // Flow can coexist or override, let's allow it
 
         let midi_loop_region = render_ctx
             .loop_region
@@ -98,12 +111,14 @@ pub(super) fn render_instrument_sources(
             track_idx < plugin_rt_midi_queue.len() && !plugin_rt_midi_queue[track_idx].is_empty();
 
         let essence_active = use_essence && essence.as_ref().is_some_and(|e| e.has_active_voices());
+        let flow_active = use_flow && flow.as_ref().is_some_and(|e| e.has_active_voices());
 
         if slot.midi_schedule_scratch.is_empty()
             && !has_rt_midi
             && !engine.has_active_voices()
             && !rack_active
             && !essence_active
+            && !flow_active
         {
             continue;
         }
@@ -201,6 +216,14 @@ pub(super) fn render_instrument_sources(
                                 seg,
                             );
                         }
+                if use_flow
+                    && let Some(ref mut fl) = flow {
+                        fl.render(
+                            &mut slot.buf_left[cursor..cursor + seg],
+                            &mut slot.buf_right[cursor..cursor + seg],
+                            seg,
+                        );
+                    }
                 cursor += seg;
             } else if frame > cursor {
                 cursor = frame;
@@ -224,6 +247,9 @@ pub(super) fn render_instrument_sources(
                     && let Some(ref mut ess) = essence {
                         ess.note_off(off_pitch);
                     }
+                if let Some(ref mut fl) = flow {
+                    fl.note_off(off_pitch);
+                }
             } else {
                 let mut pitch_i16 = pitch as i16;
                 let mut velocity_i16 = velocity as i16;
@@ -269,6 +295,9 @@ pub(super) fn render_instrument_sources(
                         && let Some(ref mut ess) = essence {
                             ess.note_off(previous.mapped_pitch);
                         }
+                    if let Some(ref mut fl) = flow {
+                        fl.note_off(previous.mapped_pitch);
+                    }
                 }
 
                 note_state.active_notes.push(ActiveMappedNote {
@@ -282,6 +311,9 @@ pub(super) fn render_instrument_sources(
                     && let Some(ref mut ess) = essence {
                         ess.note_on(mapped_pitch, mapped_velocity);
                     }
+                if let Some(ref mut fl) = flow {
+                    fl.note_on(mapped_pitch, mapped_velocity);
+                }
             }
         }
 
@@ -308,6 +340,14 @@ pub(super) fn render_instrument_sources(
                             rem,
                         );
                     }
+            if use_flow
+                && let Some(ref mut fl) = flow {
+                    fl.render(
+                        &mut slot.buf_left[cursor..fc],
+                        &mut slot.buf_right[cursor..fc],
+                        rem,
+                    );
+                }
         }
 
         if note_state.active_notes.len() > 128 {

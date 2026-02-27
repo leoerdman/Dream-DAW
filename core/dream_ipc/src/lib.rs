@@ -209,6 +209,10 @@ pub enum EngineCommand {
     /// Set Essence master volume (0.0–2.0).
     SetEssenceVolume { track_index: u16, volume: f32 },
 
+    // ── Flow Synth (Modular Synth) Control ─────────────────────────
+    /// Explicitly enable or disable the Flow synth on a track.
+    SetFlowEnabled { track_index: u16, enabled: bool },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

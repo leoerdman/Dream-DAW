@@ -144,7 +144,7 @@ const panelStyle = (pos: { right: number; top: number }): CSSProperties => ({
     background: 'var(--color-bg-panel)',
     border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-lg)',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+    boxShadow: '0 2px 8px var(--color-overlay-dark)',
     zIndex: 'var(--z-tooltip)',
     overflow: 'hidden',
 });

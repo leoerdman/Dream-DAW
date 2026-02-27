@@ -133,7 +133,7 @@ export const VolumeFader = ({
                     background: faderPos > zeroTickPos
                         ? 'linear-gradient(to right, color-mix(in srgb, var(--color-accent-primary) 80%, black), var(--color-status-warning))'
                         : 'var(--color-accent-primary)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)',
+                    boxShadow: 'inset 0 1px 0 var(--color-overlay-light)',
                     borderRadius: 'var(--radius-xs)',
                     transition: isDragging ? 'none' : 'width 60ms linear',
                 }} />

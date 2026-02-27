@@ -415,12 +415,18 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut test_scratch_r_1 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
     let mut test_midi_events_1: Vec<MidiEvent> = Vec::new();
 
+    let mut track_latencies_1 = vec![0u32; project.tracks.len()];
+    let mut pdc_buffers_1: Vec<super::DelayBuffer> = (0..project.tracks.len()).map(|_| super::DelayBuffer::new()).collect();
+
     let mut routing_ctx_none = super::RenderRoutingCtx {
         clips_per_track: &clips_per_track,
         clip_pool: &clip_pool,
         routing: &routing,
         sidechains: &sidechains,
         post_sum_mask: &post_sum_mask,
+        track_latencies: &track_latencies_1,
+        max_tracking_delay: 0,
+        pdc_buffers: &mut pdc_buffers_1,
         plugin_registry: &plugin_registry,
         external_fx_map: &external_fx_map_empty,
         bpm: BPM,
@@ -456,12 +462,18 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut test_scratch_r_2 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
     let mut test_midi_events_2: Vec<MidiEvent> = Vec::new();
 
+    let mut track_latencies_2 = vec![0u32; project.tracks.len()];
+    let mut pdc_buffers_2: Vec<super::DelayBuffer> = (0..project.tracks.len()).map(|_| super::DelayBuffer::new()).collect();
+
     let mut routing_ctx_utility = super::RenderRoutingCtx {
         clips_per_track: &clips_per_track,
         clip_pool: &clip_pool,
         routing: &routing,
         sidechains: &sidechains,
         post_sum_mask: &post_sum_mask,
+        track_latencies: &track_latencies_2,
+        max_tracking_delay: 0,
+        pdc_buffers: &mut pdc_buffers_2,
         plugin_registry: &plugin_registry,
         external_fx_map: &external_fx_map_empty,
         bpm: BPM,

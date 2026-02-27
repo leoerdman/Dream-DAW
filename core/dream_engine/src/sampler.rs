@@ -125,57 +125,61 @@ impl SamplerVoice {
         // Prevents click/pop when the voice reaches the end of the sample.
         const END_FADE_FRAMES: usize = 16;
 
-        for i in 0..frame_count {
-            // Envelope
-            let env = self.envelope.process();
+        let mut i = 0;
+        let mut env_buf = [0.0f32; 64]; // Small stack buffer for block-based envelope processing
+
+        while i < frame_count {
+            let chunk_size = (frame_count - i).min(env_buf.len());
+            let current_chunk = &mut env_buf[..chunk_size];
+            
+            self.envelope.fill_block(current_chunk);
+
+            for &env in current_chunk.iter() {
+                // Integer position and fractional part for linear interpolation
+                let pos = self.cursor;
+                let idx = pos as usize;
+
+                // End of sample — deactivate voice
+                if idx >= last_idx {
+                    self.active = false;
+                    self.envelope.reset();
+                    return;
+                }
+
+                let frac = (pos - idx as f64) as f32;
+                let inv_frac = 1.0 - frac;
+
+                // Linear interpolation — 2 multiplies + 1 add per channel
+                let l = sample_left[idx] * inv_frac + sample_left[idx + 1] * frac;
+                let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
+
+                // Apply velocity, envelope, and master volume
+                let gain = self.velocity * env * master_vol;
+
+                // ENT-S1: Denormal flush
+                if gain < 1e-12 && self.envelope.is_releasing() {
+                    self.active = false;
+                    self.envelope.reset();
+                    return;
+                }
+
+                // BUG-004 FIX: Apply linear fade-out when approaching end of sample
+                let samples_remaining = last_idx.saturating_sub(idx);
+                let fade = (samples_remaining as f32 * (1.0 / END_FADE_FRAMES as f32)).min(1.0);
+                let final_gain = gain * fade;
+
+                left_out[i] += l * final_gain;
+                right_out[i] += r * final_gain;
+
+                // Advance cursor by pitch ratio
+                self.cursor += self.pitch_ratio;
+                i += 1;
+            }
 
             if self.envelope.is_idle() {
                 self.active = false;
                 return;
             }
-
-            // Integer position and fractional part for linear interpolation
-            let pos = self.cursor;
-            let idx = pos as usize;
-
-            // End of sample — deactivate voice
-            if idx >= last_idx {
-                self.active = false;
-                self.envelope.reset();
-                return;
-            }
-
-            let frac = (pos - idx as f64) as f32;
-            let inv_frac = 1.0 - frac;
-
-            // Linear interpolation — 2 multiplies + 1 add per channel
-            let l = sample_left[idx] * inv_frac + sample_left[idx + 1] * frac;
-            let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
-
-            // Apply velocity, envelope, and master volume
-            let gain = self.velocity * env * master_vol;
-
-            // ENT-S1: Denormal flush — when gain is negligibly small,
-            // deactivate the voice immediately. Sub-normal float math
-            // causes 10–50× CPU spikes on x86 (Intel FTZ/DAZ notwithstanding).
-            if gain < 1e-12 && self.envelope.is_releasing() {
-                self.active = false;
-                self.envelope.reset();
-                return;
-            }
-
-            // BUG-004 FIX: Apply linear fade-out when approaching end of sample
-            // to prevent click/pop. When within END_FADE_FRAMES of the end,
-            // linearly ramp gain to zero for a smooth transition.
-            let samples_remaining = last_idx.saturating_sub(idx);
-            let fade = (samples_remaining as f32 * (1.0 / END_FADE_FRAMES as f32)).min(1.0);
-            let final_gain = gain * fade;
-
-            left_out[i] += l * final_gain;
-            right_out[i] += r * final_gain;
-
-            // Advance cursor by pitch ratio
-            self.cursor += self.pitch_ratio;
         }
     }
 

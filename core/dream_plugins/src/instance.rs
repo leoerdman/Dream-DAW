@@ -123,7 +123,11 @@ impl MidiEvent {
         Self {
             sample_offset,
             channel: channel & 0x0F,
-            data: [0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F],
+            data: [
+                0x90 | (channel & 0x0F),
+                note.min(127),
+                velocity.min(127),
+            ],
         }
     }
 
@@ -133,7 +137,11 @@ impl MidiEvent {
         Self {
             sample_offset,
             channel: channel & 0x0F,
-            data: [0x80 | (channel & 0x0F), note & 0x7F, velocity & 0x7F],
+            data: [
+                0x80 | (channel & 0x0F),
+                note.min(127),
+                velocity.min(127),
+            ],
         }
     }
 
@@ -143,7 +151,11 @@ impl MidiEvent {
         Self {
             sample_offset,
             channel: channel & 0x0F,
-            data: [0xB0 | (channel & 0x0F), cc_number & 0x7F, cc_value & 0x7F],
+            data: [
+                0xB0 | (channel & 0x0F),
+                cc_number.min(127),
+                cc_value.min(127),
+            ],
         }
     }
 

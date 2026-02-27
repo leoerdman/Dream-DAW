@@ -181,6 +181,32 @@ impl AdsrEnvelope {
         self.level as f32
     }
 
+    /// Optimized block-filling for envelope levels.
+    ///
+    /// # Real-Time Safety
+    /// Optimized for Sustain/Idle stages to use block-fill (zero branches).
+    #[inline]
+    pub fn fill_block(&mut self, output: &mut [f32]) {
+        let mut i = 0;
+        let len = output.len();
+        while i < len {
+            match self.stage {
+                EnvelopeStage::Idle => {
+                    output[i..].fill(0.0);
+                    return;
+                }
+                EnvelopeStage::Sustain => {
+                    output[i..].fill(self.sustain_level as f32);
+                    return;
+                }
+                _ => {
+                    output[i] = self.process();
+                    i += 1;
+                }
+            }
+        }
+    }
+
     /// Whether this envelope is completely silent (voice can be freed).
     #[inline]
     pub fn is_idle(&self) -> bool {

@@ -1,14 +1,20 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Stereo Panning
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Implements constant-power pan law for stereo positioning.
-//
-// Pan law ensures that a center-panned signal has the same
-// perceived loudness as a hard-panned signal. Without this,
-// center panning sounds ~3dB louder.
-//
-// ═══════════════════════════════════════════════════════════════════════════
+ 
+use std::sync::OnceLock;
+ 
+const PAN_TABLE_SIZE: usize = 1024;
+static PAN_SIN_TABLE: OnceLock<[f32; PAN_TABLE_SIZE]> = OnceLock::new();
+ 
+fn get_sin_table() -> &'static [f32; PAN_TABLE_SIZE] {
+    PAN_SIN_TABLE.get_or_init(|| {
+        let mut table = [0.0; PAN_TABLE_SIZE];
+        for i in 0..PAN_TABLE_SIZE {
+            let angle = (i as f32 / (PAN_TABLE_SIZE - 1) as f32) * std::f32::consts::FRAC_PI_2;
+            table[i] = angle.sin();
+        }
+        table
+    })
+}
 
 /// Pan law implementation.
 ///
@@ -38,18 +44,31 @@ impl PanLaw {
     ///
     /// # Arguments
     /// - `pan`: -1.0 (hard left) to 1.0 (hard right), 0.0 = center.
-    #[inline]
     pub fn gains(&self, pan: f32) -> PanGains {
         let pan = pan.clamp(-1.0, 1.0);
 
         match self {
             Self::ConstantPower => {
-                // Map pan [-1, 1] → angle [0, π/2]
-                let angle = (pan + 1.0) * 0.5 * std::f32::consts::FRAC_PI_2;
-                PanGains {
-                    left: angle.cos(),
-                    right: angle.sin(),
-                }
+                let table = get_sin_table();
+                // Map pan [-1, 1] -> normalized pos [0, 1]
+                let pos = (pan + 1.0) * 0.5;
+
+                // Lookup sin(angle)
+                let idx_s = pos * (PAN_TABLE_SIZE - 1) as f32;
+                let i0_s = idx_s as usize;
+                let i1_s = (i0_s + 1).min(PAN_TABLE_SIZE - 1);
+                let frac_s = idx_s - i0_s as f32;
+                let right = table[i0_s] * (1.0 - frac_s) + table[i1_s] * frac_s;
+
+                // Lookup cos(angle) = sin(π/2 - angle)
+                let pos_c = 1.0 - pos;
+                let idx_c = pos_c * (PAN_TABLE_SIZE - 1) as f32;
+                let i0_c = idx_c as usize;
+                let i1_c = (i0_c + 1).min(PAN_TABLE_SIZE - 1);
+                let frac_c = idx_c - i0_c as f32;
+                let left = table[i0_c] * (1.0 - frac_c) + table[i1_c] * frac_c;
+
+                PanGains { left, right }
             }
             Self::Linear => PanGains {
                 left: (1.0 - pan) * 0.5,

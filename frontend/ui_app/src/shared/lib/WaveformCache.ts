@@ -77,7 +77,9 @@ export class WaveformCache {
             return null;
         }
 
-        // Touch LRU
+        // O(1) LRU Touch: Move to end of insertion order
+        this._cache.delete(cacheKey);
+        this._cache.set(cacheKey, entry);
         entry.lastAccessed = performance.now();
 
         return this._extractDrawData(sourceOffset, durationSamples, entry);
@@ -115,12 +117,20 @@ export class WaveformCache {
                 // Zero-copy view into the returned byte buffer
                 const floats = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
                 if (floats.length > 0) {
+                    // O(1) Eviction if full
+                    if (this._cache.size >= MAX_CACHE_ENTRIES) {
+                        const firstKey = this._cache.keys().next().value;
+                        if (firstKey !== undefined) {
+                            this._cache.delete(firstKey);
+                            this._lastWarnAtByKey.delete(firstKey);
+                        }
+                    }
+
                     this._cache.set(cacheKey, {
                         lodLevel,
                         floats,
                         lastAccessed: performance.now(),
                     });
-                    this._evictIfNeeded();
                     // Notify engine that new waveform data is available for drawing
                     this.onDataReady?.();
                 }
@@ -189,25 +199,5 @@ export class WaveformCache {
         return drawData;
     }
 
-    /** Evict LRU */
-    private _evictIfNeeded(): void {
-        if (this._cache.size <= MAX_CACHE_ENTRIES) return;
-
-        let oldestKey: string | null = null;
-        let oldestTime = Infinity;
-
-        for (const [key, entry] of this._cache) {
-            if (entry.lastAccessed < oldestTime) {
-                oldestTime = entry.lastAccessed;
-                oldestKey = key;
-            }
-        }
-
-        if (oldestKey) {
-            this._cache.delete(oldestKey);
-            // BUG-055 FIX: Simultaneously garbage collect unresolved fetch error tracking
-            // to prevent unbounded Map leaks spanning the lifetime of the SPA window.
-            this._lastWarnAtByKey.delete(oldestKey);
-        }
-    }
+    // BUG-055: _evictIfNeeded removed in favor of O(1) next().value in _fetchAsync.
 }

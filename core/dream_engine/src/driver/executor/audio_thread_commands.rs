@@ -4,6 +4,7 @@ use super::command_dispatch::{
     DeferredDeviceChainCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
 use crate::essence_synth::EssenceSynthEngine;
+use crate::flow_synth::FlowSynthEngine;
 use crate::instrument_core::AdsrParams;
 
 pub(super) const MASTER_TRACK_INDEX: u16 = u16::MAX;
@@ -34,6 +35,7 @@ pub(super) struct CommandProcessingContext<'a> {
     pub sampler_engines: &'a mut [SamplerEngine],
     pub sample_rack_engines: &'a mut [SampleRackEngine],
     pub essence_engines: &'a mut [EssenceSynthEngine],
+    pub flow_engines: &'a mut [FlowSynthEngine],
     pub midi_note_states: &'a mut [MidiNoteMapState],
     pub vst3_flush_per_track: &'a mut [bool; MAX_TRACKS],
     pub plugin_rt_midi_queue: &'a mut [Vec<MidiEvent>],
@@ -117,6 +119,9 @@ pub(super) fn drain_commands(
                         if idx < ctx.essence_engines.len() {
                             ctx.essence_engines[idx].all_notes_off();
                         }
+                        if idx < ctx.flow_engines.len() {
+                            ctx.flow_engines[idx].all_notes_off();
+                        }
                         ctx.midi_note_states[idx].active_notes.clear();
                         ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
                         if idx < ctx.plugin_rt_midi_queue.len() {
@@ -142,6 +147,9 @@ pub(super) fn drain_commands(
                     ctx.sample_rack_engines[idx].all_notes_off();
                     if idx < ctx.essence_engines.len() {
                         ctx.essence_engines[idx].all_notes_off();
+                    }
+                    if idx < ctx.flow_engines.len() {
+                        ctx.flow_engines[idx].all_notes_off();
                     }
                     ctx.midi_note_states[idx].active_notes.clear();
                     ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
@@ -333,6 +341,9 @@ pub(super) fn drain_commands(
                 if idx < ctx.essence_engines.len() {
                     ctx.essence_engines[idx].all_notes_off();
                 }
+                if idx < ctx.flow_engines.len() {
+                    ctx.flow_engines[idx].all_notes_off();
+                }
             }
             EngineCommand::BypassInstrument {
                 track_index,
@@ -350,6 +361,9 @@ pub(super) fn drain_commands(
                 }
                 if bypassed && idx < ctx.essence_engines.len() {
                     ctx.essence_engines[idx].all_notes_off();
+                }
+                if bypassed && idx < ctx.flow_engines.len() {
+                    ctx.flow_engines[idx].all_notes_off();
                 }
                 if bypassed && idx < MAX_TRACKS {
                     ctx.vst3_flush_per_track[idx] = true;
@@ -403,6 +417,12 @@ pub(super) fn drain_commands(
                 // No-op: per-pad filter cutoff is not implemented for the
                 // sample-playback engine. The SamplerEngine only plays PCM
                 // data — filtering belongs to synth engines (EssenceSynth).
+            }
+            EngineCommand::SetFlowEnabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.flow_engines.len() {
+                    ctx.flow_engines[idx].set_enabled(enabled);
+                }
             }
             // ── Essence Synth Commands ────────────────────────────────
             EngineCommand::SetEssenceEnabled { track_index, enabled } => {
@@ -545,6 +565,9 @@ pub(super) fn drain_commands(
                     }
                 }
                 for engine in ctx.essence_engines.iter_mut() {
+                    engine.all_notes_off();
+                }
+                for engine in ctx.flow_engines.iter_mut() {
                     engine.all_notes_off();
                 }
                 ctx.vst3_flush_per_track.fill(true);

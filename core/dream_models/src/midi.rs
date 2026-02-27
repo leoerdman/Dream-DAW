@@ -49,7 +49,7 @@ impl MidiNote {
             pitch: pitch.min(127),
             // BUG-028 FIX: Allow velocity 0 — MIDI spec uses velocity=0 as note-off.
             velocity: velocity.min(127),
-            start_frame, // BUG-A027 FIX: Notes can start before the clip boundary (negative relative frame)
+            start_frame,
             duration_frames: duration_frames.max(1),
         }
     }
@@ -329,11 +329,25 @@ impl MidiClip {
 
     /// Returns notes that overlap with the given frame range
     /// (relative to clip start).
+    ///
+    /// ⚠ RT-Safety: Allocates Vec. Use `for_each_note_in_range` on audio thread.
     pub fn notes_in_range(&self, start: i64, end: i64) -> Vec<&MidiNote> {
         self.notes
             .iter()
             .filter(|n| n.start_frame < end && n.end_frame() > start)
             .collect()
+    }
+
+    /// RT-Safe iteration over notes in range.
+    pub fn for_each_note_in_range<F>(&self, start: i64, end: i64, mut f: F)
+    where
+        F: FnMut(&MidiNote),
+    {
+        for note in &self.notes {
+            if note.start_frame < end && note.end_frame() > start {
+                f(note);
+            }
+        }
     }
 }
 

@@ -81,11 +81,11 @@ export function ConnectionsLayer() {
                 const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
                 const signalType = conn.signalType ?? 'audio';
                 const baseColor = signalType === 'midi'
-                    ? 'var(--color-accent-secondary)'
-                    : 'var(--color-accent-primary)';
+                    ? 'var(--color-signal-midi)'
+                    : 'var(--color-signal-audio)';
                 const glowColor = signalType === 'midi'
-                    ? 'color-mix(in srgb, var(--color-accent-secondary) 72%, transparent)'
-                    : 'color-mix(in srgb, var(--color-accent-primary) 72%, transparent)';
+                    ? 'color-mix(in srgb, var(--color-signal-midi) 72%, transparent)'
+                    : 'color-mix(in srgb, var(--color-signal-audio) 72%, transparent)';
                 const pulseTs = connectionPulseById[conn.id] ?? 0;
                 const elapsed = Math.max(0, now - pulseTs);
                 const pulseActive = elapsed < PULSE_DURATION_MS;
@@ -126,8 +126,8 @@ export function ConnectionsLayer() {
                                 cy={pulseY}
                                 r={signalType === 'midi' ? 4 : 3.5}
                                 fill={signalType === 'midi'
-                                    ? 'color-mix(in srgb, var(--color-accent-secondary) 80%, white)'
-                                    : 'color-mix(in srgb, var(--color-accent-primary) 80%, white)'}
+                                    ? 'color-mix(in srgb, var(--color-signal-midi) 80%, white)'
+                                    : 'color-mix(in srgb, var(--color-signal-audio) 80%, white)'}
                                 opacity={1 - pulseT * 0.35}
                             />
                         )}

@@ -91,7 +91,7 @@ export const MasterStrip = memo(function MasterStrip() {
     return (
         <div style={{
             display: 'flex', flexDirection: 'column', width: masterWidth, minWidth: masterWidth, maxWidth: masterWidth, height: '100%',
-            background: 'color-mix(in srgb, var(--surface-1) 80%, black)',
+            background: 'color-mix(in srgb, var(--surface-1) 80%, var(--color-bg-base))',
             borderLeft: '2px solid var(--color-divider)', overflow: 'hidden', position: 'relative'
         }}>
             {/* ── Master Label ── */}
@@ -119,13 +119,13 @@ export const MasterStrip = memo(function MasterStrip() {
                     style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
                 >
                     {/* Fader Groove */}
-                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }} />
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' }} />
 
                     {/* Fader Handle */}
                     <div style={{
                         position: 'absolute', left: 4, right: 4, bottom: `calc(${volNorm * 100}% - 6px)`, height: 12,
-                        background: trackColor, borderRadius: 2, border: '1px solid rgba(0,0,0,0.7)',
-                        boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                        background: trackColor, borderRadius: 2, border: '1px solid var(--color-overlay-dark)',
+                        boxShadow: 'inset 0 1px 1px var(--color-overlay-light), 0 2px 4px var(--color-overlay-dark)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
                         <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />

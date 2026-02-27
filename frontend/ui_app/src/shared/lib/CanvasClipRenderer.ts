@@ -541,35 +541,24 @@ export class CanvasClipRenderer {
 
         ctx.restore();
 
+        // ── Unified 2px inset border ──
+        // Always the same width, fully inside the clip rect.
+        // Only the color changes: white when selected, darker clip color otherwise.
+        ctx.save();
+        if (isTrackDisabled) ctx.globalAlpha = 0.25;
+        const borderW = SELECTION_BORDER_WIDTH; // always 2px
+        const inset = borderW / 2; // 1px inset each side
+        const borderRadius = Math.max(0, r - inset);
         if (clip.selected) {
-            ctx.save();
-            if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
-            ctx.lineWidth = SELECTION_BORDER_WIDTH;
-            ctx.shadowColor = rgba(255, 255, 255, 0.5);
-            ctx.shadowBlur = 6;
-            this._roundRect(ctx, x, y + 1, w, h, r);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        if (!clip.selected) {
-            ctx.save();
-            if (isTrackDisabled) ctx.globalAlpha = 0.25;
+        } else {
             const borderR = Math.max(0, rgb.r - 40), borderG = Math.max(0, rgb.g - 40), borderB = Math.max(0, rgb.b - 40);
             ctx.strokeStyle = `rgba(${borderR}, ${borderG}, ${borderB}, 0.85)`;
-            ctx.lineWidth = 1;
-            this._roundRect(ctx, x, y + 1, w, h, r);
-            ctx.stroke();
-
-            // Subtle top inner highlight for 3D body feel
-            ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y + 2);
-            ctx.lineTo(x + w - r, y + 2);
-            ctx.stroke();
-            ctx.restore();
         }
+        ctx.lineWidth = borderW;
+        this._roundRect(ctx, x + inset, y + 1 + inset, w - inset * 2, h - inset * 2, borderRadius);
+        ctx.stroke();
+        ctx.restore();
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;

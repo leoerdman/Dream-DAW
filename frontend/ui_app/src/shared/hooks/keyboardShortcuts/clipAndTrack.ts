@@ -72,14 +72,30 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             clipboardRef.current = selected.map((c) => ({ ...c }));
             // Also copy to global (backend) clipboard for cross-project paste.
             void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
+        } else if (selectedTrackIndex >= 0) {
+            // No clips selected — copy the entire selected track to global clipboard.
+            clipboardRef.current = []; // Clear clip clipboard so paste knows to use track clipboard.
+            void engine.copyTrackToGlobalClipboard(selectedTrackIndex);
         }
         return true;
     }
 
     if (isModKey(e) && e.code === 'KeyV') {
-        if (activePanel !== 'arrangement' || clipboardRef.current.length === 0) return false;
+        if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
+
+        // If clip clipboard is empty, try pasting a track instead.
+        if (clipboardRef.current.length === 0) {
+            try {
+                const insertIdx = selectedTrackIndex >= 0 ? selectedTrackIndex + 1 : undefined;
+                const response = await engine.pasteTrackFromGlobalClipboard(insertIdx);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-track');
+            } catch {
+                // Global track clipboard may be empty — silently ignore.
+            }
+            return true;
+        }
         const store = useEngineStore.getState();
         const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
         const sampleRate = resolveSampleRate(store.projectSampleRate);

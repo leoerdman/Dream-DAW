@@ -43,6 +43,8 @@ pub struct ProjectRegistry {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GlobalClipData {
     pub source_project_id: String,
+    pub source_bpm: f64,
+    pub source_sample_rate: f64,
     pub clips: Vec<AudioClip>,
     pub midi_clips: Vec<MidiClip>,
 }

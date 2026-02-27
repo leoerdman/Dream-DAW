@@ -4,9 +4,8 @@ import * as React from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
-import { SessionIoRow, SessionMonitorRow, SessionStripFader } from './DawShellPanelControls';
+import { SessionIoRow, SessionStripFader } from './DawShellPanelControls';
 import { SESSION_TRACK_WIDTH } from './sessionWorkspace.constants';
-import { getContrastColor } from '@/shared/lib/colorUtils';
 
 interface SessionWorkspaceMixerTracksProps {
     tracks: ProjectTrack[];
@@ -65,7 +64,6 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
     const trackMeterL = dbToMeterNorm(peakDbL);
     const trackMeterR = dbToMeterNorm(peakDbR);
     const trackColor = track.color || 'var(--color-status-info)';
-    const textColor = getContrastColor(trackColor) === 'black' ? '#000' : '#fff';
 
     return (
         <div key={`mix-${track.id}`} style={{
@@ -74,27 +72,11 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
             borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)',
             padding: '4px',
             display: 'grid',
-            gridTemplateRows: 'auto auto auto auto 1fr auto',
+            gridTemplateRows: 'auto auto 1fr auto',
             gap: 4,
             background: 'color-mix(in srgb, var(--color-bg-panel) 96%, transparent)',
         }}>
-            <div style={{
-                height: 20,
-                width: '100%',
-                background: trackColor,
-                color: textColor,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '10px', fontWeight: 800, textTransform: 'uppercase',
-                borderRadius: '1px',
-                border: '1px solid rgba(0,0,0,0.5)',
-                boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.2)',
-                marginBottom: 4,
-                overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 4px'
-            }}>
-                {track.name}
-            </div>
             <SessionIoRow label="Audio From" value={track.input || 'No Input'} />
-            <SessionMonitorRow value={track.is_armed ? 'In' : 'Auto'} />
             <SessionIoRow label="Audio To" value={track.output || 'Master'} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, height: '100%', minHeight: 0 }}>
                 <SessionStripFader

@@ -117,42 +117,44 @@ export function ProjectTabBar() {
                 );
             })}
 
-            <button
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 24,
-                    height: 24,
-                    borderRadius: 'var(--radius-sm)',
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--color-text-tertiary)',
-                    cursor: 'pointer',
-                    padding: 0,
-                    marginLeft: 8,
-                    marginBottom: 1,
-                    pointerEvents: 'auto',
-                }}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';
-                    e.currentTarget.style.color = 'var(--color-text-primary)';
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.color = 'var(--color-text-tertiary)';
-                }}
-                title="New Project"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    void addProjectTab();
-                }}
-            >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-            </button>
+            {openProjects.length < 2 && (
+                <button
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 24,
+                        height: 24,
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--color-text-tertiary)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        marginLeft: 8,
+                        marginBottom: 1,
+                        pointerEvents: 'auto',
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';
+                        e.currentTarget.style.color = 'var(--color-text-primary)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--color-text-tertiary)';
+                    }}
+                    title="New Project"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        void addProjectTab();
+                    }}
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+            )}
         </div>
     );
 }

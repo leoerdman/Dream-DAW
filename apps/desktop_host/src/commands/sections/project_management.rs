@@ -1460,12 +1460,12 @@ fn paste_clips_from_global_clipboard(
     let rebuilt_project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
     // Rebuild the engine snapshot so the backend audio systems are aware of the new clips!
-    super::clip_mutators::helpers::rebuild_clip_views_and_mark_dirty(
+    crate::commands::helpers::rebuild_clip_views_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &handle,
         &app,
-        super::clip_mutators::helpers::ClipRebuildMode::ClipsOnly,
+        crate::commands::helpers::ClipRebuildMode::ClipsOnly,
     )?;
 
     log::info!(
@@ -1477,7 +1477,7 @@ fn paste_clips_from_global_clipboard(
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
+            project: Box::new(rebuilt_project),
         }],
     })
 }

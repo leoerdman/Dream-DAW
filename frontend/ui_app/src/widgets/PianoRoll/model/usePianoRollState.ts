@@ -76,7 +76,7 @@ export function usePianoRollState({
 
     useEffect(() => {
         if (selectedNotes === selectedNoteIds) return;
-        setSelectedNoteIds(selectedNotes);
+        setTimeout(() => setSelectedNoteIds(selectedNotes), 0);
     }, [selectedNoteIds, selectedNotes]);
 
     const setSelectedNotes = useCallback<Dispatch<SetStateAction<Set<string>>>>((next) => {

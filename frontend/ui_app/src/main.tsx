@@ -216,7 +216,10 @@ function App() {
       // Instantly try to close splash and reveal window the moment the 
       // Main DAW interface has been fully mounted and painted to the DOM AND
       // the initial backend sync has populated the store (avoids "grey flash no tracks").
-      attemptCloseSplashscreen().catch(console.error)
+      // Uses setTimeout to break the synchronous React batch and prevent cascading renders.
+      setTimeout(() => {
+        attemptCloseSplashscreen().catch(console.error);
+      }, 0);
     }
   }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
 
@@ -240,7 +243,7 @@ function App() {
       {windowError && (
         <div style={{
           position: 'fixed', top: 8, right: 8, zIndex: 100000, padding: '6px 12px',
-          background: 'rgba(255,100,0,0.9)', color: '#fff', borderRadius: 6, fontSize: 12,
+          background: 'color-mix(in srgb, var(--color-status-warning) 90%, transparent)', color: 'var(--color-text-on-accent)', borderRadius: 6, fontSize: 12,
           fontFamily: 'var(--font-role-data)'
         }}>
           Window resize failed — some UI elements may be clipped

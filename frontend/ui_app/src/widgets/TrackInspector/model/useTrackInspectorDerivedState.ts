@@ -73,7 +73,7 @@ export function useTrackInspectorDerivedState({
         // backend instead of hardcoding. Falls back to a raw hex value
         // (never a CSS variable — the backend rejects those).
         const realMaster = orderedTracks.find((t) => (t.track_type ?? '').toLowerCase() === 'master');
-        const masterColor = realMaster?.color || '#6B7280';
+        const masterColor = realMaster?.color || 'var(--color-text-tertiary)';
         return {
             id: 'master',
             name: 'Master',

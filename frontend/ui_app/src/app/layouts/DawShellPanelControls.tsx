@@ -208,7 +208,7 @@ function SessionStripFaderInner({
                 </div>
 
                 {/* 0dB Marker Line */}
-                <div style={{ position: 'absolute', left: 16, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: '#8c8c8c', pointerEvents: 'none', zIndex: 0 }} />
+                <div style={{ position: 'absolute', left: 16, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'var(--color-divider-strong)', pointerEvents: 'none', zIndex: 0 }} />
 
                 {/* STEREO METER */}
                 <div style={{ position: 'relative', flex: 1, maxWidth: 14, borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-1)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
@@ -270,7 +270,7 @@ function SessionStripFaderInner({
                             pointerEvents: 'none',
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}>
-                            <div style={{ width: '80%', height: 2, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
+                            <div style={{ width: '80%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
                         </div>
                     </div>
                 </div>
@@ -315,8 +315,8 @@ function SessionStripFaderInner({
                         onClick={() => setTrackDisabled(!trackDisabled)}
                         style={{
                             height: 20,
-                            background: !trackDisabled ? '#4caf50' : 'var(--surface-elevated)',
-                            color: !trackDisabled ? '#fff' : 'var(--color-text-tertiary)',
+                            background: !trackDisabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
+                            color: !trackDisabled ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
                             border: !trackDisabled ? 'none' : '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                             borderRadius: 'var(--radius-xs)',
                             fontSize: '10px',

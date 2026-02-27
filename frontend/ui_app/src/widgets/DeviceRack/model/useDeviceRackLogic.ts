@@ -191,7 +191,7 @@ export function useDeviceRackLogic(
 
     // BUG-FIX: Ensure context menu clears when switching tracks to prevent cross-track ID corruption
     useEffect(() => {
-        setAutoCtxMenu(null);
+        setTimeout(() => setAutoCtxMenu(null), 0);
     }, [selectedTrackId]);
 
     const {

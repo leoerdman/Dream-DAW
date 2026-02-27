@@ -373,7 +373,6 @@ export function useTimelineClipHandlers({
         pruneGhostClip,
         selectedClipIds,
         setSelectedClipIds,
-        timelineClipsForView,
         trackCountRaw,
     ]);
 

@@ -74,7 +74,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const panVal = track.pan ?? 0;
 
     const trackColor = track.color || 'var(--color-accent-primary)';
-    const headerTextColor = getContrastColor(trackColor) === 'black' ? '#000' : '#fff';
+    const headerTextColor = getContrastColor(trackColor) === 'black' ? 'var(--token-color-hex-000000)' : 'var(--color-text-on-accent)';
     const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
     const isArmed = track.is_armed;
@@ -182,7 +182,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                         boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                        <div style={{ width: '70%', height: 2, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
+                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
                     </div>
                 </div>
 
@@ -210,8 +210,8 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     style={{
                         flex: 1, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
-                        background: !isDisabled ? '#4caf50' : 'var(--surface-elevated)',
-                        color: !isDisabled ? '#fff' : 'var(--color-text-tertiary)',
+                        background: !isDisabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
+                        color: !isDisabled ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
                         boxShadow: !isDisabled ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(76,175,80,0.5)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
                     }}>
                     {trackIndex + 1}

@@ -79,7 +79,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     currentColor={
                         (logic.colorPickerState.trackId === 'master'
                             ? logic.masterTrack.color
-                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || '#666666'
+                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || 'var(--color-divider-heavy)'
                     }
                     onSelect={(color) => {
                         const trackId = logic.colorPickerState?.trackId;

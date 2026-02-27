@@ -1868,7 +1868,7 @@ impl OfflineRenderer {
         let midi_fx_configs: Vec<MidiFxRuntimeConfig> = project
             .tracks
             .iter()
-            .map(|track| Self::build_midi_fx_config_from_track(track))
+            .map(Self::build_midi_fx_config_from_track)
             .collect();
 
         // BOUNCE-AUTOMATION-FIX: Build per-track external plugin automation
@@ -1990,7 +1990,7 @@ impl OfflineRenderer {
             // Process master FX chain on silence to generate tail output
             let process_ctx_tail = dream_dsp::device_slot::ProcessContext {
                 sample_rate: project_sr as f32,
-                playhead_frames: (self.config.end_frame as i64) + tail_rendered as i64,
+                playhead_frames: self.config.end_frame + tail_rendered as i64,
                 tempo: self.config.bpm,
                 is_playing: false,
                 time_sig_numerator: project.time_signature.numerator.max(1),

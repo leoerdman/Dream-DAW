@@ -106,6 +106,7 @@ export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
         params.sizeFilter,
         params.sortFilter,
         params.sourceFilter,
+        params.excludedFormats,
         activeCategory,
         folderBrowserItems,
         pluginBrowserItems,

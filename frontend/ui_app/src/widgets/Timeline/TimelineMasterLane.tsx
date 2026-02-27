@@ -49,7 +49,7 @@ export function TimelineMasterLane({
     loopEndLineX,
     regionEdit,
 }: TimelineMasterLaneProps) {
-    const lineLeft = (x: number, width: number): number => x - width / 2;
+
     return (
         <div
             ref={masterLaneRef}
@@ -71,7 +71,7 @@ export function TimelineMasterLane({
                     key={`master-sub-${x}`}
                     style={{
                         position: 'absolute',
-                        left: lineLeft(x, 1),
+                        left: Math.round(x),
                         top: 0,
                         bottom: 0,
                         width: 1,
@@ -86,7 +86,7 @@ export function TimelineMasterLane({
                     key={`master-bar-${x}`}
                     style={{
                         position: 'absolute',
-                        left: lineLeft(x, 1),
+                        left: Math.round(x),
                         top: 0,
                         bottom: 0,
                         width: 1,
@@ -113,7 +113,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: lineLeft(loopStartLineX, 1),
+                            left: Math.round(loopStartLineX),
                             width: 1,
                             background: 'var(--color-timeline-loop-border)',
                             opacity: 0.9,
@@ -124,7 +124,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: lineLeft(loopEndLineX, 1),
+                            left: Math.round(loopEndLineX),
                             width: 1,
                             background: 'var(--color-timeline-loop-border)',
                             opacity: 0.9,
@@ -137,7 +137,7 @@ export function TimelineMasterLane({
                     position: 'absolute',
                     top: 0,
                     bottom: 0,
-                    left: 'calc(var(--master-playhead-x, 0px) - 0.5px)',
+                    left: 'var(--master-playhead-x, 0px)',
                     width: 1,
                     background: 'var(--color-timeline-playhead)',
                     pointerEvents: 'none',

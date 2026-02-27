@@ -11,7 +11,7 @@ import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
-import { snapTimelineX } from './lib/pixelSnap';
+
 import { AutomationOverlay } from './AutomationOverlay';
 import { TimelineMasterLane } from './TimelineMasterLane';
 import type { TimelineProps } from './Timeline.types';
@@ -116,8 +116,8 @@ export const Timeline = (props: TimelineProps) => {
     );
     const loopStartX = loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const loopEndX = loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const loopStartLineX = snapTimelineX(loopStartX);
-    const loopEndLineX = snapTimelineX(loopEndX);
+    const loopStartLineX = Math.round(loopStartX);
+    const loopEndLineX = Math.round(loopEndX);
     const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
     const loopRightX = Math.max(loopStartLineX, loopEndLineX);
     const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < effectiveViewportWidth;
@@ -267,7 +267,7 @@ export const Timeline = (props: TimelineProps) => {
         engine.onFrameDrawn = (snapshot) => {
             const lane = masterLaneRef.current;
             if (!lane) return;
-            const x = snapTimelineX(snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
+            const x = Math.round(snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
             const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
             lane.style.setProperty('--master-playhead-x', `${x}px`);
             lane.style.setProperty('--master-playhead-visible', visible);
@@ -315,7 +315,7 @@ export const Timeline = (props: TimelineProps) => {
         const targetPpb = viewportWidth / (paddedEnd - paddedStart);
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-    }, [fitHorizontalToken, beatsPerBar, engineRef, propsRef]);
+    }, [fitHorizontalToken, beatsPerBar, engineRef, propsRef, hasPendingRestore]);
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;

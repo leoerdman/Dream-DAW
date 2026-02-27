@@ -125,7 +125,7 @@ export const MasterStrip = memo(function MasterStrip() {
                         boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                        <div style={{ width: '70%', height: 2, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }} />
+                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
                     </div>
                 </div>
 

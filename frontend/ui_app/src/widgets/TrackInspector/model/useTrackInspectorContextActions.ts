@@ -35,7 +35,7 @@ export function useTrackInspectorContextActions({
     } | null>(null);
     const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
-    const [masterColor, setMasterColor] = useState('#2B2F36');
+    const [masterColor, setMasterColor] = useState('var(--surface-elevated)');
     const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
         e.preventDefault();
         e.stopPropagation();

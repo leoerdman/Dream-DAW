@@ -216,44 +216,38 @@ export class CanvasClipRenderer {
         const endBeat = Math.ceil(range.endBeat / gridStep) * gridStep;
 
         // ── P1: Batch subdivision lines into one path ──
+        ctx.fillStyle = theme.gridLine;
         ctx.beginPath();
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
-            const x = snapCanvasLineX(vp.beatsToScreenX(beat), 0.5);
+            const x = Math.round(vp.beatsToScreenX(beat));
             if (x < -1 || x > vpW + 1) continue;
-            ctx.moveTo(x, rulerH);
-            ctx.lineTo(x, vpH);
+            ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
-        ctx.strokeStyle = theme.gridLine;
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
+        ctx.fill();
 
         // ── P1: Batch bar lines into one path ──
+        ctx.fillStyle = theme.gridBar;
         ctx.beginPath();
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
-            const x = snapCanvasLineX(vp.beatsToScreenX(beat), 1);
+            const x = Math.round(vp.beatsToScreenX(beat));
             if (x < -1 || x > vpW + 1) continue;
-            ctx.moveTo(x, rulerH);
-            ctx.lineTo(x, vpH);
+            ctx.rect(x, rulerH, 1, vpH - rulerH);
         }
-        ctx.strokeStyle = theme.gridBar;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        ctx.fill();
 
         // ── P2: Batch track dividers into one path ──
+        ctx.fillStyle = theme.trackDivider;
         ctx.beginPath();
         for (let i = 0; i <= vp.trackCount; i++) {
             const y = Math.round(rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY);
             if (y < rulerH - 1 || y > vpH + 1) continue;
-            ctx.moveTo(0, y);
-            ctx.lineTo(vpW, y);
+            ctx.rect(0, y, vpW, 1);
         }
-        ctx.strokeStyle = theme.trackDivider;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        ctx.fill();
 
         ctx.restore();
     }
@@ -274,12 +268,8 @@ export class CanvasClipRenderer {
         ctx.fillStyle = theme.rulerBg;
         ctx.fillRect(0, 0, vp.viewportWidth, rulerH);
 
-        ctx.strokeStyle = theme.trackDivider;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, rulerH);
-        ctx.lineTo(vp.viewportWidth, rulerH);
-        ctx.stroke();
+        ctx.fillStyle = theme.trackDivider;
+        ctx.fillRect(0, rulerH, vp.viewportWidth, 1);
 
         let markStep = beatsPerBar;
         if (vp.pixelsPerBeat < 12) markStep = beatsPerBar * 4;
@@ -426,10 +416,11 @@ export class CanvasClipRenderer {
 
         // ── 1px inset so clip doesn't overlap grid lines or track borders ──
         // The user specifically requested clips to sit exactly *between* grid lines.
-        const inset = 1;
-        const x = vp.beatsToScreenX(clip.startBeat) + inset;
-        const y = vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY + inset;
-        const w = (clip.durationBeats * ppb) - (inset * 2);
+        // If grid lines are 1px on whole pixels, clips should occupy exact bounds without arbitrary insets.
+        const inset = 0;
+        const x = Math.round(vp.beatsToScreenX(clip.startBeat));
+        const y = Math.round(vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY) + inset;
+        const w = Math.round(clip.durationBeats * ppb);
         const h = trackH - (inset * 2);
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
@@ -556,9 +547,13 @@ export class CanvasClipRenderer {
                 ctx.stroke();
                 ctx.restore();
             } else {
-                const hdrColor = `rgb(${headerR}, ${headerG}, ${headerB})`;
+                const hdrColor = clip.muted
+                    ? 'rgba(110, 115, 125, 0.8)'
+                    : `rgb(${headerR}, ${headerG}, ${headerB})`;
                 const bR = Math.max(0, Math.round(headerR * 0.60)), bG = Math.max(0, Math.round(headerG * 0.60)), bB = Math.max(0, Math.round(headerB * 0.60));
-                const bdyColor = `rgb(${bR}, ${bG}, ${bB})`;
+                const bdyColor = clip.muted
+                    ? 'rgba(80, 85, 95, 0.8)'
+                    : `rgb(${bR}, ${bG}, ${bB})`;
 
                 // Header-zone stroke (clipped to header area)
                 ctx.save();
@@ -807,13 +802,9 @@ export class CanvasClipRenderer {
         // Single clean 1px playhead line — no glow
         // snapCanvasLineX ensures the 1px line sits exactly in the center of the pixel
         ctx.save();
-        ctx.strokeStyle = theme.playhead;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const lineX = snapCanvasLineX(x, 1);
-        ctx.moveTo(lineX, rulerH);
-        ctx.lineTo(lineX, canvasH);
-        ctx.stroke();
+        ctx.fillStyle = theme.playhead;
+        const finalX = Math.round(x);
+        ctx.fillRect(finalX, rulerH, 1, Math.max(0, canvasH - rulerH));
         ctx.restore();
     }
 
@@ -830,7 +821,7 @@ export class CanvasClipRenderer {
 
         const yStart = vp.rulerHeight + vp.trackOffsetY(Math.min(trackStart, trackEnd)) - vp.scrollY;
         const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
-        const cursorX = Math.round(x) + 0.5;
+        const cursorX = Math.round(x);
 
 
         // Smooth pulse to avoid hard on/off flicker.
@@ -843,12 +834,10 @@ export class CanvasClipRenderer {
         ctx.globalCompositeOperation = 'screen';
         ctx.shadowColor = rgba(255, 255, 255, 0.7);
         ctx.shadowBlur = 3;
-        ctx.strokeStyle = rgba(255, 255, 255, Number(blink.toFixed(3)));
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(cursorX, Math.max(vp.rulerHeight, yStart));
-        ctx.lineTo(cursorX, Math.max(vp.rulerHeight, yEnd));
-        ctx.stroke();
+        ctx.fillStyle = rgba(255, 255, 255, Number(blink.toFixed(3)));
+        const finalYStart = Math.max(vp.rulerHeight, yStart);
+        const finalYEnd = Math.max(vp.rulerHeight, yEnd);
+        ctx.fillRect(cursorX, finalYStart, 1, Math.max(0, finalYEnd - finalYStart));
         ctx.restore();
     }
 
@@ -868,18 +857,9 @@ export class CanvasClipRenderer {
         ctx.fillStyle = theme.loopFill;
         ctx.fillRect(x1, y, x2 - x1, h);
 
-        ctx.strokeStyle = theme.loopBorder;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const startX = snapCanvasLineX(x1, 1);
-        ctx.moveTo(startX, y);
-        ctx.lineTo(startX, y + h);
-        ctx.stroke();
-        ctx.beginPath();
-        const endX = snapCanvasLineX(x2, 1);
-        ctx.moveTo(endX, y);
-        ctx.lineTo(endX, y + h);
-        ctx.stroke();
+        ctx.fillStyle = theme.loopBorder;
+        ctx.fillRect(Math.round(x1), y, 1, Math.max(0, h));
+        ctx.fillRect(Math.round(x2), y, 1, Math.max(0, h));
     }
 
     private _drawDropTarget(
@@ -918,22 +898,15 @@ export class CanvasClipRenderer {
         ctx.fillStyle = rgba(255, 255, 255, 0.06);
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
-        const sx1 = Math.round(x1) + 0.5;
-        const sx2 = Math.round(x2) + 0.5;
-        const sy1 = Math.round(y1) + 0.5;
-        const sy2 = Math.round(y2) + 0.5;
-        ctx.save();
-        ctx.setLineDash([]);
-        ctx.strokeStyle = rgba(255, 255, 255, 0.78);
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(sx1, sy1);
-        ctx.lineTo(sx2, sy1);
-        ctx.lineTo(sx2, sy2);
-        ctx.lineTo(sx1, sy2);
-        ctx.closePath();
-        ctx.stroke();
-        ctx.restore();
+        const sx1 = Math.round(x1);
+        const sx2 = Math.round(x2);
+        const sy1 = Math.round(y1);
+        const sy2 = Math.round(y2);
+        ctx.fillStyle = rgba(255, 255, 255, 0.78);
+        ctx.fillRect(sx1, sy1, sx2 - sx1, 1);
+        ctx.fillRect(sx1, sy2 - 1, sx2 - sx1, 1);
+        ctx.fillRect(sx1, sy1, 1, sy2 - sy1);
+        ctx.fillRect(sx2 - 1, sy1, 1, sy2 - sy1);
     }
 
     private _drawGhostClip(

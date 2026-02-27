@@ -209,10 +209,10 @@ impl DspProcessor for DrumBussProcessor {
             self.env_slow_r = c_slow_r * self.env_slow_r + (1.0 - c_slow_r) * abs_r;
 
             let trans_l = if self.env_slow_l > 1e-10 {
-                ((self.env_fast_l / self.env_slow_l - 1.0).max(0.0)).min(3.0)
+                (self.env_fast_l / self.env_slow_l - 1.0).clamp(0.0, 3.0)
             } else { 0.0 };
             let trans_r = if self.env_slow_r > 1e-10 {
-                ((self.env_fast_r / self.env_slow_r - 1.0).max(0.0)).min(3.0)
+                (self.env_fast_r / self.env_slow_r - 1.0).clamp(0.0, 3.0)
             } else { 0.0 };
 
             let tg_l = 1.0 + trans * trans_l;

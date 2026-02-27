@@ -105,7 +105,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     <div style={{ position: 'absolute', top: 0, left: clipBeats * pixelsPerBeat - 2, width: 2, height: RULER_HEIGHT, background: color, opacity: 0.85 }} />
                 </div>
 
-                <svg width={canvasWidth} height={canvasHeight} style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, pointerEvents: 'none' }}>
+                <svg width={canvasWidth} height={canvasHeight} shapeRendering="crispEdges" style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, pointerEvents: 'none' }}>
                     {visiblePitches.map((pitch, i) => {
                         const black = isBlackKey(pitch);
                         const inScale = scaleSet ? scaleSet.has(pitch) : true;
@@ -124,12 +124,12 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                         return (
                             <g key={`row-${i}`}>
                                 <rect x={0} y={i * noteHeight} width={canvasWidth} height={noteHeight} fill={fill} />
-                                <line x1={0} y1={(i + 1) * noteHeight} x2={canvasWidth} y2={(i + 1) * noteHeight} stroke={isC ? 'var(--color-piano-c-line)' : 'var(--color-border-subtle)'} strokeWidth={isC ? 1 : 0.5} />
+                                <line x1={0} y1={(i + 1) * noteHeight} x2={canvasWidth} y2={(i + 1) * noteHeight} stroke={isC ? 'var(--color-piano-c-line)' : 'var(--color-border-subtle)'} strokeWidth={1} />
                             </g>
                         );
                     })}
                     {gridLines.map((gl) => (
-                        <line key={`v-${Math.round(gl.x)}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45} />
+                        <line key={`v-${Math.round(gl.x)}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={1} />
                     ))}
                 </svg>
 
@@ -157,9 +157,9 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                                 style={{
                                     position: 'absolute',
                                     left: x,
-                                    top: y + 1,
-                                    width: Math.max(4, w - 1),
-                                    height: noteHeight - 2,
+                                    top: y,
+                                    width: Math.max(4, w),
+                                    height: noteHeight,
                                     background: 'transparent',
                                     borderRadius: 'var(--radius-xs)',
                                     border: isSelected

@@ -777,7 +777,8 @@ mod tests {
         assert!(final_path.exists());
 
         // Verify the WAV file is valid
-        let reader = hound::WavReader::open(&final_path).unwrap();
+        let reader = hound::WavReader::open(&final_path)
+            .expect("Test failed: WavReader could not open final_path");
         assert_eq!(reader.spec().sample_rate, 44100);
         assert_eq!(reader.spec().channels, 2);
         assert_eq!(reader.spec().bits_per_sample, 32);

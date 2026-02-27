@@ -1,4 +1,4 @@
-import { snapTimelineX } from './pixelSnap';
+
 
 interface MasterLaneGridStyle {
     backgroundColor: string;
@@ -42,7 +42,7 @@ export function buildMasterLaneGridLines(
     const subLines = new Set<number>();
     for (let beat = startBeat; beat <= endBeat; beat += gridStepBeats) {
         const barPhase = beat / beatsPerBar;
-        const x = snapTimelineX(beat * ppb - scrollX + alignmentOffsetPx, 1);
+        const x = Math.round(beat * ppb - scrollX + alignmentOffsetPx);
         if (x < -1 || x > viewportWidth + 1) continue;
         if (!Number.isFinite(x)) continue;
         if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) {

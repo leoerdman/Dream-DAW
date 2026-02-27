@@ -66,9 +66,9 @@ export function usePianoRollCanvasEngine({
             const x = note.startBeat * pixelsPerBeat;
             const rawY = pitchToY(note.pitch);
             if (rawY < 0) continue; // Bug #15: pitch not in visible row set
-            const y = rawY + 1;
-            const w = Math.max(3, note.durationBeats * pixelsPerBeat - 1);
-            const h = noteHeight - 2;
+            const y = rawY;
+            const w = Math.max(3, note.durationBeats * pixelsPerBeat);
+            const h = noteHeight;
             if (x + w < 0 || x > canvasWidth) continue;
             ctx.globalAlpha = 0.17;
             ctx.fillStyle = ghostFillColor;
@@ -79,9 +79,9 @@ export function usePianoRollCanvasEngine({
             const x = note.startBeat * pixelsPerBeat;
             const rawY = pitchToY(note.pitch);
             if (rawY < 0) continue; // Bug #15: pitch not in visible row set
-            const y = rawY + 1;
-            const w = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
-            const h = noteHeight - 2;
+            const y = rawY;
+            const w = Math.max(4, note.durationBeats * pixelsPerBeat);
+            const h = noteHeight;
 
             // Note body — rounded rect with subtle gradient feel
             // Audit #48: expand alpha range from [0.4, 1.0] to [0.15, 1.0] for better
@@ -105,7 +105,7 @@ export function usePianoRollCanvasEngine({
             ctx.strokeStyle = isSelected ? noteStrokeSelectedColor : noteStrokeDefaultColor;
             ctx.lineWidth = selectedNotes.has(note.id) ? 1.6 : 1.0;
             ctx.beginPath();
-            ctx.roundRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, h - 1), r);
+            ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
             ctx.stroke();
 
             // Selection outline
@@ -114,7 +114,7 @@ export function usePianoRollCanvasEngine({
                 ctx.strokeStyle = noteStrokeSelectedColor;
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
-                ctx.roundRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, h - 1), r);
+                ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
                 ctx.stroke();
             }
         }

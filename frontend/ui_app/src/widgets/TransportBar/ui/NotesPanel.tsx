@@ -21,7 +21,9 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const latestTextRef = useRef(text);
-    latestTextRef.current = text;
+    useEffect(() => {
+        latestTextRef.current = text;
+    }, [text]);
 
     // Load notes from project on mount
     useEffect(() => {

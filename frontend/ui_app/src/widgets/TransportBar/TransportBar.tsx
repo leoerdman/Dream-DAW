@@ -131,10 +131,12 @@ export const TransportBar = ({
             if (!raw) return;
             const parsed = JSON.parse(raw) as { right?: number; top?: number };
             if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
-                setNotesPanelPos({
-                    right: Math.max(8, Math.min(parsed.right, window.innerWidth - 200)),
-                    top: Math.max(40, Math.min(parsed.top, window.innerHeight - 200)),
-                });
+                const r = parsed.right;
+                const t = parsed.top;
+                setTimeout(() => setNotesPanelPos({
+                    right: Math.max(8, Math.min(r, window.innerWidth - 200)),
+                    top: Math.max(40, Math.min(t, window.innerHeight - 200)),
+                }), 0);
             }
         } catch { /* ignore */ }
     }, []);

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
@@ -208,17 +209,17 @@ export function usePianoRollWebGPUCanvasEngine({
             const x = note.startBeat * pixelsPerBeat;
             const y = pitchToY(note.pitch);
             if (y < 0) continue;
-            const w = Math.max(3, note.durationBeats * pixelsPerBeat - 1);
-            const h = Math.max(1, noteHeight - 2);
-            pushQuad(vertices, canvasWidth, canvasHeight, x, y + 1, w, h, 0.56, 0.66, 0.86, 0.14);
+            const w = Math.max(3, note.durationBeats * pixelsPerBeat);
+            const h = Math.max(1, noteHeight);
+            pushQuad(vertices, canvasWidth, canvasHeight, x, y, w, h, 0.56, 0.66, 0.86, 0.14);
         }
 
         for (const note of notes) {
             const x = note.startBeat * pixelsPerBeat;
             const y = pitchToY(note.pitch);
             if (y < 0) continue;
-            const w = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
-            const h = Math.max(1, noteHeight - 2);
+            const w = Math.max(4, note.durationBeats * pixelsPerBeat);
+            const h = Math.max(1, noteHeight);
             const vel = Math.max(0.15, Math.min(1, 0.15 + (note.velocity / 127) * 0.85));
             const selectedBoost = selectedNotes.has(note.id) ? 0.2 : 0;
             pushQuad(
@@ -226,7 +227,7 @@ export function usePianoRollWebGPUCanvasEngine({
                 canvasWidth,
                 canvasHeight,
                 x,
-                y + 1,
+                y,
                 w,
                 h,
                 Math.min(1, baseColor[0] + selectedBoost),

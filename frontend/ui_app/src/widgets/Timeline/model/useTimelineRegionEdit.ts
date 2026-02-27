@@ -5,7 +5,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useRegionEditStore } from '@/shared/stores/useRegionEditStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-import { snapTimelineX } from '../lib/pixelSnap';
+
 
 type Region = { startBeat: number; endBeat: number; startTrack: number; endTrack: number };
 
@@ -167,10 +167,10 @@ export function useTimelineRegionEdit({
         setStatusInfo(`Region ${which} captured`);
     };
 
-    const regionALineX = regionA ? snapTimelineX(regionA.startBeat * effectivePixelsPerBeat - viewportScrollX) : null;
-    const regionBLineX = regionB ? snapTimelineX(regionB.startBeat * effectivePixelsPerBeat - viewportScrollX) : null;
-    const regionAEndLineX = regionA ? snapTimelineX(regionA.endBeat * effectivePixelsPerBeat - viewportScrollX) : null;
-    const regionBEndLineX = regionB ? snapTimelineX(regionB.endBeat * effectivePixelsPerBeat - viewportScrollX) : null;
+    const regionALineX = regionA ? Math.round(regionA.startBeat * effectivePixelsPerBeat - viewportScrollX) : null;
+    const regionBLineX = regionB ? Math.round(regionB.startBeat * effectivePixelsPerBeat - viewportScrollX) : null;
+    const regionAEndLineX = regionA ? Math.round(regionA.endBeat * effectivePixelsPerBeat - viewportScrollX) : null;
+    const regionBEndLineX = regionB ? Math.round(regionB.endBeat * effectivePixelsPerBeat - viewportScrollX) : null;
     const regionALengthBeats = regionA ? Math.max(0, regionA.endBeat - regionA.startBeat) : 0;
     const regionBLengthBeats = regionB ? Math.max(0, regionB.endBeat - regionB.startBeat) : 0;
     const regionsSwapCompatible = useMemo(

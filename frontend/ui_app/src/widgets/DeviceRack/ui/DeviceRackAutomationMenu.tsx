@@ -35,7 +35,7 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
 
     useEffect(() => {
         if (!autoCtxMenu) {
-            setCoords({ x: -9999, y: -9999, opacity: 0, pointerEvents: 'none' });
+            setTimeout(() => setCoords({ x: -9999, y: -9999, opacity: 0, pointerEvents: 'none' }), 0);
             return;
         }
 

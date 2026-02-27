@@ -8,7 +8,7 @@ import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 
 interface UseBrowserDnDOrchestratorArgs {
     tracks: EntityState<ProjectTrack>;
-    selectedTrackId: string;
+
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
@@ -30,7 +30,7 @@ const resolvePluginSlot = (
 
 export const useBrowserDnDOrchestrator = ({
     tracks,
-    selectedTrackId,
+
     projectBpm,
     transportBpm,
     projectSampleRate,
@@ -87,7 +87,7 @@ export const useBrowserDnDOrchestrator = ({
             }
         }
         if (lastErr) throw lastErr;
-    }, [getTrackById, applyProjectDeltas, selectedTrackId]);
+    }, [getTrackById, applyProjectDeltas]);
 
     const addDefaultDeviceToTrack = useCallback(async (trackId: string) => {
         const track = getTrackById(trackId);

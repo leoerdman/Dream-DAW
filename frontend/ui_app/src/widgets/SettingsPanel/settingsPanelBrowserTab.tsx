@@ -84,8 +84,10 @@ interface BrowserTabProps {
     updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 }
 
+const EMPTY_ARRAY: string[] = [];
+
 export function BrowserTab({ settings, updateSetting }: BrowserTabProps) {
-    const excluded = settings.browserExcludedFormats ?? [];
+    const excluded = settings.browserExcludedFormats ?? EMPTY_ARRAY;
 
     const isFormatEnabled = useCallback(
         (groupId: string) => !excluded.includes(groupId),

@@ -147,7 +147,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await engineApi.saveProject();
             await syncProjectHistory();
 
-        } catch (err) {
+        } catch {
             // If no path set, fallback to Save As
             // BUG-041 FIX: console.log removed. If no path, fallback to Save As.
             handleSaveAs();

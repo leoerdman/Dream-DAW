@@ -167,17 +167,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
         return false;
     }, []);
 
-    const resolveEffectInsertIndex = useCallback((track: ProjectTrack): number | undefined => {
-        const selectedTrackId = dreamGlobals.getSelectedTrackId();
-        if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
-        const rackScope = typeof document !== 'undefined'
-            ? document.querySelector<HTMLElement>('[data-keyboard-scope="device-rack"]')
-            : null;
-        const selectedDeviceId = rackScope?.dataset?.selectedDeviceId ?? '';
-        if (!selectedDeviceId) return undefined;
-        const selectedEffectIndex = track.effects.findIndex((effect) => effect?.id === selectedDeviceId);
-        return selectedEffectIndex >= 0 ? selectedEffectIndex + 1 : undefined;
-    }, []);
+
 
     const resolveSelectedTrack = useCallback(() => {
         const selected = dreamGlobals.getSelectedTrackId();
@@ -280,7 +270,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             console.error('[AssetBrowser] Enter action failed:', err);
             statusError(`Asset Browser: failed to import item: ${String(err)}`);
         }
-    }, [enterNonceRef, getTrackIndexById, hasTimelineClipsOnTrack, resolveSelectedTrack, resolveEffectInsertIndex, statusClear, statusError]);
+    }, [enterNonceRef, getTrackIndexById, hasTimelineClipsOnTrack, resolveSelectedTrack, statusClear, statusError]);
 
     return { handleItemEnter };
 }

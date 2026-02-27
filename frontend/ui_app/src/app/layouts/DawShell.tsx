@@ -385,7 +385,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         dropPluginOnTrack,
     } = useBrowserDnDOrchestrator({
         tracks: tracksEntity,
-        selectedTrackId,
         projectBpm,
         transportBpm: transportBpm || DEFAULT_BPM,
         projectSampleRate,

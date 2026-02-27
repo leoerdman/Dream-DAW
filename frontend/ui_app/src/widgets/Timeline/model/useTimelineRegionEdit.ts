@@ -57,7 +57,7 @@ export function useTimelineRegionEdit({
 
     const splitRegionBoundaries = async (range: Region) => {
         const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const splitBeats = [range.startBeat, range.endBeat];
         const EPS = 1e-6;
@@ -86,7 +86,7 @@ export function useTimelineRegionEdit({
         if (sourceClips.length === 0) return setStatusInfo('Region Duplicate: nothing to duplicate');
         const lenBeats = Math.max(0.0001, range.endBeat - range.startBeat);
         const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const responses = await Promise.all(
             sourceClips.map((clip) =>
@@ -113,7 +113,7 @@ export function useTimelineRegionEdit({
         let deltaBeats = direction * lenBeats;
         if (deltaBeats < 0) deltaBeats = Math.max(deltaBeats, -range.startBeat);
         const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const responses = await Promise.all(
             sourceClips.map((clip) =>
@@ -144,7 +144,7 @@ export function useTimelineRegionEdit({
         const clipsA = collectRegionClips(regionA);
         const clipsB = collectRegionClips(regionB);
         const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const currentBpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const deltaBeat = regionB.startBeat - regionA.startBeat;
         const deltaTrack = regionB.startTrack - regionA.startTrack;

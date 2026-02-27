@@ -14,7 +14,7 @@ async fn move_track_to_index_cmd(
         &track_id,
         target_index,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -50,7 +50,7 @@ async fn move_track_to_index_with_deltas_cmd(
         &track_id,
         target_index,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -95,7 +95,7 @@ async fn move_track_with_parent_cmd(
         target_index,
         target_parent_group_id.as_deref(),
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -132,7 +132,7 @@ async fn move_track_with_parent_with_deltas_cmd(
         target_index,
         target_parent_group_id.as_deref(),
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;

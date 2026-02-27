@@ -40,8 +40,7 @@ pub static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic
 /// AUDIT-S1-01: RT-safe counter for zero-duration clips encountered during rendering.
 /// Replaces the previous log::warn! which acquired a global Mutex in the log backend,
 /// violating RT-safety constraints on the audio thread.
-pub static ZERO_DURATION_CLIP_COUNT: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
+// Zero duration clip count atomic removed for RT safety (Bug 69)
 
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
@@ -63,7 +62,7 @@ pub fn spectrum_drop_count() -> u32 {
 pub fn reset_diagnostic_counters() {
     POOL_MISS_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
     SPECTRUM_DROP_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    ZERO_DURATION_CLIP_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    // atomic clear removed
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -127,10 +126,10 @@ impl TrackSlot {
             instrument_bypassed: false,
             ext_left: vec![0.0; max_frames],
             ext_right: vec![0.0; max_frames],
-            vst3_midi_scratch: Vec::with_capacity(512),
-            midi_schedule_scratch: Vec::with_capacity(512),
-            midi_schedule_tmp: Vec::with_capacity(512),
-            midi_events_scratch: Vec::with_capacity(512),
+            vst3_midi_scratch: Vec::with_capacity(4096),
+            midi_schedule_scratch: Vec::with_capacity(4096),
+            midi_schedule_tmp: Vec::with_capacity(4096),
+            midi_events_scratch: Vec::with_capacity(4096),
         }
     }
 
@@ -204,9 +203,8 @@ pub struct RenderContext {
     /// audio is read from the streaming window instead of the in-memory pool.
     /// This prevents OOM for files exceeding `RAM_THRESHOLD_BYTES`.
     ///
-    /// AUD-002 NOTE: Uses Vec instead of HashMap to prevent allocation
-    /// on insert. Reads in the hot path (`.find()`) are O(N) but N is very small.
-    pub streaming_windows: Vec<(String, StreamingWindow)>,
+    /// AUD-002 NOTE: Now uses HashMap for O(1) lookups to avoid O(N) string comparisons.
+    pub streaming_windows: std::collections::HashMap<String, StreamingWindow>,
 
     /// Reused active-clip scratch (pre-allocated, no per-buffer allocs).
     scratch_active_clips: Vec<ActiveClipInfo>,
@@ -286,7 +284,7 @@ impl RenderContext {
             channels: channels.max(1),
             meter_bank,
             loop_region: None,
-            streaming_windows: Vec::with_capacity(32),
+            streaming_windows: std::collections::HashMap::with_capacity(32),
             // AUD-071 FIX: 128 active clips per buffer is the realistic max.
             // 1024 wastes 7× memory for the scratch Vec's backing allocation.
             scratch_active_clips: Vec::with_capacity(128),
@@ -442,7 +440,7 @@ impl RenderContext {
                 // BUG-011 FIX: Also skip the clip entirely — zero-duration clips
                 // have no audio to render and entering the read path wastes cycles.
                 if clip.duration.sample_frame <= 0 {
-                    ZERO_DURATION_CLIP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    // Counter increment removed (Bug 69)
                     continue;
                 }
                 let clip_source_len = if clip.warp_source_duration_frames > 0 {
@@ -553,11 +551,7 @@ impl RenderContext {
                             WarpResampleMode::Standard,
                         );
                     }
-                } else if let Some((_, window)) = self
-                    .streaming_windows
-                    .iter()
-                    .find(|(p, _)| p == &clip.file_path)
-                {
+                } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
                     total_pool_hits += 1;
                     let source_to_device_rate = (window.sample_rate().max(1) as f64
                         / self.sample_rate.max(1.0))

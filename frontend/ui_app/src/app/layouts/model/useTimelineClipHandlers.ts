@@ -62,7 +62,7 @@ export function useTimelineClipHandlers({
                 nextClipIds
                     .map((id) => nextClipsEntityById[id])
                     .filter((clip): clip is TimelineClip => Boolean(clip)),
-            );
+            ) as TimelineClip[];
             const nextClipsById = Object.fromEntries(nextTimelineClips.map((clip) => [clip.id, clip]));
 
             return {
@@ -199,7 +199,7 @@ export function useTimelineClipHandlers({
                 // Hot-path interaction: avoid console I/O on every drag commit.
             })
             .catch((err) => {
-                console.error('[DawShell] moveClip failed:', err);
+                console.error('[Dream] moveClip failed:', err);
                 if (isClipNotFoundError(err)) return;
                 useStatusStore.getState().setError(`Clip move failed: ${err instanceof Error ? err.message : String(err)}`);
             });
@@ -239,7 +239,7 @@ export function useTimelineClipHandlers({
                     pruneGhostClip(clipId);
                     return;
                 }
-                console.error('[DawShell] resizeClip failed:', err);
+                console.error('[Dream] resizeClip failed:', err);
                 useStatusStore.getState().setError(`Clip resize failed: ${err instanceof Error ? err.message : String(err)}`);
             });
     }, [applyProjectDeltas, projectBpm, projectSampleRate, pruneGhostClip]);
@@ -261,7 +261,7 @@ export function useTimelineClipHandlers({
                     pruneGhostClip(clipId);
                     return;
                 }
-                console.error('[DawShell] setClipFades failed:', err);
+                console.error('[Dream] setClipFades failed:', err);
                 // BUG-062: Surface error to user via status store.
                 useStatusStore.getState().setError(`Clip fades failed: ${err instanceof Error ? err.message : String(err)}`);
             });
@@ -317,7 +317,7 @@ export function useTimelineClipHandlers({
                 }
                 return newId;
             } catch (err) {
-                console.error('[DawShell] duplicateClip (Cmd+Drag) failed:', err);
+                console.error('[Dream] duplicateClip (Cmd+Drag) failed:', err);
                 useStatusStore.getState().setError(
                     `Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`,
                 );
@@ -363,7 +363,7 @@ export function useTimelineClipHandlers({
         };
 
         void run().catch((err) => {
-            console.error('[DawShell] Cmd+Drag duplicate failed:', err);
+            console.error('[Dream] Cmd+Drag duplicate failed:', err);
         });
     }, [
         applyProjectDeltas,

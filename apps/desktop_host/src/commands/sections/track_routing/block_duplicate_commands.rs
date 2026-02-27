@@ -14,7 +14,7 @@ async fn move_track_block_to_index_cmd(
         &root_track_id,
         target_index,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -54,7 +54,7 @@ async fn move_track_block_to_index_with_deltas_cmd(
         &root_track_id,
         target_index,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -95,7 +95,7 @@ async fn duplicate_tracks_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     if cmd.track_ids.is_empty() {
         return Ok(());
     }
@@ -132,7 +132,7 @@ async fn duplicate_tracks_with_deltas_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     if cmd.track_ids.is_empty() {
         return Ok(DeltaMutationResponse { deltas: vec![] });
     }

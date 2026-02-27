@@ -68,7 +68,7 @@ fn ensure_engine_on_active_project(
     let project = target_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
 
     let _ = plugin_host_state.unload_all_instances();

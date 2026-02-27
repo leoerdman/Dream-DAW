@@ -30,7 +30,7 @@ export function createAdaptiveParamSenderFactory(
                 lastSentAt = startedAt;
                 void Promise.resolve(emit(payload.value, payload.pushUndoStep))
                     .catch((err) => {
-                        console.error('[DeviceRack] parameter send failed:', err);
+                        console.error('[Dream] parameter send failed:', err);
                     })
                     .finally(() => {
                         const elapsed = Math.max(1, performance.now() - startedAt);
@@ -50,7 +50,7 @@ export function createAdaptiveParamSenderFactory(
                     lastSentAt = startedAt;
                     void Promise.resolve(emit(value, true))
                         .catch((err) => {
-                            console.error('[DeviceRack] parameter send failed:', err);
+                            console.error('[Dream] parameter send failed:', err);
                         })
                         .finally(() => {
                             const elapsed = Math.max(1, performance.now() - startedAt);
@@ -99,7 +99,7 @@ export function createAdaptiveRuntimeBatchSenderFactory(
                 void Promise.resolve(emit(payload))
                     .catch((err) => {
                         // BUG-R4-030 FIX: Log error — caller cannot observe async rejections in this chain.
-                        console.warn('[DeviceRack] runtime batch param send failed:', err);
+                        console.warn('[Dream] runtime batch param send failed:', err);
                     })
                     .finally(() => {
                         const elapsed = Math.max(1, performance.now() - startedAt);

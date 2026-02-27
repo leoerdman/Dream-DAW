@@ -43,7 +43,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         if (open) {
             engineApi.getRecentProjects()
                 .then(setRecentProjects)
-                .catch(err => console.error('[FileMenu] Failed to load recent:', err));
+                .catch(err => console.error('[Dream] Failed to load recent:', err));
         }
     }, [open]);
 
@@ -55,7 +55,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save should proceed even if viewport persistence fails.
-            console.warn('[FileMenu] setArrangementViewport failed (non-fatal):', err);
+            console.warn('[Dream] setArrangementViewport failed (non-fatal):', err);
         }
     }, []);
 
@@ -70,7 +70,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             onProjectChange?.();
 
         } catch (err) {
-            console.error('[FileMenu] New project failed:', err);
+            console.error('[Dream] New project failed:', err);
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -93,7 +93,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             onProjectChange?.();
 
         } catch (err) {
-            console.error('[FileMenu] Open failed:', err);
+            console.error('[Dream] Open failed:', err);
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -114,7 +114,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             onProjectChange?.();
 
         } catch (err) {
-            console.error('[FileMenu] Open recent failed:', err);
+            console.error('[Dream] Open recent failed:', err);
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -126,7 +126,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             try {
                 await globalSaveAs();
             } catch (err) {
-                console.error('[FileMenu] Save As (via global bridge) failed:', err);
+                console.error('[Dream] Save As (via global bridge) failed:', err);
             }
             return;
         }
@@ -143,7 +143,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncProjectHistory();
 
         } catch (err) {
-            console.error('[FileMenu] Save As failed:', err);
+            console.error('[Dream] Save As failed:', err);
         }
     }, [syncProjectHistory, syncArrangementViewport]);
 
@@ -155,7 +155,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             try {
                 await globalSave();
             } catch (err) {
-                console.error('[FileMenu] Save (via global bridge) failed:', err);
+                console.error('[Dream] Save (via global bridge) failed:', err);
             }
             return;
         }
@@ -175,7 +175,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (isNoPath) {
                 handleSaveAs();
             } else {
-                console.error('[FileMenu] Save failed (unexpected):', err);
+                console.error('[Dream] Save failed (unexpected):', err);
                 handleSaveAs();
             }
         }

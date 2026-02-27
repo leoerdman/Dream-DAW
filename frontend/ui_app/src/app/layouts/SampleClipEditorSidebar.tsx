@@ -43,7 +43,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
         onTogglePreview,
     } = props;
 
-    const clampPitch = (value: number) => clampPitchShift(Math.round(value || 0));
+    const clampPitch = (value: number) => clampPitchShift(Math.round(value ?? 0));
     const nudgePitch = (delta: number) => {
         const next = clampPitch(draftPitch + delta);
         setDraftPitch(next);

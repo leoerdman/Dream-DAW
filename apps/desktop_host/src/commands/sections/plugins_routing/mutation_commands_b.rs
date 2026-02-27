@@ -34,7 +34,7 @@ fn set_sampler_sample_cmd(
         sample_path.clone(),
         payload.root_note,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
 
@@ -318,7 +318,7 @@ async fn move_effect_slot_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
         target,
         slot_id: slot_uuid,
@@ -330,10 +330,10 @@ async fn move_effect_slot_cmd(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -372,7 +372,7 @@ async fn move_effect_slot_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
         target,
         slot_id: slot_uuid,
@@ -384,10 +384,10 @@ async fn move_effect_slot_with_deltas_cmd(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(PluginMutationDeltaResponse { deltas: Vec::new() });

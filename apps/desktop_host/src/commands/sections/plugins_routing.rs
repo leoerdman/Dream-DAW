@@ -88,7 +88,7 @@ fn get_plugin_slot_runtime_status_cmd(
         let sandbox_map = plugin_host_state
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
         (
             sandbox_map.contains_key(&slot.plugin_id),
             sandbox_map.get(&slot.plugin_id).copied(),

@@ -14,8 +14,8 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 // ── Track selectors ──────────────────────────────────────────────────────
 
-/** Select all tracks as an ordered array (same as projectTracks). */
-export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => s.projectTracks;
+/** Select all tracks as an ordered array. */
+export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => s.tracks.allIds.map(id => s.tracks.byId[id]);
 
 /** Select a single track by ID. Returns undefined if not found. */
 export const selectTrackById = (id: string) =>

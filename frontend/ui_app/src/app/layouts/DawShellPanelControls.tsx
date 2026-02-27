@@ -207,7 +207,7 @@ function SessionStripFaderInner({
                 </div>
 
                 {/* 0dB Marker Line */}
-                <div style={{ position: 'absolute', left: 16, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'var(--color-divider-strong)', pointerEvents: 'none', zIndex: 0 }} />
+                <div style={{ position: 'absolute', left: 16, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'var(--color-divider-strong)', pointerEvents: 'none', zIndex: 'var(--z-canvas)' }} />
 
                 {/* STEREO METER */}
                 <div style={{ position: 'relative', flex: 1, maxWidth: 14, borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-1)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>

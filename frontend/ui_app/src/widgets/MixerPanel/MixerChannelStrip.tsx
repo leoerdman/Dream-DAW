@@ -55,6 +55,26 @@ const SELECT_STYLE: React.CSSProperties = {
     whiteSpace: 'nowrap' as const,
 };
 
+const TRACK_NAME_STYLE: React.CSSProperties = {
+    height: 22,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)',
+    textTransform: 'uppercase',
+    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+    padding: '0 4px',
+    flexShrink: 0,
+    borderBottom: '1px solid rgba(0,0,0,0.3)',
+};
+
+const ROUTING_CONTAINER_STYLE: React.CSSProperties = { padding: '3px 4px 2px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
+const PAN_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
+const PAN_SLIDER_BG_STYLE: React.CSSProperties = { position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)' };
+const PAN_SLIDER_INPUT_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' };
+
+const FADER_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 };
+const FADER_TRACK_STYLE: React.CSSProperties = { flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' };
+const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' };
+
 export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
     trackIndex,
@@ -121,23 +141,12 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             }}
         >
             {/* ── Track Name Header ── */}
-            <div style={{
-                height: 22,
-                background: trackColor,
-                color: headerTextColor,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)',
-                textTransform: 'uppercase',
-                overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                padding: '0 4px',
-                flexShrink: 0,
-                borderBottom: '1px solid rgba(0,0,0,0.3)',
-            }}>
+            <div style={{ ...TRACK_NAME_STYLE, background: trackColor, color: headerTextColor }}>
                 {track.name}
             </div>
 
             {/* ── Routing: Audio From / Audio To ── */}
-            <div style={{ padding: '3px 4px 2px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
+            <div style={ROUTING_CONTAINER_STYLE}>
                 <div style={LABEL_STYLE}>Audio From</div>
                 <div style={SELECT_STYLE}>{track.input || 'No Input'}</div>
                 <div style={{ ...LABEL_STYLE, marginTop: 2 }}>Audio To</div>
@@ -145,16 +154,16 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             </div>
 
             {/* ── Pan Slider ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
+            <div style={PAN_CONTAINER_STYLE}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)' }}>
+                    <div style={PAN_SLIDER_BG_STYLE}>
                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
                         <div style={{ position: 'absolute', top: 1, left: `calc(${((panVal + 1) / 2) * 100}% - 4px)`, width: 8, height: 8, borderRadius: 1, background: 'var(--color-accent-primary)' }} />
                         <input
                             type="range" min={-1} max={1} step={0.01} value={panVal}
                             onChange={(e) => { e.stopPropagation(); onPanChange(trackIndex, Number(e.target.value)); }}
                             onDoubleClick={(e) => { e.stopPropagation(); onPanChange(trackIndex, 0); }}
-                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' }}
+                            style={PAN_SLIDER_INPUT_STYLE}
                         />
                     </div>
                     <span style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 1 }}>
@@ -164,7 +173,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             </div>
 
             {/* ── Volume Fader & Meters (fills remaining height) ── */}
-            <div style={{ display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 }}>
+            <div style={FADER_CONTAINER_STYLE}>
                 {/* Fader track */}
                 <div
                     ref={faderRef}
@@ -174,10 +183,10 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     onPointerCancel={endDrag}
                     onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(trackIndex, 1.0); void useEngineStore.getState().flushTrackControlFinals(); }}
                     onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; const next = Math.max(0, Math.min(2, (track.volume ?? 1) + (e.deltaY < 0 ? step : -step))); onVolumeChange(trackIndex, next); debouncedFlush(); }}
-                    style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
+                    style={FADER_TRACK_STYLE}
                 >
                     {/* Fader Groove */}
-                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, black)', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, black)', borderRadius: 3, boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }} />
+                    <div style={FADER_GROOVE_STYLE} />
 
                     {/* Fader Handle */}
                     <div style={{

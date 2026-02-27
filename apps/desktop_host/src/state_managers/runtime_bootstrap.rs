@@ -120,29 +120,33 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
 
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
+    let shared_state = dream_engine::driver::AudioSharedState {
+        clock: clock_for_engine,
+        meter_bank: meter_for_engine,
+        clip_pool: clip_pool_for_engine,
+        clip_snapshot: snapshot_for_engine,
+        midi_snapshot: midi_snapshot_for_engine,
+        routing_snapshot: routing_snapshot_for_engine,
+        sidechain_snapshot: sidechain_snapshot_for_engine,
+        external_fx_snapshot: external_fx_snapshot_for_engine,
+        automation_snapshot: automation_snapshot_for_engine,
+        sampler_samples: sampler_samples_for_engine,
+        sample_rack_samples: sample_rack_samples_for_engine,
+        prepared_graph_snapshot: prepared_graph_snapshot_for_engine,
+        rt_debug_stats: rt_debug_stats_for_engine,
+        plugin_registry: plugin_registry_for_engine,
+        preview_buffer: preview_buffer_for_engine,
+        preview_cursor: preview_cursor_for_engine,
+        preview_source_sr: preview_source_sr_for_engine,
+        disk_streamers: disk_streamers_for_engine,
+    };
+
     let mut stream = dream_engine::driver::start_audio_thread_on_device(
         consumer,
-        clock_for_engine,
-        meter_for_engine,
-        clip_pool_for_engine,
-        snapshot_for_engine,
-        midi_snapshot_for_engine,
-        routing_snapshot_for_engine,
-        sidechain_snapshot_for_engine,
-        external_fx_snapshot_for_engine,
-        automation_snapshot_for_engine,
-        sampler_samples_for_engine,
-        sample_rack_samples_for_engine,
-        prepared_graph_snapshot_for_engine,
-        rt_debug_stats_for_engine,
-        plugin_registry_for_engine,
-        preview_buffer_for_engine,
-        preview_cursor_for_engine,
-        preview_source_sr_for_engine,
-        disk_streamers_for_engine,
+        prealloc_consumer,
+        shared_state,
         preferred_output_device.as_deref(),
         Some(stream_error_tx.clone()),
-        prealloc_consumer,
         preferred_buffer_size_for_cpal,
     )
     .map_err(|err| format!("failed to start audio engine: {err}"))?;

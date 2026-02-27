@@ -7,8 +7,6 @@ export interface EntityState<T> {
 }
 
 export interface TrackStatePatch<T> {
-    projectTracks: T[];
-    tracksById: Record<string, T>;
     tracks: EntityState<T>;
 }
 
@@ -93,11 +91,6 @@ export function buildTrackStatePatch<T>(
     byId: Record<string, T>,
 ): TrackStatePatch<T> {
     return {
-        projectTracks: materializeByIds(allIds, byId),
-        tracksById: byId,
-        tracks: {
-            byId,
-            allIds,
-        },
+        tracks: { byId, allIds },
     };
 }

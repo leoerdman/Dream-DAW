@@ -53,7 +53,7 @@ pub struct LiveGraph {
     /// Incremented on every swap_graph() for debugging plan staleness.
     generation: AtomicU64,
     // GR-012 FIX: Deferred garbage collection to prevent RT deallocations.
-    garbage: std::sync::Mutex<Vec<Arc<ExecutionPlan>>>,
+    garbage: parking_lot::Mutex<Vec<Arc<ExecutionPlan>>>,
 }
 
 impl LiveGraph {
@@ -66,7 +66,7 @@ impl LiveGraph {
         Ok(Self {
             current_plan: ArcSwap::from_pointee(plan),
             generation: AtomicU64::new(1),
-            garbage: std::sync::Mutex::new(Vec::new()),
+            garbage: parking_lot::Mutex::new(Vec::new()),
         })
     }
 
@@ -86,7 +86,7 @@ impl LiveGraph {
         Self {
             current_plan: ArcSwap::from_pointee(empty_plan),
             generation: AtomicU64::new(0),
-            garbage: std::sync::Mutex::new(Vec::new()),
+            garbage: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -107,10 +107,10 @@ impl LiveGraph {
         // If the RT thread is holding a guard, it would drop the last reference
         // and pay the deallocation cost. By pushing to `garbage`, we guarantee
         // the UI thread holds a strong ref and pays the drop cost on the next swap.
-        if let Ok(mut trash) = self.garbage.lock() {
-            trash.clear(); // Drop previous plans on the UI thread
-            trash.push(old_arc);
-        }
+        // parking_lot locks never poison, lock directly
+        let mut trash = self.garbage.lock();
+        trash.clear(); // Drop previous plans on the UI thread
+        trash.push(old_arc);
 
         // GR-027 FIX: Increment generation counter for staleness tracking.
         self.generation.fetch_add(1, AtomicOrdering::Release);

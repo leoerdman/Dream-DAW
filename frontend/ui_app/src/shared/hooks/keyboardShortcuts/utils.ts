@@ -106,7 +106,7 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
 
 export function resolveSplitFrame(playheadFrames: number, editCursorBeat: number | undefined): number {
     const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+    const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const splitBeat = Number.isFinite(editCursorBeat) && (editCursorBeat ?? -1) >= 0
         ? (editCursorBeat as number)

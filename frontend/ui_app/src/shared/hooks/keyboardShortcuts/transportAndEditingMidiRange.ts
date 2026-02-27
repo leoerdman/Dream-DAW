@@ -18,7 +18,7 @@ export async function handleCreateMidiClipRangeShortcut(
     const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
     const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
     const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+    const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
     const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);

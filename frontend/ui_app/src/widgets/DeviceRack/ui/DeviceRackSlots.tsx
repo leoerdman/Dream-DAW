@@ -70,7 +70,7 @@ export function DeviceSlot({
                 void engineApi
                     .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, targetIdx)
                     .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot'))
-                    .catch((err) => console.error('[DeviceRack] moveEffectSlot failed:', err));
+                    .catch((err) => console.error('[Dream] moveEffectSlot failed:', err));
             }}
             className="dream-device-drop-indicator"
             style={{ display: 'flex', flexShrink: 0, height: 'var(--rack-row-height, 100%)', transition: 'border 0.1s ease', position: 'relative' }}
@@ -141,7 +141,7 @@ export function DeviceSlot({
                         const response = await engineApi.setSamplerSampleWithDeltas(selectedTrack.id, normalizedPath);
                         await logic.applyProjectDeltas(response.deltas, 'device-rack:set-sampler-sample-drop');
                     } catch (err) {
-                        console.error('[DeviceRack] sampler device drop failed:', err);
+                        console.error('[Dream] sampler device drop failed:', err);
                         logic.statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
                     }
                 }}
@@ -160,7 +160,7 @@ export function DeviceSlot({
                         await logic.applyProjectDeltas(response.deltas, 'device-rack:set-sampler-sample-dialog');
                         logic.statusClear();
                     } catch (err) {
-                        console.error('[DeviceRack] setSamplerSample failed:', err);
+                        console.error('[Dream] setSamplerSample failed:', err);
                         logic.statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
                     }
                 }}
@@ -177,7 +177,7 @@ export function DeviceSlot({
                         }
                         logic.statusClear();
                     } catch (err) {
-                        console.error('[DeviceRack] togglePluginEditor failed:', err);
+                        console.error('[Dream] togglePluginEditor failed:', err);
                         logic.statusError(`Failed to open native plugin UI: ${errorMessage(err)}`);
                     }
                 }}

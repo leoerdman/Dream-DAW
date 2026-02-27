@@ -111,7 +111,7 @@ export const useBrowserDnDOrchestrator = ({
         if (item.type !== 'audio' && item.type !== 'midi') return;
         if (!item.path) return;
 
-        const bpm = resolveBpm(projectBpm, transportBpm);
+        const bpm = resolveBpm(transportBpm);
         const sr = resolveSampleRate(projectSampleRate);
         const positionFrames = beatToFrame(beat, bpm, sr);
         const resolvedTrackIndex = getTrackIndexById(track.id);

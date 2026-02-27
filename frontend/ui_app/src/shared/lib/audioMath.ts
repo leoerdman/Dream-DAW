@@ -57,12 +57,21 @@ export function beatToSeconds(beat: number, bpm: number): number {
  * Alias for `beatToFrame` — semantically identical but reads better
  * when the value represents a duration rather than a position.
  */
-export function beatDurationToFrames(durationBeats: number, bpm: number, sampleRate: number): number {
-    const safeBpm = Math.max(1, bpm || DEFAULT_BPM);
-    const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
-    return Math.round((durationBeats * 60 * safeSr) / safeBpm);
+/** BUG-095 SSOT: standardized samples per beat calculation */
+export function getSamplesPerBeat(bpm: number, sampleRate: number): number {
+    const safeBpm = Math.max(0.1, bpm);
+    return Math.max(1, (sampleRate * 60) / safeBpm);
 }
 
+export function beatDurationToFrames(durationBeats: number, bpm: number, sampleRate: number): number {
+    return durationBeats * getSamplesPerBeat(bpm, sampleRate);
+}
+
+// Ensure 0 is avoided for playback rates
+export function speedRatioToSemitone(speedRatio: number): number {
+    if (speedRatio <= 0) return -100; // arbitrary very low bound
+    return 12 * Math.log2(speedRatio);
+}
 /**
  * Clamp a frame position to a non-negative value.
  */
@@ -95,7 +104,7 @@ export const MAX_BPM = 999;
  * Resolve the effective BPM from project → transport → fallback.
  *
  * This is the SSOT for BPM resolution — replaces the
- * `store.projectBpm || store.transport.bpm || 120` pattern
+ * `store.transport.bpm || store.transport.bpm || 120` pattern
  * that was duplicated 40+ times across the codebase.
  */
 export function resolveBpm(projectBpm?: number | null, transportBpm?: number | null): number {

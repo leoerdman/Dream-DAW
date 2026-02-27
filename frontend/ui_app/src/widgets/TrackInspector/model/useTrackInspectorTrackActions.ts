@@ -74,7 +74,7 @@ export function useTrackInspectorTrackActions({
                 .armTrackWithDeltas(idx, newArmed)
                 .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:arm'))
                 .catch((err) => {
-                    console.error('[TrackInspector] armTrack failed:', err);
+                    console.error('[Dream] armTrack failed:', err);
                 });
         }
         setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
@@ -86,7 +86,7 @@ export function useTrackInspectorTrackActions({
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:routing');
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], output: targetId } }));
         } catch (err) {
-            console.error('[TrackInspector] setTrackRouting failed:', err);
+            console.error('[Dream] setTrackRouting failed:', err);
         }
     }, [setLocalOverrides]);
 
@@ -96,7 +96,7 @@ export function useTrackInspectorTrackActions({
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:set-input');
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
         } catch (err) {
-            console.error('[TrackInspector] setTrackInput failed:', err);
+            console.error('[Dream] setTrackInput failed:', err);
         }
     }, [setLocalOverrides]);
 

@@ -59,7 +59,7 @@ export function useDeviceRackLifecycle({
         if (prevSlots && prevSlots.size > 0 && prevId) {
             for (const slotId of prevSlots) {
                 engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
-                    console.warn('[DeviceRack] close editor on track leave failed:', err),
+                    console.warn('[Dream] close editor on track leave failed:', err),
                 );
             }
             useEngineStore.setState((s) => ({

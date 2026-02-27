@@ -266,7 +266,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                         break;
                     }
                 }
-                // BUG-F008 FIX: Use pitch+startBeat for stable ID generation instead of array index.
+                // BUG-F011 FIX: Use pitch+startBeat for stable ID generation instead of array index.
                 // Array index changes when notes are reordered on the backend.
                 return {
                     id: matchedId ?? `${delta.data.clip_id}:n${pitch}:${startBeat.toFixed(6)}`,

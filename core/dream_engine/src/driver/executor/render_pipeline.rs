@@ -77,9 +77,7 @@ pub(super) fn process_master_bus(
     is_playing: bool,
     time_sig_numerator: u8,
     time_sig_denominator: u8,
-    master_gain_target: f32,
-    master_gain_current: &mut f32,
-    master_gain_smooth: f32,
+    master_gain_smoother: &mut crate::oscillator::ParameterSmoother,
     _render_ctx: &mut RenderContext,
     process_ctx: &ProcessContext,
     _export_active: bool,
@@ -206,18 +204,10 @@ pub(super) fn process_master_bus(
         );
     }
 
-    // BUG-058 FIX: Lowered snap threshold from 0.5 to 0.15.
-    // 0.5 (≈-6dBFS) was too aggressive — normal volume changes (e.g., +3dB)
-    // caused audible discontinuity. Now only snaps for extreme jumps (mute→unmute).
-    let delta = (master_gain_target - *master_gain_current).abs();
-    if delta > 0.15 {
-        *master_gain_current += (master_gain_target - *master_gain_current) * 0.5;
-    }
-
     for i in 0..n {
-        *master_gain_current += (master_gain_target - *master_gain_current) * master_gain_smooth;
-        graph_out_left[i] *= *master_gain_current;
-        graph_out_right[i] *= *master_gain_current;
+        let gain = master_gain_smoother.next();
+        graph_out_left[i] *= gain;
+        graph_out_right[i] *= gain;
     }
 
     // AUD-503 FIX: Removed redundant pre-soft-clip master metering.

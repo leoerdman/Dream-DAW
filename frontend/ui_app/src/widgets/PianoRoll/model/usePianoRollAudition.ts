@@ -16,7 +16,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         if (!activePitchesRef.current.has(pitch)) return;
         activePitchesRef.current.delete(pitch);
         void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-            console.warn('[PianoRoll] previewSamplerNoteOff failed:', err);
+            console.warn('[Dream] previewSamplerNoteOff failed:', err);
         });
     }, [trackIndex]);
 
@@ -32,7 +32,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         }
         pitches.forEach((pitch) => {
             void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-                console.warn('[PianoRoll] previewSamplerNoteOff(stopAll) failed:', err);
+                console.warn('[Dream] previewSamplerNoteOff(stopAll) failed:', err);
             });
         });
         pitches.clear();
@@ -48,13 +48,13 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         if (activePitchesRef.current.has(pitch)) {
             activePitchesRef.current.delete(pitch);
             void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-                console.warn('[PianoRoll] previewSamplerNoteOff(re-trigger) failed:', err);
+                console.warn('[Dream] previewSamplerNoteOff(re-trigger) failed:', err);
             });
         }
 
         activePitchesRef.current.add(pitch);
         void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch((err) => {
-            console.warn('[PianoRoll] previewSamplerNoteOn failed:', err);
+            console.warn('[Dream] previewSamplerNoteOn failed:', err);
         });
 
         if (durationMs <= 0) return;
@@ -63,7 +63,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             if (!activePitchesRef.current.has(pitch)) return;
             activePitchesRef.current.delete(pitch);
             void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-                console.warn('[PianoRoll] previewSamplerNoteOff(timer) failed:', err);
+                console.warn('[Dream] previewSamplerNoteOff(timer) failed:', err);
             });
         }, Math.max(40, durationMs));
         auditionOffTimersRef.current.set(pitch, timer);
@@ -79,7 +79,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             if (trackIndex != null) {
                 activePitches.forEach((pitch) => {
                     void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-                        console.warn('[PianoRoll] previewSamplerNoteOff(cleanup) failed:', err);
+                        console.warn('[Dream] previewSamplerNoteOff(cleanup) failed:', err);
                     });
                 });
             }

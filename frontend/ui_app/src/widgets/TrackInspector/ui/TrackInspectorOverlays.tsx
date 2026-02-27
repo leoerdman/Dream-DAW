@@ -36,7 +36,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:duplicate-context');
                             })
                             .catch((err) => {
-                                console.error('[TrackInspector] duplicate track (context menu) failed:', err);
+                                console.error('[Dream] duplicate track (context menu) failed:', err);
                             });
                         dismissAll();
                     }}

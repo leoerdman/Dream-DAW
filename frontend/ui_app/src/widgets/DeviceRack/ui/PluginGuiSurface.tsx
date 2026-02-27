@@ -94,7 +94,7 @@ export const PluginGuiSurface = ({
             })
             .catch((err) => {
                 if (!cancelled) {
-                    console.warn('[DeviceRack] sampler waveform load failed:', err);
+                    console.warn('[Dream] sampler waveform load failed:', err);
                     setWaveformPeaks(null);
                 }
             });
@@ -167,7 +167,6 @@ export const PluginGuiSurface = ({
             const override = pendingDragOverrides.current.get(p.name.toLowerCase());
             return override !== undefined ? { ...p, value: override } : p;
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [device.params, dragRenderTick]);
 
     useEqBandDragEffect({
@@ -183,7 +182,7 @@ export const PluginGuiSurface = ({
         if (!eqContextMenu) return;
         const handler = () => setEqContextMenu(null);
         window.addEventListener('mousedown', handler);
-        return () => window.removeEventListener('mousedown', handler);
+        return () => removeEventListener('mousedown', handler);
     }, [eqContextMenu]);
 
     if (device.effectType === 'waveSynth') {

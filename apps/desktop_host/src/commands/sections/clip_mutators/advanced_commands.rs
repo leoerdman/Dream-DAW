@@ -12,7 +12,7 @@ async fn paint_track_clips_with_track_color_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -101,7 +101,7 @@ async fn resolve_missing_file_cmd(
 
     let cmd =
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -141,7 +141,7 @@ async fn resolve_missing_file_with_deltas_cmd(
 
     let cmd =
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -204,7 +204,7 @@ async fn set_automation_points_cmd(
         &param_id,
         persistent_points,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;

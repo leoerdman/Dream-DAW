@@ -66,7 +66,7 @@ export function useAssistantVoiceInput({
                     stream.getTracks().forEach((t) => t.stop());
                     localStorage.setItem(micPermCacheKey, 'granted');
                 } catch (err) {
-                    console.warn('[DreamAI] Microphone permission denied:', err);
+                    console.warn('[Dream] Microphone permission denied:', err);
                     setMessages((prev) => [
                         ...prev,
                         { role: 'assistant', content: '⚠️ Доступ к микрофону отклонён. Разрешите доступ: Системные настройки → Конфиденциальность → Микрофон. / Microphone access denied. Grant permission in System Preferences → Privacy & Security → Microphone.' },
@@ -94,7 +94,7 @@ export function useAssistantVoiceInput({
                     }
                 };
                 recognition.onerror = (event) => {
-                    console.warn('[DreamAI] Speech recognition error:', event.error);
+                    console.warn('[Dream] Speech recognition error:', event.error);
                     setIsListening(false);
                     recognitionRef.current = null;
                     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
@@ -122,7 +122,7 @@ export function useAssistantVoiceInput({
                 try {
                     recognition.start();
                 } catch (err) {
-                    console.warn('[DreamAI] Speech recognition start failed:', err);
+                    console.warn('[Dream] Speech recognition start failed:', err);
                     setIsListening(false);
                     recognitionRef.current = null;
                     setMessages((prev) => [...prev, { role: 'assistant', content: '⚠️ Не удалось запустить распознавание речи. Используйте текстовый ввод.' }]);
@@ -135,7 +135,7 @@ export function useAssistantVoiceInput({
                 { role: 'assistant', content: '⚠️ Голосовой ввод недоступен в этой среде. macOS WebView не поддерживает Web Speech API. Используйте текстовый ввод.' },
             ]);
         } catch (err) {
-            console.error('[DreamAI] toggleVoice unexpected crash:', err);
+            console.error('[Dream] toggleVoice unexpected crash:', err);
             setIsListening(false);
             recognitionRef.current = null;
             setMessages((prev) => [...prev, { role: 'assistant', content: '⚠️ Произошла ошибка при активации микрофона. Используйте текстовый ввод.' }]);

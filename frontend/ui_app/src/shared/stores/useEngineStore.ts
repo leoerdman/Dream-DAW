@@ -42,8 +42,6 @@ export interface EngineStore {
     transport: TransportState;
     meters: MeteringSnapshot;
     timelineClips: TimelineClip[];
-    projectTracks: ProjectTrack[];
-    tracksById: Record<string, ProjectTrack>;
     tracks: EntityState<ProjectTrack>;
     clipsById: Record<string, TimelineClip>;
     clips: EntityState<TimelineClip>;
@@ -159,11 +157,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
     timelineClips: [],
-    projectTracks: [],
-    tracksById: {},
-    tracks: { byId: {}, allIds: [] },
     clipsById: {},
     clips: { byId: {}, allIds: [] },
+    tracks: { byId: {}, allIds: [] },
     projectSampleRate: 44100,
     projectBpm: 120,
     timeSigNumerator: 4,

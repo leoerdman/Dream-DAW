@@ -15,6 +15,7 @@ use crate::synth_types::Waveform;
 /// `dt` = phase increment per sample (normalized frequency).
 ///
 /// Returns the correction value to subtract from the naive waveform.
+
 #[inline]
 fn poly_blep(t: f64, dt: f64) -> f64 {
     if dt <= 0.0 {
@@ -83,4 +84,106 @@ pub(super) fn oscillator_sample_blep(
 pub(super) fn oscillator_sample_blep_stateless(waveform: Waveform, phase: f64, dt: f64) -> f32 {
     let mut dummy = 0.0;
     oscillator_sample_blep(waveform, phase, dt, &mut dummy, 0.5)
+}
+
+// ── Parameter Smoothing ────────────────────────────────────────────────
+
+/// A single-pole IIR lowpass filter for smoothing parameter changes
+/// (e.g., volume, cutoff, resonance) to prevent audible zipper noise.
+#[derive(Debug, Clone)]
+pub struct ParameterSmoother {
+    value: f32,
+    target: f32,
+    a: f32,
+    b: f32,
+}
+
+impl ParameterSmoother {
+    pub fn new(initial: f32, sample_rate: f64, time_constant_ms: f32) -> Self {
+        let mut s = Self {
+            value: initial,
+            target: initial,
+            a: 0.0,
+            b: 0.0,
+        };
+        s.set_time_constant(sample_rate, time_constant_ms);
+        s
+    }
+
+    pub fn set_time_constant(&mut self, sample_rate: f64, time_constant_ms: f32) {
+        self.a = 1.0 - std::f32::consts::E.powf(-1.0 / (time_constant_ms * 0.001 * sample_rate as f32));
+        self.b = 1.0 - self.a;
+    }
+
+    #[inline]
+    pub fn set_target(&mut self, target: f32) {
+        self.target = target;
+    }
+
+    #[inline]
+    pub fn next(&mut self) -> f32 {
+        self.value = self.target * self.a + self.value * self.b;
+        self.value
+    }
+    
+    #[inline]
+    pub fn get(&self) -> f32 {
+        self.value
+    }
+
+    #[inline]
+    pub fn snap(&mut self) {
+        self.value = self.target;
+    }
+}
+
+/// A single-pole IIR lowpass filter for smoothing high-precision parameter
+/// changes (e.g., phase increment, pitch) to prevent audible zipper noise.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ParameterSmootherF64 {
+    value: f64,
+    target: f64,
+    a: f64,
+    b: f64,
+}
+
+#[allow(dead_code)]
+impl ParameterSmootherF64 {
+    pub fn new(initial: f64, sample_rate: f64, time_constant_ms: f64) -> Self {
+        let mut s = Self {
+            value: initial,
+            target: initial,
+            a: 0.0,
+            b: 0.0,
+        };
+        s.set_time_constant(sample_rate, time_constant_ms);
+        s
+    }
+
+    pub fn set_time_constant(&mut self, sample_rate: f64, time_constant_ms: f64) {
+        self.a = 1.0 - std::f64::consts::E.powf(-1.0 / (time_constant_ms * 0.001 * sample_rate));
+        self.b = 1.0 - self.a;
+    }
+
+    #[inline]
+    pub fn set_target(&mut self, target: f64) {
+        self.target = target;
+    }
+
+    #[inline]
+    pub fn next(&mut self) -> f64 {
+        self.value = self.target * self.a + self.value * self.b;
+        self.value
+    }
+
+    #[inline]
+    pub fn get(&self) -> f64 {
+        self.value
+    }
+
+    #[inline]
+    pub fn snap(&mut self) {
+        self.value = self.target;
+    }
 }

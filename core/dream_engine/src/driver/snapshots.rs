@@ -542,35 +542,32 @@ impl Default for SharedSampleRackSamples {
 /// The inner `Mutex` is NOT held across any I/O or allocation — only a
 /// brief iteration to drain ring buffer consumers.
 pub struct SharedDiskStreamers {
-    inner: std::sync::Mutex<Vec<dream_clip_engine::DiskStreamerHandle>>,
+    inner: parking_lot::Mutex<Vec<dream_clip_engine::DiskStreamerHandle>>,
 }
 
 impl SharedDiskStreamers {
     pub fn new() -> Self {
         Self {
-            inner: std::sync::Mutex::new(Vec::new()),
+            inner: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
     /// Adds a new disk streaming handle (called from UI thread).
     pub fn push(&self, handle: dream_clip_engine::DiskStreamerHandle) {
-        if let Ok(mut vec) = self.inner.lock() {
-            vec.push(handle);
-        }
+        let mut vec = self.inner.lock();
+        vec.push(handle);
     }
 
     /// Removes all handles matching the given source path.
     pub fn remove_by_path(&self, source_path: &str) {
-        if let Ok(mut vec) = self.inner.lock() {
-            vec.retain(|h| h.source_path != source_path);
-        }
+        let mut vec = self.inner.lock();
+        vec.retain(|h| h.source_path != source_path);
     }
 
     /// Removes ALL handles (project close / clear).
     pub fn clear(&self) {
-        if let Ok(mut vec) = self.inner.lock() {
-            vec.clear();
-        }
+        let mut vec = self.inner.lock();
+        vec.clear();
     }
 
     /// Drains pending chunks from all handles into the render context's
@@ -582,10 +579,10 @@ impl SharedDiskStreamers {
     /// (streaming windows are pre-allocated in `RenderContext`).
     pub fn drain_all_into(
         &self,
-        windows: &mut Vec<(String, dream_clip_engine::disk_streamer::StreamingWindow)>,
+        windows: &mut std::collections::HashMap<String, dream_clip_engine::disk_streamer::StreamingWindow>,
         playhead: i64,
     ) {
-        let Ok(mut handles) = self.inner.try_lock() else {
+        let Some(mut handles) = self.inner.try_lock() else {
             return; // UI thread is modifying handles — skip this cycle
         };
 
@@ -594,22 +591,14 @@ impl SharedDiskStreamers {
             handle.set_playhead(playhead);
 
             // Find or create the streaming window for this source
-            let window =
-                if let Some(pos) = windows.iter().position(|(p, _)| *p == handle.source_path) {
-                    &mut windows[pos].1
-                } else {
-                    windows.push((
-                        handle.source_path.clone(),
-                        dream_clip_engine::disk_streamer::StreamingWindow::new(
-                            &handle.source_path,
-                            handle.total_frames,
-                            handle.num_channels,
-                            handle.sample_rate,
-                        ),
-                    ));
-                    let inserted = windows.len() - 1;
-                    &mut windows[inserted].1
-                };
+            let window = windows.entry(handle.source_path.clone()).or_insert_with(|| {
+                dream_clip_engine::disk_streamer::StreamingWindow::new(
+                    &handle.source_path,
+                    handle.total_frames,
+                    handle.num_channels,
+                    handle.sample_rate,
+                )
+            });
 
             // Drain ring buffer chunks (lock-free pop)
             handle.drain_into(window);
@@ -621,7 +610,7 @@ impl SharedDiskStreamers {
 
     /// Returns the number of active disk streamers.
     pub fn len(&self) -> usize {
-        self.inner.lock().map(|v| v.len()).unwrap_or(0)
+        self.inner.lock().len()
     }
 
     /// Returns true if there are no active disk streamers.

@@ -48,31 +48,35 @@ fn main() {
     // ── Start the audio thread ──────────────────────────────────────
     let clock_for_audio = Arc::clone(&clock);
     let meter_for_audio = Arc::clone(&meter_bank);
-    let _stream_handle = match dream_engine::driver::start_audio_thread(
-        consumer,
-        clock_for_audio,
-        meter_for_audio,
+    let shared_state = dream_engine::driver::AudioSharedState {
+        clock: clock_for_audio,
+        meter_bank: meter_for_audio,
         clip_pool,
         clip_snapshot,
-        Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedRoutingSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedSidechainSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedExternalPluginSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
-        Arc::new(dream_engine::driver::SharedSampleRackSamples::new()),
-        Arc::new(dream_engine::driver::SharedPreparedGraphSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedRtDebugStats::new()),
-        Arc::new(dream_engine::driver::SharedPluginRegistry::new()),
-        Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
-        Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
-        Arc::new(std::sync::atomic::AtomicU32::new(0)),  // cli playhead pos
-        Arc::new(dream_engine::driver::SharedDiskStreamers::new()),
+        midi_snapshot: Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
+        routing_snapshot: Arc::new(dream_engine::driver::SharedRoutingSnapshot::new()),
+        sidechain_snapshot: Arc::new(dream_engine::driver::SharedSidechainSnapshot::new()),
+        external_fx_snapshot: Arc::new(dream_engine::driver::SharedExternalPluginSnapshot::new()),
+        automation_snapshot: Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
+        sampler_samples: Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
+        sample_rack_samples: Arc::new(dream_engine::driver::SharedSampleRackSamples::new()),
+        prepared_graph_snapshot: Arc::new(dream_engine::driver::SharedPreparedGraphSnapshot::new()),
+        rt_debug_stats: Arc::new(dream_engine::driver::SharedRtDebugStats::new()),
+        plugin_registry: Arc::new(dream_engine::driver::SharedPluginRegistry::new()),
+        preview_buffer: Arc::new(arc_swap::ArcSwap::from_pointee(None)),
+        preview_cursor: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        preview_source_sr: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        disk_streamers: Arc::new(dream_engine::driver::SharedDiskStreamers::new()),
+    };
+
+    let _stream_handle = match dream_engine::driver::start_audio_thread(
+        consumer,
         {
             let (_prealloc_prod, prealloc_cons) =
                 dream_ipc::prealloc_queue::new_prealloc_queue();
             prealloc_cons
         },
+        shared_state,
     ) {
         Ok(handle) => {
             log::info!("✅ Audio driver initialized");

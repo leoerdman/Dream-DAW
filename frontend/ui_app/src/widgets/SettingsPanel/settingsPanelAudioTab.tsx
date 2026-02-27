@@ -62,7 +62,7 @@ export function AudioTab({
                                 const resolvedDevice = await engine.restartAudioEngine(v);
                                 updateSetting('outputDevice', resolvedDevice);
                             } catch (err) {
-                                console.error('[SettingsPanel] restartAudioEngine failed:', err);
+                                console.error('[Dream] restartAudioEngine failed:', err);
                             } finally {
                                 setRestartingEngine(false);
                                 void refreshAudioDevices({ force: true });
@@ -144,7 +144,7 @@ export function AudioTab({
                                 const snap = await engine.setPluginSandboxEnabled(v);
                                 setSandboxSnapshot(snap);
                             } catch (err) {
-                                console.error('[SettingsPanel] setPluginSandboxEnabled failed:', err);
+                                console.error('[Dream] setPluginSandboxEnabled failed:', err);
                             } finally {
                                 setSandboxLoading(false);
                             }

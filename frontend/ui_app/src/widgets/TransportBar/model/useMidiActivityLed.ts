@@ -23,7 +23,7 @@ export function useMidiActivityLed() {
                 else unlisten = fn;
             })
             .catch((err) => {
-                console.error('[TransportBar] midi_event_received listener failed:', err);
+                console.error('[Dream] midi_event_received listener failed:', err);
             });
 
         return () => {

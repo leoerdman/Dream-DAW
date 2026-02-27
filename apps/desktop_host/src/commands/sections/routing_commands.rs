@@ -41,17 +41,17 @@ fn set_track_routing_cmd(
     let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
         &track_id, &target_id,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -89,16 +89,16 @@ fn set_track_routing_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
         &track_id, &target_id,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });
@@ -135,17 +135,17 @@ fn set_track_input_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd =
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -173,16 +173,16 @@ fn set_track_input_with_deltas_cmd(
     let normalized_input = input_id.trim().to_string();
     let cmd =
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(DeltaMutationResponse { deltas: Vec::new() });
@@ -229,17 +229,17 @@ fn set_plugin_sidechain_source_cmd(
         &slot_id,
         &source_track_id,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(());
@@ -298,16 +298,16 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
         &slot_id,
         &source_track_id,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let preview_result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
             project_state
                 .project
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?
+                .map_err(|e| e.to_string())?
                 .clone(),
         );
-        ctx.execute(&cmd).map_err(|_| "Mutex poisoned".to_string())?
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
     };
     if !preview_result.changed {
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });

@@ -55,11 +55,11 @@ export function useTrackInspectorKeyboardShortcuts({
                                 const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
                                 await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
                             } catch (err) {
-                                console.warn('[TrackInspector] group color inherit failed:', err);
+                                console.warn('[Dream] group color inherit failed:', err);
                             }
                         }
                     }).catch((err) => {
-                        console.error('[TrackInspector] createGroup(multi) failed:', err);
+                        console.error('[Dream] createGroup(multi) failed:', err);
                     });
                 } else {
                     handleGroupTrack(selectedTrackId);
@@ -74,7 +74,7 @@ export function useTrackInspectorKeyboardShortcuts({
                     void engineApi.ungroupTrackWithDeltas(groupToUngroup).then(async (response) => {
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup-shortcut');
                     }).catch((err) => {
-                        console.error('[TrackInspector] ungroupTrack failed:', err);
+                        console.error('[Dream] ungroupTrack failed:', err);
                     });
                 }
             }

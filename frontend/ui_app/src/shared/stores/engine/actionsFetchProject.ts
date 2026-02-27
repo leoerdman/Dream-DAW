@@ -31,7 +31,7 @@ export function createFetchProjectAction(
                     return { projectHistory: history, projectHistoryCursor: merged.cursor };
                 });
             } catch (e) {
-                console.warn('[Engine] syncProjectHistory failed:', e);
+                console.warn('[Dream] syncProjectHistory failed:', e);
             }
         },
     };

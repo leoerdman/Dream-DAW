@@ -41,7 +41,7 @@ export function usePointerUpFinalizer({
                         await applyProjectDeltas(response.deltas, 'midi-notes:pointerup');
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
-                    .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
+                    .catch((err) => console.error('[Dream] updateMidiClip final flush failed:', err));
             }
 
             for (const clipId of Array.from(dirtyMidiEnvelopeClipIdsRef.current)) {
@@ -51,7 +51,7 @@ export function usePointerUpFinalizer({
                     .then(() => {
                         dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
-                    .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
+                    .catch((err) => console.error('[Dream] setMidiClipEnvelopes final flush failed:', err));
             }
         };
 

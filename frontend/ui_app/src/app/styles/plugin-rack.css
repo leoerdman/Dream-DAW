@@ -201,7 +201,7 @@
     border-radius: var(--radius-full);
     background: var(--color-port-audio);
     border: var(--space-px) solid var(--token-color-rgba-0-0-0-0d3);
-    z-index: 2;
+    z-index: var(--z-local-raised);
 }
 
 .device-port.input {

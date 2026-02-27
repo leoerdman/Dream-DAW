@@ -315,7 +315,7 @@ export function createTrackProjectActions(
                 return response;
             } catch (err) {
                 const msg = `Import failed: ${err}`;
-                console.error(`[Engine] ${msg}`);
+                console.error(`[Dream] ${msg}`);
                 set({ lastError: msg });
                 return null;
             }
@@ -330,7 +330,7 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'createMidiClip');
             } catch (err) {
                 const msg = `Create MIDI clip failed: ${err}`;
-                console.error(`[Engine] ${msg}`);
+                console.error(`[Dream] ${msg}`);
                 set({ lastError: msg });
             }
         },

@@ -236,7 +236,7 @@ const previewRootStyle: React.CSSProperties = {
     borderTop: 'var(--space-0-5) solid var(--color-divider)',
     background: 'var(--color-bg-secondary)',
     position: 'relative',
-    zIndex: 10,
+    zIndex: 'var(--z-pane, 10)',
 };
 
 const previewControlsRowStyle: React.CSSProperties = {

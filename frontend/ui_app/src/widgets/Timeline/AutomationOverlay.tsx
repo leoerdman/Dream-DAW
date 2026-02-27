@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useMemo, memo, useEffect, useRef } from 'react';
-import { resolveSampleRate } from '@/shared/lib/audioMath';
+import { resolveSampleRate, getSamplesPerBeat } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useViewportStore } from '@/shared/stores/useViewportStore';
@@ -62,7 +62,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
     const viewportScrollX = useViewportStore((s) => s.scrollX);
 
     // Derive pixelsPerBeat and scrollOffsetBeats from viewport store
-    const samplesPerBeat = (sampleRate * 60) / bpm;
+    const samplesPerBeat = getSamplesPerBeat(bpm, sampleRate);
     const pixelsPerBeat = samplesPerBeat / samplesPerPixel;
     const scrollOffsetBeats = (viewportScrollX * samplesPerPixel) / samplesPerBeat;
 
@@ -98,8 +98,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 }
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [visible, trackCount]);
+    }, [visible, trackCount, trackIds, addLane]);
 
     // Build per-track lane groups
     const trackLanes = useMemo(() => {

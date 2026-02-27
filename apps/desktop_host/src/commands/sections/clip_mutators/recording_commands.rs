@@ -11,7 +11,7 @@ async fn start_recording_cmd(
     if recording_runtime
         .session
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .is_some()
     {
         return Err("Recording already in progress".to_string());
@@ -38,7 +38,7 @@ async fn start_recording_cmd(
         "recording_{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .as_secs()
     );
 
@@ -66,12 +66,12 @@ async fn start_recording_cmd(
     *recording_runtime
         .session
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())? = Some(session);
+        .map_err(|e| e.to_string())? = Some(session);
     // BUG-029 FIX: Store track UUID instead of index.
     *recording_runtime
         .armed_track_id
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())? = Some(armed_track_id);
+        .map_err(|e| e.to_string())? = Some(armed_track_id);
 
     Ok(())
 }
@@ -89,7 +89,7 @@ async fn stop_recording_cmd(
     let session = recording_runtime
         .session
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .take()
         .ok_or_else(|| "No active recording session".to_string())?;
 
@@ -97,7 +97,7 @@ async fn stop_recording_cmd(
     let armed_track_id = recording_runtime
         .armed_track_id
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .take()
         .ok_or_else(|| "Missing armed track ID".to_string())?;
 

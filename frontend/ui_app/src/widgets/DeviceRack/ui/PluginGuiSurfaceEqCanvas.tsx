@@ -232,7 +232,7 @@ export function PluginGuiSurfaceEqCanvas({
 
             <div
                 style={{
-                    position: 'absolute', top: 4, right: 6, zIndex: 10, cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
+                    position: 'absolute', top: 4, right: 6, zIndex: 'var(--z-local-raised, 10)', cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: eqSpectrumEnabled ? 'color-mix(in srgb, var(--color-text-primary) 16%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 9%, transparent)',
                     border: `var(--space-px) solid ${eqSpectrumEnabled ? 'color-mix(in srgb, var(--color-text-primary) 38%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 20%, transparent)'}`,

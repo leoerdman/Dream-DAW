@@ -3,7 +3,8 @@ import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import type { Project } from '@bindings/Project';
-import { buildTrackStatePatch, toEntityState } from './storeHelpers';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { buildTrackStatePatch as storeHelpersBuildTrackStatePatch, toEntityState } from './storeHelpers';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
@@ -16,6 +17,8 @@ import type {
     DeltaWorkingState,
     SnapshotProjectMeta,
 } from './delta/types';
+import type { TrackStatePatch } from './storeHelpers';
+import type { ProjectTrack } from '../useEngineStore';
 
 export type { DeltaApplyResult, DeltaApplyState } from './delta/types';
 
@@ -43,15 +46,15 @@ function normalizeMidiNoteStartFrame(
     return Math.max(0, rawStartFrame);
 }
 
-function resolveCanonicalTrackState(state: DeltaApplyState): {
-    byId: Record<string, DeltaApplyState['projectTracks'][number]>;
-    allIds: string[];
-} {
-    const byId = Object.keys(state.tracks.byId).length > 0 ? state.tracks.byId : state.tracksById;
+function buildTrackStatePatch(
+    state: DeltaApplyState | DeltaWorkingState,
+): TrackStatePatch<ProjectTrack> {
+    const byId = state.tracks.byId;
     const allIds = state.tracks.allIds.length > 0
         ? state.tracks.allIds
-        : state.projectTracks.map((track) => track.id);
-    return { byId, allIds };
+        : Object.keys(byId); // Fallback if arrays got desynced or empty in working state
+
+    return storeHelpersBuildTrackStatePatch(allIds, byId);
 }
 
 export function extractSnapshotProjectMeta(
@@ -143,7 +146,7 @@ export function applyProjectDeltasToState(
             );
             const timelineClips: DeltaApplyState['timelineClips'] = [];
             const snapshotTrackIds: string[] = [];
-            const snapshotTracksById: DeltaApplyState['tracksById'] = {};
+            const snapshotTracksById: Record<string, ProjectTrack> = {};
 
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
@@ -217,11 +220,11 @@ export function applyProjectDeltasToState(
             }
 
             const snapshotMeta = extractSnapshotProjectMeta(deltas, state.transport);
-            const snapshotTrackState = buildTrackStatePatch(
+            const snapshotTrackState = storeHelpersBuildTrackStatePatch<ProjectTrack>(
                 snapshotTrackIds,
                 snapshotTracksById,
             );
-            const sanitizedTimelineClips = normalizeTimelineClips(timelineClips);
+            const sanitizedTimelineClips = normalizeTimelineClips(timelineClips) as TimelineClip[];
 
             // BUG-P008 FIX: O(N) for-loop instead of O(2N) Object.fromEntries + .map().
             const clipsByIdSnapshot: Record<string, typeof sanitizedTimelineClips[number]> = {};
@@ -242,19 +245,23 @@ export function applyProjectDeltasToState(
         }
     }
 
-    const bpm = resolveBpm(state.projectBpm, state.transport.bpm);
+    const bpm = resolveBpm(state.transport.bpm);
     const sampleRate = resolveSampleRate(state.projectSampleRate, state.transport.sample_rate);
 
-    const canonicalTracks = resolveCanonicalTrackState(state);
+    const canonicalTracks = buildTrackStatePatch(state).tracks;
+    // BUG-FIX: Zustand freezes state objects. Delta handlers mutate working
+    // state in-place (e.g. `state.timelineClips[idx] = clip`), so we MUST
+    // create shallow clones here to avoid "Attempted to assign to readonly
+    // property" TypeError crashes.
     const working: DeltaWorkingState = {
-        timelineClips: state.timelineClips,
-        clipsById: state.clipsById,
+        timelineClips: [...state.timelineClips],
+        clipsById: { ...state.clipsById },
         projectTracks: canonicalTracks.allIds
             .map((trackId) => canonicalTracks.byId[trackId])
             .filter((track): track is NonNullable<typeof track> => Boolean(track)),
         tracks: {
-            byId: canonicalTracks.byId,
-            allIds: canonicalTracks.allIds,
+            byId: { ...canonicalTracks.byId },
+            allIds: [...canonicalTracks.allIds],
         },
         changed: false,
     };
@@ -284,9 +291,9 @@ export function applyProjectDeltasToState(
     if (!working.changed) {
         return { nextState: null, snapshotMeta: null, unhandledDeltaKinds };
     }
-    const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips);
-    const nextTrackState = buildTrackStatePatch(
-        working.projectTracks.map((track) => track.id),
+    const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips) as TimelineClip[];
+    const nextTrackState = storeHelpersBuildTrackStatePatch<ProjectTrack>(
+        working.tracks.allIds,
         working.tracks.byId,
     );
 

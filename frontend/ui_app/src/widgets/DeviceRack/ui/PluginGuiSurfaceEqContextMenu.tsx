@@ -1,5 +1,5 @@
 import React from 'react';
-import { EQ_FILTER_LABELS, EQ_FILTER_TYPE_TO_INDEX, type EqBand8 } from '@/widgets/DeviceRack/lib/eqMath';
+import { EQ_FILTER_LABELS, EQ_FILTER_TYPE_TO_INDEX, DEFAULT_EQ_FILTER_TYPE_INDEX, type EqBand8 } from '@/widgets/DeviceRack/lib/eqMath';
 
 type EqContextMenu = { x: number; y: number; bandIdx: number };
 
@@ -30,7 +30,7 @@ export function PluginGuiSurfaceEqContextMenu({
                 position: 'fixed',
                 left: eqContextMenu.x,
                 ...(flipUp ? { bottom: window.innerHeight - eqContextMenu.y } : { top: eqContextMenu.y }),
-                zIndex: 9999,
+                zIndex: 'var(--z-plugin-overlay, 9999)',
                 background: 'var(--color-bg-elevated)',
                 border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 16%, transparent)',
                 borderRadius: 'var(--radius-sm)',
@@ -60,7 +60,7 @@ export function PluginGuiSurfaceEqContextMenu({
                             next[eqContextMenu.bandIdx] = type;
                             return next;
                         });
-                        onParamChange(`B${eqContextMenu.bandIdx}Type`, EQ_FILTER_TYPE_TO_INDEX[type] ?? 4);
+                        onParamChange(`B${eqContextMenu.bandIdx}Type`, EQ_FILTER_TYPE_TO_INDEX[type] ?? DEFAULT_EQ_FILTER_TYPE_INDEX);
                         setEqContextMenu(null);
                     }}
                 >

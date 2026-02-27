@@ -39,7 +39,7 @@ export function useDeviceProbes(
                         const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrackId, device.id);
                         return [device.id, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
                     } catch (err) {
-                        console.error('[DeviceRack] Capability probe failed:', err);
+                        console.error('[Dream] Capability probe failed:', err);
                         return [device.id, { supported: false, reason: 'Capability check failed.' }] as const;
                     }
                 }),
@@ -68,7 +68,7 @@ export function useDeviceProbes(
                         const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrackId, device.id);
                         return [device.id, status] as const;
                     } catch (err) {
-                        console.error('[DeviceRack] getPluginSlotRuntimeStatus failed:', err);
+                        console.error('[Dream] getPluginSlotRuntimeStatus failed:', err);
                         return [device.id, {
                             loaded: false, editorSupported: true, runtime: 'unknown',
                             sidechainReady: false, message: 'Runtime status unavailable',
@@ -109,7 +109,7 @@ export function useDeviceProbes(
                         }));
                         return [device.id, mapped] as const;
                     } catch (err) {
-                        console.error('[DeviceRack] getExternalPluginParamsForSlot failed:', err);
+                        console.error('[Dream] getExternalPluginParamsForSlot failed:', err);
                         return [device.id, [] as PluginParam[]] as const;
                     }
                 }),

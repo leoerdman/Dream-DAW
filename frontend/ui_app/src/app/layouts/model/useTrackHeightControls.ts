@@ -135,7 +135,7 @@ export function useTrackHeightControls({
                         .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-track-height-wheel')),
                 ),
             ).catch((err) => {
-                console.warn('[DawShell] setTrackHeight failed:', err);
+                console.warn('[Dream] setTrackHeight failed:', err);
             });
         };
 
@@ -176,7 +176,7 @@ export function useTrackHeightControls({
                         .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-track-height-reset-selected')),
                 ),
             ).catch((err) => {
-                console.warn('[DawShell] setTrackHeight reset failed:', err);
+                console.warn('[Dream] setTrackHeight reset failed:', err);
             });
         };
 
@@ -215,7 +215,7 @@ export function useTrackHeightControls({
                     .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-track-height-reset-all')),
             ),
         ).catch((err) => {
-            console.warn('[DawShell] reset track heights failed:', err);
+            console.warn('[Dream] reset track heights failed:', err);
         });
     }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, trackIdsSnapshot]);
 

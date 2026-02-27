@@ -20,7 +20,7 @@ export function useTransportRecording(
                 onRecordingStateChange?.({ active: false, trackIndex: resolvedTrackIndex });
             }
         } catch (err) {
-            console.error('[TransportBar] Recording toggle failed:', err);
+            console.error('[Dream] Recording toggle failed:', err);
         }
     }, [armedTrackIndex, isRecording, onRecordingStateChange]);
 
@@ -29,7 +29,7 @@ export function useTransportRecording(
         try {
             await engineApi.stopRecording();
         } catch (err) {
-            console.error('[TransportBar] stopRecording failed:', err);
+            console.error('[Dream] stopRecording failed:', err);
         } finally {
             setIsRecording(false);
             onRecordingStateChange?.({

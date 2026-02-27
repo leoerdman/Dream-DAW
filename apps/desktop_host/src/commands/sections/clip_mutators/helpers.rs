@@ -67,7 +67,7 @@ pub(super) fn build_local_pool_for_project(
     let mut local_pool = clip_pool_state
         .pool
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
     for track in &project.tracks {
         for clip in &track.clips {

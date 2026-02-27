@@ -90,7 +90,7 @@ export function useFolderTreeActions({
                         return next;
                     });
                 } catch (err) {
-                    console.warn('[Browser] Tree scan failed for', path, err);
+                    console.warn('[Dream] Tree scan failed for', path, err);
                     statusError(`Asset Browser: failed to scan folder: ${String(err)}`);
                 } finally {
                     setLoadingFolders((prev) => {
@@ -124,7 +124,7 @@ export function useFolderTreeActions({
             })
             .catch((err) => {
                 if (!String(err).includes('Cancelled')) {
-                    console.error('[Browser] Add folder failed:', err);
+                    console.error('[Dream] Add folder failed:', err);
                     statusError(`Asset Browser: failed to add folder: ${String(err)}`);
                 }
             });
@@ -139,7 +139,7 @@ export function useFolderTreeActions({
                 statusClear();
             })
             .catch((err) => {
-                console.error('[Browser] Remove folder failed:', err);
+                console.error('[Dream] Remove folder failed:', err);
                 statusError(`Asset Browser: failed to remove folder: ${String(err)}`);
             });
     }, [onFoldersChanged, setSelectedCategoryId, setUserFolders, statusClear, statusError]);
@@ -252,13 +252,13 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
                         return;
                     } catch (samplerErr) {
                         // Fallback to classic audio import if sampler placement isn't supported on this track.
-                        console.warn('[AssetBrowser] Sampler assignment fallback to audio import:', samplerErr);
+                        console.warn('[Dream] Sampler assignment fallback to audio import:', samplerErr);
                     }
                 }
             }
 
             const store = useEngineStore.getState();
-            const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+            const bpm = resolveBpm(store.transport.bpm);
             const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
             const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
             if (enterNonceRef.current !== nonce) return;
@@ -267,7 +267,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             await store.applyProjectDeltas(response.deltas, 'asset-browser:import-audio');
             statusClear();
         } catch (err) {
-            console.error('[AssetBrowser] Enter action failed:', err);
+            console.error('[Dream] Enter action failed:', err);
             statusError(`Asset Browser: failed to import item: ${String(err)}`);
         }
     }, [enterNonceRef, getTrackIndexById, hasTimelineClipsOnTrack, resolveSelectedTrack, statusClear, statusError]);

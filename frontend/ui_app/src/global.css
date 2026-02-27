@@ -164,7 +164,12 @@ body {
    position: relative;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
    font-family: var(--font-role-title);
 }
 
@@ -174,7 +179,7 @@ body::after {
    position: fixed;
    inset: 0;
    pointer-events: none;
-   z-index: 0;
+   z-index: var(--z-canvas);
    transition: opacity var(--transition-normal), background-image var(--transition-normal);
    will-change: transform, opacity;
 }
@@ -226,7 +231,7 @@ body::after {
    top: 0;
    height: min(100%, 44px);
    pointer-events: none;
-   z-index: 0;
+   z-index: var(--z-canvas);
    background-image: var(--theme-ornament-strip-image);
    background-size: 100% 100%;
    background-repeat: no-repeat;
@@ -243,7 +248,7 @@ body::after {
    width: 220px;
    height: 220px;
    pointer-events: none;
-   z-index: 0;
+   z-index: var(--z-canvas);
    background-image: var(--theme-ornament-corner-image);
    background-size: contain;
    background-repeat: no-repeat;
@@ -269,7 +274,7 @@ body::after {
    position: absolute;
    inset: 0;
    pointer-events: none;
-   z-index: 0;
+   z-index: var(--z-canvas);
    background-image: var(--theme-ornament-timeline-image);
    background-size: var(--theme-ornament-timeline-size, auto);
    background-repeat: repeat;
@@ -318,11 +323,13 @@ body::after {
    compositor thread with zero JS overhead.
    ═══════════════════════════════════════════════════════════════ */
 @keyframes timeline-cursor-blink {
+
    0%,
    100% {
       opacity: 0.62;
       box-shadow: 0 0 var(--token-size-px-2) var(--glow-cursor);
    }
+
    50% {
       opacity: 0.5;
       box-shadow: 0 0 var(--space-0-5) var(--glow-cursor-dim);
@@ -393,13 +400,13 @@ body::after {
    0% {
       transform: translate3d(0, 0, 0) scale(1);
    }
+
    50% {
-      transform: translate3d(
-         calc(var(--theme-overlay-primary-shift-x) * var(--theme-motion-strength)),
-         calc(var(--theme-overlay-primary-shift-y) * var(--theme-motion-strength)),
-         0
-      ) scale(calc(1 + (0.015 * var(--theme-motion-strength))));
+      transform: translate3d(calc(var(--theme-overlay-primary-shift-x) * var(--theme-motion-strength)),
+            calc(var(--theme-overlay-primary-shift-y) * var(--theme-motion-strength)),
+            0) scale(calc(1 + (0.015 * var(--theme-motion-strength))));
    }
+
    100% {
       transform: translate3d(0, 0, 0) scale(1);
    }
@@ -409,26 +416,29 @@ body::after {
    0% {
       transform: translate3d(0, 0, 0) scale(1);
    }
+
    50% {
-      transform: translate3d(
-         calc(var(--theme-overlay-secondary-shift-x) * var(--theme-motion-strength)),
-         calc(var(--theme-overlay-secondary-shift-y) * var(--theme-motion-strength)),
-         0
-      ) scale(calc(1 + (0.02 * var(--theme-motion-strength))));
+      transform: translate3d(calc(var(--theme-overlay-secondary-shift-x) * var(--theme-motion-strength)),
+            calc(var(--theme-overlay-secondary-shift-y) * var(--theme-motion-strength)),
+            0) scale(calc(1 + (0.02 * var(--theme-motion-strength))));
    }
+
    100% {
       transform: translate3d(0, 0, 0) scale(1);
    }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
    body::before,
    body::after {
       animation: none !important;
    }
+
    .theme-ornament-timeline[data-legacy-timeline-ornament="on"]::after {
       animation: none !important;
    }
+
    .theme-studio-card,
    .theme-studio-preview {
       transition: none !important;
@@ -438,10 +448,13 @@ body::after {
 }
 
 @keyframes theme-ornament-timeline-breathe {
-   0%, 100% {
+
+   0%,
+   100% {
       opacity: var(--theme-ornament-timeline-opacity);
       transform: translate3d(0, 0, 0);
    }
+
    50% {
       opacity: calc(var(--theme-ornament-timeline-opacity) * var(--theme-ornament-master-strength) * var(--theme-ornament-timeline-strength) * 0.72);
       transform: translate3d(0, calc(-2px * var(--theme-motion-strength)), 0);

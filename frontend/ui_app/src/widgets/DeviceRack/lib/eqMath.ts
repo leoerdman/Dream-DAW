@@ -6,6 +6,7 @@ export {
     EQ_FILTER_ICONS,
     EQ_FILTER_LABELS,
     EQ_FILTER_TYPE_TO_INDEX,
+    DEFAULT_EQ_FILTER_TYPE_INDEX,
     FREQ_LABELS,
     FREQ_SUB_LINES,
     eqFilterTypeFromIndex,

@@ -27,7 +27,7 @@ export const useTransportEngineSlice = () =>
         }
         return {
             isPlaying: s.transport.is_playing,
-            bpm: resolveBpm(s.projectBpm, s.transport.bpm),
+            bpm: resolveBpm(s.transport.bpm),
             isLooping: s.transport.loop_enabled,
             loopStartFrames: s.transport.loop_start,
             loopEndFrames: s.transport.loop_end,
@@ -38,8 +38,8 @@ export const useTransportEngineSlice = () =>
             engineSetBpm: s.setBpm,
             engineSetTimeSignature: s.setTimeSignature,
             engineSetLoop: s.setLoop,
-            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || DEFAULT_TIME_SIG_NUMERATOR,
-            timeSigDenominator: s.timeSigDenominator || s.transport.time_sig_denominator || DEFAULT_TIME_SIG_DENOMINATOR,
+            timeSigNumerator: s.transport.time_sig_numerator || DEFAULT_TIME_SIG_NUMERATOR,
+            timeSigDenominator: s.transport.time_sig_denominator || DEFAULT_TIME_SIG_DENOMINATOR,
             trackCount: s.tracks.allIds.length,
             armedTrackIndex,
             telemetryRunning: s.telemetryRunning,

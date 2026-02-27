@@ -194,7 +194,7 @@ fn bypass_device_cmd(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -255,7 +255,7 @@ fn set_device_param_cmd(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
 

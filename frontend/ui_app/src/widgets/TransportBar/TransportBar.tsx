@@ -129,7 +129,7 @@ export const TransportBar = ({
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
         try {
-            const raw = window.localStorage.getItem(NOTES_POS_KEY);
+            const raw = localStorage.getItem(NOTES_POS_KEY);
             if (!raw) return;
             const parsed = JSON.parse(raw) as { right?: number; top?: number };
             if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
@@ -144,7 +144,7 @@ export const TransportBar = ({
         return () => { if (timer) clearTimeout(timer); };
     }, []);
     useEffect(() => {
-        try { window.localStorage.setItem(NOTES_POS_KEY, JSON.stringify(notesPanelPos)); } catch { /* ignore */ }
+        try { localStorage.setItem(NOTES_POS_KEY, JSON.stringify(notesPanelPos)); } catch { /* ignore */ }
     }, [notesPanelPos]);
 
     useEffect(() => {
@@ -176,7 +176,7 @@ export const TransportBar = ({
             }
         };
         window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        return () => removeEventListener('keydown', onKeyDown);
     }, []);
 
     // Drag handling
@@ -274,7 +274,7 @@ export const TransportBar = ({
             }
         };
         window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        return () => removeEventListener('keydown', onKeyDown);
     }, [keyMenuOpen, gridOpen]);
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>

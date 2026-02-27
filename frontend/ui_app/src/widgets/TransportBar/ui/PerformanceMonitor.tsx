@@ -1,5 +1,27 @@
+import React from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
+
+const CONTAINER_STYLE: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '0 6px',
+    height: 22,
+    borderRadius: 4,
+    background: 'color-mix(in srgb, var(--color-bg-secondary) 60%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--color-border) 30%, transparent)',
+    fontSize: 10,
+    fontFamily: 'var(--font-role-data)',
+    fontWeight: 500,
+    color: 'var(--color-text-secondary)',
+    userSelect: 'none',
+    flexShrink: 0,
+};
+
+const STAT_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 3 };
+const STAT_LABEL_STYLE: React.CSSProperties = { color: 'var(--color-text-tertiary)', fontSize: 9, letterSpacing: '0.02em' };
+const STAT_VALUE_STYLE: React.CSSProperties = { minWidth: 28, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 
 /**
  * Compact CPU / RAM performance monitor for the transport bar.
@@ -24,54 +46,39 @@ export function PerformanceMonitor() {
 
     return (
         <div
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '0 6px',
-                height: 22,
-                borderRadius: 4,
-                background: 'color-mix(in srgb, var(--color-bg-secondary) 60%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--color-border) 30%, transparent)',
-                fontSize: 10,
-                fontFamily: 'var(--font-role-data)',
-                fontWeight: 500,
-                color: 'var(--color-text-secondary)',
-                userSelect: 'none',
-                flexShrink: 0,
-            }}
+            style={CONTAINER_STYLE}
             title={`DSP: ${dspPercent.toFixed(1)}% (audio thread load)\nCPU: ${cpuPercent.toFixed(1)}%\nRAM: ${ramUsedMb.toLocaleString()} / ${ramTotalMb.toLocaleString()} MB (${ramPercent.toFixed(0)}%)\nProcess: ${processMemoryMb.toLocaleString()} MB`}
         >
             {/* DSP load — the #1 DAW metric: audio thread utilization */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <div style={STAT_CONTAINER_STYLE}>
                 <span style={{ color: dspColor, fontSize: 9, fontWeight: 600, letterSpacing: '0.02em' }}>DSP</span>
                 <MicroBar percent={dspPercent} color={dspColor} width={36} />
-                <span style={{ minWidth: 28, textAlign: 'right', color: dspColor, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ ...STAT_VALUE_STYLE, color: dspColor }}>
                     {dspPercent.toFixed(0)}%
                 </span>
             </div>
 
             {/* CPU meter */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 9, letterSpacing: '0.02em' }}>CPU</span>
+            <div style={STAT_CONTAINER_STYLE}>
+                <span style={STAT_LABEL_STYLE}>CPU</span>
                 <MicroBar percent={cpuPercent} color={cpuColor} />
-                <span style={{ minWidth: 28, textAlign: 'right', color: cpuColor, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ ...STAT_VALUE_STYLE, color: cpuColor }}>
                     {cpuPercent.toFixed(0)}%
                 </span>
             </div>
 
             {/* RAM meter */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 9, letterSpacing: '0.02em' }}>RAM</span>
+            <div style={STAT_CONTAINER_STYLE}>
+                <span style={STAT_LABEL_STYLE}>RAM</span>
                 <MicroBar percent={ramPercent} color={ramColor} />
-                <span style={{ minWidth: 28, textAlign: 'right', color: ramColor, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ ...STAT_VALUE_STYLE, color: ramColor }}>
                     {ramPercent.toFixed(0)}%
                 </span>
             </div>
 
             {/* Process memory */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 9, letterSpacing: '0.02em' }}>MEM</span>
+            <div style={STAT_CONTAINER_STYLE}>
+                <span style={STAT_LABEL_STYLE}>MEM</span>
                 <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)' }}>
                     {processMemoryMb > 1024
                         ? `${(processMemoryMb / 1024).toFixed(1)}G`

@@ -60,6 +60,8 @@ pub struct ExternalDeviceSlot {
     sc_right: Vec<f32>,
     /// MIDI events for this processing call.
     midi_events: Vec<MidiEvent>,
+    /// Pending parameter updates queued by the RT thread.
+    pending_params: Vec<(u32, f64)>,
 }
 
 impl ExternalDeviceSlot {
@@ -82,6 +84,7 @@ impl ExternalDeviceSlot {
             sc_left: vec![0.0; MAX_BUFFER_FRAMES],
             sc_right: vec![0.0; MAX_BUFFER_FRAMES],
             midi_events: Vec::with_capacity(256),
+            pending_params: Vec::with_capacity(128),
         }
     }
 
@@ -136,9 +139,14 @@ impl DeviceProcessor for ExternalDeviceSlot {
         // Try to acquire the plugin mutex without blocking.
         let Some(mut plugin) = self.instance.try_lock() else {
             // Mutex contended — passthrough. Audio remains unmodified.
-            self.midi_events.clear();
+            // DO NOT clear midi_events or pending_params, they will apply on the next successful block
             return ProcessResult::Skipped;
         };
+
+        // Flush pending parameter updates
+        for (index, value) in self.pending_params.drain(..) {
+            let _ = plugin.set_parameter(index, value);
+        }
 
         // Set transport context for this buffer.
         plugin.set_transport_context(TransportContext {
@@ -226,8 +234,9 @@ impl DeviceProcessor for ExternalDeviceSlot {
     }
 
     fn set_param(&mut self, index: u32, value: f64) {
-        if let Some(mut plugin) = self.instance.try_lock() {
-            let _ = plugin.set_parameter(index, value);
+        // Instead of try_lock, queue param values so they aren't lost if UI holds lock
+        if self.pending_params.len() < 1024 {
+            self.pending_params.push((index, value));
         }
     }
 

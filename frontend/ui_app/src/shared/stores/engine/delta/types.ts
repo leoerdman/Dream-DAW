@@ -11,8 +11,6 @@ export interface DeltaApplyState {
     timelineClips: TimelineClip[];
     clipsById: Record<string, TimelineClip>;
     clips: EntityState<TimelineClip>;
-    projectTracks: ProjectTrack[];
-    tracksById: Record<string, ProjectTrack>;
     tracks: EntityState<ProjectTrack>;
     projectBpm: number;
     projectSampleRate: number;
@@ -47,7 +45,7 @@ export interface SnapshotProjectMeta {
 export interface DeltaApplyResult {
     nextState: Pick<
         DeltaApplyState,
-        'timelineClips' | 'clipsById' | 'clips' | 'projectTracks' | 'tracksById' | 'tracks'
+        'timelineClips' | 'clipsById' | 'clips' | 'tracks'
     > | null;
     snapshotMeta?: SnapshotProjectMeta | null;
     unhandledDeltaKinds?: string[];

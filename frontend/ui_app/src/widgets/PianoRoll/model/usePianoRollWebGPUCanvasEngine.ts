@@ -112,7 +112,7 @@ export function usePianoRollWebGPUCanvasEngine({
                 }
                 const device = await adapter.requestDevice();
                 if (disposed) return;
-                const context = canvas.getContext('webgpu') as any;
+                const context = canvas.getContext('webgpu') as GPUCanvasContext | null;
                 if (!context) {
                     setActive(false);
                     return;
@@ -175,7 +175,7 @@ export function usePianoRollWebGPUCanvasEngine({
             } catch (err) {
                 // BUG-H02 FIX: Log error instead of silently swallowing.
                 // Blank PianoRoll canvas was impossible to diagnose without this.
-                console.warn('[WebGPU] PianoRoll GPU init failed, falling back to Canvas2D:', err);
+                console.warn('[Dream] PianoRoll GPU init failed, falling back to Canvas2D:', err);
                 setActive(false);
             }
         };

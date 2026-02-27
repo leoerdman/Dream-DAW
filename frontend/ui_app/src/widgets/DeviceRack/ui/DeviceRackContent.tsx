@@ -110,7 +110,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                             void engineApi
                                 .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, effectIds.length - 1)
                                 .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot-end'))
-                                .catch((err) => console.error('[DeviceRack] moveEffectSlot(end) failed:', err));
+                                .catch((err) => console.error('[Dream] moveEffectSlot(end) failed:', err));
                         }}
                         style={{
                             width: 14,

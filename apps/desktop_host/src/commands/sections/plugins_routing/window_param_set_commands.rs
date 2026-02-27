@@ -107,7 +107,7 @@ fn set_external_plugin_param_for_slot_cmd(
         param_index,
         normalized,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     execute_orchestrator_command(&project_state, &lane_cmd)?;
 
     finalize_external_param_update(

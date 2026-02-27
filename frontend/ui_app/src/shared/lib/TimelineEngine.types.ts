@@ -29,6 +29,7 @@ export interface MarqueeSelection {
     endBeat: number;
     startTrack: number;
     endTrack: number;
+    selectedCount?: number;
 }
 
 export interface TrimPreviewState {

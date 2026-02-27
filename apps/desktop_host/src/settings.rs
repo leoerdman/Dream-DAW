@@ -471,10 +471,10 @@ impl RecentProjects {
     }
 
     pub(crate) fn save(&self, app_data_dir: &std::path::Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self).map_err(|_| "Mutex poisoned".to_string())?;
-        std::fs::create_dir_all(app_data_dir).map_err(|_| "Mutex poisoned".to_string())?;
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
         std::fs::write(app_data_dir.join("recent_projects.json"), json)
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

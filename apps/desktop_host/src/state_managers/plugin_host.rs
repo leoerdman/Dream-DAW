@@ -342,7 +342,7 @@ impl PluginHostState {
             let mut sandbox_map = self
                 .loaded_sandbox_by_key
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?;
+                .map_err(|e| e.to_string())?;
             sandbox_map.retain(|_, id| *id != instance_id);
         }
         {
@@ -375,7 +375,7 @@ impl PluginHostState {
             let map = self
                 .loaded_sandbox_by_key
                 .lock()
-                .map_err(|_| "Mutex poisoned".to_string())?;
+                .map_err(|e| e.to_string())?;
             ids.extend(map.values().copied());
         }
         ids.extend(self.slot_instance_map.load_full().values().copied());
@@ -384,11 +384,11 @@ impl PluginHostState {
         }
         self.loaded_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clear();
         self.loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clear();
         self.clear_slot_instance_bindings();
         Ok(())
@@ -565,7 +565,7 @@ impl PluginHostState {
                     self.bind_slot_instance(slot_id, instance_id);
                     self.loaded_by_key
                         .lock()
-                        .map_err(|_| "Mutex poisoned".to_string())?
+                        .map_err(|e| e.to_string())?
                         .entry(plugin_id.to_string())
                         .or_insert(instance_id);
                     self.publish_registry();
@@ -614,7 +614,7 @@ impl PluginHostState {
         self.bind_slot_instance(slot_id, instance_id);
         self.loaded_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .entry(plugin_id.to_string())
             .or_insert(instance_id);
         self.publish_registry();
@@ -852,7 +852,7 @@ impl PluginHostState {
         self.publish_registry();
         self.loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .insert(plugin_key.to_string(), instance_id);
         {
             let mut supervisor = self.sandbox_supervisor.lock().map_err(|_| "Mutex poisoned".to_string())?;
@@ -865,7 +865,7 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .remove(plugin_key);
         if let Some(id) = maybe_id {
             if let Ok(mut supervisor) = self.sandbox_supervisor.lock() {
@@ -945,7 +945,7 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .get(plugin_key)
             .copied();
         let Some(id) = maybe_id else {
@@ -979,7 +979,7 @@ impl PluginHostState {
         let maybe_id = self
             .loaded_sandbox_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .get(plugin_key)
             .copied();
         let Some(id) = maybe_id else {

@@ -42,12 +42,12 @@ async fn set_track_color_cmd(
         &track_id,
         normalized,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     execute_orchestrator_command(&project_state, &cmd)?;
     let project_name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -144,7 +144,7 @@ async fn create_group_cmd(
         &track_ids,
         group_name,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -189,7 +189,7 @@ async fn create_group_with_deltas_cmd(
         &track_ids,
         group_name,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -253,7 +253,7 @@ async fn set_group_expanded_cmd(
     let cmd = dream_orchestrator::commands::SetGroupExpandedCommand::from_str_group_id(
         &group_id, expanded,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     execute_orchestrator_command(&project_state, &cmd)?;
     let project = project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())?;
     let project_name = project.name.clone();

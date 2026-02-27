@@ -111,7 +111,13 @@ function App() {
     const reportFatal = (source: string, reason: unknown) => {
       const message = `${source}: ${toMessage(reason)}`
       setFatalError((prev) => prev ?? message)
-      void engineApi.logFrontendError('AppRuntime', message)
+      try {
+        if ('__TAURI_INTERNALS__' in window) {
+          engineApi.logFrontendError('AppRuntime', message).catch(() => { })
+        }
+      } catch (e) {
+        // Safe fallback for standard browsers
+      }
       console.error('[AppRuntime]', message)
     }
     const onWindowError = (event: ErrorEvent) => {
@@ -252,7 +258,7 @@ function App() {
       {/* BUG-029: Show visual warning if window expansion failed */}
       {windowError && (
         <div style={{
-          position: 'fixed', top: 8, right: 8, zIndex: 100000, padding: '6px 12px',
+          position: 'fixed', top: 8, right: 8, zIndex: 'var(--z-fatal-error, 100000)', padding: '6px 12px',
           background: 'color-mix(in srgb, var(--color-status-warning) 90%, transparent)', color: 'var(--color-text-on-accent)', borderRadius: 6, fontSize: 12,
           fontFamily: 'var(--font-role-data)'
         }}>
@@ -265,7 +271,7 @@ function App() {
           inset: 0,
           // BUG-030 FIX: Lowered z-index so ErrorBoundary recovery button
           // is accessible. Previously 999999 blocked everything.
-          zIndex: 99999,
+          zIndex: 'var(--z-toast, 99999)',
           background: 'var(--token-color-hex-1a0000)',
           color: 'var(--token-color-hex-ff6b6b)',
           padding: 40,

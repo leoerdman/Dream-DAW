@@ -75,7 +75,7 @@ async fn set_track_height_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackHeightCommand::from_str_track_id(&track_id, height)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     if !result.changed {
@@ -99,7 +99,7 @@ async fn set_track_height_with_deltas_cmd(
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let cmd = dream_orchestrator::commands::SetTrackHeightCommand::from_str_track_id(&track_id, height)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     if !result.changed {

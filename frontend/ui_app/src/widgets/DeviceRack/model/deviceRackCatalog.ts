@@ -183,7 +183,7 @@ export function normalizePickedPath(picked: unknown): string | null {
                 normalized = normalized.slice(1);
             }
         } catch (err) {
-            console.warn('[DeviceRack] normalizePickedPath URL parse fallback:', err);
+            console.warn('[Dream] normalizePickedPath URL parse fallback:', err);
             normalized = decodeURIComponent(normalized.replace(/^file:\/\//, ''));
         }
     }

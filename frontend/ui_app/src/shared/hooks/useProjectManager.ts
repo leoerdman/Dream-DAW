@@ -37,7 +37,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save must not fail just because viewport persistence failed.
-            console.warn('[ProjectManager] setArrangementViewport failed (non-fatal):', err);
+            console.warn('[Dream] setArrangementViewport failed (non-fatal):', err);
         }
     }, []);
     const pickSavePath = useCallback(async (): Promise<string | null> => {
@@ -45,7 +45,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             const path = await engineApi.saveProjectDialog();
             if (path && path.trim().length > 0) return path;
         } catch (err) {
-            console.warn('[ProjectManager] saveProjectDialog failed, trying plugin-dialog fallback:', err);
+            console.warn('[Dream] saveProjectDialog failed, trying plugin-dialog fallback:', err);
         }
         try {
             const { save } = await import('@tauri-apps/plugin-dialog');
@@ -56,7 +56,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             });
             return typeof path === 'string' && path.trim().length > 0 ? path : null;
         } catch (err) {
-            console.error('[ProjectManager] plugin-dialog save fallback failed:', err);
+            console.error('[Dream] plugin-dialog save fallback failed:', err);
             return null;
         }
     }, []);
@@ -84,7 +84,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             // Sync window title with dirty state (adds/removes *)
             await engineApi.syncTitle();
         } catch (err) {
-            console.error('[ProjectManager] Failed to refresh status:', err);
+            console.error('[Dream] Failed to refresh status:', err);
         }
     }, []);
     /** Save to existing path, or trigger Save As if unsaved. */
@@ -100,7 +100,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                     await flush();
                 }
             } catch (flushErr) {
-                console.warn('[ProjectManager] flushPendingEdits failed (non-fatal):', flushErr);
+                console.warn('[Dream] flushPendingEdits failed (non-fatal):', flushErr);
             }
             await syncArrangementViewport();
             // Re-read backend status at save time because project may have been
@@ -131,7 +131,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             }
             await refreshStatus();
         } catch (err) {
-            console.error('[ProjectManager] Save failed:', err);
+            console.error('[Dream] Save failed:', err);
         } finally {
             isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
@@ -150,7 +150,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                     await flush();
                 }
             } catch (flushErr) {
-                console.warn('[ProjectManager] flushPendingEdits failed (non-fatal):', flushErr);
+                console.warn('[Dream] flushPendingEdits failed (non-fatal):', flushErr);
             }
             await syncArrangementViewport();
             const path = await pickSavePath();
@@ -160,7 +160,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 await refreshStatus();
             }
         } catch (err) {
-            console.error('[ProjectManager] Save As failed:', err);
+            console.error('[Dream] Save As failed:', err);
         } finally {
             isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
@@ -184,7 +184,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             await refreshStatus();
             onProjectLoaded?.();
         } catch (err) {
-            console.error('[ProjectManager] New project failed:', err);
+            console.error('[Dream] New project failed:', err);
         }
     }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Open project — picks file, confirms if dirty. */
@@ -214,7 +214,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 onProjectLoaded?.();
             }
         } catch (err) {
-            console.error('[ProjectManager] Open failed:', err);
+            console.error('[Dream] Open failed:', err);
         }
     }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Manually create a backup. */
@@ -223,7 +223,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             await engineApi.createBackup();
         } catch (err) {
             // Silently ignore backup failures (no folder set yet)
-            console.debug('[ProjectManager] Backup skipped:', err);
+            console.debug('[Dream] Backup skipped:', err);
         }
     }, []);
     // NOTE: Cmd+N and Cmd+O are handled exclusively by the native macOS

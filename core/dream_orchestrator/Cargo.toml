@@ -16,3 +16,4 @@ dream_importers = { path = "../dream_importers" }
 serde = { workspace = true }
 uuid = { workspace = true }
 log = { workspace = true }
+parking_lot = { workspace = true }

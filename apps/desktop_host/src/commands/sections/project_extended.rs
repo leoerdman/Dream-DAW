@@ -17,7 +17,7 @@ fn create_backup_cmd(
         .ok_or("No project folder set. Save the project first.")?;
 
     let backup_path = ProjectManager::create_backup(&project, folder)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     log::info!("Backup created: {}", backup_path.display());
     Ok(backup_path.display().to_string())

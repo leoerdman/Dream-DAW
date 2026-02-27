@@ -73,7 +73,7 @@ export function useTrackInspectorDragDrop({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-track');
             })
             .catch((err) => {
-                console.error('[TrackInspector] moveTrackToIndexWithDeltas(reorder) failed:', err);
+                console.error('[Dream] moveTrackToIndexWithDeltas(reorder) failed:', err);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;
@@ -91,7 +91,7 @@ export function useTrackInspectorDragDrop({
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-group-block');
                 })
                 .catch((err) => {
-                    console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
+                    console.error('[Dream] moveTrackBlockToIndex failed:', err);
                 });
             return;
         }
@@ -117,7 +117,7 @@ export function useTrackInspectorDragDrop({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-to-group');
             })
             .catch((err) => {
-                console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
+                console.error('[Dream] moveTrackWithParent(group drop) failed:', err);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;

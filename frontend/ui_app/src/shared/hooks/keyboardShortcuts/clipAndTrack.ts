@@ -97,7 +97,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             return true;
         }
         const store = useEngineStore.getState();
-        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const bpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate);
         const cursorBeat = (ctx.editCursorBeat ?? -1) >= 0 ? (ctx.editCursorBeat as number) : frameToBeat(playheadFrames, bpm, sampleRate);
         const firstBeat = clipboardRef.current[0].startBeat;
@@ -244,7 +244,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:bounce-selection');
             } else if (marqueeSelection) {
                 const store = useEngineStore.getState();
-                const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+                const bpm = resolveBpm(store.transport.bpm);
                 const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
                 const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
                 const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
@@ -265,7 +265,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.stopPropagation();
         const store = useEngineStore.getState();
         const transport = store.transport;
-        const bpm = resolveBpm(store.projectBpm, transport.bpm);
+        const bpm = resolveBpm(transport.bpm);
         const sr = resolveSampleRate(store.projectSampleRate, transport.sample_rate);
         const marqueeStartBeat = marqueeSelection ? Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat) : 0;
         const marqueeEndBeat = marqueeSelection ? Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat) : 0;
@@ -295,7 +295,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
         }
         // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
-        const beatsPerBar = store.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
+        const beatsPerBar = store.transport.time_sig_numerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         if (endBeat - startBeat < beatsPerBar) endBeat = startBeat + beatsPerBar;
         store.setLoop(true, beatToFrame(startBeat, bpm, sr), beatToFrame(endBeat, bpm, sr));
         return true;

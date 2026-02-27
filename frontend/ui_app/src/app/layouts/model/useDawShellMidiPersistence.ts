@@ -47,7 +47,7 @@ function normalizeIncomingMidiNotes(
     // Recovery path for legacy/imported absolute note beats.
     return notes.map((n, idx) => ({
         ...n,
-        id: n.id || makeUiId(clip.id, idx),
+        id: n.id ?? makeUiId(clip.id, idx),
         startBeat: Math.max(0, n.startBeat - clip.startBeat),
     }));
 }
@@ -77,7 +77,7 @@ export function useDawShellMidiPersistence({
     const dirtyMidiEnvelopeClipIdsRef = useRef<Set<string>>(new Set());
 
     const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
-        const bpm = resolveBpm(projectBpm, transportBpm);
+        const bpm = resolveBpm(transportBpm);
         const sampleRate = resolveSampleRate(projectSampleRate);
         return notes.map((note) => ({
             pitch: note.pitch,
@@ -183,7 +183,7 @@ export function useDawShellMidiPersistence({
         const notes = midiNotesByClip[clip.id] ?? [];
         const trackId = trackIds[clip.trackIndex];
         const track = trackId ? tracksById[trackId] : undefined;
-        const bpm = resolveBpm(projectBpm, transportBpm);
+        const bpm = resolveBpm(transportBpm);
         const sampleRate = resolveSampleRate(projectSampleRate);
         const settingsModel = useSettingsStore.getState().settings.openRouterModel;
         const variationModel = (settingsModel && settingsModel !== 'openai/gpt-4o-mini')
@@ -228,7 +228,7 @@ export function useDawShellMidiPersistence({
             );
             await applyProjectDeltas(response.deltas, 'daw-shell:midi-variation');
         } catch (error) {
-            console.error('[DawShell] AI MIDI variation failed:', error);
+            console.error('[Dream] AI MIDI variation failed:', error);
         } finally {
             setAiVariationBusy(false);
         }
@@ -255,7 +255,7 @@ export function useDawShellMidiPersistence({
                         // Successful roundtrip: clip is no longer locally dirty.
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
-                    .catch((error) => console.error('[DawShell] updateMidiClip failed:', error));
+                    .catch((error) => console.error('[Dream] updateMidiClip failed:', error));
             }, MIDI_SAVE_THROTTLE_MS) as ThrottledSender<MidiNote[]>;
             midiSaveThrottlesRef.current.set(clipId, send);
         }
@@ -275,7 +275,7 @@ export function useDawShellMidiPersistence({
                     .then(() => {
                         dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
-                    .catch((error) => console.error('[DawShell] setMidiClipEnvelopes failed:', error));
+                    .catch((error) => console.error('[Dream] setMidiClipEnvelopes failed:', error));
             }, MIDI_ENVELOPE_SAVE_THROTTLE_MS) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
             midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
         }

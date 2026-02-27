@@ -1,3 +1,9 @@
+import React from 'react';
+
+const REGION_OVERLAY_LINE_STYLE: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0, width: 1, pointerEvents: 'none' };
+const REGION_OVERLAY_DRAG_STYLE: React.CSSProperties = { position: 'absolute', top: 2, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' };
+const REGION_OVERLAY_RESIZE_STYLE: React.CSSProperties = { position: 'absolute', width: 4, height: 10, borderRadius: 1, border: 'none', cursor: 'ew-resize', pointerEvents: 'all' };
+
 interface TimelineRegionOverlayProps {
     trackHeight: number;
     regionA: { startBeat: number; endBeat: number } | null;
@@ -31,20 +37,20 @@ export function TimelineRegionOverlay({
         <>
             {regionALineX != null && (
                 <>
-                    {regionAEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionAEndLineX, width: 1, background: lineColorA, opacity: 0.7, pointerEvents: 'none' }} />}
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionALineX, width: 1, background: lineColorA, opacity: 0.96, pointerEvents: 'none' }} />
-                    <button onMouseDown={(e) => beginRegionDrag('A', 'move', e)} style={{ position: 'absolute', left: regionALineX - 7, top: 2, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region" />
-                    <button onMouseDown={(e) => beginRegionDrag('A', 'resize-start', e)} style={{ position: 'absolute', left: regionALineX - 2, top: trackHeight - 12, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorA, opacity: 0.95, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region start" />
-                    {regionAEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('A', 'resize-end', e)} style={{ position: 'absolute', left: regionAEndLineX - 2, top: trackHeight - 12, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorA, opacity: 0.95, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region end" />}
+                    {regionAEndLineX != null && <div style={{ ...REGION_OVERLAY_LINE_STYLE, left: regionAEndLineX, background: lineColorA, opacity: 0.7 }} />}
+                    <div style={{ ...REGION_OVERLAY_LINE_STYLE, left: regionALineX, background: lineColorA, opacity: 0.96 }} />
+                    <button onMouseDown={(e) => beginRegionDrag('A', 'move', e)} style={{ ...REGION_OVERLAY_DRAG_STYLE, left: regionALineX - 7, background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)' }} title="Drag Region" />
+                    <button onMouseDown={(e) => beginRegionDrag('A', 'resize-start', e)} style={{ ...REGION_OVERLAY_RESIZE_STYLE, left: regionALineX - 2, top: trackHeight - 12, background: lineColorA, opacity: 0.95 }} title="Resize Region start" />
+                    {regionAEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('A', 'resize-end', e)} style={{ ...REGION_OVERLAY_RESIZE_STYLE, left: regionAEndLineX - 2, top: trackHeight - 12, background: lineColorA, opacity: 0.95 }} title="Resize Region end" />}
                 </>
             )}
             {regionBLineX != null && (
                 <>
-                    {regionBEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBEndLineX, width: 1, background: lineColorB, opacity: 0.65, pointerEvents: 'none' }} />}
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBLineX, width: 1, background: lineColorB, opacity: 0.92, pointerEvents: 'none' }} />
-                    <button onMouseDown={(e) => beginRegionDrag('B', 'move', e)} style={{ position: 'absolute', left: regionBLineX - 7, top: 18, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region" />
-                    <button onMouseDown={(e) => beginRegionDrag('B', 'resize-start', e)} style={{ position: 'absolute', left: regionBLineX - 2, top: trackHeight - 24, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorB, opacity: 0.92, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region start" />
-                    {regionBEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('B', 'resize-end', e)} style={{ position: 'absolute', left: regionBEndLineX - 2, top: trackHeight - 24, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorB, opacity: 0.92, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region end" />}
+                    {regionBEndLineX != null && <div style={{ ...REGION_OVERLAY_LINE_STYLE, left: regionBEndLineX, background: lineColorB, opacity: 0.65 }} />}
+                    <div style={{ ...REGION_OVERLAY_LINE_STYLE, left: regionBLineX, background: lineColorB, opacity: 0.92 }} />
+                    <button onMouseDown={(e) => beginRegionDrag('B', 'move', e)} style={{ ...REGION_OVERLAY_DRAG_STYLE, left: regionBLineX - 7, top: 18, background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)' }} title="Drag Region" />
+                    <button onMouseDown={(e) => beginRegionDrag('B', 'resize-start', e)} style={{ ...REGION_OVERLAY_RESIZE_STYLE, left: regionBLineX - 2, top: trackHeight - 24, background: lineColorB, opacity: 0.92 }} title="Resize Region start" />
+                    {regionBEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('B', 'resize-end', e)} style={{ ...REGION_OVERLAY_RESIZE_STYLE, left: regionBEndLineX - 2, top: trackHeight - 24, background: lineColorB, opacity: 0.92 }} title="Resize Region end" />}
                 </>
             )}
         </>

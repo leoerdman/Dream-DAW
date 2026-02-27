@@ -11,7 +11,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use parking_lot::{Mutex, MutexGuard};
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_models::project::Project;
@@ -168,11 +169,9 @@ pub trait Query {
 }
 
 impl OrchestratorContext {
-    /// Lock the project mutex, mapping poison errors to OrchestratorError.
+    /// Lock the project mutex. parking_lot does not panic/poison on backtraces.
     pub fn lock_project(&self) -> OrchestratorResult<MutexGuard<'_, Project>> {
-        self.project
-            .lock()
-            .map_err(|e| OrchestratorError::LockPoisoned(e.to_string()))
+        Ok(self.project.lock())
     }
 
     /// Convenience: push undo using current project state.

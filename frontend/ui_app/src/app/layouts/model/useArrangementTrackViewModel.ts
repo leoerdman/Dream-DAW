@@ -118,7 +118,7 @@ export function useArrangementTrackViewModel({
             .setGroupExpandedWithDeltas(groupId, expanded)
             .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
             .catch((err) => {
-                console.error('[DawShell] setGroupExpanded failed:', err);
+                console.error('[Dream] setGroupExpanded failed:', err);
             });
     }, [applyProjectDeltas, collapsedGroups]);
 

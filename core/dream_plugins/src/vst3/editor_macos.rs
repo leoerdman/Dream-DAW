@@ -2,7 +2,7 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::Once;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use cocoa::appkit::NSWindow;
 use cocoa::base::id;
@@ -287,12 +287,9 @@ unsafe extern "C" fn run_loop_register_timer(
         if !timer.is_null() {
             let rl = CFRunLoopGetCurrent();
             CFRunLoopAddTimer(rl, timer, kCFRunLoopCommonModes);
-            // Use .ok() instead of .unwrap() — poisoned mutex must not crash the host.
-            if let Ok(mut timers) = frame.timers.lock() {
-                timers.insert(handler_addr, timer);
-            } else {
-                log::error!("[IRunLoop] timers mutex poisoned during register_timer");
-            }
+            // parking_lot::Mutex never poisons, so lock() always succeeds directly
+            let mut timers = frame.timers.lock();
+            timers.insert(handler_addr, timer);
             K_RESULT_OK
         } else {
             K_RESULT_FALSE
@@ -309,14 +306,12 @@ unsafe extern "C" fn run_loop_unregister_timer(
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
-        if let Ok(mut timers) = frame.timers.lock() {
-            if let Some(timer) = timers.remove(&handler_addr) {
-                let rl = CFRunLoopGetCurrent();
-                CFRunLoopRemoveTimer(rl, timer, kCFRunLoopCommonModes);
-                CFRelease(timer);
-            }
-        } else {
-            log::error!("[IRunLoop] timers mutex poisoned during unregister_timer");
+        // parking_lot::Mutex removes poisoning overhead completely
+        let mut timers = frame.timers.lock();
+        if let Some(timer) = timers.remove(&handler_addr) {
+            let rl = CFRunLoopGetCurrent();
+            CFRunLoopRemoveTimer(rl, timer, kCFRunLoopCommonModes);
+            CFRelease(timer);
         }
         K_RESULT_OK
     }
@@ -363,11 +358,8 @@ unsafe extern "C" fn run_loop_register_event_handler(
         dispatch_source_set_cancel_handler_f(source, run_loop_cancel_callback);
         dispatch_resume(source);
         
-        if let Ok(mut handlers) = frame.event_handlers.lock() {
-            handlers.insert(handler_addr, source);
-        } else {
-            log::error!("[IRunLoop] event_handlers mutex poisoned during register");
-        }
+        let mut handlers = frame.event_handlers.lock();
+        handlers.insert(handler_addr, source);
         
         K_RESULT_OK
     }
@@ -382,13 +374,10 @@ unsafe extern "C" fn run_loop_unregister_event_handler(
         let frame = &*frame_ptr;
         let handler_addr = handler as usize;
         
-        if let Ok(mut handlers) = frame.event_handlers.lock() {
-            if let Some(source) = handlers.remove(&handler_addr) {
-                dispatch_source_cancel(source);
-                dispatch_release(source); // Will trigger cancel handler which frees FdInfo
-            }
-        } else {
-            log::error!("[IRunLoop] event_handlers mutex poisoned during unregister");
+        let mut handlers = frame.event_handlers.lock();
+        if let Some(source) = handlers.remove(&handler_addr) {
+            dispatch_source_cancel(source);
+            dispatch_release(source); // Will trigger cancel handler which frees FdInfo
         }
         K_RESULT_OK
     }

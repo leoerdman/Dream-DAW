@@ -62,7 +62,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             const devices = await engine.getAudioDevices();
             setAudioDevices(devices);
         } catch (err) {
-            console.error('[SettingsPanel] Failed to enumerate devices:', err);
+            console.error('[Dream] Failed to enumerate devices:', err);
         } finally {
             if (!silent) setDevicesLoading(false);
             audioRefreshInFlightRef.current = false;
@@ -76,7 +76,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         setSandboxLoading(true);
         engine.getPluginSandboxRuntime()
             .then((snap) => setSandboxSnapshot(snap))
-            .catch((err) => console.error('[SettingsPanel] Failed to read plugin sandbox runtime:', err))
+            .catch((err) => console.error('[Dream] Failed to read plugin sandbox runtime:', err))
             .finally(() => setSandboxLoading(false));
     }, [tab, refreshAudioDevices]);
 
@@ -94,7 +94,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                 updateSetting('outputDevice', resolvedDevice);
             })
             .catch((err) => {
-                console.error('[SettingsPanel] Failed to auto-fallback output device:', err);
+                console.error('[Dream] Failed to auto-fallback output device:', err);
             })
             .finally(() => {
                 setRestartingEngine(false);
@@ -123,7 +123,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         setMidiLoading(true);
         engine.getMidiInputs()
             .then((ports) => setMidiInputs(ports))
-            .catch((err) => console.error('[SettingsPanel] Failed to enumerate MIDI inputs:', err))
+            .catch((err) => console.error('[Dream] Failed to enumerate MIDI inputs:', err))
             .finally(() => setMidiLoading(false));
     }, [tab]);
 
@@ -141,7 +141,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             }
         };
         window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
+        return () => removeEventListener('keydown', handler);
     }, [isOpen, onClose]);
 
     const handleRescan = useCallback(async () => {
@@ -160,7 +160,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                     await applyProjectDeltas(report.deltas, 'settings:rescan-auto-resolve');
                 }
             } catch (err) {
-                console.warn('[SettingsPanel] auto-resolve after rescan failed:', err);
+                console.warn('[Dream] auto-resolve after rescan failed:', err);
             }
             setRescanResult(
                 unresolvedAfter > 0
@@ -170,7 +170,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                         : `Found ${pluginCount} plugins`,
             );
         } catch (err) {
-            console.error('[SettingsPanel] plugin rescan failed:', err);
+            console.error('[Dream] plugin rescan failed:', err);
             setRescanResult('Plugin rescan failed');
         } finally {
             setRescanningPlugins(false);
@@ -184,7 +184,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             const refreshed = await engine.getMidiInputs();
             setMidiInputs(refreshed);
         } catch (err) {
-            console.error('[SettingsPanel] connectMidiInput failed:', err);
+            console.error('[Dream] connectMidiInput failed:', err);
         } finally {
             setMidiConnecting(null);
         }

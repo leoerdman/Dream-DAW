@@ -59,6 +59,7 @@ export const actionBtnSmStyle: CSSProperties = {
     border: 'var(--space-px) solid var(--color-divider)', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)',
 };
 export const dividerStyle: CSSProperties = { height: 1, background: 'var(--color-divider)', margin: 'var(--space-3) 0' };
+export const sliderStyle: CSSProperties = { width: 180 };
 
 export const sectionStyle: CSSProperties = {
     border: 'none',

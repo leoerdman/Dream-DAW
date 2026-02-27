@@ -1,5 +1,7 @@
 import React from 'react';
 
+const HIGHLIGHT_STYLE: React.CSSProperties = { color: 'var(--color-accent-primary)', fontWeight: 700 };
+
 export function renderHighlightedMatch(name: string, query: string): React.ReactNode {
     if (!query.trim()) return name;
     const q = query.trim().toLowerCase();
@@ -14,7 +16,7 @@ export function renderHighlightedMatch(name: string, query: string): React.React
             if (pos < 0) return name;
             if (pos > cursor) parts.push(name.slice(cursor, pos));
             parts.push(
-                <span key={pos} style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
+                <span key={pos} style={HIGHLIGHT_STYLE}>
                     {name[pos]}
                 </span>,
             );
@@ -26,7 +28,7 @@ export function renderHighlightedMatch(name: string, query: string): React.React
     return (
         <>
             {name.slice(0, idx)}
-            <span style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
+            <span style={HIGHLIGHT_STYLE}>
                 {name.slice(idx, idx + q.length)}
             </span>
             {name.slice(idx + q.length)}

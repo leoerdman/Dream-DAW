@@ -191,7 +191,7 @@ export function usePreviewSync({
             .catch(() => undefined)
             .then(command)
             .catch((err) => {
-                console.warn('[AssetBrowser] preview command failed:', err);
+                console.warn('[Dream] preview command failed:', err);
             });
     }, [previewCommandQueueRef]);
 

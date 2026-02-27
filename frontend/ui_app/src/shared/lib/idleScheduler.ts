@@ -5,8 +5,8 @@ type IdleWindow = Window & {
     cancelIdleCallback?: (id: number) => void;
 };
 
-const DEFAULT_IDLE_TIMEOUT_MS = 900;
-const DEFAULT_FALLBACK_DELAY_MS = 260;
+export const DEFAULT_IDLE_TIMEOUT_MS = 900;
+export const DEFAULT_FALLBACK_DELAY_MS = 260;
 
 export function scheduleIdle(
     cb: () => void,

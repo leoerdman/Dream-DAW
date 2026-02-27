@@ -539,7 +539,7 @@ async fn update_midi_clip_cmd(
 
     let normalized = normalize_note_payloads(&notes, clip_duration_frames);
     let cmd = dream_orchestrator::commands::UpdateMidiClipCommand::from_str_id(&clip_id, normalized)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -668,7 +668,7 @@ async fn set_midi_clip_envelopes_cmd(
     }
 
     let cmd = dream_orchestrator::commands::SetMidiClipEnvelopesCommand::from_str_id(&clip_id, normalized)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 

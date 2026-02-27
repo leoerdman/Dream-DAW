@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { create } from 'zustand';
+import { getSamplesPerBeat } from '@/shared/lib/audioMath';
 
 // ── Constants ────────────────────────────────────────────────────────────
 // BUG-036 FIX: Export so ViewportMachine and other modules share the same bounds.
@@ -26,6 +27,12 @@ export const MIN_SPP = 4;
 
 /** Maximum SPP — maximum zoom out. At 44.1kHz, ~93 seconds per pixel. */
 export const MAX_SPP = 65536;
+
+/** Minimum pixels per beat for grid drawing. */
+export const MIN_PIXELS_PER_BEAT = 5;
+
+/** Maximum pixels per beat for grid drawing. */
+export const MAX_PIXELS_PER_BEAT = 2000;
 
 /** Default zoom level. At 44.1kHz: ~5.8ms per pixel — comfortable overview. */
 export const DEFAULT_SPP = 256;
@@ -177,7 +184,7 @@ export const useViewportStore = create<ViewportStore>((set, get) => ({
     pixelsPerBeat: (bpm: number, sampleRate: number) => {
         const { samplesPerPixel } = get();
         const safeBpm = bpm > 0 ? bpm : 120;
-        const samplesPerBeat = (sampleRate * 60) / safeBpm;
+        const samplesPerBeat = getSamplesPerBeat(safeBpm, sampleRate);
         return samplesPerBeat / samplesPerPixel;
     },
 }));

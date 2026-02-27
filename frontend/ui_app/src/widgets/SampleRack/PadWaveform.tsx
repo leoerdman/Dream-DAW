@@ -26,7 +26,7 @@ export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePat
             })
             .catch((err) => {
                 // BUG-R4-035b FIX: Log instead of silently swallowing.
-                console.warn('[PadWaveform] waveform peaks load failed:', err);
+                console.warn('[Dream] waveform peaks load failed:', err);
                 if (!cancelled) setPeaks(null);
             });
         return () => {

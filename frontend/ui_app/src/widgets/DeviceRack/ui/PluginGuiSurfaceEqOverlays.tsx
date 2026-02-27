@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
     EQ_FILTER_LABELS,
     EQ_FILTER_TYPE_TO_INDEX,
+    DEFAULT_EQ_FILTER_TYPE_INDEX,
     bandDotY,
     freqToX,
     type EqBand8,
@@ -168,7 +169,7 @@ export function EqBandContextMenu({
                 position: 'fixed',
                 left,
                 top,
-                zIndex: 9999,
+                zIndex: 'var(--z-plugin-overlay, 9999)',
                 background: 'var(--color-bg-elevated)',
                 border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 16%, transparent)',
                 borderRadius: 'var(--radius-sm)',
@@ -205,7 +206,7 @@ export function EqBandContextMenu({
                             next[eqContextMenu.bandIdx] = type;
                             return next;
                         });
-                        const typeValue = EQ_FILTER_TYPE_TO_INDEX[type] ?? 4;
+                        const typeValue = EQ_FILTER_TYPE_TO_INDEX[type] ?? DEFAULT_EQ_FILTER_TYPE_INDEX;
                         onParamChange(`B${eqContextMenu.bandIdx}Type`, typeValue);
                         setEqContextMenu(null);
                     }}

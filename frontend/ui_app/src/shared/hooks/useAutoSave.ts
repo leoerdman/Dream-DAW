@@ -39,15 +39,15 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
                 } catch (viewportErr) {
                     // BUG-H08 FIX: Log instead of silently swallowing.
                     // Persistent viewport sync failures were invisible.
-                    console.warn('[AutoSave] Viewport sync failed (non-fatal):', viewportErr);
+                    console.warn('[Dream] Viewport sync failed (non-fatal):', viewportErr);
                 }
                 const result = await autoSaveIfDirty();
                 if (result.saved) {
-                    console.info(`[AutoSave] Saved → ${result.path}`);
+                    console.info(`[Dream] Saved → ${result.path}`);
                 }
             } catch (err) {
                 // Non-fatal: log and keep timer running
-                console.warn('[AutoSave] Failed:', err);
+                console.warn('[Dream] Failed:', err);
             } finally {
                 inFlightRef.current = false;
             }

@@ -9,7 +9,7 @@ fn get_midi_inputs(
     let connected = midi_runtime
         .connected_port
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
 
     let mut out = Vec::with_capacity(ports.len());

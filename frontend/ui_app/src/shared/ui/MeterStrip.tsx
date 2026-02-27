@@ -178,7 +178,7 @@ export const MeterStrip: React.FC<MeterStripProps> = React.memo(({
                             height: 1,
                             background: COLOR_ZERO_DB_LINE,
                             pointerEvents: 'none',
-                            zIndex: 1,
+                            zIndex: 'var(--z-local, 1)',
                         }}
                     />
                 )}

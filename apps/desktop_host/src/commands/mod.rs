@@ -13,12 +13,12 @@ fn execute_orchestrator_command<C: dream_orchestrator::Command>(
         project_state
             .project
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clone(),
     );
-    let result = ctx.execute(cmd).map_err(|_| "Mutex poisoned".to_string())?;
+    let result = ctx.execute(cmd).map_err(|e| e.to_string())?;
     *project_state.project.lock().map_err(|_| "Mutex poisoned".to_string())? =
-        ctx.lock_project().map_err(|_| "Mutex poisoned".to_string())?.clone();
+        ctx.lock_project().map_err(|e| e.to_string())?.clone();
     Ok(result)
 }
 
@@ -30,10 +30,10 @@ fn execute_orchestrator_query<Q: dream_orchestrator::Query>(
         project_state
             .project
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clone(),
     );
-    ctx.query(query).map_err(|_| "Mutex poisoned".to_string())
+    ctx.query(query).map_err(|e| e.to_string())
 }
 
 pub mod payloads;

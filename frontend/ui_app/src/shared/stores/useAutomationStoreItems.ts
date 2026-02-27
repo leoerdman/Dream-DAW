@@ -24,6 +24,8 @@ interface AutomationStateLike<TLane extends AutomationLaneLike = AutomationLaneL
 const genBpId = () => `bp_${crypto.randomUUID().slice(0, 8)}`;
 const genItemId = () => `item_${crypto.randomUUID().slice(0, 8)}`;
 
+export const DEFAULT_AUTOMATION_ITEM_MID_OFFSET = 0.2;
+
 export function createAutomationItemMutation(
     lane: AutomationLaneLike,
     startBeat: number,
@@ -31,7 +33,7 @@ export function createAutomationItemMutation(
     options?: { midOffset?: number; minLength?: number },
 ): { itemId: string; breakpoints: AutomationBreakpointLike[] } {
     const minLength = options?.minLength ?? 0.25;
-    const midOffset = options?.midOffset ?? 0.2;
+    const midOffset = options?.midOffset ?? DEFAULT_AUTOMATION_ITEM_MID_OFFSET;
     const safeLength = Math.max(minLength, lengthBeats);
     const itemId = genItemId();
     const localBps = [...lane.breakpoints].sort((a, b) => a.beat - b.beat);

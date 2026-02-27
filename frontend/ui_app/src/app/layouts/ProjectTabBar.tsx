@@ -20,12 +20,12 @@ export function ProjectTabBar() {
                 alignItems: 'flex-end',
                 paddingLeft: 70, // macOS traffic lights padding offset
                 background: 'color-mix(in srgb, var(--color-bg-elevated) 40%, transparent)', // Slightly lighter than pure black
-                borderBottom: 'none',
                 userSelect: 'none',
                 flexShrink: 0,
                 width: '100%',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
                 position: 'relative',
-                zIndex: 100,
+                zIndex: 'var(--z-header, 100)',
             }}
         >
             {openProjects.map(tab => {

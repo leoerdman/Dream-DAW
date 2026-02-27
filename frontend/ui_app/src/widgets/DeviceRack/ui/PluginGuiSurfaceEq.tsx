@@ -213,7 +213,7 @@ export function PluginGuiSurfaceEq({
                     </svg>
                     <div
                         style={{
-                            position: 'absolute', top: 4, right: 6, zIndex: 10, cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
+                            position: 'absolute', top: 4, right: 6, zIndex: 'var(--z-local-raised, 10)', cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             background: eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d12)' : 'var(--token-color-rgba-255-255-255-0d07)',
                             border: `var(--space-px) solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d34)' : 'var(--token-color-rgba-255-255-255-0d18)'}`,
@@ -326,13 +326,13 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
                         }
                         await new Promise(r => requestAnimationFrame(r));
                     } catch (err) {
-                        console.warn('[EqSpectrum] poll error (backoff):', err);
+                        console.warn('[Dream] poll error (backoff):', err);
                         errorBackoff = Math.min(errorBackoff * 2, 2000);
                         await new Promise(r => setTimeout(r, errorBackoff));
                     }
                 }
             } catch (err) {
-                console.warn('[PluginEqSpectrumOverlay] EQ spectrum poll stopped:', err);
+                console.warn('[Dream] EQ spectrum poll stopped:', err);
             }
         };
         poll();

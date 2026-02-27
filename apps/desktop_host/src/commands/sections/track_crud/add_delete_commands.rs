@@ -201,7 +201,7 @@ async fn delete_tracks_cmd(
     }
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::DeleteTracksByIdsCommand::from_str_track_ids(&track_ids)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     if result.removed_track_ids.is_empty() {
         return Ok(());

@@ -43,7 +43,7 @@ export function usePendingMidiFlush({
                     return { ok: true as const, clipId };
                 })
                 .catch((err) => {
-                    console.error('[DawShell] flushPendingMidiEdits updateMidiClip failed:', err);
+                    console.error('[Dream] flushPendingMidiEdits updateMidiClip failed:', err);
                     return { ok: false as const, clipId };
                 }),
         );
@@ -53,7 +53,7 @@ export function usePendingMidiFlush({
                 .setMidiClipEnvelopes(clipId, latestMidiEnvelopesRef.current[clipId] ?? [], { pushUndoStep: true })
                 .then(() => ({ ok: true as const, clipId }))
                 .catch((err) => {
-                    console.error('[DawShell] flushPendingMidiEdits setMidiClipEnvelopes failed:', err);
+                    console.error('[Dream] flushPendingMidiEdits setMidiClipEnvelopes failed:', err);
                     return { ok: false as const, clipId };
                 }),
         );

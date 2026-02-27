@@ -22,7 +22,7 @@ fn set_sample_rack_pad_volume_cmd(
         pad_index,
         volume,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -88,7 +88,7 @@ fn set_sample_rack_pad_mute_cmd(
         pad_index,
         muted,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     // Engine doesn't have a distinct mute state per pad, so we sync volume = 0 if muted.
@@ -154,7 +154,7 @@ fn set_sample_rack_pad_solo_cmd(
         pad_index,
         soloed,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     for (i, vol_for_engine) in result.effective_pad_volumes.iter().enumerate() {
@@ -228,7 +228,7 @@ fn set_sample_rack_pad_adsr_cmd(
         sustain,
         release,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -319,7 +319,7 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
         pad_index,
         cutoff,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
@@ -408,7 +408,7 @@ fn set_sample_rack_pad_sample_cmd(
         pad_index,
         sample_path.clone(),
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let track_index = result.track_index as usize;
 

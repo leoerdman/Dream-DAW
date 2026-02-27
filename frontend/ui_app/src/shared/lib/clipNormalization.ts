@@ -24,7 +24,8 @@ export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readon
         if (byId.has(id)) {
             console.warn(`[clipNormalization] Duplicate clip ID "${id}" — later clip overwrites earlier one.`);
         }
-        byId.set(id, normalized);
+        byId.set(id, normalized as T); // cast back to T since we spread it
     }
-    return Array.from(byId.values());
+    // Return a deeply frozen ReadonlyArray to enforce immutability
+    return Object.freeze(Array.from(byId.values()));
 }

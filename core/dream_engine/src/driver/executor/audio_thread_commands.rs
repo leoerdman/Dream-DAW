@@ -41,7 +41,7 @@ pub(super) struct CommandProcessingContext<'a> {
     pub bpm: &'a mut f64,
     pub time_sig_numerator: &'a mut u8,
     pub time_sig_denominator: &'a mut u8,
-    pub master_gain_target: &'a mut f32,
+    pub master_gain_smoother: &'a mut crate::oscillator::ParameterSmoother,
     pub track_disabled: &'a mut [bool; MAX_TRACKS],
     pub track_soloed: &'a mut [bool; MAX_TRACKS],
     pub any_solo: &'a mut bool,
@@ -169,6 +169,7 @@ pub(super) fn drain_commands(
             }
             EngineCommand::SetTimelineSampleRate(sample_rate) => {
                 ctx.render_ctx.set_timeline_sample_rate(sample_rate);
+                ctx.master_gain_smoother.set_time_constant(sample_rate as f64, 5.0);
             }
             EngineCommand::SetLoopEnabled(enabled) => {
                 *ctx.loop_enabled = enabled;
@@ -205,7 +206,7 @@ pub(super) fn drain_commands(
                 }
             }
             EngineCommand::SetMasterVolume { volume } => {
-                *ctx.master_gain_target = volume.clamp(0.0, 2.0);
+                ctx.master_gain_smoother.set_target(volume.clamp(0.0, 2.0));
             }
             EngineCommand::SetTrackDisabled { track_index, disabled } => {
                 let idx = track_index as usize;

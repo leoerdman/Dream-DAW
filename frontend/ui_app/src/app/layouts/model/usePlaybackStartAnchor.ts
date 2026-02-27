@@ -88,7 +88,7 @@ export function usePlaybackStartAnchor({
         if (justStopped && playStartAnchorRef.current !== null) {
             const anchor = playStartAnchorRef.current;
             void engineApi.seekToBeat(Math.max(0, anchor)).catch((err) => {
-                console.error('[DawShell] seek back to anchor on stop failed:', err);
+                console.error('[Dream] seek back to anchor on stop failed:', err);
             });
             // Don't clear the anchor — so pressing play again starts from here.
         }

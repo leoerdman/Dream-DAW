@@ -26,7 +26,7 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
     } = ctx;
     const splitFrame = resolveSplitFrame(playheadFrames, editCursorBeat);
     const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+    const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0 ? editCursorBeat : frameToBeat(playheadFrames, bpm, sampleRate);
     const hasThinMultiCursor = Boolean(
@@ -71,7 +71,7 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
         if (selected.length === 0) return null;
         const store = useEngineStore.getState();
-        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const bpm = resolveBpm(store.transport.bpm);
         let minStart = Infinity;
         let maxEnd = -Infinity;
         for (const c of selected) {
@@ -115,7 +115,7 @@ export async function nudgeSelectedClips(
     }
 
     const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+    const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const responses = await Promise.all(selected.map((clip) => {
         const nextBeat = Math.max(0, clip.startBeat + deltaBeats);
@@ -152,7 +152,7 @@ export async function nudgeSelectedClipsTrack(
     if (deltaTrack === 0) return selected.map((clip) => clip.id);
 
     const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+    const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const responses = await Promise.all(selected.map((clip) => {
         const nextTrack = Math.max(0, Math.min(maxTrackIndex, clip.trackIndex + deltaTrack));

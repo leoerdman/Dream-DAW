@@ -455,11 +455,12 @@ impl SampleRackEngine {
         // C1 is note 36. 16 pads = 36 to 51 inclusive.
         if (36..36 + 16).contains(&note) {
             let pad_idx = (note - 36) as usize;
-            let pad = &mut self.pads[pad_idx];
-            // Drum Racks usually play samples at their original pitch,
-            // so we trigger the pad at its own configured root_note.
-            let root = pad.root_note;
-            pad.note_on(root, velocity);
+            if let Some(pad) = self.pads.get_mut(pad_idx) {
+                // Drum Racks usually play samples at their original pitch,
+                // so we trigger the pad at its own configured root_note.
+                let root = pad.root_note;
+                pad.note_on(root, velocity);
+            }
         }
     }
 
@@ -468,9 +469,10 @@ impl SampleRackEngine {
     pub fn note_off(&mut self, note: u8) {
         if (36..36 + 16).contains(&note) {
             let pad_idx = (note - 36) as usize;
-            let pad = &mut self.pads[pad_idx];
-            let root = pad.root_note;
-            pad.note_off(root);
+            if let Some(pad) = self.pads.get_mut(pad_idx) {
+                let root = pad.root_note;
+                pad.note_off(root);
+            }
         }
     }
 

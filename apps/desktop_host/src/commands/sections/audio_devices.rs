@@ -53,29 +53,33 @@ fn restart_audio_engine_impl(
         .ok()
         .map(|s| crate::settings::validated_buffer_size(s.buffer_size));
 
+    let shared_state = dream_engine::driver::AudioSharedState {
+        clock: Arc::clone(&handle.master_clock),
+        meter_bank: Arc::clone(&handle.meter_bank),
+        clip_pool: Arc::clone(&handle.clip_pool),
+        clip_snapshot: Arc::clone(&handle.clip_snapshot),
+        midi_snapshot: Arc::clone(&handle.midi_snapshot),
+        routing_snapshot: Arc::clone(&handle.routing_snapshot),
+        sidechain_snapshot: Arc::clone(&handle.sidechain_snapshot),
+        external_fx_snapshot: Arc::clone(&handle.external_fx_snapshot),
+        automation_snapshot: Arc::clone(&handle.automation_snapshot),
+        sampler_samples: Arc::clone(&handle.sampler_samples),
+        sample_rack_samples: Arc::clone(&handle.sample_rack_samples),
+        prepared_graph_snapshot: Arc::clone(&handle.prepared_graph_snapshot),
+        rt_debug_stats: Arc::clone(&handle.rt_debug_stats),
+        plugin_registry: Arc::clone(&handle.plugin_registry),
+        preview_buffer: Arc::clone(&handle.preview_buffer),
+        preview_cursor: Arc::clone(&handle.preview_cursor),
+        preview_source_sr: Arc::clone(&handle.preview_source_sr),
+        disk_streamers: Arc::clone(&handle.disk_streamers),
+    };
+
     let new_stream = dream_engine::driver::start_audio_thread_on_device(
         new_consumer,
-        Arc::clone(&handle.master_clock),
-        Arc::clone(&handle.meter_bank),
-        Arc::clone(&handle.clip_pool),
-        Arc::clone(&handle.clip_snapshot),
-        Arc::clone(&handle.midi_snapshot),
-        Arc::clone(&handle.routing_snapshot),
-        Arc::clone(&handle.sidechain_snapshot),
-        Arc::clone(&handle.external_fx_snapshot),
-        Arc::clone(&handle.automation_snapshot),
-        Arc::clone(&handle.sampler_samples),
-        Arc::clone(&handle.sample_rack_samples),
-        Arc::clone(&handle.prepared_graph_snapshot),
-        Arc::clone(&handle.rt_debug_stats),
-        Arc::clone(&handle.plugin_registry),
-        Arc::clone(&handle.preview_buffer),
-        Arc::clone(&handle.preview_cursor),
-        Arc::clone(&handle.preview_source_sr),
-        Arc::clone(&handle.disk_streamers),
+        new_prealloc_consumer,
+        shared_state,
         Some(device_name.as_str()),
         Some(handle.stream_error_tx.clone()),
-        new_prealloc_consumer,
         preferred_buffer_size,
     )
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
@@ -124,7 +128,7 @@ fn restart_audio_engine_impl(
     let snapshot = handle
         .playback_state
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
     let current_pos_frames = handle.master_clock.position();
     push_command(

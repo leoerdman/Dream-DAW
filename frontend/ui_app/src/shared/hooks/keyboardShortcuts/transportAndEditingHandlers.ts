@@ -183,13 +183,13 @@ export async function handleAutomationShortcuts(
             lane = useAutomationStore.getState().lanes[laneId];
         }
         const store = useEngineStore.getState();
-        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const bpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const cursorBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
             ? editCursorBeat
             : frameToBeat(playheadFrames, bpm, sampleRate);
         // BUG-A002 FIX: Use actual store property instead of phantom type-cast that always returned 4.
-        const beatsPerBar = store.timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
+        const beatsPerBar = store.transport.time_sig_numerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         if (lane) {
             autoStore.createAutomationItem(lane.id, cursorBeat, beatsPerBar);
             await flushLaneToEngine(lane.id, 'shortcut:create-automation-item');
@@ -211,7 +211,7 @@ export async function handleAutomationShortcuts(
             l.trackId === trackId && (paramKey ? l.paramKey === paramKey : true));
         if (!lane) return true;
         const store = useEngineStore.getState();
-        const bpm = resolveBpm(store.projectBpm, store.transport.bpm);
+        const bpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const cursorBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
             ? editCursorBeat

@@ -60,7 +60,7 @@ async fn add_browser_folder(
     })
     .await
     .map_err(|e| format!("Join error: {}", e))?
-    .map_err(|_| "Mutex poisoned".to_string())?
+    .map_err(|e| e.to_string())?
     .ok_or_else(|| "Cancelled".to_string())?;
 
     let normalized_picked = normalize_browser_path(&picked);

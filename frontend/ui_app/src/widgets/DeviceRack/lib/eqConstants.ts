@@ -48,6 +48,8 @@ export const EQ_FILTER_TYPE_TO_INDEX: Readonly<Record<string, number>> = {
     notch: 5,
 };
 
+export const DEFAULT_EQ_FILTER_TYPE_INDEX = 4; // peaking / bell
+
 const EQ_FILTER_INDEX_TO_TYPE = ['highpass', 'lowpass', 'lowshelf', 'highshelf', 'peaking', 'notch'] as const;
 
 export function eqFilterTypeFromIndex(raw: number | undefined, fallback: string): string {

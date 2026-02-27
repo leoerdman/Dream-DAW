@@ -155,7 +155,7 @@ export function useDeviceRackDnD(
 
                 statusClearRef.current?.();
             } catch (err) {
-                console.error('[DeviceRack] addPluginToTrack failed:', err);
+                console.error('[Dream] addPluginToTrack failed:', err);
                 statusErrorRef.current?.('Failed to add plugin to track.');
             } finally {
                 useDragStore.getState().endDrag();

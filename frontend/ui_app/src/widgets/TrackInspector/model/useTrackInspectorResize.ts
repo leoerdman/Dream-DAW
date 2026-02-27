@@ -67,7 +67,7 @@ export function useTrackInspectorResize({
                             .applyProjectDeltas(response.deltas, 'track-inspector:resize-track-height'),
                     )
                     .catch((err) => {
-                        console.error('[TrackInspector] setTrackHeight failed:', err);
+                        console.error('[Dream] setTrackHeight failed:', err);
                     });
             }
         };

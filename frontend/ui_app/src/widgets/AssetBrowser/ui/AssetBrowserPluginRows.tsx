@@ -4,23 +4,38 @@ import { TypeIcon } from './AssetBrowserPrimitives';
 import { renderHighlightedMatch } from './AssetBrowserRowUtils';
 import type { RowBaseProps } from './AssetBrowserRows';
 
+const HEADER_ROW_STYLE: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: 8, padding: 'var(--space-1) var(--space-2)',
+    background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
+    borderBottom: 'var(--space-px) solid var(--color-divider-light)', borderTop: 'var(--space-px) solid var(--color-divider-light)',
+    position: 'relative',
+};
+
+const HEADER_TITLE_STYLE: React.CSSProperties = {
+    color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)',
+    fontWeight: 'var(--font-weight-bold)',
+    textTransform: 'uppercase', letterSpacing: '0.04em',
+};
+
+const HEADER_COUNT_STYLE: React.CSSProperties = { color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)' };
+
+const ITEM_TITLE_STYLE: React.CSSProperties = {
+    color: 'var(--color-text-primary)', fontSize: 'var(--font-size-base)',
+    fontWeight: 'var(--font-weight-medium)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+};
+
+const ITEM_TYPE_STYLE: React.CSSProperties = { minWidth: 52, maxWidth: 74, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 };
+const ITEM_SIZE_STYLE: React.CSSProperties = { minWidth: 44, maxWidth: 56, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 };
+
 export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
     title, count,
 }: { title: string; count: number }) {
     return (
-        <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 8, padding: 'var(--space-1) var(--space-2)',
-            background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
-            borderBottom: 'var(--space-px) solid var(--color-divider-light)', borderTop: 'var(--space-px) solid var(--color-divider-light)',
-            position: 'relative',
-        }}>
-            <span style={{
-                color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)',
-                fontWeight: 'var(--font-weight-bold)',
-                textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}>{title}</span>
-            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)' }}>{count}</span>
+        <div style={HEADER_ROW_STYLE}>
+            <span style={HEADER_TITLE_STYLE}>{title}</span>
+            <span style={HEADER_COUNT_STYLE}>{count}</span>
         </div>
     );
 });
@@ -120,13 +135,9 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
             }}
         >
             <TypeIcon type={item.type} item={item} />
-            <span style={{
-                color: 'var(--color-text-primary)', fontSize: 'var(--font-size-base)',
-                fontWeight: 'var(--font-weight-medium)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
-            }}>{debouncedQuery.trim() ? renderHighlightedMatch(item.name, debouncedQuery) : item.name}</span>
-            {showTypeColumn && <span style={{ minWidth: 52, maxWidth: 74, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>{typeLabel}</span>}
-            {showSizeColumn && <span style={{ minWidth: 44, maxWidth: 56, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{sizeLabel}</span>}
+            <span style={ITEM_TITLE_STYLE}>{debouncedQuery.trim() ? renderHighlightedMatch(item.name, debouncedQuery) : item.name}</span>
+            {showTypeColumn && <span style={ITEM_TYPE_STYLE}>{typeLabel}</span>}
+            {showSizeColumn && <span style={ITEM_SIZE_STYLE}>{sizeLabel}</span>}
         </div>
     );
 });

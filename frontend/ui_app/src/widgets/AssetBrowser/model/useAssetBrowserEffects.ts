@@ -72,7 +72,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
                 statusClear();
             })
             .catch((err) => {
-                console.warn('[Browser] Failed to load folders:', err);
+                console.warn('[Dream] Failed to load folders:', err);
                 statusError(`Asset Browser: failed to load folders: ${errorText(err)}`);
             });
     }, [setUserFolders, statusClear, statusError]);
@@ -106,7 +106,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             }
         };
         window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
+        return () => removeEventListener('keydown', handler);
     }, [searchRef, selectedCategoryId, setSelectedCategoryId]);
     useEffect(() => {
         const input = searchRef.current;
@@ -181,7 +181,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             // BUG-21 FIX: properly chain promises — don't continue scan if demo gen fails hard
             engineApi.generateDemoSamples()
                 .catch((err) => {
-                    console.warn('[AssetBrowser] Demo sample generation skipped:', err);
+                    console.warn('[Dream] Demo sample generation skipped:', err);
                     // Return resolved so scan can proceed even if demo gen is unavailable
                     return undefined;
                 })
@@ -198,7 +198,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
                 })
                 .catch((err) => {
                     if (!cancelled && err !== 'cancelled') {
-                        console.warn('[AssetBrowser] Scan failed:', err);
+                        console.warn('[Dream] Scan failed:', err);
                         const message = errorText(err);
                         setSampleScanError(message);
                         statusError(`Asset Browser: sample scan failed: ${message}`);
@@ -227,7 +227,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             setPluginScanLoading(false);
         }).catch((err) => {
             if (cancelled) return;
-            console.warn('[Browser] Plugin scan failed:', err);
+            console.warn('[Dream] Plugin scan failed:', err);
             const message = errorText(err);
             setPluginScanError(message);
             statusError(`Asset Browser: plugin scan failed: ${message}`);
@@ -247,7 +247,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             setFolderScanLoading(false);
         }).catch((err) => {
             if (cancelled) return;
-            console.warn('[Browser] Folder scan failed:', err);
+            console.warn('[Dream] Folder scan failed:', err);
             const message = errorText(err);
             setFolderScanError(message);
             statusError(`Asset Browser: folder scan failed: ${message}`);

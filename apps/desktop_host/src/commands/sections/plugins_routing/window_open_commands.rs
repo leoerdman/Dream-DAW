@@ -135,7 +135,7 @@ fn open_plugin_window_for_slot(
         let sandbox_result = plugin_host_state
             .sandbox_supervisor
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .send_open_editor(bound_instance)
             .is_ok();
         log::info!(
@@ -156,7 +156,7 @@ fn open_plugin_window_for_slot(
     let sandbox_result = plugin_host_state
         .sandbox_supervisor
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .send_open_editor(instance_id)
         .is_ok();
     if sandbox_result {
@@ -205,7 +205,7 @@ fn open_plugin_window_for_slot(
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
                 host.open_editor(instance_id)
-                    .map_err(|_| "Mutex poisoned".to_string())
+                    .map_err(|e| e.to_string())
             })();
             let _ = tx.send(result);
         })
@@ -281,7 +281,7 @@ fn open_plugin_window_for_slot(
         plugin_host_state
             .loaded_by_key
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .insert(slot.plugin_id.clone(), recovered_instance);
 
         {
@@ -291,7 +291,7 @@ fn open_plugin_window_for_slot(
                 let result = (|| {
                     let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
                     host.open_editor(recovered_instance)
-                        .map_err(|_| "Mutex poisoned".to_string())
+                        .map_err(|e| e.to_string())
                 })();
                 let _ = tx.send(result);
             })

@@ -36,23 +36,23 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
     const finalizeSplash = useCallback((reason: string) => {
         if (cancelledRef.current || finalizedRef.current) return
         finalizedRef.current = true
-        if (isDev) console.debug(`[StartupManager] finalize (${reason})`)
+        if (isDev) console.debug(`[Dream] finalize (${reason})`)
         try {
             onComplete?.()
         } catch (e) {
-            console.warn('[StartupManager] onComplete failed:', e)
+            console.warn('[Dream] onComplete failed:', e)
         }
     }, [onComplete, isDev])
 
     const startInitialization = useCallback(() => {
-        if (isDev) console.debug('[StartupManager] initialization START')
+        if (isDev) console.debug('[Dream] initialization START')
 
         // BUG-001 FIX: Per-step timeout to prevent hanging on unresponsive backend
         const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
             Promise.race([
                 promise,
                 new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error(`[StartupManager] ${label} timed out after ${ms}ms`)), ms)
+                    setTimeout(() => reject(new Error(`[Dream] ${label} timed out after ${ms}ms`)), ms)
                 ),
             ])
 
@@ -60,21 +60,21 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
             try {
                 // 1. Load user settings from disk in background.
                 try {
-                    if (isDev) console.debug('[StartupManager] step 1: loadSettings...')
+                    if (isDev) console.debug('[Dream] step 1: loadSettings...')
                     await withTimeout(useSettingsStore.getState().loadSettings(), 3000, 'loadSettings')
-                    if (isDev) console.debug('[StartupManager] step 1: loadSettings DONE')
+                    if (isDev) console.debug('[Dream] step 1: loadSettings DONE')
                 } catch (e) {
-                    console.warn('[StartupManager] Failed to load settings:', e)
+                    console.warn('[Dream] Failed to load settings:', e)
                 }
                 if (cancelledRef.current) return
 
                 const settings = useSettingsStore.getState().settings
-                if (isDev) console.debug('[StartupManager] startupBehavior=', settings.startupBehavior)
+                if (isDev) console.debug('[Dream] startupBehavior=', settings.startupBehavior)
 
                 // 2. Start telemetry ASAP so UI is live even if project open is slow.
-                if (isDev) console.debug('[StartupManager] step 2: startTelemetryLoop...')
+                if (isDev) console.debug('[Dream] step 2: startTelemetryLoop...')
                 startTelemetryLoop()
-                if (isDev) console.debug('[StartupManager] step 2: startTelemetryLoop DONE')
+                if (isDev) console.debug('[Dream] step 2: startTelemetryLoop DONE')
 
                 // 2.5. Populate the tab bar with real backend project info.
                 // The store starts with a placeholder 'default' tab — replace it
@@ -94,15 +94,15 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
                             activeProjectId: activeId,
                             openProjects: tabs,
                         })
-                        if (isDev) console.debug('[StartupManager] step 2.5: synced tabs =', tabs, 'activeId =', activeId)
+                        if (isDev) console.debug('[Dream] step 2.5: synced tabs =', tabs, 'activeId =', activeId)
                     }
                 } catch (e) {
-                    console.warn('[StartupManager] step 2.5: listOpenProjects failed:', e)
+                    console.warn('[Dream] step 2.5: listOpenProjects failed:', e)
                 }
 
                 // 3. Honor startup behavior: open last project on launch if selected.
                 if (settings.startupBehavior === 'last') {
-                    if (isDev) console.debug('[StartupManager] step 3: startupBehavior=last, loading recent...')
+                    if (isDev) console.debug('[Dream] step 3: startupBehavior=last, loading recent...')
                     try {
                         const recents = await withTimeout(engineApi.getRecentProjects(), 3000, 'getRecentProjects')
                         const latest = recents[0]
@@ -119,16 +119,16 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
                                 )
                             })
                             await withTimeout(useEngineStore.getState().syncProjectHistory(), 2000, 'syncProjectHistory')
-                            if (isDev) console.debug('[StartupManager] step 3: open last DONE', latest.path)
+                            if (isDev) console.debug('[Dream] step 3: open last DONE', latest.path)
                         } else if (isDev) {
-                            console.debug('[StartupManager] step 3: no recent projects, skipping')
+                            console.debug('[Dream] step 3: no recent projects, skipping')
                         }
                     } catch (e) {
-                        console.warn('[StartupManager] step 3: open last failed, continuing:', e)
+                        console.warn('[Dream] step 3: open last failed, continuing:', e)
                     }
                 }
             } catch (e) {
-                console.warn('[StartupManager] Unexpected startup error:', e)
+                console.warn('[Dream] Unexpected startup error:', e)
             } finally {
                 // Ensure the splash isn't closed too blindingly fast
                 setTimeout(() => finalizeSplash('initialization-complete'), Math.max(0, minDuration - 500))

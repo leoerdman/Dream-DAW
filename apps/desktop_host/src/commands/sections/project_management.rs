@@ -149,7 +149,7 @@ async fn save_project(
     tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
         .await
         .map_err(|e| format!("Save task join error: {e}"))?
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     if let Some(legacy_path) = legacy_path_to_remove
         && legacy_path.exists()
         && let Err(e) = std::fs::remove_file(&legacy_path)
@@ -220,14 +220,14 @@ async fn save_project_as(
         log::info!("[SaveAs] parent_dir={:?}, is_project_dir={}, project_name={}", parent_dir, is_proj_dir, project_name_for_save);
         if is_proj_dir {
             log::info!("[SaveAs] Saving directly to existing project dir: {:?}", save_target);
-            ProjectFile::save(&snapshot, &save_target).map_err(|_| "Mutex poisoned".to_string())?;
+            ProjectFile::save(&snapshot, &save_target).map_err(|e| e.to_string())?;
             Ok((save_target.clone(), parent_dir.to_path_buf()))
         } else {
             log::info!("[SaveAs] Non-project dir — creating project folder '{}' under {:?}", project_name_for_save, parent_dir);
             let folder = ProjectManager::create_project_folder(parent_dir, &project_name_for_save)
-                .map_err(|_| "Mutex poisoned".to_string())?;
+                .map_err(|e| e.to_string())?;
             let saved_path = ProjectManager::save_to_folder(&snapshot, &folder, true)
-                .map_err(|_| "Mutex poisoned".to_string())?;
+                .map_err(|e| e.to_string())?;
             log::info!("[SaveAs] Project saved to: {:?}", saved_path);
             Ok((saved_path, folder))
         }
@@ -286,7 +286,7 @@ fn open_project(
         let runtime_sample_rate = handle
             .playback_state
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .sample_rate;
         dream_importers::ableton::project_import::import_als_project_with_target_sample_rate(
             &file_path,
@@ -298,7 +298,7 @@ fn open_project(
         // mapping to internal://). Calling it on native .ddpj projects destroys
         // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
         // keyword matcher hits on substrings like "shaper" in "ShaperBox".
-        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|_| "Mutex poisoned".to_string())?;
+        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|e| e.to_string())?;
         normalized_empty_tracks_on_load = report.default_tracks_injected;
         project
     };
@@ -499,7 +499,7 @@ fn get_recent_projects(
     app: tauri::AppHandle,
 ) -> Result<Vec<RecentProject>, String> {
     let app_data_dir = app.path().app_data_dir()
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     let recent = RecentProjects::load(&app_data_dir);
     Ok(recent.projects)
 }
@@ -712,7 +712,7 @@ fn set_arrangement_grid_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
 
@@ -743,7 +743,7 @@ fn set_arrangement_grid_with_deltas_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
     project_state.mark_dirty(&name, Some(&app))?;
@@ -778,7 +778,7 @@ fn set_key_signature_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
 
@@ -805,7 +805,7 @@ fn set_key_signature_with_deltas_cmd(
     let name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
     project_state.mark_dirty(&name, Some(&app))?;
@@ -857,7 +857,7 @@ async fn auto_save_if_dirty(
     let project_name = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .name
         .clone();
     let path = canonical_project_path(&raw_path, &project_name);
@@ -883,7 +883,7 @@ async fn auto_save_if_dirty(
     tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
         .await
         .map_err(|e| format!("AutoSave task join error: {e}"))?
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
     if let Some(legacy_path) = legacy_path_to_remove
         && legacy_path.exists()
         && let Err(e) = std::fs::remove_file(&legacy_path)
@@ -1019,7 +1019,7 @@ fn switch_project_tab(
     let project = target_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
 
     // Update window title immediately.
@@ -1214,7 +1214,7 @@ fn close_project_tab(
         let project = new_active
             .project
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clone();
 
         // If we also closed the audio-active project, swap the engine too.
@@ -1270,7 +1270,7 @@ fn close_project_tab(
         let project = visual_project
             .project
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .map_err(|e| e.to_string())?
             .clone();
 
         let _ = plugin_host_state.unload_all_instances();

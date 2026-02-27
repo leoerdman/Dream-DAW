@@ -167,7 +167,7 @@ export function useAssetBrowserLogic() {
             setPluginScanError(null);
             triggerPluginScan();
         } catch (err) {
-            console.warn('[Browser] Failed to set plugin folder:', err);
+            console.warn('[Dream] Failed to set plugin folder:', err);
             setPluginScanError(String(err));
         }
     }, [setPluginScanError, triggerPluginScan, updateAllSettings]);

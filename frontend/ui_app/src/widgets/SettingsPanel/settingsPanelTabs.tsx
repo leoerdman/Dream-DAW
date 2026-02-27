@@ -17,6 +17,17 @@ import {
 } from '@/shared/lib/shortcutBindings';
 import { useShortcutStore } from '@/shared/stores/useShortcutStore';
 
+const DREAM_LOGO_STYLE: React.CSSProperties = { width: 64, height: 64, borderRadius: 'var(--radius-xl)', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 'var(--font-weight-extrabold)' };
+
+const SHORTCUT_ROW_STYLE: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto auto',
+    gap: 8,
+    alignItems: 'center',
+    padding: 'var(--space-2) 0',
+    borderBottom: 'var(--space-px) solid var(--color-divider-light)',
+};
+
 interface FoldersTabProps {
     settings: AppSettings;
     pickAndSetFolder: (key: 'userFolderPath' | 'samplesPath' | 'vst2Path' | 'vst3Path') => Promise<string | null>;
@@ -178,7 +189,7 @@ export function AboutTab() {
             <h2 style={titleStyle}>About Dream DAW</h2>
             <SettingsSection title="Build" description="Version and product identity.">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-xl)', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 'var(--font-weight-extrabold)' }}>
+                    <div style={DREAM_LOGO_STYLE}>
                         D
                     </div>
                     <div>
@@ -228,14 +239,7 @@ export function ShortcutsTab() {
                     return (
                         <div
                             key={def.id}
-                            style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr auto auto',
-                                gap: 8,
-                                alignItems: 'center',
-                                padding: 'var(--space-2) 0',
-                                borderBottom: 'var(--space-px) solid var(--color-divider-light)',
-                            }}
+                            style={SHORTCUT_ROW_STYLE}
                         >
                             <div>
                                 <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{def.label}</div>

@@ -1,6 +1,6 @@
 import type { AppSettings } from '@/shared/api/engine';
 import { SettingRow, Toggle } from './settingsPanelParts';
-import { chipStyle, inputStyle, valueStyle } from './settingsPanelStyles';
+import { chipStyle, inputStyle, valueStyle, sliderStyle } from './settingsPanelStyles';
 
 interface AppearanceAdvancedProps {
     settings: AppSettings;
@@ -51,7 +51,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onChange={(e) => setDraftShade(clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
                             onMouseUp={() => updateSetting('darkThemeShade', draftShade)}
                             onTouchEnd={() => updateSetting('darkThemeShade', draftShade)}
-                            style={{ width: 180 }}
+                            style={sliderStyle}
                         />
                         <input
                             type="number"
@@ -74,7 +74,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onChange={(e) => setDraftTintPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
                             onMouseUp={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
                             onTouchEnd={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
-                            style={{ width: 180 }}
+                            style={sliderStyle}
                         />
                         <span style={valueStyle}>{draftTintPercent}%</span>
                     </SettingRow>
@@ -104,7 +104,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onChange={(e) => setDraftForestCanopyPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
                             onMouseUp={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             onTouchEnd={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
-                            style={{ width: 180 }}
+                            style={sliderStyle}
                         />
                         <span style={valueStyle}>{draftForestCanopyPercent}%</span>
                     </SettingRow>
@@ -118,7 +118,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onChange={(e) => setDraftForestFogPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
                             onMouseUp={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             onTouchEnd={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
-                            style={{ width: 180 }}
+                            style={sliderStyle}
                         />
                         <span style={valueStyle}>{draftForestFogPercent}%</span>
                     </SettingRow>

@@ -31,7 +31,7 @@ export function useDeviceKeyboardShortcuts(
                     statusClear();
 
                 } catch (err) {
-                    console.error('[DeviceRack] copyDeviceFromTrack failed:', err);
+                    console.error('[Dream] copyDeviceFromTrack failed:', err);
                     statusError('Failed to copy device.');
                 }
                 return;
@@ -46,7 +46,7 @@ export function useDeviceKeyboardShortcuts(
                     statusClear();
 
                 } catch (err) {
-                    console.error('[DeviceRack] pasteDeviceToTrack failed:', err);
+                    console.error('[Dream] pasteDeviceToTrack failed:', err);
                     statusError(String(err));
                 }
                 return;
@@ -70,7 +70,7 @@ export function useDeviceKeyboardShortcuts(
                 await applyProjectDeltas(batched, 'device-rack:delete-plugin');
                 statusClear();
             } catch (err) {
-                console.error('[DeviceRack] removePluginFromTrack failed:', err);
+                console.error('[Dream] removePluginFromTrack failed:', err);
                 statusError('Failed to remove plugin from track.');
             }
         };

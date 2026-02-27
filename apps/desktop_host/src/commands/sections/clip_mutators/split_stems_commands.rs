@@ -13,7 +13,7 @@ async fn split_track_to_stems_cmd(
     let project = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
     let track_uuid =
         Uuid::parse_str(&payload.track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
@@ -94,7 +94,7 @@ async fn split_track_to_stems_cmd(
                     );
                 },
             )
-            .map_err(|_| "Mutex poisoned".to_string())
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Stem bounce worker failed: {e}"))?;
@@ -197,7 +197,7 @@ async fn split_track_to_stems_with_deltas_cmd(
     let before_project = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
     split_track_to_stems_cmd(
         payload,
@@ -211,7 +211,7 @@ async fn split_track_to_stems_with_deltas_cmd(
     let after_project = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
     Ok(DeltaMutationResponse {
         deltas: collect_added_track_and_clip_deltas(&before_project, &after_project),

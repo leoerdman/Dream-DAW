@@ -214,13 +214,13 @@ export const useGridStore = create<GridStore>((set, get) => ({
     snapBeat: (rawBeat: number, beatsPerBar?: number, ppb?: number) => {
         const { division, triplet, snapEnabled } = get();
         if (!snapEnabled) return Math.max(0, rawBeat);
-        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().transport.time_sig_numerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         const interval = Math.max(0.001, divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb));
         return snapToGrid(rawBeat, interval);
     },
     gridInterval: (beatsPerBar?: number, ppb?: number) => {
         const { division, triplet } = get();
-        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().transport.time_sig_numerator ?? DEFAULT_TIME_SIG_NUMERATOR;
         return divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb);
     },
     setPianoPencilMode: (enabled: boolean) => {

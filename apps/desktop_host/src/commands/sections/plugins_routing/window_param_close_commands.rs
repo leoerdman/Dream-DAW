@@ -33,7 +33,7 @@ fn close_plugin_window_cmd(
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
-                host.close_editor(instance_id).map_err(|_| "Mutex poisoned".to_string())
+                host.close_editor(instance_id).map_err(|e| e.to_string())
             })();
             let _ = tx.send(result);
         })
@@ -97,7 +97,7 @@ fn close_plugin_window_for_slot(
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|_| "Mutex poisoned".to_string())?;
-                host.close_editor(instance_id).map_err(|_| "Mutex poisoned".to_string())
+                host.close_editor(instance_id).map_err(|e| e.to_string())
             })();
             let _ = tx.send(result);
         })
@@ -147,7 +147,7 @@ fn close_plugin_window_for_slot(
         let mut supervisor = plugin_host_state
             .sandbox_supervisor
             .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
         if let Err(err) = supervisor.send_close_editor(instance_id) {
             log::warn!(
                 "[IPC] close_plugin_window_for_slot(track={}, slot={}) failed to close sandbox editor for {}: {}",

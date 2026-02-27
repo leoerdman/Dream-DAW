@@ -146,7 +146,7 @@ export function useTrackInspectorDerivedState({
                         .applyProjectDeltas(response.deltas, 'track-inspector:set-group-expanded'),
                 )
                 .catch((err) => {
-                    console.error('[TrackInspector] setGroupExpanded failed:', err);
+                    console.error('[Dream] setGroupExpanded failed:', err);
                 });
             return next;
         });

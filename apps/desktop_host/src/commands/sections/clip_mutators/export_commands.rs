@@ -101,7 +101,7 @@ async fn export_mix_cmd(
     let project = project_state
         .project
         .lock()
-        .map_err(|_| "Mutex poisoned".to_string())?
+        .map_err(|e| e.to_string())?
         .clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
@@ -464,7 +464,7 @@ async fn export_mix_cmd(
                     );
                 },
             )
-            .map_err(|_| "Mutex poisoned".to_string());
+            .map_err(|e| e.to_string());
 
         // ── Reactivate plugins to RT buffer size after export ────────
         // During export, plugins were activated with OFFLINE_BUFFER_FRAMES (512).

@@ -169,7 +169,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                                     cursor: tool === 'paint'
                                         ? 'crosshair'
                                         : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
-                                    zIndex: isSelected ? 5 : 2,
+                                    zIndex: isSelected ? 'var(--z-local-raised)' : 'var(--z-timeline-overlays)',
                                     pointerEvents: tool === 'paint' ? 'none' : 'auto',
                                 }}
                             />

@@ -36,7 +36,7 @@ export const BlockingJobPopup = () => {
                 if (mounted) setJobs(list);
             })
             .catch((err) => {
-                console.warn('[BlockingJobPopup] listBackgroundJobs failed:', err);
+                console.warn('[Dream] listBackgroundJobs failed:', err);
             });
 
         void listen<BackgroundJobSnapshot>('background_job_update', (event) => {
@@ -52,7 +52,7 @@ export const BlockingJobPopup = () => {
         }).then((fn) => {
             unlisten = fn;
         }).catch((err) => {
-            console.warn('[BlockingJobPopup] listener setup failed:', err);
+            console.warn('[Dream] listener setup failed:', err);
         });
 
         return () => {
@@ -210,7 +210,7 @@ export const BlockingJobPopup = () => {
                             onClick={() => {
                                 void engineApi.cancelBackgroundJob(activeJob.id)
                                     .catch((err) => {
-                                        console.warn('[BlockingJobPopup] cancelBackgroundJob failed, fallback to cancelExport:', err);
+                                        console.warn('[Dream] cancelBackgroundJob failed, fallback to cancelExport:', err);
                                         return engineApi.cancelExport();
                                     });
                             }}

@@ -40,7 +40,7 @@ async fn set_clip_source_offset_cmd(
         &clip_id,
         source_offset_frames,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -56,7 +56,7 @@ async fn set_clip_source_offset_cmd(
             let clamp_cmd = dream_orchestrator::commands::ClampClipSourceOffsetCommand::from_str_id(
                 &clip_id, max_offset,
             )
-            .map_err(|_| "Mutex poisoned".to_string())?;
+            .map_err(|e| e.to_string())?;
             let changed = execute_orchestrator_command(&project_state, &clamp_cmd)?;
             if !changed {
                 log::trace!("ClampClipSourceOffsetCommand produced no changes for clip {}", clip_id);
@@ -140,7 +140,7 @@ async fn set_clip_pitch_cmd(
         &payload.clip_id,
         payload.pitch_shift_semitones,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -208,7 +208,7 @@ async fn set_clip_warp_cmd(
         payload.warp_mode,
         payload.warp_base_bpm,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -291,7 +291,7 @@ async fn set_clip_fades_cmd(
         fade_in_frames,
         fade_out_frames,
     )
-    .map_err(|_| "Mutex poisoned".to_string())?;
+    .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -365,7 +365,7 @@ async fn set_clip_muted_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -396,7 +396,7 @@ async fn set_clip_muted_with_deltas_cmd(
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -440,7 +440,7 @@ async fn set_clips_muted_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let applied = execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -487,7 +487,7 @@ async fn set_clips_muted_with_deltas_cmd(
         .collect();
 
     let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
-        .map_err(|_| "Mutex poisoned".to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let applied = execute_orchestrator_command(&project_state, &cmd)?;
 

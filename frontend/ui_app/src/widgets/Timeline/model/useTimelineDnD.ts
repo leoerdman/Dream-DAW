@@ -95,7 +95,7 @@ export function useTimelineDnD({
                 commandBusRef.current.emit({ type: 'drop', item, trackIndex: track, beat });
             }
         } catch (err) {
-            console.warn('[TimelineDnD] Invalid drop payload:', err);
+            console.warn('[Dream] Invalid drop payload:', err);
         }
     }, [engineRef, canvasRef, commandBusRef]);
 

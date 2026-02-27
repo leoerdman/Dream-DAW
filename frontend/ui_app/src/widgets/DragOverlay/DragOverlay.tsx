@@ -41,7 +41,7 @@ export const DragOverlay = () => {
                 top: 0,
                 transform: 'translate(var(--space-0), var(--space-0))',
                 pointerEvents: 'none',
-                zIndex: 99999,
+                zIndex: 'var(--z-drag-overlay, 99999)',
                 background: 'var(--token-color-rgba-30-30-40-0d85)',
                 backdropFilter: 'blur(var(--space-2))',
                 color: 'var(--token-color-hex-ffffff)',

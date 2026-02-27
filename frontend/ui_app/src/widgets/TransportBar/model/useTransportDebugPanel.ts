@@ -133,12 +133,12 @@ export function useTransportDebugPanel() {
         if (!windowActive) return;
         refreshSnapshots();
         const id = window.setInterval(refreshSnapshots, 1500);
-        return () => window.clearInterval(id);
+        return () => clearInterval(id);
     }, [pdcOpen, windowActive, refreshSnapshots]);
 
     useEffect(() => {
         void engineApi.setRtDebugEnabled(pdcOpen).catch((err) => {
-            console.warn('[TransportBar] setRtDebugEnabled failed:', err);
+            console.warn('[Dream] setRtDebugEnabled failed:', err);
         });
     }, [pdcOpen]);
 

@@ -52,7 +52,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, `track-inspector:add-${trackType}`);
             })
             .catch((err) => {
-                console.error(`[TrackInspector] add ${trackType} track failed:`, err);
+                console.error(`[Dream] add ${trackType} track failed:`, err);
             });
         setContextMenu(null);
     }, [contextMenu]);
@@ -107,7 +107,7 @@ export function useTrackInspectorContextActions({
             } else {
                 setLocalSelectedTrackIds(nextId ? new Set([nextId]) : new Set());
             }
-        })().catch(err => console.error('[TrackInspector] deleteTrack failed:', err));
+        })().catch(err => console.error('[Dream] deleteTrack failed:', err));
         setContextMenu(null);
     }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides]);
 
@@ -161,7 +161,7 @@ export function useTrackInspectorContextActions({
             }
             if (onSelectTrack) onSelectTrack(nextSelectedId ?? 'master');
         })().catch((err) => {
-            console.error('[TrackInspector] delete selected tracks failed:', err);
+            console.error('[Dream] delete selected tracks failed:', err);
         }).finally(() => {
             deletionInFlightRef.current = false;
         });
@@ -187,7 +187,7 @@ export function useTrackInspectorContextActions({
                 if (onSelectTrack) onSelectTrack(newTrackIds[0], { preserveCursor: true });
             }
         }).catch((err) => {
-            console.error('[TrackInspector] duplicate selected tracks failed:', err);
+            console.error('[Dream] duplicate selected tracks failed:', err);
         });
     }, [selectedTrackIdSet, onSelectTracks, onSelectTrack, setLocalSelectedTrackIds]);
 
@@ -203,11 +203,11 @@ export function useTrackInspectorContextActions({
                     const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
                     await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
                 } catch (err) {
-                    console.warn('[TrackInspector] group color inherit failed:', err);
+                    console.warn('[Dream] group color inherit failed:', err);
                 }
             }
         }).catch((err) => {
-            console.error('[TrackInspector] createGroup failed:', err);
+            console.error('[Dream] createGroup failed:', err);
         });
         setContextMenu(null);
     }, [tracks]);
@@ -220,7 +220,7 @@ export function useTrackInspectorContextActions({
         void op.then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
         }).catch((err) => {
-            console.error('[TrackInspector] ungroup failed:', err);
+            console.error('[Dream] ungroup failed:', err);
         });
         setContextMenu(null);
     }, [tracks]);
@@ -237,7 +237,7 @@ export function useTrackInspectorContextActions({
         if (trackId === 'master') {
             const masterTrack = tracks.find((t) => t.type === 'master');
             if (!masterTrack) {
-                console.warn('[TrackInspector] Master track not found — cannot set color');
+                console.warn('[Dream] Master track not found — cannot set color');
                 setColorPickerState(null);
                 return;
             }
@@ -250,7 +250,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:track-color-change');
             })
             .catch((err) => {
-                console.error('[TrackInspector] setTrackColor failed:', err);
+                console.error('[Dream] setTrackColor failed:', err);
             });
         setColorPickerState(null);
     }, [setLocalOverrides, tracks]);
@@ -261,7 +261,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-clips-with-track-color');
             })
             .catch((err) => {
-                console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
+                console.error('[Dream] paintTrackClipsWithTrackColor failed:', err);
             });
         setContextMenu(null);
     }, []);
@@ -279,7 +279,7 @@ export function useTrackInspectorContextActions({
                 }
             })
             .catch((err) => {
-                console.error('[TrackInspector] paintGroupColor failed:', err);
+                console.error('[Dream] paintGroupColor failed:', err);
             });
         setContextMenu(null);
     }, [tracks]);
@@ -290,7 +290,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:bounce-track');
             })
             .catch((err) => {
-                console.error('[TrackInspector] bounceTrack failed:', err);
+                console.error('[Dream] bounceTrack failed:', err);
             });
         setContextMenu(null);
     }, []);
@@ -301,7 +301,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:bounce-group');
             })
             .catch((err) => {
-                console.error('[TrackInspector] bounceGroup failed:', err);
+                console.error('[Dream] bounceGroup failed:', err);
             });
         setContextMenu(null);
     }, []);
@@ -312,7 +312,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:split-to-stems');
             })
             .catch((err) => {
-                console.error('[TrackInspector] splitTrackToStems failed:', err);
+                console.error('[Dream] splitTrackToStems failed:', err);
             });
         setContextMenu(null);
     }, []);

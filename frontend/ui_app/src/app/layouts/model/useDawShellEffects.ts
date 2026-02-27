@@ -147,7 +147,7 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                         return ['.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac'].includes(ext);
                     });
                     if (audioFiles.length === 0) {
-                        console.warn('[DawShell] No supported audio files in drop');
+                        console.warn('[Dream] No supported audio files in drop');
                         return;
                     }
                     for (let i = 0; i < audioFiles.length; i++) {
@@ -210,13 +210,13 @@ export function useAudioFailoverRecovery(args: {
                     if (settings.outputDevice !== resolved) {
                         await engineApi.updateSettings({ ...settings, outputDevice: resolved });
                     }
-                    console.warn('[DawShell] Audio stream recovered via fallback:', {
+                    console.warn('[Dream] Audio stream recovered via fallback:', {
                         streamError: event.payload?.error,
                         requestedFallback: fallback,
                         resolved,
                     });
                 } catch (err) {
-                    console.error('[DawShell] Audio fallback recovery failed:', err);
+                    console.error('[Dream] Audio fallback recovery failed:', err);
                 } finally {
                     recoveringAudioRef.current = false;
                 }
@@ -236,7 +236,7 @@ export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
         const retryId = setInterval(() => {
             const running = useEngineStore.getState().telemetryRunning;
             if (!running) {
-                console.warn('[DawShell] Telemetry not running — retrying startTelemetryLoop()');
+                console.warn('[Dream] Telemetry not running — retrying startTelemetryLoop()');
                 startTelemetryLoop();
             } else {
                 clearInterval(retryId);

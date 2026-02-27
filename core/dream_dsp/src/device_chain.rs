@@ -185,6 +185,8 @@ impl DeviceChain {
         for slot in &mut self.slots {
             // DeviceProcessor::process handles bypass check internally.
             let _ = slot.process(left, right, None, None, &ctx);
+            sanitize_buffer(left);
+            sanitize_buffer(right);
         }
     }
 
@@ -200,6 +202,8 @@ impl DeviceChain {
     ) {
         for slot in &mut self.slots {
             let _ = slot.process(left, right, None, None, context);
+            sanitize_buffer(left);
+            sanitize_buffer(right);
         }
     }
 
@@ -221,6 +225,8 @@ impl DeviceChain {
                 .copied()
                 .unwrap_or((None, None));
             let _ = slot.process(left, right, sc_l, sc_r, context);
+            sanitize_buffer(left);
+            sanitize_buffer(right);
         }
     }
 
@@ -239,6 +245,8 @@ impl DeviceChain {
     ) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
             let _ = slot.process(left, right, sidechain_left, sidechain_right, context);
+            sanitize_buffer(left);
+            sanitize_buffer(right);
         }
     }
 
@@ -297,6 +305,18 @@ impl DeviceChain {
             for slot in &mut self.slots {
                 let _ = slot.process(&mut dummy_l, &mut dummy_r, None, None, &ctx);
             }
+        }
+    }
+}
+
+/// Helper function to prevent silent NaN/Inf propagation between device slots.
+/// Float processing inside plugins can occasionally blow up (division by zero, feedback loops).
+/// If we pass NaN to the next plugin, it could crash or lock up. This isolates the failure.
+#[inline(always)]
+fn sanitize_buffer(buf: &mut [f32]) {
+    for s in buf.iter_mut() {
+        if !s.is_finite() {
+            *s = 0.0;
         }
     }
 }

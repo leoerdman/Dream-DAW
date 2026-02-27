@@ -195,7 +195,7 @@ export function useDeviceParamGestures(
                         { pushUndoStep: index === 0 },
                     ).then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-commit'))
                         .catch((err) => {
-                            console.error('[DeviceRack] setExternalPluginParam(commit) failed:', err);
+                            console.error('[Dream] setExternalPluginParam(commit) failed:', err);
                         });
                     return;
                 }
@@ -210,7 +210,7 @@ export function useDeviceParamGestures(
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
                     }
                 }).catch((err) => {
-                    console.error('[DeviceRack] setInternalPluginParamWithDeltas(commit) failed:', err);
+                    console.error('[Dream] setInternalPluginParamWithDeltas(commit) failed:', err);
                 });
             });
         }

@@ -11,7 +11,7 @@ export function useAutomationLaneSync(lane: LaneData) {
                 engineApi
                     .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
                     .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:throttle'))
-                    .catch((err) => console.error('[AutomationLane] setAutomationPoints failed:', err));
+                    .catch((err) => console.error('[Dream] setAutomationPoints failed:', err));
             }, 16),
         [lane.trackId, lane.paramKey],
     );
@@ -36,7 +36,7 @@ export function useAutomationLaneSync(lane: LaneData) {
         engineApi
             .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, buildEnginePoints())
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:flush'))
-            .catch((err) => console.error('[AutomationLane] setAutomationPoints final push failed:', err));
+            .catch((err) => console.error('[Dream] setAutomationPoints final push failed:', err));
     }, [buildEnginePoints, lane.trackId, lane.paramKey]);
 
     return { flushPointsToEngine, pushPointsImmediate, pushPointsThrottled };

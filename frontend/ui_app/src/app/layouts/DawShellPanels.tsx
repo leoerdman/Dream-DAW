@@ -287,7 +287,7 @@ export const SessionWorkspace = ({
                         right: 0,
                         height: 6,
                         cursor: 'ns-resize',
-                        zIndex: 10,
+                        zIndex: 'var(--z-panel, 10)',
                         background: draggingMixerEdge ? 'var(--color-accent-primary)' : 'transparent',
                         transition: 'background 0.1s linear',
                     }}

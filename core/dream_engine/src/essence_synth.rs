@@ -24,7 +24,7 @@
 
 use crate::instrument_core::{AdsrEnvelope, AdsrParams};
 use crate::synth_types::{LfoTarget, SynthFilterType, Waveform};
-use crate::oscillator::oscillator_sample_blep;
+use crate::oscillator::{oscillator_sample_blep, ParameterSmoother};
 use dream_dsp::svf::SvfState;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -155,10 +155,11 @@ pub struct EssenceSynthEngine {
     enabled: bool,
 
     // ── Global Parameters ──
+    // ── Global Parameters ──
     /// ADSR envelope parameters.
     adsr_params: AdsrParams,
     /// Master volume (0.0–2.0).
-    pub volume: f32,
+    pub volume: ParameterSmoother,
 
     // ── Oscillator Parameters ──
     /// OSC 1 waveform.
@@ -166,33 +167,33 @@ pub struct EssenceSynthEngine {
     /// OSC 2 waveform.
     waveform_2: Waveform,
     /// OSC 1 volume (0.0–1.0).
-    osc1_volume: f32,
+    osc1_volume: ParameterSmoother,
     /// OSC 2 volume (0.0–1.0).
-    osc2_volume: f32,
+    osc2_volume: ParameterSmoother,
     /// OSC 1 enabled.
     osc1_enabled: bool,
     /// OSC 2 enabled.
     osc2_enabled: bool,
     /// Detune in cents between OSC 1 and OSC 2.
-    detune_cents: f32,
+    detune_cents: ParameterSmoother,
     /// Sub oscillator level (0.0–1.0).
-    sub_level: f32,
+    sub_level: ParameterSmoother,
     /// Pulse width for square/pulse waves (0.05–0.95).
-    pulse_width: f32,
+    pulse_width: ParameterSmoother,
 
     // ── Filter Parameters ──
     /// Filter cutoff frequency in Hz (20–20000).
-    filter_cutoff: f32,
+    filter_cutoff: ParameterSmoother,
     /// Filter resonance (0.0–0.99).
-    filter_resonance: f32,
+    filter_resonance: ParameterSmoother,
     /// Filter type (LP, HP, BP, Notch).
     filter_type: SynthFilterType,
 
     // ── LFO Parameters ──
     /// LFO rate in Hz.
-    lfo_rate: f32,
+    lfo_rate: ParameterSmoother,
     /// LFO depth (0.0–1.0).
-    lfo_depth: f32,
+    lfo_depth: ParameterSmoother,
     /// LFO modulation target.
     lfo_target: LfoTarget,
 
@@ -204,6 +205,7 @@ impl EssenceSynthEngine {
     /// Creates a new Essence synth engine at the given sample rate.
     pub fn new(sample_rate: f64) -> Self {
         let voices = std::array::from_fn(|_| EssenceVoice::new(sample_rate));
+        let tc = 10.0; // 10ms smoothing window
         Self {
             voices,
             enabled: false,
@@ -213,21 +215,21 @@ impl EssenceSynthEngine {
                 sustain: 0.7,
                 release: 0.3,
             },
-            volume: 0.8,
+            volume: ParameterSmoother::new(0.8, sample_rate, tc),
             waveform_1: Waveform::Saw,
             waveform_2: Waveform::Square,
-            osc1_volume: 1.0,
-            osc2_volume: 0.0,
+            osc1_volume: ParameterSmoother::new(1.0, sample_rate, tc),
+            osc2_volume: ParameterSmoother::new(0.0, sample_rate, tc),
             osc1_enabled: true,
             osc2_enabled: false,
-            detune_cents: 0.0,
-            sub_level: 0.0,
-            pulse_width: 0.5,
-            filter_cutoff: 8000.0,
-            filter_resonance: 0.0,
+            detune_cents: ParameterSmoother::new(0.0, sample_rate, tc),
+            sub_level: ParameterSmoother::new(0.0, sample_rate, tc),
+            pulse_width: ParameterSmoother::new(0.5, sample_rate, tc),
+            filter_cutoff: ParameterSmoother::new(8000.0, sample_rate, tc),
+            filter_resonance: ParameterSmoother::new(0.0, sample_rate, tc),
             filter_type: SynthFilterType::Lowpass,
-            lfo_rate: 1.0,
-            lfo_depth: 0.0,
+            lfo_rate: ParameterSmoother::new(1.0, sample_rate, tc),
+            lfo_depth: ParameterSmoother::new(0.0, sample_rate, tc),
             lfo_target: LfoTarget::FilterCutoff,
             sample_rate,
         }
@@ -244,11 +246,11 @@ impl EssenceSynthEngine {
     }
 
     pub fn set_osc1_volume(&mut self, volume: f32) {
-        self.osc1_volume = volume.clamp(0.0, 1.0);
+        self.osc1_volume.set_target(volume.clamp(0.0, 1.0));
     }
 
     pub fn set_osc2_volume(&mut self, volume: f32) {
-        self.osc2_volume = volume.clamp(0.0, 1.0);
+        self.osc2_volume.set_target(volume.clamp(0.0, 1.0));
     }
 
     pub fn set_osc1_enabled(&mut self, enabled: bool) {
@@ -260,23 +262,23 @@ impl EssenceSynthEngine {
     }
 
     pub fn set_detune_cents(&mut self, cents: f32) {
-        self.detune_cents = cents.clamp(-100.0, 100.0);
+        self.detune_cents.set_target(cents.clamp(-100.0, 100.0));
     }
 
     pub fn set_sub_level(&mut self, level: f32) {
-        self.sub_level = level.clamp(0.0, 1.0);
+        self.sub_level.set_target(level.clamp(0.0, 1.0));
     }
 
     pub fn set_pulse_width(&mut self, width: f32) {
-        self.pulse_width = width.clamp(0.05, 0.95);
+        self.pulse_width.set_target(width.clamp(0.05, 0.95));
     }
 
     pub fn set_filter_cutoff(&mut self, cutoff: f32) {
-        self.filter_cutoff = cutoff.clamp(20.0, 20000.0);
+        self.filter_cutoff.set_target(cutoff.clamp(20.0, 20000.0));
     }
 
     pub fn set_filter_resonance(&mut self, resonance: f32) {
-        self.filter_resonance = resonance.clamp(0.0, 0.99);
+        self.filter_resonance.set_target(resonance.clamp(0.0, 0.99));
     }
 
     pub fn set_filter_type(&mut self, filter_type: u8) {
@@ -284,11 +286,11 @@ impl EssenceSynthEngine {
     }
 
     pub fn set_lfo_rate(&mut self, rate: f32) {
-        self.lfo_rate = rate.clamp(0.01, 40.0);
+        self.lfo_rate.set_target(rate.clamp(0.01, 40.0));
     }
 
     pub fn set_lfo_depth(&mut self, depth: f32) {
-        self.lfo_depth = depth.clamp(0.0, 1.0);
+        self.lfo_depth.set_target(depth.clamp(0.0, 1.0));
     }
 
     pub fn set_lfo_target(&mut self, target: u8) {
@@ -303,7 +305,7 @@ impl EssenceSynthEngine {
     }
 
     pub fn set_volume(&mut self, volume: f32) {
-        self.volume = volume.clamp(0.0, 2.0);
+        self.volume.set_target(volume.clamp(0.0, 2.0));
     }
 
     // ── MIDI Interface ─────────────────────────────────────────────────
@@ -413,37 +415,38 @@ impl EssenceSynthEngine {
     /// Zero allocations. Bounded iteration. No I/O. No locks.
     pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
         let sr = self.sample_rate;
-        let vol = self.volume;
         let wf1 = self.waveform_1;
         let wf2 = self.waveform_2;
-        let osc1_vol = if self.osc1_enabled { self.osc1_volume } else { 0.0 };
-        let osc2_vol = if self.osc2_enabled { self.osc2_volume } else { 0.0 };
-        let detune_ratio = 2.0_f64.powf(self.detune_cents as f64 / 1200.0);
-        let sub_lev = self.sub_level;
-        let pw = self.pulse_width as f64;
-        let cutoff = self.filter_cutoff as f64;
-        let resonance = self.filter_resonance as f64;
         let filter_type = self.filter_type;
-        let lfo_rate = self.lfo_rate as f64;
-        let lfo_depth = self.lfo_depth as f64;
         let lfo_target = self.lfo_target;
-        let lfo_dt = lfo_rate / sr;
 
-        for voice in &mut self.voices {
-            if !voice.active {
-                continue;
-            }
+        for i in 0..frame_count {
+            let vol = self.volume.next();
+            let osc1_vol = if self.osc1_enabled { self.osc1_volume.next() } else { 0.0 };
+            let osc2_vol = if self.osc2_enabled { self.osc2_volume.next() } else { 0.0 };
+            let detune_ratio = 2.0_f64.powf(self.detune_cents.next() as f64 / 1200.0);
+            let sub_lev = self.sub_level.next();
+            let pw = self.pulse_width.next() as f64;
+            let cutoff = self.filter_cutoff.next() as f64;
+            let resonance = self.filter_resonance.next() as f64;
+            let lfo_rate = self.lfo_rate.next() as f64;
+            let lfo_depth = self.lfo_depth.next() as f64;
+            let lfo_dt = lfo_rate / sr;
 
-            let dt = voice.phase_increment;
-            let dt2 = dt * detune_ratio;
-            let dt_sub = dt * 0.5; // sub oscillator at -1 octave
+            for voice in &mut self.voices {
+                if !voice.active {
+                    continue;
+                }
 
-            for i in 0..frame_count {
+                let dt = voice.phase_increment;
+                let dt2 = dt * detune_ratio;
+                let dt_sub = dt * 0.5; // sub oscillator at -1 octave
+
                 // ── Envelope ──
                 let env = voice.envelope.process();
                 if voice.envelope.is_idle() {
                     voice.active = false;
-                    break;
+                    continue;
                 }
 
                 // ── LFO ──

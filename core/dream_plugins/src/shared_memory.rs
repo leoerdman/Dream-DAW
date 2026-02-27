@@ -433,6 +433,8 @@ mod tests {
         region
             .flush()
             .expect("test invariant: unwrap removed for clippy policy");
+        // Prevent Drop from deleting the file before open_existing below.
+        region.is_owner = false;
         drop(region);
 
         let reopened = SharedAudioBufferRegion::open_existing(path.clone(), layout)

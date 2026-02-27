@@ -32,7 +32,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save hotkeys/menu must remain functional even if viewport sync fails.
-            console.warn('[NativeMenu] setArrangementViewport failed (non-fatal):', err);
+            console.warn('[Dream] setArrangementViewport failed (non-fatal):', err);
         }
     };
     const appSubmenu = await Submenu.new({
@@ -62,7 +62,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 onProjectChange?.();
 
             } catch (err) {
-                console.error('[NativeMenu] New project failed:', err);
+                console.error('[Dream] New project failed:', err);
             }
         },
     });
@@ -87,7 +87,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 onProjectChange?.();
 
             } catch (err) {
-                console.error('[NativeMenu] Open failed:', err);
+                console.error('[Dream] Open failed:', err);
             }
         },
     });
@@ -106,7 +106,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 try {
                     await globalSave();
                 } catch (err) {
-                    console.error('[NativeMenu] Save (via global bridge) failed:', err);
+                    console.error('[Dream] Save (via global bridge) failed:', err);
                     useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
                 }
                 return;
@@ -128,7 +128,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 useStatusStore.getState().setInfo('Project saved');
 
             } catch (err) {
-                console.error('[NativeMenu] Save failed:', err);
+                console.error('[Dream] Save failed:', err);
                 useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         },
@@ -144,7 +144,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 try {
                     await globalSaveAs();
                 } catch (err) {
-                    console.error('[NativeMenu] Save As (via global bridge) failed:', err);
+                    console.error('[Dream] Save As (via global bridge) failed:', err);
                     useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
                 }
                 return;
@@ -185,7 +185,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 onProjectChange?.();
 
             } catch (err) {
-                console.error('[NativeMenu] Undo failed:', err);
+                console.error('[Dream] Undo failed:', err);
             }
         },
     });
@@ -201,7 +201,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 onProjectChange?.();
 
             } catch (err) {
-                console.error('[NativeMenu] Redo failed:', err);
+                console.error('[Dream] Redo failed:', err);
             }
         },
     });
@@ -241,7 +241,7 @@ async function handleSaveAs() {
         try {
             await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
-            console.warn('[NativeMenu] setArrangementViewport failed before Save As (non-fatal):', err);
+            console.warn('[Dream] setArrangementViewport failed before Save As (non-fatal):', err);
         }
         const path = await engineApi.saveProjectDialog();
         if (!path) return;
@@ -250,7 +250,7 @@ async function handleSaveAs() {
         useStatusStore.getState().setInfo(`Project saved as: ${path.split('/').pop()}`);
 
     } catch (err) {
-        console.error('[NativeMenu] Save As failed:', err);
+        console.error('[Dream] Save As failed:', err);
         useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
@@ -288,7 +288,7 @@ async function buildRecentSubmenu(
                                 onProjectChange?.();
 
                             } catch (err) {
-                                console.error('[NativeMenu] Open recent failed:', err);
+                                console.error('[Dream] Open recent failed:', err);
                             }
                         },
                     }),
@@ -305,7 +305,7 @@ async function buildRecentSubmenu(
             );
         }
     } catch (err) {
-        console.warn('[NativeMenu] Failed to load recent projects:', err);
+        console.warn('[Dream] Failed to load recent projects:', err);
         recentItems.push(
             await MenuItem.new({
                 id: 'recent_error',

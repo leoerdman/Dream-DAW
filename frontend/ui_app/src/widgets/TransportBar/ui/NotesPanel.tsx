@@ -36,7 +36,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
             })
             .catch((err) => {
                 if (cancelled) return;
-                console.warn('[NotesPanel] Failed to load notes:', err);
+                console.warn('[Dream] Failed to load notes:', err);
                 setLoaded(true);
             });
         return () => { cancelled = true; };
@@ -51,7 +51,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
             engineApi.setProjectNotes(value)
                 .then(() => setSaveStatus('saved'))
                 .catch((err) => {
-                    console.warn('[NotesPanel] Failed to save notes:', err);
+                    console.warn('[Dream] Failed to save notes:', err);
                     setSaveStatus('idle');
                 });
         }, 500);
@@ -64,7 +64,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
                 clearTimeout(saveTimerRef.current);
                 engineApi.setProjectNotes(latestTextRef.current).catch((err) => {
                     // BUG-R4-002 FIX: Log error instead of silently swallowing.
-                    console.warn('[NotesPanel] Failed to save notes on unmount:', err);
+                    console.warn('[Dream] Failed to save notes on unmount:', err);
                 });
             }
         };

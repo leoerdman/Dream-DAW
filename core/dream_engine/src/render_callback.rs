@@ -113,7 +113,11 @@ impl TrackSlot {
         Self {
             buf_left: vec![0.0; max_frames],
             buf_right: vec![0.0; max_frames],
-            strip: ChannelStrip::new(),
+            // BUG-006 FIX: Use with_sample_rate() so smoothing coefficients are
+            // tuned for the actual device sample rate from the start. Previously
+            // used new() which hardcodes 44.1kHz — at 96kHz the smoothing was 2×
+            // faster until set_sample_rate() was called.
+            strip: ChannelStrip::with_sample_rate(sample_rate as f32),
             // AUD-067: f64→f32 cast for DeviceChain sample rate. This is
             // lossless for common rates (44100, 48000, 96000) since they
             // fit exactly in f32. Only exotic rates (e.g. 176400/3) could
@@ -232,19 +236,19 @@ pub fn soft_clip(sample: f32) -> f32 {
     }
     let abs = sample.abs();
 
-    // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5.
-    // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old
-    // soft_clip actually permitted destructive digital clipping for loud signals!
-    // This fast rational soft-clipper applies 0% compression below 0.8 (-1.9 dBFS)
-    // and C1-smoothly limits excess to form a strict, mathematical 1.0 ceiling.
-    const THRESH: f32 = 0.8;
-    const BETA: f32 = 1.0 - THRESH; // 0.2
+    // BUG-004 FIX: Raised threshold from 0.8 (-1.9 dBFS) to 0.95 (-0.45 dBFS).
+    // The old 0.8 threshold was compressing transients in the top 1.9 dB, causing
+    // noticeably quieter output than Ableton (which passes float samples cleanly).
+    // 0.95 preserves 99.5% of dynamic range while preventing harsh digital clips
+    // that occur when CoreAudio/CPAL hard-clip f32 outputs at 1.0.
+    const THRESH: f32 = 0.95;
+    const BETA: f32 = 1.0 - THRESH; // 0.05
 
     if abs <= THRESH {
-        sample // 100% transparent below -1.9 dBFS
+        sample // 100% transparent below -0.45 dBFS
     } else {
         let excess = abs - THRESH;
-        // Rational curve mapping [0.8, inf) to [0.8, 1.0] with slope=1.0 at THRESH
+        // Rational curve mapping [0.95, inf) to [0.95, 1.0] with slope=1.0 at THRESH
         let mapped = THRESH + (BETA * excess) / (BETA + excess);
         sample.signum() * mapped
     }
@@ -435,8 +439,11 @@ impl RenderContext {
                 // AUD-089 FIX: Count zero-duration clips via RT-safe atomic counter.
                 // Previously used log::warn! which acquires a global Mutex in the
                 // log backend — forbidden on the audio thread.
+                // BUG-011 FIX: Also skip the clip entirely — zero-duration clips
+                // have no audio to render and entering the read path wastes cycles.
                 if clip.duration.sample_frame <= 0 {
                     ZERO_DURATION_CLIP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
                 }
                 let clip_source_len = if clip.warp_source_duration_frames > 0 {
                     clip.warp_source_duration_frames as f64
@@ -455,7 +462,15 @@ impl RenderContext {
                     // the tempo ratio (`current_bpm / clip.warp_base_bpm`), NOT the clip duration
                     // ratio (`clip_source_len / clip_timeline_len`). The duration ratio caused clips
                     // to mistakenly speed up identically when they were merely trimmed at the end.
-                    let rate = (current_bpm / clip.warp_base_bpm.max(1.0)).clamp(0.125, 8.0);
+                    // ENTERPRISE FIX (BUG-008): Guard NaN/Inf warp_base_bpm.
+                    // NaN.max(1.0) returns NaN in Rust (IEEE 754), which propagates
+                    // through division and clamp, corrupting the playback rate.
+                    let safe_warp_bpm = if clip.warp_base_bpm.is_finite() && clip.warp_base_bpm > 0.0 {
+                        clip.warp_base_bpm
+                    } else {
+                        120.0
+                    };
+                    let rate = (current_bpm / safe_warp_bpm).clamp(0.125, 8.0);
                     // If true time-pitch independence is required, rubberband must be integrated.
                     // For now, Warp mode pitch shift also accelerates read rate (like tape).
                     rate * pitch_multiplier

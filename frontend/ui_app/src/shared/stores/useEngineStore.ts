@@ -173,15 +173,18 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
-    // BUG-001: Dirty flag actions (Now updates the active tab's state too)
+    // BUG-F006 FIX: Don't short-circuit on global isDirty alone — the active tab
+    // might not be marked dirty yet (e.g. switching projects while another is dirty).
     markDirty: () => set((s) => {
-        if (s.isDirty) return s;
         if (s.activeProjectId) {
+            const activeTab = s.openProjects.find(t => t.id === s.activeProjectId);
+            if (s.isDirty && activeTab?.isDirty) return s; // Both already dirty — no-op
             const tabs = s.openProjects.map(t =>
                 t.id === s.activeProjectId ? { ...t, isDirty: true } : t
             );
             return { isDirty: true, openProjects: tabs };
         }
+        if (s.isDirty) return s;
         return { isDirty: true };
     }),
     clearDirty: () => set((s) => {
@@ -333,8 +336,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         nextKeySigTonic = delta.data.tonic;
                         nextKeySigMode = delta.data.mode;
                     } else if (delta.kind === 'TimeSignatureChanged') {
-                        nextTimeSigNumerator = Math.max(1, Math.min(32, delta.data.numerator));
-                        nextTimeSigDenominator = Math.max(1, Math.min(32, delta.data.denominator));
+                        // BUG-F010 FIX: Raised cap from 32 to 99/64 to match standard DAW limits.
+                        nextTimeSigNumerator = Math.max(1, Math.min(99, delta.data.numerator));
+                        nextTimeSigDenominator = Math.max(1, Math.min(64, delta.data.denominator));
                         transportPatch.time_sig_numerator = nextTimeSigNumerator;
                         transportPatch.time_sig_denominator = nextTimeSigDenominator;
                         transportPatched = true;

@@ -100,7 +100,8 @@ export function resolveSampleRate(
  * Handles non-finite values (NaN, ±Infinity) gracefully.
  */
 export function vuNorm(peakDb: number): number {
-    if (!isFinite(peakDb) || peakDb < -60) return 0;
+    // BUG-E006 FIX: Use <= for clearer boundary semantics at exactly -60 dB.
+    if (!isFinite(peakDb) || peakDb <= -60) return 0;
     const clamped = Math.min(peakDb, 6);
     return (clamped + 60) / 66;
 }
@@ -120,8 +121,19 @@ export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = 4): string {
     const safeBeatsPerBar = Math.max(1, beatsPerBar);
     const bars = Math.floor(totalBeats / safeBeatsPerBar);
     const remainingBeats = totalBeats - bars * safeBeatsPerBar;
-    const wholeBeats = Math.floor(remainingBeats);
+    let wholeBeats = Math.floor(remainingBeats);
     const fractionalBeat = remainingBeats - wholeBeats;
-    const sixteenths = Math.round(fractionalBeat * 4);
-    return `${bars}.${wholeBeats}.${sixteenths}`;
+    let sixteenths = Math.round(fractionalBeat * 4);
+    // BUG-E005 FIX: When rounding pushes sixteenths to 4, carry into next beat.
+    if (sixteenths >= 4) {
+        sixteenths = 0;
+        wholeBeats += 1;
+    }
+    // Carry overflow into bars if wholeBeats exceeds beatsPerBar.
+    let adjustedBars = bars;
+    if (wholeBeats >= safeBeatsPerBar) {
+        wholeBeats -= safeBeatsPerBar;
+        adjustedBars += 1;
+    }
+    return `${adjustedBars}.${wholeBeats}.${sixteenths}`;
 }

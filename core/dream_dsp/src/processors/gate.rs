@@ -380,6 +380,10 @@ impl DspProcessor for GateProcessor {
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
             0 => {
+                // BUG-042 NOTE: No update_all() needed — threshold is applied
+                // per-sample via SmoothedValue (threshold_sm_db), not via a
+                // precomputed coefficient. Attack/hold/release (params 1-3)
+                // DO need update_all() because they are baked into coefficients.
                 self.threshold_db = value.clamp(-60.0, 0.0);
             }
             1 => {

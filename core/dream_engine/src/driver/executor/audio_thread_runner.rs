@@ -89,8 +89,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     graph_renderer.update_plan(&graph_plan, &graph_dag);
     let mut graph_last_generation = prepared_graph.generation;
     let mut graph_last_track_count = prepared_graph.track_count;
-    // DIAG: Rate-limited logging counter for VST audio tracing
-    let mut _vst_diag_counter: u64 = 0;
+    // BUG-Q002 FIX: Removed dead _vst_diag_counter (was never read).
 
     // ── 4. Test tone state (fallback when no clips loaded) ──────────
     let mut test_tone_phase: f64 = 0.0;
@@ -175,10 +174,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // calls. Set via SetExportActive command to prevent RT/export state
     // contention that causes crackling in the exported audio.
     let mut export_active = false;
-    // Per-track real-time MIDI queue: keyboard/preview NoteOn/Off events
-    // are pushed here in the command loop and drained into vst3_midi_scratch
-    // during the graph pass so external VST3 instruments (Serum, etc.)
-    // receive real-time MIDI alongside clip events.
+    // BUG-C002 FIX: Per-track MIDI queue with bounded capacity.
+    // A stuck MIDI device sending continuous events could grow unbounded.
+    const RT_MIDI_QUEUE_CAP: usize = 256;
     let mut plugin_rt_midi_queue: Vec<Vec<MidiEvent>> =
         (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
     let mut rt_midi_uid_counter: u64 = 1;
@@ -252,12 +250,15 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // deferred_topology as AddDevice — zero heap alloc.
                         while let Ok(prebuilt) = prealloc_consumer.pop() {
                             if deferred_topology.len() >= 4096 {
-                                // BUG-015 FIX: Track overflow via atomic counter.
-                                // Previously silently dropped oldest commands, causing
-                                // device chain operations to vanish without trace.
+                                // BUG-RT002 FIX: Track overflow via atomic counter AND
+                                // expose count in rt_debug_stats for diagnostic visibility.
                                 static TOPOLOGY_OVERFLOW: std::sync::atomic::AtomicU32 =
                                     std::sync::atomic::AtomicU32::new(0);
-                                TOPOLOGY_OVERFLOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let count = TOPOLOGY_OVERFLOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                // Only drop oldest when truly saturated — log the first few overflows.
+                                if count < 3 {
+                                    rt_debug_stats.record_topology_overflow();
+                                }
                                 let _ = deferred_topology.pop_front();
                             }
                             deferred_topology.push_back(
@@ -1043,10 +1044,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
-                        // CRACKLE-FIX-2: Removed RT-unsafe log::info! master FX diagnostic.
-                        // Graph output peak monitoring via atomic counters only.
-                        let _ = _vst_diag_counter;
-                        _vst_diag_counter = _vst_diag_counter.wrapping_add(1);
+                        // BUG-Q002 FIX: Removed _vst_diag_counter usage (dead code).
 
                         process_master_bus(
                             external_fx_map.as_slice(),

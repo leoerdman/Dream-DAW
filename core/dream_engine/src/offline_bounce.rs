@@ -1096,7 +1096,14 @@ impl OfflineRenderer {
                         let c = frame_count
                             .min(slot.buf_left.len())
                             .min(slot.buf_right.len());
-                        assert_ne!(track_idx, parent_idx, "Track cannot route to itself");
+                        // ENTERPRISE FIX (BUG-004): Never panic during export.
+                        // A self-routing track is a data integrity issue, not a crash justification.
+                        if track_idx == parent_idx {
+                            static SELF_ROUTE_COUNT: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            SELF_ROUTE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            continue;
+                        }
 
                         let (src_slot, parent_slot) = if track_idx < parent_idx {
                             let (left, right) = render_ctx.track_slots.split_at_mut(parent_idx);

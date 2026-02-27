@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { vuNorm } from '@/shared/lib/audioMath';
@@ -69,8 +69,9 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     const peakR = meterPair?.[1]?.peak ?? -160;
     const currentPeak = Math.max(peakL, peakR);
 
-    // Direct DOM update on every render (~30Hz) — no React state needed
-    useEffect(() => {
+    // BUG-022 FIX: useLayoutEffect for synchronous DOM mutations — prevents
+    // visual flicker that useEffect causes (deferred to next paint).
+    useLayoutEffect(() => {
         const el = displayRef.current;
         if (!el) return;
 
@@ -97,7 +98,10 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
 
         const displayDb = h.peakDb;
         const hasClipped = displayDb >= 0;
-        const text = Number.isFinite(displayDb) && displayDb > -90
+        // BUG-086 FIX: Lowered threshold from -90 to -120 dB.
+        // -90 caused flicker between dB value and -∞ during quiet passages.
+        // -120 dB is inaudible (~20-bit noise floor) — only true silence shows -∞.
+        const text = Number.isFinite(displayDb) && displayDb > -120
             ? formatDb(displayDb)
             : '-∞';
 

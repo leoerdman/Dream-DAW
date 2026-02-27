@@ -38,7 +38,7 @@ const TRACK_COLORS: Record<TrackColor, string> = {
     Slate: toHexColor(140, 148, 158),
 };
 
-const DEFAULT_TRACK_COLOR = toHexColor(102, 119, 136);
+export const DEFAULT_TRACK_COLOR = toHexColor(102, 119, 136);
 
 /**
  * Resolve a track color to a hex string.

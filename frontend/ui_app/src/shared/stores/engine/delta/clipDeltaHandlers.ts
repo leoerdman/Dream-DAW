@@ -4,6 +4,9 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { getTrackByIndex } from './trackStateOps';
 
+// BUG-D004 FIX: Import canonical default track color instead of hardcoded hex.
+import { DEFAULT_TRACK_COLOR } from '@/shared/lib/trackAdapter';
+
 function isValidClipId(id: unknown): id is string {
     return typeof id === 'string' && id.trim().length > 0;
 }
@@ -17,36 +20,38 @@ function syncClipMapFromTimeline(state: DeltaWorkingState): void {
     state.clipsById = next;
 }
 
+// BUG-P001 FIX: Mutate working state in-place instead of O(n) spread copies.
+// DeltaWorkingState is a mutable working copy — safe to mutate directly.
 function upsertClip(state: DeltaWorkingState, clip: TimelineClip): void {
     if (!isValidClipId(clip.id)) return;
-    // BUG-A05 FIX: O(1) lookup via clipsById map instead of O(n) .some() scan.
     const existing = state.clipsById[clip.id];
     if (existing) {
         const idx = state.timelineClips.indexOf(existing);
         if (idx >= 0) {
             state.timelineClips[idx] = clip;
         } else {
-            // Fallback: linear scan if reference changed.
             const fallbackIdx = state.timelineClips.findIndex((c) => c.id === clip.id);
             if (fallbackIdx >= 0) {
                 state.timelineClips[fallbackIdx] = clip;
             } else {
-                state.timelineClips = [...state.timelineClips, clip];
+                state.timelineClips.push(clip);
             }
         }
     } else {
-        state.timelineClips = [...state.timelineClips, clip];
+        state.timelineClips.push(clip);
     }
-    state.clipsById = { ...state.clipsById, [clip.id]: clip };
+    // BUG-P001 FIX: Direct property assignment instead of O(n) spread.
+    state.clipsById[clip.id] = clip;
 }
 
+// BUG-P002 FIX: Direct mutation instead of O(n) spread for cache warming.
 function resolveClip(state: DeltaWorkingState, clipId: string): TimelineClip | null {
     if (!isValidClipId(clipId)) return null;
     const fromMap = state.clipsById[clipId];
     if (fromMap) return fromMap;
     const fromTimeline = state.timelineClips.find((c) => c.id === clipId) ?? null;
     if (fromTimeline) {
-        state.clipsById = { ...state.clipsById, [clipId]: fromTimeline };
+        state.clipsById[clipId] = fromTimeline;
     }
     return fromTimeline;
 }
@@ -55,19 +60,28 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipAdded') {
         if (!isValidClipId(delta.data.clip_id)) return true;
         const track = getTrackByIndex(state, delta.data.track_index);
+        // BUG-I001 FIX: Trim whitespace from clip name.
+        const clipName = typeof delta.data.name === 'string' ? delta.data.name.trim() : '';
+        // BUG-F004 FIX: Initialize warp/pitch properties from delta data when available.
         const nextClip: TimelineClip = {
             id: delta.data.clip_id,
-            name: delta.data.name,
+            name: clipName || 'Untitled',
             trackIndex: delta.data.track_index,
             startBeat: frameToBeat(delta.data.position, env.bpm, env.sampleRate),
             durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.duration,
             type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
-            color: track?.color ?? '#667788',
+            color: track?.color ?? DEFAULT_TRACK_COLOR,
             filePath: delta.data.file_path ?? undefined,
-            sourceOffset: 0,
+            sourceOffset: delta.data.source_offset ?? 0,
             muted: false,
             midiNotes: delta.data.clip_type === 'midi' ? [] : undefined,
+            // BUG-F004 FIX: Carry over warp/pitch if provided by backend.
+            isWarped: delta.data.is_warped ?? false,
+            warpMode: delta.data.warp_mode ?? undefined,
+            warpBaseBpm: delta.data.warp_base_bpm ?? undefined,
+            warpSourceDurationFrames: delta.data.warp_source_duration_frames ?? undefined,
+            pitchShiftSemitones: delta.data.pitch_shift_semitones ?? 0,
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -86,11 +100,14 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipResized') {
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return false;
+        // BUG-F009 FIX: Also update sourceOffset when the backend provides it
+        // (left-edge resize changes both position and source_offset).
         const next = {
             ...clip,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
             durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.new_duration,
+            ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
         };
         upsertClip(state, next);
         state.changed = true;
@@ -101,10 +118,17 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         if (!isValidClipId(delta.data.new_clip_id)) return true;
         const sourceClip = resolveClip(state, delta.data.source_clip_id);
         if (!sourceClip) return false;
+        // BUG-F002 FIX: Carry over duration/sourceOffset from delta if provided,
+        // ensuring duplicated clip reflects server-side modifications.
         const nextClip: TimelineClip = {
             ...sourceClip,
             id: delta.data.new_clip_id,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
+            ...(delta.data.new_duration != null ? {
+                durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
+                durationSamples: delta.data.new_duration,
+            } : {}),
+            ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -123,11 +147,14 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
         const splitOffsetBeats = splitBeat - clip.startBeat;
         const splitOffsetFrames = Math.max(0, delta.data.split_frame - Math.round(beatToFrame(clip.startBeat, env.bpm, env.sampleRate)));
-        // BUG-C03 FIX: Clamp fades to not exceed new clip durations after split.
-        const leftFadeIn = Math.min(clip.fadeIn ?? 0, leftDuration);
+        // BUG-F001 FIX: Convert durations to frames before clamping against frame-based fades.
+        // fadeIn/fadeOut are in sample frames, leftDuration/rightDuration are in beats — incompatible units.
+        const leftDurationFrames = beatDurationToFrames(leftDuration, env.bpm, env.sampleRate);
+        const rightDurationFrames = beatDurationToFrames(rightDuration, env.bpm, env.sampleRate);
+        const leftFadeIn = Math.min(clip.fadeIn ?? 0, leftDurationFrames);
         const leftFadeOut = 0; // Split edge has no fade out
-        const rightFadeIn = 0; // Split edge has no fade in  
-        const rightFadeOut = Math.min(clip.fadeOut ?? 0, rightDuration);
+        const rightFadeIn = 0; // Split edge has no fade in
+        const rightFadeOut = Math.min(clip.fadeOut ?? 0, rightDurationFrames);
         const leftClip: TimelineClip = {
             ...clip,
             durationBeats: leftDuration,
@@ -145,8 +172,6 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             sourceOffset: Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames),
             fadeIn: rightFadeIn,
             fadeOut: rightFadeOut,
-            // BUG-A04 FIX: Filter by note START position >= split point, not note end.
-            // Prevents notes at the exact boundary from appearing in both halves.
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
                 ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats - 1e-9).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
                 : clip.midiNotes,
@@ -168,6 +193,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         const mergedEnd = Math.max(...sourceClips.map((c) => c.startBeat + c.durationBeats));
         const mergedDuration = Math.max(0.0001, mergedEnd - mergedStart);
         const sourceSet = new Set(delta.data.source_clip_ids);
+        // BUG-F003 FIX: Preserve sourceOffset from the earliest clip (the one whose
+        // audio content starts first), not force to 0 which breaks trimmed clips.
+        const earliestClip = sourceClips.reduce((a, b) => a.startBeat <= b.startBeat ? a : b);
         const mergedClip: TimelineClip = {
             ...representative,
             id: delta.data.new_clip_id,
@@ -175,24 +203,29 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             startBeat: mergedStart,
             durationBeats: mergedDuration,
             durationSamples: representative.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(mergedDuration, env.bpm, env.sampleRate))) : representative.durationSamples,
-            sourceOffset: representative.type === 'audio' ? 0 : representative.sourceOffset,
+            sourceOffset: earliestClip.sourceOffset ?? 0,
             fadeIn: 0,
             fadeOut: 0,
             midiNotes: representative.type === 'midi'
                 ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat })))
                 : representative.midiNotes,
         };
-        state.timelineClips = [...state.timelineClips.filter((c) => !sourceSet.has(c.id)), mergedClip];
+        // BUG-P001 FIX: Mutate in-place instead of spread + filter.
+        const nextClips: TimelineClip[] = [];
+        for (const c of state.timelineClips) {
+            if (!sourceSet.has(c.id)) nextClips.push(c);
+        }
+        nextClips.push(mergedClip);
+        state.timelineClips = nextClips;
         syncClipMapFromTimeline(state);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipDeleted') {
-        const next = { ...state.clipsById };
-        delete next[delta.data.clip_id];
+        // BUG-P001 FIX: Direct delete instead of spread copy.
+        delete state.clipsById[delta.data.clip_id];
         state.timelineClips = state.timelineClips.filter((c) => c.id !== delta.data.clip_id);
-        state.clipsById = next;
         state.changed = true;
         return true;
     }
@@ -210,19 +243,14 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip || clip.type !== 'midi') return false;
 
-        // BUG-019 ENTERPRISE FIX: Preserve note identity across delta round-trips.
-        // The Rust MidiNoteDelta struct has no `id` field, so we match incoming notes
-        // against existing clip.midiNotes by (pitch, startBeat) to preserve UI note IDs.
-        // This keeps selectedNotes references valid after Cmd+D duplication and throttled saves.
         const existingNotes = clip.midiNotes ?? [];
         const usedExistingIndices = new Set<number>();
 
         const next = {
             ...clip,
-            midiNotes: delta.data.notes.map((n, idx) => {
+            midiNotes: delta.data.notes.map((n: { start_beat: number; pitch: number; velocity: number; duration_beats: number }, _idx: number) => {
                 const startBeat = n.start_beat;
                 const pitch = n.pitch;
-                // Find the best matching existing note by (pitch, startBeat) — O(N*M) but N is small
                 let matchedId: string | undefined;
                 const tolerance = 1e-6;
                 for (let i = 0; i < existingNotes.length; i++) {
@@ -234,8 +262,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                         break;
                     }
                 }
+                // BUG-F008 FIX: Use pitch+startBeat for stable ID generation instead of array index.
+                // Array index changes when notes are reordered on the backend.
                 return {
-                    id: matchedId ?? `${delta.data.clip_id}:${idx}:${pitch}:${startBeat}`,
+                    id: matchedId ?? `${delta.data.clip_id}:n${pitch}:${startBeat.toFixed(6)}`,
                     pitch,
                     velocity: n.velocity,
                     startBeat,

@@ -77,7 +77,10 @@ impl CombFilter {
     }
 
     fn set_feedback(&mut self, val: f32) {
-        self.feedback = val;
+        // BUG-043 FIX: Clamp feedback to [0.0, 0.999] to prevent infinite
+        // resonance (≥1.0) or exponential blowup (>1.0) → NaN in output.
+        // AllpassFilter already had this clamp; CombFilter was missing it.
+        self.feedback = val.clamp(0.0, 0.999);
     }
 
     fn reset(&mut self) {

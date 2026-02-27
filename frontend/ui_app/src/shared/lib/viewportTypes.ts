@@ -1,5 +1,5 @@
 export const MIN_PPB = 4;
-export const MAX_PPB = 400;
+export const MAX_PPB = 800;
 export const DEFAULT_PPB = 20;
 export const ZOOM_SENSITIVITY = 0.004;
 export const SCROLL_SENSITIVITY = 1.0;

@@ -114,11 +114,28 @@ export const VirtualFileList = memo(function VirtualFileList({
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(0);
 
+    // BUG-FIX: Measure container height and scroll position BEFORE first paint.
+    // Previously this used useEffect (runs after paint), leaving containerHeight=0
+    // on the first frame. With height=0, only 8 overscan items were calculated,
+    // making the browser appear empty until the user scrolled/clicked.
+    // Also sync scrollTop from the DOM to handle browser-restored scroll positions
+    // (which caused items to appear "in the middle" instead of at the top).
+    useLayoutEffect(() => {
+        const el = fileListRef.current;
+        if (!el) return;
+        // Synchronous measurement BEFORE paint — prevents blank frame.
+        setContainerHeight(el.clientHeight);
+        // Sync scroll position: the DOM may have a restored scroll offset
+        // from a previous render, but our state starts at 0. Reset to top
+        // for a clean initial view.
+        el.scrollTop = 0;
+        setScrollTop(0);
+    }, [fileListRef]);
+
+    // ResizeObserver for ongoing size changes (resize, fullscreen, panel drag).
     useEffect(() => {
         const el = fileListRef.current;
         if (!el) return;
-        // Initialize immediately to avoid showing 0 items on first render.
-        setContainerHeight(el.clientHeight);
         const ro = new ResizeObserver(([entry]) => {
             const h = entry.contentRect.height;
             setContainerHeight(h);

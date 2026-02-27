@@ -416,8 +416,42 @@ impl RecordingSession {
     pub fn state(&self) -> &RecordingState {
         &self.state
     }
+}
 
-    /// Returns the sample rate of the recording.
+// BUG-051 FIX: Ensure the worker thread is cleanly stopped on drop.
+//
+// If `stop()` was called, `worker_handle` is already `None` (taken via `.take()`),
+// so `Drop` is a no-op. If `stop()` was never called (e.g., the caller panicked
+// or forgot), this ensures the worker is signalled and joined, preventing:
+//   - Orphaned background threads writing to disk indefinitely.
+//   - Open file handles leaking.
+//   - The cpal input stream (`_stream`) dropping without the worker flushing remaining data.
+impl Drop for RecordingSession {
+    fn drop(&mut self) {
+        // Signal the worker to stop (idempotent — may already be false).
+        self.state.is_recording.store(false, Ordering::Release);
+
+        // Join the worker thread to ensure it flushes and finalizes.
+        if let Some(handle) = self.worker_handle.take() {
+            match handle.join() {
+                Ok(Ok(path)) => {
+                    log::info!(
+                        "[Recording] Drop: Worker finalized safely at {}",
+                        path.display()
+                    );
+                }
+                Ok(Err(e)) => {
+                    log::warn!("[Recording] Drop: Worker failed during cleanup: {e}");
+                }
+                Err(_) => {
+                    log::error!("[Recording] Drop: Worker thread panicked during cleanup");
+                }
+            }
+        }
+    }
+}
+
+impl RecordingSession {
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }

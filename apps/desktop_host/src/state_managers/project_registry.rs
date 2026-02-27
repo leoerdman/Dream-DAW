@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use arc_swap::ArcSwapOption;
 use uuid::Uuid;
@@ -36,6 +37,11 @@ pub struct ProjectRegistry {
     /// Device node for cross-project device copy/paste.
     /// Replaces the per-project `device_clipboard` in `ProjectState`.
     pub global_device_clipboard: Mutex<Option<DeviceNode>>,
+
+    /// Monotonically increasing counter for background swap operations.
+    /// Each `switch_project_tab` increments this. Background threads check
+    /// their snapshot against the current value and abort if superseded.
+    pub swap_generation: AtomicU64,
 }
 
 /// Serialized clip data stored in the global clipboard.
@@ -64,6 +70,7 @@ impl ProjectRegistry {
             global_clip_clipboard: Mutex::new(None),
             global_track_clipboard: Mutex::new(None),
             global_device_clipboard: Mutex::new(None),
+            swap_generation: AtomicU64::new(0),
         }
     }
 
@@ -159,6 +166,17 @@ impl ProjectRegistry {
             .iter()
             .next()
             .map(|entry| entry.value().clone())
+    }
+
+    /// Atomically increments the swap generation counter and returns the new value.
+    /// Used by `switch_project_tab` to invalidate any in-flight background swaps.
+    pub fn next_swap_generation(&self) -> u64 {
+        self.swap_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Returns the current swap generation.
+    pub fn current_swap_generation(&self) -> u64 {
+        self.swap_generation.load(Ordering::SeqCst)
     }
 }
 

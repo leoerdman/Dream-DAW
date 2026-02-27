@@ -473,11 +473,17 @@ impl RenderContext {
                     }
                 }
 
+                // BUG-047 FIX: Runtime guard — NaN/Infinity gain must never propagate.
+                // debug_assert was stripped in release, allowing corrupt gain to reach output.
+                // Default to unity gain (1.0) to prevent silent audio or NaN corruption.
+                let safe_gain = if clip.gain.is_finite() { clip.gain } else {
+                    #[cfg(debug_assertions)]
+                    log::warn!("clip.gain is not finite ({}), defaulting to 1.0", clip.gain);
+                    1.0
+                };
+
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
-
-                    // BUG-039: Debug assertion — catch NaN/Infinity gain before f64→f32 truncation.
-                    debug_assert!(clip.gain.is_finite(), "clip.gain is not finite: {}", clip.gain);
 
                     let source_to_device_rate = (audio.sample_rate.max(1) as f64
                         / self.sample_rate.max(1.0))
@@ -501,7 +507,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            clip.gain as f32,
+                            safe_gain as f32,
                             warp_mode,
                         );
                     } else {
@@ -523,7 +529,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            clip.gain as f32,
+                            safe_gain as f32,
                             WarpResampleMode::Standard,
                         );
                     }
@@ -554,7 +560,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            clip.gain as f32,
+                            safe_gain as f32,
                         );
                     } else {
                         // BUG-A1/A2 FIX: Unwarped streaming path must match pool path
@@ -574,7 +580,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            clip.gain as f32,
+                            safe_gain as f32,
                         );
                     }
                 } else {

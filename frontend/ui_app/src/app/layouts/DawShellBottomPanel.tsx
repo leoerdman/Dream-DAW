@@ -97,10 +97,8 @@ export function DawShellBottomPanel({
             settleRafRef.current = null;
         }
         settleRafRef.current = requestAnimationFrame(() => {
-            settleRafRef.current = requestAnimationFrame(() => {
-                settleRafRef.current = null;
-                window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
-            });
+            settleRafRef.current = null;
+            window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
         });
         return () => {
             if (settleRafRef.current != null) {

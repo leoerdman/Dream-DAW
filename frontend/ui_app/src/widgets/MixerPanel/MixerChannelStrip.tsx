@@ -3,7 +3,8 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { METER_WIDTH, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
-import { MixerChannelMeters } from './MixerChannelMeters';
+import { MixerChannelMeters, MixerChannelPeakLabel } from './MixerChannelMeters';
+import { getContrastColor } from '@/shared/lib/colorUtils';
 
 interface ChannelStripProps {
     track: ProjectTrack;
@@ -16,6 +17,42 @@ interface ChannelStripProps {
     onToggleSolo: (index: number, isSolo: boolean) => void;
     onToggleArm: (index: number, isArmed: boolean) => void;
 }
+
+/* ── Helper: humanize output name ── */
+function humanizeOutput(raw: string | undefined | null): string {
+    if (!raw || raw === 'master' || raw === 'Master') return 'Master';
+    // If it looks like a UUID, just show "Master"
+    if (/^[0-9a-f]{8}-/.test(raw)) return 'Master';
+    return raw;
+}
+
+const LABEL_STYLE: React.CSSProperties = {
+    fontSize: 8,
+    fontWeight: 600,
+    color: 'var(--color-text-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+};
+
+const SELECT_STYLE: React.CSSProperties = {
+    width: '100%',
+    height: 16,
+    borderRadius: 'var(--radius-xs)',
+    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+    background: 'var(--surface-elevated)',
+    color: 'var(--color-text-secondary)',
+    fontSize: 9,
+    fontWeight: 600,
+    fontFamily: 'var(--font-role-body)',
+    padding: '0 4px',
+    cursor: 'default',
+    outline: 'none',
+    appearance: 'none' as const,
+    WebkitAppearance: 'none' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+};
 
 export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
@@ -37,6 +74,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const panVal = track.pan ?? 0;
 
     const trackColor = track.color || 'var(--color-accent-primary)';
+    const headerTextColor = getContrastColor(trackColor) === 'black' ? '#000' : '#fff';
     const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
     const isArmed = track.is_armed;
@@ -73,13 +111,37 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 position: 'relative',
                 overflow: 'hidden',
                 width: STRIP_WIDTH, minWidth: STRIP_WIDTH, maxWidth: STRIP_WIDTH, height: '100%',
-                background: isSelected ? 'var(--color-bg-panel)' : 'var(--surface-1)',
+                background: isSelected ? 'var(--color-bg-panel)' : 'color-mix(in srgb, var(--color-bg-panel) 90%, black)',
                 borderRight: `${STRIP_GAP}px solid var(--color-divider)`,
                 cursor: 'pointer',
             }}
         >
+            {/* ── Track Name Header ── */}
+            <div style={{
+                height: 22,
+                background: trackColor,
+                color: headerTextColor,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)',
+                textTransform: 'uppercase',
+                overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                padding: '0 4px',
+                flexShrink: 0,
+                borderBottom: '1px solid rgba(0,0,0,0.3)',
+            }}>
+                {track.name}
+            </div>
+
+            {/* ── Routing: Audio From / Audio To ── */}
+            <div style={{ padding: '3px 4px 2px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
+                <div style={LABEL_STYLE}>Audio From</div>
+                <div style={SELECT_STYLE}>{track.input || 'No Input'}</div>
+                <div style={{ ...LABEL_STYLE, marginTop: 2 }}>Audio To</div>
+                <div style={SELECT_STYLE}>{humanizeOutput(track.output)}</div>
+            </div>
+
             {/* ── Pan Slider ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 6px 4px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <div style={{ position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)' }}>
                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
@@ -91,14 +153,14 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' }}
                         />
                     </div>
-                    <span style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 1 }}>
                         {Math.abs(panVal) < 0.02 ? 'C' : (panVal < 0 ? `L${Math.round(Math.abs(panVal) * 100)}` : `R${Math.round(panVal * 100)}`)}
                     </span>
                 </div>
             </div>
 
             {/* ── Volume Fader & Meters (fills remaining height) ── */}
-            <div style={{ display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 80 }}>
+            <div style={{ display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 }}>
                 {/* Fader track */}
                 <div
                     ref={faderRef}
@@ -130,10 +192,13 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 </div>
             </div>
 
-            {/* ── dB Label ── */}
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 4px', flexShrink: 0, borderTop: '1px solid var(--color-divider)', borderBottom: '1px solid var(--color-divider)' }}>
-                <div style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)' }}>
+            {/* ── dB Label + Peak Hold ── */}
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', padding: '2px 4px', flexShrink: 0, borderTop: '1px solid var(--color-divider)', borderBottom: '1px solid var(--color-divider)' }}>
+                <div style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', flex: 1, textAlign: 'center' }}>
                     {formatDb(volumeDb)}
+                </div>
+                <div style={{ flex: 1 }}>
+                    <MixerChannelPeakLabel trackIndex={trackIndex} />
                 </div>
             </div>
 
@@ -145,9 +210,9 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     style={{
                         flex: 1, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
-                        background: !isDisabled ? 'var(--color-status-warning)' : 'var(--surface-elevated)',
-                        color: !isDisabled ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
-                        boxShadow: !isDisabled ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(255,180,0,0.4)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
+                        background: !isDisabled ? '#4caf50' : 'var(--surface-elevated)',
+                        color: !isDisabled ? '#fff' : 'var(--color-text-tertiary)',
+                        boxShadow: !isDisabled ? 'inset 0 -1px 0 rgba(0,0,0,0.2), 0 0 4px rgba(76,175,80,0.5)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
                     }}>
                     {trackIndex + 1}
                 </button>

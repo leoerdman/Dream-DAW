@@ -15,7 +15,7 @@ import {
     hex,
     OFFLINE_STRIPE_COLOR,
     rgba,
-    SELECTION_BORDER_WIDTH,
+
     SELECTION_GLOW_COLOR,
     snapCanvasLineX,
 } from './CanvasClipRenderer.constants';
@@ -427,7 +427,7 @@ export class CanvasClipRenderer {
         const x = vp.beatsToScreenX(clip.startBeat);
         const y = vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY;
         const w = clip.durationBeats * ppb;
-        const h = trackH - 2; // 1px gap top and bottom
+        const h = trackH;
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
         if (y + h < vp.rulerHeight || y > vp.viewportHeight + 10) return;
@@ -445,7 +445,7 @@ export class CanvasClipRenderer {
 
         // Premium Ableton-style borders and colors
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
-        this._roundRect(ctx, x, y + 1, w, h, r);
+        this._roundRect(ctx, x, y, w, h, r);
         ctx.clip();
 
         const rgbBase = this._parseColor(clip.color);
@@ -454,30 +454,30 @@ export class CanvasClipRenderer {
         const headerH = Math.min(HEADER_HEIGHT, h);
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
         ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 0.95)`;
-        ctx.fillRect(x, y + 1, w, headerH);
+        ctx.fillRect(x, y, w, headerH);
 
         // Crisp 1px dark divider
         const dividerR = Math.max(0, Math.round(headerR * 0.5)), dividerG = Math.max(0, Math.round(headerG * 0.5)), dividerB = Math.max(0, Math.round(headerB * 0.5));
         ctx.fillStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.8)`;
-        ctx.fillRect(x, y + 1 + headerH, w, 1);
+        ctx.fillRect(x, y + headerH, w, 1);
 
         if (h > headerH + 1) {
             // Sleek darker body background
             const bodyR = Math.max(0, Math.round(headerR * 0.60)), bodyG = Math.max(0, Math.round(headerG * 0.60)), bodyB = Math.max(0, Math.round(headerB * 0.60));
             ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.85)`;
-            ctx.fillRect(x, y + 2 + headerH, w, h - headerH - 1);
+            ctx.fillRect(x, y + 1 + headerH, w, h - headerH - 1);
         }
 
         if (clip.muted) {
             ctx.fillStyle = rgba(80, 85, 95, 0.45);
-            ctx.fillRect(x, y + 1, w, h);
+            ctx.fillRect(x, y, w, h);
         }
 
         if (clip.isOffline) {
-            this._drawOfflineStripes(ctx, x, y + 1, w, h);
+            this._drawOfflineStripes(ctx, x, y, w, h);
         }
 
-        const bodyY = y + 1 + headerH;
+        const bodyY = y + headerH;
         const bodyH = Math.max(0, h - headerH);
 
         if (bodyH > 8) {
@@ -528,37 +528,62 @@ export class CanvasClipRenderer {
                 ctx.textBaseline = 'middle';
                 ctx.textAlign = 'left';
                 const textX = x + textPad;
-                const textY = y + 1 + headerH / 2;
+                const textY = y + headerH / 2;
                 ctx.fillText(label, textX, textY);
             }
         }
 
-        // Crisp upper bezel instead of a blurry gradient
-        ctx.save();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillRect(x, y + 1, w, 1);
         ctx.restore();
 
-        ctx.restore();
+        // ── Dual-color 1px inset border via stroke() ──
+        // Uses stroke on the same roundRect path → perfect rounded corners.
+        // Selected: white. Non-selected: header color (top) + body color (bottom).
+        {
+            const bw = 1;
+            const inset = bw / 2;
+            const borderR = Math.max(0, r - inset);
 
-        // ── Unified 2px inset border ──
-        // Always the same width, fully inside the clip rect.
-        // Only the color changes: white when selected, darker clip color otherwise.
-        ctx.save();
-        if (isTrackDisabled) ctx.globalAlpha = 0.25;
-        const borderW = SELECTION_BORDER_WIDTH; // always 2px
-        const inset = borderW / 2; // 1px inset each side
-        const borderRadius = Math.max(0, r - inset);
-        if (clip.selected) {
-            ctx.strokeStyle = SELECTION_GLOW_COLOR;
-        } else {
-            const borderR = Math.max(0, rgb.r - 40), borderG = Math.max(0, rgb.g - 40), borderB = Math.max(0, rgb.b - 40);
-            ctx.strokeStyle = `rgba(${borderR}, ${borderG}, ${borderB}, 0.85)`;
+            if (clip.selected) {
+                // Single white stroke
+                ctx.save();
+                if (isTrackDisabled) ctx.globalAlpha = 0.25;
+                ctx.strokeStyle = SELECTION_GLOW_COLOR;
+                ctx.lineWidth = bw;
+                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
+                ctx.stroke();
+                ctx.restore();
+            } else {
+                const hdrColor = `rgb(${headerR}, ${headerG}, ${headerB})`;
+                const bR = Math.max(0, Math.round(headerR * 0.60)), bG = Math.max(0, Math.round(headerG * 0.60)), bB = Math.max(0, Math.round(headerB * 0.60));
+                const bdyColor = `rgb(${bR}, ${bG}, ${bB})`;
+
+                // Header-zone stroke (clipped to header area)
+                ctx.save();
+                if (isTrackDisabled) ctx.globalAlpha = 0.25;
+                ctx.beginPath();
+                ctx.rect(x - 1, y - 1, w + 2, headerH + 2);
+                ctx.clip();
+                ctx.strokeStyle = hdrColor;
+                ctx.lineWidth = bw;
+                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
+                ctx.stroke();
+                ctx.restore();
+
+                // Body-zone stroke (clipped to body area)
+                if (bodyH > 0) {
+                    ctx.save();
+                    if (isTrackDisabled) ctx.globalAlpha = 0.25;
+                    ctx.beginPath();
+                    ctx.rect(x - 1, y + headerH, w + 2, h - headerH + 2);
+                    ctx.clip();
+                    ctx.strokeStyle = bdyColor;
+                    ctx.lineWidth = bw;
+                    this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
         }
-        ctx.lineWidth = borderW;
-        this._roundRect(ctx, x + inset, y + 1 + inset, w - inset * 2, h - inset * 2, borderRadius);
-        ctx.stroke();
-        ctx.restore();
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;
@@ -776,16 +801,7 @@ export class CanvasClipRenderer {
 
         const rulerH = vp.rulerHeight;
 
-        ctx.save();
-        ctx.strokeStyle = theme.playheadGlow;
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        const glowX = snapCanvasLineX(x, 4);
-        ctx.moveTo(glowX, rulerH);
-        ctx.lineTo(glowX, canvasH);
-        ctx.stroke();
-        ctx.restore();
-
+        // Single clean 1px playhead line — no glow
         ctx.save();
         ctx.strokeStyle = theme.playhead;
         ctx.lineWidth = 1;

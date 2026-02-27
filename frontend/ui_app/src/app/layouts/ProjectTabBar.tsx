@@ -41,21 +41,20 @@ export function ProjectTabBar() {
                             height: 26,
                             padding: '0 12px',
                             background: isActive
-                                ? 'var(--color-bg-elevated)' // Active: Exactly matches Transport Bar
-                                : 'transparent',             // Inactive: Transparent (dark)
+                                ? 'var(--color-bg-elevated)'
+                                : 'transparent',
                             borderTopLeftRadius: 'var(--radius-md)',
                             borderTopRightRadius: 'var(--radius-md)',
+                            // Use transparent border for inactive tabs to prevent layout shift
                             border: isActive
                                 ? 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 50%, transparent)'
-                                : 'none',
+                                : 'var(--space-px) solid transparent',
                             borderBottom: 'none',
                             color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: isActive ? 600 : 500,
                             pointerEvents: 'auto',
-                            boxShadow: isActive
-                                ? '0 -1px 4px color-mix(in srgb, var(--color-background-elevated) 10%, transparent)'
-                                : 'none',
+                            boxShadow: 'none',
                             marginLeft: 8,
                             cursor: 'pointer',
                         }}

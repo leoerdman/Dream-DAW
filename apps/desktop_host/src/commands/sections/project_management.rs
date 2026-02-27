@@ -981,18 +981,26 @@ fn create_project_tab(
     }))
 }
 
-/// Switches the active project tab with a smooth audio transition.
+/// Switches the active project tab with instant UI response.
 ///
-/// 1. Fades out the old project's audio over ~100ms (SetMasterVolume → 0)
-/// 2. Stops playback and swaps ALL engine snapshots to the new project
-/// 3. Restores master volume
-/// 4. Returns the new project's data for the frontend to render
+/// **Architecture:**
+/// 1. Immediately sets `active_project_id` and returns full project data → zero UI delay
+/// 2. Spawns a **background thread** that:
+///    - Performs a gradual 150ms volume ramp-down (15 steps × 10ms for smooth fade)
+///    - Stops playback
+///    - Swaps ALL engine snapshots to the new project
+///    - Preloads external plugins
+///    - Restores master volume
+///    - Updates `audio_active_project_id`
+///
+/// The `ensure_engine_on_active_project` in transport.rs serves as a safety net
+/// if the user presses play before the background swap finishes.
 #[tauri::command]
 fn switch_project_tab(
     id: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
-    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    _clip_pool_state: tauri::State<'_, ClipPoolState>,
+    _automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
@@ -1004,81 +1012,17 @@ fn switch_project_tab(
         .get_project(&target_id)
         .ok_or_else(|| format!("Project tab '{}' not found in registry", id))?;
 
-    // ── Phase 1: Smooth fade-out (100ms) ──
-    // Ramp master volume to 0 to avoid audio pops/clicks during the swap.
-    let _ = push_command(&handle, EngineCommand::SetMasterVolume { volume: 0.0 });
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // ── Phase 2: Stop playback ──
-    let _ = push_command(&handle, EngineCommand::SetPlay(false));
-    {
-        let mut state = handle
-            .playback_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        state.is_playing = false;
-    }
-
-    // ── Phase 3: Switch both visual and audio active project ──
+    // ── Immediately set visual active project (UI-only, zero delay) ──
     project_registry.set_active_project(target_id);
-    project_registry.set_audio_active_project(target_id);
 
-    // ── Phase 4: Rebuild ALL engine snapshots ──
+    // Grab the project data for the frontend BEFORE spawning background work.
     let project = target_state
         .project
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
 
-    let _ = plugin_host_state.unload_all_instances();
-    clip_pool_state.rebuild_snapshot(&project);
-    clip_pool_state.rebuild_external_fx_snapshot(
-        &project,
-        plugin_host_state.slot_instance_snapshot().as_ref(),
-    );
-    plugin_host_state.publish_registry();
-    clip_pool_state.load_project_clips(&project);
-    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
-    rebuild_runtime_device_chains_from_project(&project, &handle)?;
-    sync_transport_from_project(&project, &handle)?;
-    sync_track_mix_state_from_project(&project, &handle)?;
-
-    // Preload external plugins.
-    let mut external_slots: Vec<dream_models::project::PluginSlot> = Vec::new();
-    for track in &project.tracks {
-        if let Some(inst) = &track.instrument {
-            for slot in inst.collect_plugin_slots() {
-                let pid = slot.plugin_id.as_str();
-                if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
-                    external_slots.push(slot.clone());
-                }
-            }
-        }
-        for node in &track.effects {
-            for slot in node.collect_plugin_slots() {
-                let pid = slot.plugin_id.as_str();
-                if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
-                    external_slots.push(slot.clone());
-                }
-            }
-        }
-    }
-    if !external_slots.is_empty() {
-        if let Some(err) = crate::commands::plugins_routing_helpers::load_external_slots_best_effort(
-            &external_slots,
-            &plugin_host_state,
-            "switch_project_tab_preload",
-        ) {
-            log::warn!("[MultiProject] Plugin preload on tab switch: {}", err);
-        }
-    }
-
-    // ── Phase 5: Restore master volume ──
-    let _ = push_command(&handle, EngineCommand::SetMasterVolume { volume: 1.0 });
-
-    // Update window title.
+    // Update window title immediately.
     let is_dirty = *target_state.is_dirty.lock().map_err(|e| e.to_string())?;
     let title_suffix = if is_dirty { "*" } else { "" };
     crate::state_managers::project_state::safe_set_window_title(
@@ -1087,10 +1031,131 @@ fn switch_project_tab(
     );
 
     log::info!(
-        "[MultiProject] Switched to project tab: id={}, name='{}' (100ms fade + full engine swap)",
-        target_id,
-        project.name
+        "[MultiProject] Switched tab to '{}' (id={}). UI instant, engine swap in background.",
+        project.name,
+        target_id
     );
+
+    // ── Spawn background thread for audio fade + engine swap ──
+    // AppHandle is Clone + Send — use it to access managed state from background.
+    let bg_app = app.clone();
+    let bg_project = project.clone();
+    let bg_target_id = target_id;
+
+    // Increment swap generation — any older in-flight swaps will see a mismatched
+    // generation and abort early, preventing concurrent engine corruption.
+    let my_generation = project_registry.next_swap_generation();
+
+    std::thread::spawn(move || {
+        use tauri::Manager;
+
+        let bg_handle: tauri::State<'_, AudioEngineHandle> = bg_app.state();
+        let bg_clip_pool: tauri::State<'_, ClipPoolState> = bg_app.state();
+        let bg_automation: tauri::State<'_, AutomationRuntime> = bg_app.state();
+        let bg_plugin_host: tauri::State<'_, PluginHostState> = bg_app.state();
+        let bg_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = bg_app.state();
+
+        // Macro to check if this swap is still current. If a newer switch was
+        // initiated, this thread should abort to avoid clobbering its work.
+        macro_rules! check_generation {
+            ($phase:expr) => {
+                if bg_registry.current_swap_generation() != my_generation {
+                    log::info!(
+                        "[MultiProject] Background swap gen={} superseded at {}, aborting.",
+                        my_generation,
+                        $phase
+                    );
+                    // Restore volume in case we already faded
+                    let _ = push_command(&bg_handle, EngineCommand::SetMasterVolume { volume: 1.0 });
+                    return;
+                }
+            };
+        }
+
+        // ── Phase 1: Gradual volume ramp-down (150ms, 15 steps) ──
+        const FADE_STEPS: u32 = 15;
+        const STEP_MS: u64 = 10; // 15 × 10ms = 150ms total
+        for i in 1..=FADE_STEPS {
+            let vol = 1.0 - (i as f32 / FADE_STEPS as f32);
+            let _ = push_command(&bg_handle, EngineCommand::SetMasterVolume { volume: vol });
+            std::thread::sleep(std::time::Duration::from_millis(STEP_MS));
+        }
+
+        check_generation!("after-fade");
+
+        // ── Phase 2: Stop playback ──
+        let _ = push_command(&bg_handle, EngineCommand::SetPlay(false));
+        if let Ok(mut state) = bg_handle.playback_state.lock() {
+            state.is_playing = false;
+        }
+
+        // ── Phase 3: Update audio active project ──
+        bg_registry.set_audio_active_project(bg_target_id);
+
+        check_generation!("before-rebuild");
+
+        // ── Phase 4: Rebuild ALL engine snapshots ──
+        let _ = bg_plugin_host.unload_all_instances();
+        bg_clip_pool.rebuild_snapshot(&bg_project);
+        bg_clip_pool.rebuild_external_fx_snapshot(
+            &bg_project,
+            bg_plugin_host.slot_instance_snapshot().as_ref(),
+        );
+        bg_plugin_host.publish_registry();
+        bg_clip_pool.load_project_clips(&bg_project);
+        rebuild_automation_snapshot_from_project(&bg_project, &bg_automation);
+        rebuild_midi_snapshot_from_project(&bg_project, &bg_handle);
+        rebuild_sampler_snapshot_from_project(&bg_project, &bg_clip_pool, &bg_handle);
+        if let Err(e) = rebuild_runtime_device_chains_from_project(&bg_project, &bg_handle) {
+            log::error!("[MultiProject] Background device chain rebuild failed: {e}");
+        }
+        if let Err(e) = sync_transport_from_project(&bg_project, &bg_handle) {
+            log::error!("[MultiProject] Background transport sync failed: {e}");
+        }
+        if let Err(e) = sync_track_mix_state_from_project(&bg_project, &bg_handle) {
+            log::error!("[MultiProject] Background mix state sync failed: {e}");
+        }
+
+        // Preload external plugins.
+        let mut external_slots: Vec<dream_models::project::PluginSlot> = Vec::new();
+        for track in &bg_project.tracks {
+            if let Some(inst) = &track.instrument {
+                for slot in inst.collect_plugin_slots() {
+                    let pid = slot.plugin_id.as_str();
+                    if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+                        external_slots.push(slot.clone());
+                    }
+                }
+            }
+            for node in &track.effects {
+                for slot in node.collect_plugin_slots() {
+                    let pid = slot.plugin_id.as_str();
+                    if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+                        external_slots.push(slot.clone());
+                    }
+                }
+            }
+        }
+        if !external_slots.is_empty() {
+            if let Some(err) = crate::commands::plugins_routing_helpers::load_external_slots_best_effort(
+                &external_slots,
+                &bg_plugin_host,
+                "switch_project_tab_bg",
+            ) {
+                log::warn!("[MultiProject] Background plugin preload: {err}");
+            }
+        }
+
+        check_generation!("before-volume-restore");
+
+        // ── Phase 5: Restore master volume ──
+        let _ = push_command(&bg_handle, EngineCommand::SetMasterVolume { volume: 1.0 });
+
+        log::info!(
+            "[MultiProject] Background engine swap complete for project '{}'",
+            bg_project.name
+        );
+    });
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {

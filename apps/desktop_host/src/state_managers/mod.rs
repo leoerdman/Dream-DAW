@@ -27,7 +27,6 @@ pub(crate) use background_runtime::{configure_app_runtime, shutdown_plugins_on_e
 pub(crate) use clip_pool::ClipPoolState;
 pub(crate) use plugin_host::PluginHostState;
 pub(crate) use project_registry::ProjectRegistry;
-pub(crate) use project_registry::active_project;
 pub(crate) use project_state::ProjectState;
 pub(crate) use recording::{AutomationRuntime, MidiInputRuntime, RecordingRuntime};
 pub(crate) use runtime_bootstrap::{RuntimeBootstrap, initialize_runtime};

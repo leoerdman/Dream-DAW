@@ -347,12 +347,19 @@ impl LoopRegion {
     }
 
     /// Wraps a position to stay within the loop.
+    ///
+    /// Returns `position` unchanged if the loop is invalid or position
+    /// is before the loop start.
     #[inline]
     pub fn wrap_position(&self, position: i64) -> i64 {
-        if !self.is_valid() || position < self.start {
+        // BUG-084 FIX: Guard against division by zero. `self.length()` can be
+        // 0 or negative for invalid regions. `is_valid()` requires length ≥ 32,
+        // but callers may skip validation. Defensive programming prevents panic.
+        let len = self.length();
+        if !self.is_valid() || len <= 0 || position < self.start {
             return position;
         }
-        let offset = (position - self.start) % self.length();
+        let offset = (position - self.start) % len;
         self.start + offset
     }
 }

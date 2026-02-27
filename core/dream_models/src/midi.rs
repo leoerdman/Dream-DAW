@@ -116,7 +116,7 @@ pub struct MidiClip {
     pub is_selected: bool,
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
-    #[serde(default, alias = "is_muted", alias = "is_disabledd")]
+    #[serde(default, alias = "is_muted")]
     pub is_disabled: bool,
 
     /// User-defined fade-in length in sample frames.
@@ -466,7 +466,7 @@ pub struct SampleRackPadConfig {
     pub pan: f64,
 
     /// Whether this pad is muted.
-    #[serde(default, alias = "is_muted", alias = "is_disabledd")]
+    #[serde(default, alias = "is_muted")]
     pub is_disabled: bool,
 
     /// Whether this pad is soloed.

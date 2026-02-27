@@ -18,13 +18,14 @@ export type GridDivision =
     | '1/8'      // Eighth note
     | '1/16'     // Sixteenth note
     | '1/32'     // Thirty-second note
-    | '1/64'     // Sixty-fourth note (BUG-061: for detailed MIDI editing)
+    | '1/64'     // Sixty-fourth note
+    | '1/128'    // Hundred-twenty-eighth note (ultra-fine MIDI editing)
     | 'ADAPTIVE' // Adaptive grid based on zoom level
     | 'OFF';     // No snapping (free positioning)
 
 /** All selectable divisions for dropdown menus (ordered coarse → fine). */
 export const ALL_DIVISIONS: GridDivision[] = [
-    'ADAPTIVE', '1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64', 'OFF',
+    'ADAPTIVE', '1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64', '1/128', 'OFF',
 ];
 
 // ── Division → Numeric Divisor ──────────────────────────────────────────
@@ -38,6 +39,7 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, numbe
     '1/16': 16,
     '1/32': 32,
     '1/64': 64,
+    '1/128': 128,
 };
 
 // ── Adaptive Grid ───────────────────────────────────────────────────────
@@ -51,13 +53,14 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, numbe
  * @returns Beat interval appropriate for the current zoom
  */
 export function adaptiveInterval(ppb: number, beatsPerBar: number): number {
-    // BUG-C09 FIX: ±2ppb hysteresis bands around each threshold
-    // to prevent grid density flicker during smooth zoom.
-    if (ppb >= 122) return beatsPerBar / 32; // 1/32 (engage at 122, disengage at 118)
-    if (ppb >= 62) return beatsPerBar / 16;  // 1/16
-    if (ppb >= 32) return beatsPerBar / 8;   // 1/8
-    if (ppb >= 17) return beatsPerBar / 4;   // 1/4
-    if (ppb >= 10) return beatsPerBar / 2;   // 1/2
+    // Finer grids engage at higher zoom. Hysteresis ±2ppb to prevent flicker.
+    if (ppb >= 500) return beatsPerBar / 128; // 1/128
+    if (ppb >= 244) return beatsPerBar / 64;  // 1/64
+    if (ppb >= 122) return beatsPerBar / 32;  // 1/32
+    if (ppb >= 62) return beatsPerBar / 16;   // 1/16
+    if (ppb >= 32) return beatsPerBar / 8;    // 1/8
+    if (ppb >= 17) return beatsPerBar / 4;    // 1/4
+    if (ppb >= 10) return beatsPerBar / 2;    // 1/2
     return beatsPerBar;                       // 1/1
 }
 
@@ -148,7 +151,7 @@ export interface GridLine {
     depth: number;
 }
 
-const SUB_DIVISIONS = [1, 2, 4, 8, 16] as const; // beat subdivisions
+const SUB_DIVISIONS = [1, 2, 4, 8, 16, 32] as const; // beat subdivisions
 const MIN_LINE_SPACING_PX = 6;
 
 export function computeGridLines(

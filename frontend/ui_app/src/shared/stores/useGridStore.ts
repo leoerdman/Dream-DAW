@@ -8,8 +8,8 @@ import {
 } from '@/shared/lib/gridSnap';
 import type { GridStore } from '@/shared/stores/useGridStore.types';
 // BUG-061: Added '1/64' for detailed MIDI editing.
-const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/64', '1/1', '1/2', 'OFF'];
-const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64'];
+const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/64', '1/128', '1/1', '1/2', 'OFF'];
+const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64', '1/128'];
 function denominatorToDivision(denominator: number): GridDivision {
     if (denominator <= 1) return '1/1';
     if (denominator <= 2) return '1/2';
@@ -17,7 +17,8 @@ function denominatorToDivision(denominator: number): GridDivision {
     if (denominator <= 8) return '1/8';
     if (denominator <= 16) return '1/16';
     if (denominator <= 32) return '1/32';
-    return '1/64';
+    if (denominator <= 64) return '1/64';
+    return '1/128';
 }
 export const useGridStore = create<GridStore>((set, get) => ({
     // ── State ──────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const nextNumerator = 1;
         // BUG-037 FIX: Replaced 7-level nested ternary with readable lookup map.
         const DIVISION_TO_DENOMINATOR: Record<string, number> = {
-            '1/1': 1, '1/2': 2, '1/4': 4, '1/8': 8, '1/16': 16, '1/32': 32,
+            '1/1': 1, '1/2': 2, '1/4': 4, '1/8': 8, '1/16': 16, '1/32': 32, '1/64': 64, '1/128': 128,
         };
         const nextDenominator = DIVISION_TO_DENOMINATOR[d] ?? get().fixedDenominator;
         const nextTriplet = false;
@@ -185,7 +186,11 @@ export const useGridStore = create<GridStore>((set, get) => ({
                                 ? '1/16'
                                 : denominator === 32
                                     ? '1/32'
-                                    : '1/16';
+                                    : denominator === 64
+                                        ? '1/64'
+                                        : denominator === 128
+                                            ? '1/128'
+                                            : '1/16';
         set({
             division,
             triplet: ntoles === 3,
@@ -215,7 +220,11 @@ export const useGridStore = create<GridStore>((set, get) => ({
                             ? 16
                             : nextDivision === '1/32'
                                 ? 32
-                                : get().fixedDenominator;
+                                : nextDivision === '1/64'
+                                    ? 64
+                                    : nextDivision === '1/128'
+                                        ? 128
+                                        : get().fixedDenominator;
         set({
             division: nextDivision,
             triplet: Boolean(nextTriplet),

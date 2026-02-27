@@ -52,7 +52,7 @@ export const MixerPanel = memo(function MixerPanel({ selectedTrackId, onSelectTr
                 flexDirection: 'row',
                 overflowX: 'auto',
                 overflowY: 'hidden',
-                background: 'var(--color-bg-canvas)',
+                background: 'var(--color-bg-panel)',
                 gap: 0,
                 padding: '0 0px',
                 scrollbarWidth: 'thin',

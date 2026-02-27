@@ -8,7 +8,7 @@
 const MIN_PPB = 4;
 
 /** Maximum pixels per beat — maximum zoom in to overview. */
-const MAX_PPB = 200;
+const MAX_PPB = 800;
 
 /** Exponential zoom factor per wheel tick. Professional DAWs use 1.06-1.10. */
 const ZOOM_FACTOR = 1.08;

@@ -45,6 +45,7 @@ fn get_pdc_debug_snapshot(
             input_id,
             NodeKind::Track {
                 name: track.name.clone(),
+                latency_samples: 0,
             },
         ));
 

@@ -37,13 +37,17 @@ export const SampleClipWaveformPane = ({
     }, []);
 
     const beatsPerBar = 4;
-    const waveformWidth = Math.max(420, Math.round(clipDurationBeats * pxPerBeat));
+    // ENTERPRISE FIX: Separate clip-duration render width from container min-width.
+    // The waveform canvas and the colored clip-length bar must use the SAME width
+    // (`clipWidth`). The container uses `Math.max(420, ...)` for scroll comfort only.
+    const clipWidth = Math.max(1, Math.round(clipDurationBeats * pxPerBeat));
+    const containerWidth = Math.max(420, clipWidth);
     const gridLineCount = Math.min(512, Math.ceil(clipDurationBeats / gridStep));
     const renderedWaveHeight = Math.max(56, Math.round(bodyHeight * Math.max(0.5, Math.min(2.0, waveHeightScale))));
 
     // Calculate precise samples per pixel to ensure warped waveforms stretch accurately
     // rather than falling back to the Timeline's unwarped global zoom scaling.
-    const samplesPerPixel = durationSamples / Math.max(1, waveformWidth);
+    const samplesPerPixel = durationSamples / Math.max(1, clipWidth);
 
     return (
         <div style={{
@@ -56,12 +60,12 @@ export const SampleClipWaveformPane = ({
             position: 'relative',
         }}>
             <div style={{ overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
-                <div style={{ width: waveformWidth, height: '100%', position: 'relative' }}>
+                <div style={{ width: containerWidth, height: '100%', position: 'relative' }}>
                     <div style={{
                         position: 'absolute',
                         left: 0,
                         top: 0,
-                        width: waveformWidth,
+                        width: containerWidth,
                         height: 24,
                         background: 'var(--color-bg-tertiary)',
                         borderBottom: 'var(--space-px) solid var(--color-divider)',
@@ -127,7 +131,7 @@ export const SampleClipWaveformPane = ({
                         <div style={{ width: '100%', height: renderedWaveHeight }}>
                             <ClipRenderer
                                 filePath={filePath}
-                                width={waveformWidth}
+                                width={clipWidth}
                                 height={renderedWaveHeight}
                                 durationSamples={durationSamples}
                                 sourceOffset={sourceOffset ?? 0}

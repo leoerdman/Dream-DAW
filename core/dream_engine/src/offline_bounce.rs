@@ -878,6 +878,7 @@ impl OfflineRenderer {
             track_slots_len,
             ctx.routing,
             ctx.sidechains,
+            &[], // Offline bounce processes plugins per-slot; graph-level PDC not needed
             0,
         );
 

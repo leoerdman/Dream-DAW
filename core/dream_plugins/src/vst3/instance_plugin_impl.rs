@@ -352,15 +352,6 @@ impl PluginInstance for Vst3Instance {
             let supports_sidechain_bus = self.audio_input_bus_count > 1;
             let has_sidechain_signal = supports_sidechain_bus && inputs.len() > 2;
 
-            static DBG_SC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            if DBG_SC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(1000) {
-                log::warn!(
-                    "[VST3 SC DEBUG] '{}' - in_bus_count={}, out_bus_count={}, inputs.len()={}, supports_sc={}, has_sc_sig={}",
-                    self.descriptor.name, self.audio_input_bus_count, self.audio_output_bus_count, inputs.len(), supports_sidechain_bus, has_sidechain_signal
-                );
-            }
-
-
             // Main bus input copy (L/R)
             for ch in 0..main_channels {
                 let src = inputs.get(ch).copied().unwrap_or(&[][..]);

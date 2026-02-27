@@ -73,6 +73,7 @@ pub(crate) fn invoke_handler()
     tauri::generate_handler![
         // Transport
         play,
+        play_from_beat,
         stop,
         toggle_playback,
         seek,

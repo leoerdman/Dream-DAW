@@ -682,6 +682,29 @@ impl ExternalPluginIndex {
             simplified = simplified.replace(suffix, "");
         }
         push_unique(simplified.trim().to_string());
+
+        // ── Strip trailing version numbers (e.g. "Serum 2" → "serum") ──
+        let without_version = key
+            .trim_end_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ')
+            .trim()
+            .to_string();
+        if !without_version.is_empty() && without_version != key {
+            push_unique(without_version.clone());
+            push_unique(without_version.replace(' ', ""));
+        }
+
+        // ── Strip common platform/format decorators ──
+        for suffix in [
+            " x64", " x86", " stereo", " mono", " fx", " instrument",
+            " synth", " effect", " demo",
+        ] {
+            let stripped = key.replace(suffix, "");
+            let trimmed = stripped.trim().to_string();
+            if !trimmed.is_empty() && trimmed != key {
+                push_unique(trimmed);
+            }
+        }
+
         if key.contains("reastream") {
             push_unique("reastream".to_string());
         }
@@ -695,6 +718,24 @@ impl ExternalPluginIndex {
             push_unique("synthesizer v studio".to_string());
             push_unique("synthesizervstudio2".to_string());
             push_unique("synthesizervstudio".to_string());
+        }
+        if key.contains("serum") {
+            push_unique("serum".to_string());
+            push_unique("serum 2".to_string());
+            push_unique("serum fx".to_string());
+            push_unique("serumfx".to_string());
+        }
+        if key.contains("shaperbox") {
+            push_unique("shaperbox".to_string());
+            push_unique("shaperbox 3".to_string());
+            push_unique("shaperbox3".to_string());
+        }
+        if key.contains("fabfilter") {
+            push_unique(key.replace("fabfilter ", ""));
+            push_unique(key.replace("fabfilter", ""));
+        }
+        if key.contains("izotope") {
+            push_unique(key.replace("izotope ", ""));
         }
         for candidate in &candidates {
             if let Some(path) = self.by_name.get(candidate) {

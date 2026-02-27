@@ -40,22 +40,29 @@ function smoothMeterReading(
     const smoothedRms = smoothDb(next.rms, prevRms, rmsAttack, rmsRelease);
     const smoothedPeak = smoothDb(next.peak, prevPeak, peakAttack, peakRelease);
 
+    // ── Peak Hold ───────────────────────────────────────────────────────
+    // Use the RAW (unsmoothed) peak from the backend for hold comparisons.
+    // The smoothed peak inherently decays via the IIR filter, so comparing
+    // against it causes the hold value to drift down — defeating the
+    // entire purpose of a "sticky" peak hold display.
+    const rawPeak = Number.isFinite(next.peak) ? next.peak : METER_FLOOR_DB;
+
     let peakHold = prev?.peak_hold ?? METER_FLOOR_DB;
     let peakHoldTs = prev?.peak_hold_ts ?? nowMs;
 
-    // Maintain absolute maximum over a 4-second window
-    if (smoothedPeak >= peakHold) {
-        peakHold = smoothedPeak;
-        peakHoldTs = nowMs;
-    } else if (nowMs - peakHoldTs > 4000) {
-        // 4000ms elapsed without a new high; drop to current smoothed peak
-        peakHold = smoothedPeak;
+    // Support manual UI reset (peak_hold_ts === 0 means user clicked reset)
+    if (prev?.peak_hold_ts === 0) {
+        peakHold = rawPeak;
         peakHoldTs = nowMs;
     }
-
-    // Support manual UI reset (set to 0)
-    if (prev?.peak_hold_ts === 0) {
-        peakHold = smoothedPeak;
+    // If the raw peak is higher or equal, latch it and restart the timer
+    else if (rawPeak >= peakHold) {
+        peakHold = rawPeak;
+        peakHoldTs = nowMs;
+    }
+    // If 4 seconds elapsed without a new high, drop to current raw peak
+    else if (nowMs - peakHoldTs > 4000) {
+        peakHold = rawPeak;
         peakHoldTs = nowMs;
     }
 

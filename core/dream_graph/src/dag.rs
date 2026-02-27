@@ -35,7 +35,8 @@ pub struct NodeId(pub u64);
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     /// Audio track — reads clips from disk/memory, outputs raw PCM.
-    Track { name: String },
+    /// `latency_samples` is the sum of all plugin latencies on this track.
+    Track { name: String, latency_samples: u32 },
 
     /// Audio effect — processes input buffer (e.g., reverb, EQ, compressor).
     /// `latency_samples` is the plugin's reported processing delay.
@@ -65,6 +66,9 @@ impl AudioNode {
     /// Returns the processing latency of this node in samples.
     pub fn latency_samples(&self) -> u32 {
         match &self.kind {
+            NodeKind::Track {
+                latency_samples, ..
+            } => *latency_samples,
             NodeKind::Effect {
                 latency_samples, ..
             } => *latency_samples,
@@ -75,7 +79,7 @@ impl AudioNode {
     /// Human-readable name for logging.
     pub fn display_name(&self) -> &str {
         match &self.kind {
-            NodeKind::Track { name } => name,
+            NodeKind::Track { name, .. } => name,
             NodeKind::Effect { name, .. } => name,
             NodeKind::Bus { name } => name,
             NodeKind::MasterOutput => "Master Output",
@@ -240,7 +244,7 @@ pub struct EdgeDelayCompensation {
 /// ```ignore
 /// let dag = GraphBuilder::new()
 ///     .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-///     .add_node(AudioNode::new(NodeId(1), NodeKind::Track { name: "Piano".into() }))
+///     .add_node(AudioNode::new(NodeId(1), NodeKind::Track { name: "Piano".into(), latency_samples: 0 }))
 ///     .add_edge(NodeId(1), NodeId(0))?  // Piano → Master
 ///     .build()?;
 /// ```
@@ -542,6 +546,7 @@ mod tests {
             NodeId(id),
             NodeKind::Track {
                 name: name.to_string(),
+                latency_samples: 0,
             },
         )
     }

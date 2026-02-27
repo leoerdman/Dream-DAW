@@ -10,6 +10,7 @@ fn build_simple_dag() -> AudioDag {
             NodeId(1),
             NodeKind::Track {
                 name: "Track 1".into(),
+                latency_samples: 0,
             },
         ))
         .add_edge(NodeId(1), NodeId(0))
@@ -26,6 +27,7 @@ fn build_chain_dag() -> AudioDag {
             NodeId(1),
             NodeKind::Track {
                 name: "Piano".into(),
+                latency_samples: 0,
             },
         ))
         .add_node(AudioNode::new(
@@ -286,11 +288,11 @@ fn renderer_handles_bus_summing() {
         .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
         .add_node(AudioNode::new(
             NodeId(1),
-            NodeKind::Track { name: "T1".into() },
+            NodeKind::Track { name: "T1".into(), latency_samples: 0 },
         ))
         .add_node(AudioNode::new(
             NodeId(2),
-            NodeKind::Track { name: "T2".into() },
+            NodeKind::Track { name: "T2".into(), latency_samples: 0 },
         ))
         .add_node(AudioNode::new(
             NodeId(3),
@@ -378,11 +380,11 @@ fn renderer_applies_edge_level_pdc() {
         .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
         .add_node(AudioNode::new(
             NodeId(1),
-            NodeKind::Track { name: "T1".into() },
+            NodeKind::Track { name: "T1".into(), latency_samples: 0 },
         ))
         .add_node(AudioNode::new(
             NodeId(2),
-            NodeKind::Track { name: "T2".into() },
+            NodeKind::Track { name: "T2".into(), latency_samples: 0 },
         ))
         .add_node(AudioNode::new(
             NodeId(3),

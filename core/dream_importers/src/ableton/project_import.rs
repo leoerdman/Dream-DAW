@@ -437,7 +437,65 @@ pub fn import_als_project_with_target_sample_rate(
         consolidate_automation_lanes(&mut track);
 
         if track_type == TrackType::Midi && track.instrument.is_none() {
-            track.instrument = Some(make_missing_plugin_slot("instrument", "Ableton Instrument"));
+            // ── Extract real plugin names from PluginDevice nodes in this track ──
+            // Before falling back to a generic label, scan the XML for external
+            // plugin metadata so the Missing Plugins panel shows actionable names
+            // (e.g. "Serum 2" instead of "Ableton Instrument").
+            let inferred_name = track_node
+                .descendants()
+                .filter(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+                .find_map(|pd| {
+                    // Try Vst3PluginInfo > Name
+                    let vst3 = pd
+                        .descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
+                        .and_then(|v| {
+                            v.children()
+                                .find(|n| n.is_element() && n.has_tag_name("Name"))
+                                .and_then(|n| n.attribute("Value"))
+                        })
+                        .filter(|s| !s.trim().is_empty());
+                    if let Some(name) = vst3 {
+                        return Some(name.trim().to_string());
+                    }
+                    // Try VstPluginInfo > PlugName
+                    let vst2 = pd
+                        .descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"))
+                        .and_then(|v| {
+                            v.children()
+                                .find(|n| n.is_element() && n.has_tag_name("PlugName"))
+                                .and_then(|n| n.attribute("Value"))
+                        })
+                        .filter(|s| !s.trim().is_empty());
+                    if let Some(name) = vst2 {
+                        return Some(name.trim().to_string());
+                    }
+                    // Try AuPluginInfo > Name
+                    let au = pd
+                        .descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("AuPluginInfo"))
+                        .and_then(|v| {
+                            v.children()
+                                .find(|n| n.is_element() && n.has_tag_name("Name"))
+                                .and_then(|n| n.attribute("Value"))
+                        })
+                        .filter(|s| !s.trim().is_empty());
+                    if let Some(name) = au {
+                        return Some(name.trim().to_string());
+                    }
+                    // Try UserName
+                    node_child_value(pd, "UserName")
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| s.trim().to_string())
+                })
+                .unwrap_or_else(|| "Unknown Instrument".to_string());
+            log::warn!(
+                "[ALS Import] MIDI track '{}' has no instrument assigned. Inferred name: '{}'",
+                track.name,
+                inferred_name
+            );
+            track.instrument = Some(make_missing_plugin_slot("instrument", &inferred_name));
             if track.sampler.is_none() {
                 track.sampler = Some(SamplerConfig::default());
             }

@@ -38,14 +38,16 @@ pub fn resolve_master_runtime_slots(
     }
 }
 
-fn build_linear_dag(track_count: usize) -> AudioDag {
+fn build_linear_dag(track_count: usize, per_track_latencies: &[u32]) -> AudioDag {
     let mut builder =
         GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
     for track_idx in 0..track_count {
+        let latency = per_track_latencies.get(track_idx).copied().unwrap_or(0);
         builder = builder.add_node(AudioNode::new(
             NodeId((track_idx as u64) + 1),
             NodeKind::Track {
                 name: String::new(),
+                latency_samples: latency,
             },
         ));
     }
@@ -73,15 +75,18 @@ fn build_dag_for_tracks(
     track_count: usize,
     routing: &[Option<usize>],
     sidechains: &[Vec<Option<usize>>],
+    per_track_latencies: &[u32],
 ) -> AudioDag {
     let mut builder =
         GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
 
     for track_idx in 0..track_count {
+        let latency = per_track_latencies.get(track_idx).copied().unwrap_or(0);
         builder = builder.add_node(AudioNode::new(
             NodeId((track_idx as u64) + 1),
             NodeKind::Track {
                 name: String::new(),
+                latency_samples: latency,
             },
         ));
     }
@@ -102,7 +107,7 @@ fn build_dag_for_tracks(
                             dest_idx,
                             err
                         );
-                        return build_linear_dag(track_count);
+                        return build_linear_dag(track_count, per_track_latencies);
                     }
                 };
             } else {
@@ -149,7 +154,7 @@ fn build_dag_for_tracks(
                         "[Graph] master edge rejected ({}), fallback to linear graph",
                         err
                     );
-                    return build_linear_dag(track_count);
+                    return build_linear_dag(track_count, per_track_latencies);
                 }
             };
         }
@@ -157,7 +162,7 @@ fn build_dag_for_tracks(
 
     builder.build().unwrap_or_else(|err| {
         log::warn!("[Graph] build failed ({}), fallback to linear graph", err);
-        build_linear_dag(track_count)
+        build_linear_dag(track_count, per_track_latencies)
     })
 }
 
@@ -200,10 +205,11 @@ pub fn prepare_graph_snapshot_for_routing(
     track_count: usize,
     routing: &[Option<usize>],
     sidechains: &[Vec<Option<usize>>],
+    per_track_latencies: &[u32],
     generation: u64,
 ) -> PreparedGraphSnapshot {
     let safe_track_count = track_count.min(MAX_TRACKS);
-    let dag = build_dag_for_tracks(safe_track_count, routing, sidechains);
+    let dag = build_dag_for_tracks(safe_track_count, routing, sidechains, per_track_latencies);
     let plan = LiveGraph::from_dag(&dag)
         .map(|live| (*live.load_full()).clone())
         .unwrap_or_else(|_| ExecutionPlan {
@@ -242,13 +248,14 @@ impl SharedPreparedGraphSnapshot {
         track_count: usize,
         routing: &[Option<usize>],
         sidechains: &[Vec<Option<usize>>],
+        per_track_latencies: &[u32],
     ) {
         let generation = self
             .generation
             .fetch_add(1, Ordering::AcqRel)
             .wrapping_add(1);
         let snapshot =
-            prepare_graph_snapshot_for_routing(track_count, routing, sidechains, generation);
+            prepare_graph_snapshot_for_routing(track_count, routing, sidechains, per_track_latencies, generation);
         self.inner.store(Arc::new(snapshot));
     }
 

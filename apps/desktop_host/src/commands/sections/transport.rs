@@ -164,6 +164,69 @@ fn play(
     Ok(())
 }
 
+/// ENTERPRISE FIX: Atomic seek-and-play in a single IPC call.
+///
+/// The previous architecture called `togglePlayback()` (pushes `SetPlay(true)`) and then,
+/// in a React useEffect, called `seekToBeat()` (pushes `Seek(frame)`). Because the audio
+/// callback processes ring buffer commands per-buffer, the `SetPlay(true)` could be
+/// processed 1–2 buffer cycles before the `Seek(frame)` arrived — causing a brief burst
+/// of audio from the old position (the "stutter").
+///
+/// This function pushes `Seek(frame)` and `SetPlay(true)` contiguously into the ring
+/// buffer in one synchronous call, guaranteeing atomic processing in the audio thread.
+#[tauri::command]
+fn play_from_beat(
+    beat: f64,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    // Deferred engine swap (multi-project tab support).
+    let swapped = ensure_engine_on_active_project(
+        &project_registry,
+        &clip_pool_state,
+        &automation_runtime,
+        &handle,
+        &plugin_host_state,
+    )?;
+    if swapped {
+        log::info!("[IPC] play_from_beat() — engine swapped to active project before playback");
+    }
+
+    let safe_beat = if beat.is_finite() { beat.max(0.0) } else { 0.0 };
+
+    // Resolve beat → sample frames using the project's pulse map.
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+
+    let mut state = handle
+        .playback_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    let bpm = state.bpm;
+    let sample_rate = state.sample_rate;
+
+    let frames = if let Ok(project) = project_state.project.lock() {
+        beat_to_engine_frames(safe_beat, Some(&project.pulse_map), bpm, sample_rate)
+    } else {
+        beat_to_engine_frames(safe_beat, None, bpm, sample_rate)
+    };
+
+    // Push Seek FIRST, then SetTimelineSampleRate, then SetPlay(true).
+    // All three land contiguously in the ring buffer and are drained in a
+    // single `process_commands()` pass within the audio callback.
+    push_command(&handle, EngineCommand::Seek(frames))?;
+    push_command(&handle, EngineCommand::SetTimelineSampleRate(sample_rate))?;
+    push_command(&handle, EngineCommand::SetPlay(true))?;
+    state.is_playing = true;
+    drop(state);
+
+    log::info!("[IPC] play_from_beat({safe_beat:.4} beat → {frames} frames)");
+    Ok(())
+}
+
 /// Stops audio playback.
 #[tauri::command]
 fn stop(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {

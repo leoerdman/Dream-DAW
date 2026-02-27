@@ -316,7 +316,11 @@ export class CanvasClipRenderer {
                 ctx.fillStyle = applyAlphaMultiplier(theme.rulerText, 0.7);
                 lineH = 6;
             } else {
-                label = `${barNumber}.${beatWithinBar}.5`;
+                // Ableton-style: compute actual tick number within the beat
+                const fractionalBeat = beat - Math.floor(beat);
+                const ticksPerBeat = Math.round(1 / markStep);
+                const tickNumber = Math.round(fractionalBeat * ticksPerBeat) + 1;
+                label = `${barNumber}.${beatWithinBar}.${tickNumber}`;
                 ctx.fillStyle = applyAlphaMultiplier(theme.rulerText, 0.5);
                 lineH = 4;
             }

@@ -35,9 +35,19 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
     );
 });
 
+// ── Peak Hold Duration ──────────────────────────────────────────────────
+const PEAK_HOLD_MS = 4000;
+
 /**
- * Peak hold label: shows the maximum peak dB reached.
- * Decays after 4 seconds of inactivity. Click to reset.
+ * Peak hold label: displays the highest instantaneous peak dB reached
+ * and holds it for PEAK_HOLD_MS (4 seconds) before decaying.
+ *
+ * This component reads the current peak dB from the store on every render
+ * and maintains its own independent hold state via useRef. This avoids
+ * any dependency on optional fields in MeterReading, Zustand shallow
+ * equality, or the smoothing pipeline — making it completely bulletproof.
+ *
+ * Click the label to manually reset the peak hold.
  */
 export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     trackIndex,
@@ -45,39 +55,71 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
     trackIndex: number;
 }) {
     const meterPair = useEngineStore((s) => s.meters.tracks[trackIndex]);
-    const resetMeterPeakHold = useEngineStore((s) => s.resetMeterPeakHold);
-    const holdL = meterPair?.[0]?.peak_hold ?? -96;
-    const holdR = meterPair?.[1]?.peak_hold ?? -96;
-
     const displayRef = useRef<HTMLDivElement>(null);
 
-    // Direct DOM update — bypasses React render for 30Hz performance
+    // ── Local peak hold state (survives re-renders, never reset by store) ──
+    const holdRef = useRef({
+        peakDb: -Infinity,     // highest registered peak in dB
+        lastPeakTs: 0,         // timestamp of the last new-high event
+        resettedByUser: false,  // flag for manual click-to-reset
+    });
+
+    // Read instantaneous peaks from the smoothed meter store
+    const peakL = meterPair?.[0]?.peak ?? -160;
+    const peakR = meterPair?.[1]?.peak ?? -160;
+    const currentPeak = Math.max(peakL, peakR);
+
+    // Direct DOM update on every render (~30Hz) — no React state needed
     useEffect(() => {
-        if (displayRef.current) {
-            const maxDb = Math.max(holdL, holdR);
-            const hasClipped = maxDb >= 0;
-            const text = Number.isFinite(maxDb) && maxDb > -90
-                ? formatDb(maxDb)
-                : '-∞';
+        const el = displayRef.current;
+        if (!el) return;
 
-            if (displayRef.current.textContent !== text) {
-                displayRef.current.textContent = text;
-            }
+        const now = performance.now();
+        const h = holdRef.current;
 
-            const color = hasClipped ? 'var(--color-status-error)' : 'var(--color-text-secondary)';
-            if (displayRef.current.style.color !== color) {
-                displayRef.current.style.color = color;
-            }
+        // If user clicked reset, wait for a fresh signal to start a new hold
+        if (h.resettedByUser) {
+            h.peakDb = currentPeak;
+            h.lastPeakTs = now;
+            h.resettedByUser = false;
+        }
+        // If the new peak is higher or equal, latch it
+        else if (currentPeak >= h.peakDb) {
+            h.peakDb = currentPeak;
+            h.lastPeakTs = now;
+        }
+        // After PEAK_HOLD_MS without a new high, drop
+        else if (now - h.lastPeakTs > PEAK_HOLD_MS) {
+            h.peakDb = currentPeak;
+            h.lastPeakTs = now;
+        }
+        // else: keep held value unchanged
+
+        const displayDb = h.peakDb;
+        const hasClipped = displayDb >= 0;
+        const text = Number.isFinite(displayDb) && displayDb > -90
+            ? formatDb(displayDb)
+            : '-∞';
+
+        if (el.textContent !== text) {
+            el.textContent = text;
+        }
+
+        const color = hasClipped ? 'var(--color-status-error)' : 'var(--color-text-secondary)';
+        if (el.style.color !== color) {
+            el.style.color = color;
         }
     });
 
     const resetPeak = useCallback(() => {
-        resetMeterPeakHold(trackIndex);
+        holdRef.current.peakDb = -Infinity;
+        holdRef.current.lastPeakTs = 0;
+        holdRef.current.resettedByUser = true;
         if (displayRef.current) {
             displayRef.current.textContent = '-∞';
             displayRef.current.style.color = 'var(--color-text-secondary)';
         }
-    }, [resetMeterPeakHold, trackIndex]);
+    }, []);
 
     return (
         <div

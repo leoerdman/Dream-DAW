@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
+import * as engineApi from '@/shared/api/engine';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -86,7 +87,14 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const lastAudioRecoverAtRef = useRef(0);
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
-    const togglePlay = useEngineStore(s => s.togglePlay);
+    const storeTogglePlay = useEngineStore(s => s.togglePlay);
+    const storeStop = useEngineStore(s => s.stop);
+
+    // ENTERPRISE FIX: Ref-stable wrapper for atomic toggle play.
+    // Declared early so `useKeyboardShortcuts` can reference it.
+    // The actual implementation is assigned later after `resolveAnchorBeat` is available.
+    const atomicTogglePlayRef = useRef<() => Promise<void>>(storeTogglePlay);
+    const atomicTogglePlay = useCallback(() => atomicTogglePlayRef.current(), []);
     const applyProjectDeltas = useEngineStore(s => s.applyProjectDeltas);
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
@@ -147,7 +155,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
-        onTogglePlayback: togglePlay,
+        onTogglePlayback: atomicTogglePlay,
         onClipSelectionChanged: setSelectedClipIds,
     });
     useDawShellGlobalShortcuts({
@@ -373,13 +381,38 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         selectedTrackIdsRef,
         applyProjectDeltas,
     });
-    usePlaybackStartAnchor({
+    const { resolveAnchorBeat } = usePlaybackStartAnchor({
         transportIsPlaying,
         selectedClipIds: selectedClipIdsForView,
         timelineClipsForView,
         queuedStartBeatRef,
         editCursorBeat,
     });
+
+    // ENTERPRISE FIX: Keep the ref-stable atomicTogglePlay implementation
+    // in sync with the latest closures.
+    useEffect(() => {
+        atomicTogglePlayRef.current = async () => {
+            if (transportIsPlaying) {
+                await storeStop();
+                return;
+            }
+            const anchorBeat = resolveAnchorBeat();
+            if (anchorBeat !== null) {
+                try {
+                    await engineApi.playFromBeat(Math.max(0, anchorBeat));
+                    useEngineStore.setState((s) => ({
+                        transport: { ...s.transport, is_playing: true },
+                        lastError: null,
+                    }));
+                } catch (e) {
+                    useEngineStore.setState({ lastError: String(e) });
+                }
+            } else {
+                await storeTogglePlay();
+            }
+        };
+    }, [transportIsPlaying, resolveAnchorBeat, storeStop, storeTogglePlay]);
     const {
         dropBrowserItemOnTimeline,
         dropPluginOnTrack,

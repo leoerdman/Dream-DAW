@@ -49,6 +49,10 @@ export type {
     SplitClipWithDeltasResponse,
 } from './projectDelta';
 export const play = () => invoke<void>('play');
+/** ENTERPRISE FIX: Atomic seek-and-play — eliminates the 1-buffer stutter
+ *  caused by separate togglePlayback() + seekToBeat() IPC calls. */
+export const playFromBeat = (beat: number) =>
+    invoke<void>('play_from_beat', { beat });
 export const stop = () => invoke<void>('stop');
 export const togglePlayback = () => invoke<boolean>('toggle_playback');
 export const seek = (positionFrames: number) =>

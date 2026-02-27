@@ -218,6 +218,7 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Track 1".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_edge(NodeId(1), NodeId(0))
@@ -254,12 +255,14 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Track 1".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_node(AudioNode::new(
                 NodeId(2),
                 NodeKind::Track {
                     name: "Track 2".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_node(AudioNode::new(

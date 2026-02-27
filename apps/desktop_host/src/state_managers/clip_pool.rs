@@ -45,6 +45,10 @@ pub struct ClipPoolState {
 
     /// Atomic snapshot of external FX runtime instances per track.
     pub external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
+
+    /// Optional reference to the shared plugin registry for querying
+    /// per-track plugin latencies (PDC compensation).
+    plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
 }
 
 impl ClipPoolState {
@@ -57,7 +61,48 @@ impl ClipPoolState {
             prepared_graph_snapshot: Arc::new(SharedPreparedGraphSnapshot::new()),
             sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
             external_fx_snapshot: Arc::new(SharedExternalPluginSnapshot::new()),
+            plugin_registry: None,
         }
+    }
+
+    /// Attaches the shared plugin registry for per-track PDC latency queries.
+    /// Must be called during initialization, before the first graph rebuild.
+    pub fn set_plugin_registry(&mut self, registry: Arc<dream_engine::driver::SharedPluginRegistry>) {
+        self.plugin_registry = Some(registry);
+    }
+
+    /// Collects the total plugin latency (in samples) for each track.
+    ///
+    /// Iterates over the current external FX snapshot and queries each
+    /// loaded, non-bypassed plugin instance for its reported latency.
+    /// Returns a `Vec<u32>` indexed by track index.
+    fn collect_per_track_latencies(&self, track_count: usize) -> Vec<u32> {
+        let Some(registry) = &self.plugin_registry else {
+            return vec![0u32; track_count];
+        };
+        let fx_snapshot = self.external_fx_snapshot.load();
+        let registry_map = registry.load();
+        let mut latencies = Vec::with_capacity(track_count);
+        for track_idx in 0..track_count {
+            let track_latency = if let Some(slots) = fx_snapshot.get(track_idx) {
+                slots
+                    .iter()
+                    .filter(|slot| !slot.is_bypassed)
+                    .filter_map(|slot| slot.instance_id)
+                    .map(|instance_id| {
+                        registry_map
+                            .get(&instance_id)
+                            .and_then(|arc| arc.try_lock())
+                            .map(|p| p.latency_samples())
+                            .unwrap_or(0)
+                    })
+                    .sum::<u32>()
+            } else {
+                0
+            };
+            latencies.push(track_latency);
+        }
+        latencies
     }
 
     pub fn selected_runtime_chain(
@@ -157,6 +202,14 @@ impl ClipPoolState {
             })
             .collect();
 
+        // ── ENTERPRISE PDC: Collect per-track plugin latency ──────────────────
+        // Each track's total latency is the sum of latencies reported by all
+        // non-bypassed external plugins on that track. This feeds into the
+        // audio graph so PDC delay compensation lines are correctly sized.
+        let per_track_latencies = self.collect_per_track_latencies(
+            project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
+        );
+
         // ── ENTERPRISE GRAPH UPDATE: ──
         // Now that we have the full sidechain map, rebuild the audio graph
         // so that the processing order is correct.
@@ -164,6 +217,7 @@ impl ClipPoolState {
             project.tracks.len(),
             routing_now.as_ref(),
             &sidechains,
+            &per_track_latencies,
         );
 
         self.sidechain_snapshot.swap(sidechains);
@@ -225,10 +279,16 @@ impl ClipPoolState {
             })
             .collect();
 
+        // ── ENTERPRISE PDC: Collect per-track plugin latency ──
+        let per_track_latencies = self.collect_per_track_latencies(
+            project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
+        );
+
         self.prepared_graph_snapshot.rebuild_for_routing(
             project.tracks.len(),
             routing_now.as_ref(),
             &sidechains,
+            &per_track_latencies,
         );
         self.sidechain_snapshot.swap(sidechains);
         // NOTE: Deliberately skips sync_pool_to_arc() — device topology changes

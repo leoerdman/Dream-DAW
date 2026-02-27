@@ -55,7 +55,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let preferred_buffer_size_for_cpal = Some(host_buffer_size as u32);
     let mut plugin_host_state = PluginHostState::new_with_io(host_sample_rate, host_buffer_size);
 
-    let clip_pool_state = ClipPoolState::new();
+    let mut clip_pool_state = ClipPoolState::new();
     let bootstrap_project = dream_models::project::Project::default();
     clip_pool_state.rebuild_snapshot(&bootstrap_project);
     let clip_pool_for_engine = Arc::clone(&clip_pool_state.arc_pool);
@@ -91,6 +91,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
     let plugin_registry = Arc::new(dream_engine::driver::SharedPluginRegistry::new());
     plugin_host_state.set_plugin_registry(Arc::clone(&plugin_registry));
+    clip_pool_state.set_plugin_registry(Arc::clone(&plugin_registry));
     let plugin_registry_for_engine = Arc::clone(&plugin_registry);
     let plugin_registry_for_handle = Arc::clone(&plugin_registry);
     let rt_debug_stats = Arc::new(dream_engine::driver::SharedRtDebugStats::new());

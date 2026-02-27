@@ -182,6 +182,7 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Dry Track".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_edge(NodeId(1), NodeId(0))
@@ -206,6 +207,7 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Track".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_node(AudioNode::new(
@@ -242,6 +244,7 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Wet Track".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_node(AudioNode::new(
@@ -255,6 +258,7 @@ mod tests {
                 NodeId(3),
                 NodeKind::Track {
                     name: "Dry Track".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_edge(NodeId(1), NodeId(2))
@@ -292,6 +296,7 @@ mod tests {
                 NodeId(1),
                 NodeKind::Track {
                     name: "Source".into(),
+                    latency_samples: 0,
                 },
             ))
             .add_node(AudioNode::new(
@@ -405,6 +410,7 @@ mod tests {
                         NodeId(id),
                         NodeKind::Track {
                             name: format!("T{id}"),
+                            latency_samples: 0,
                         },
                     ),
                     1 => AudioNode::new(
@@ -523,7 +529,7 @@ mod tests {
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
                 NodeId(1),
-                NodeKind::Track { name: "Wet".into() },
+                NodeKind::Track { name: "Wet".into(), latency_samples: 0 },
             ))
             .add_node(AudioNode::new(
                 NodeId(2),
@@ -534,7 +540,7 @@ mod tests {
             ))
             .add_node(AudioNode::new(
                 NodeId(3),
-                NodeKind::Track { name: "Dry".into() },
+                NodeKind::Track { name: "Dry".into(), latency_samples: 0 },
             ))
             .add_edge(NodeId(1), NodeId(2))
             .unwrap()
@@ -573,11 +579,11 @@ mod tests {
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
                 NodeId(1),
-                NodeKind::Track { name: "A".into() },
+                NodeKind::Track { name: "A".into(), latency_samples: 0 },
             ))
             .add_node(AudioNode::new(
                 NodeId(2),
-                NodeKind::Track { name: "B".into() },
+                NodeKind::Track { name: "B".into(), latency_samples: 0 },
             ))
             .add_node(AudioNode::new(
                 NodeId(3),

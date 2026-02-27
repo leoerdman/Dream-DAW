@@ -11,6 +11,7 @@ interface TrackRowRoutingProps {
     routingTargets: RoutingTarget[];
     isMasterFixed?: boolean;
     layout: TrackRowLayoutMetrics;
+    heightLevel: number;
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
 }
@@ -20,6 +21,7 @@ export function TrackRowRouting({
     routingTargets,
     isMasterFixed,
     layout,
+    heightLevel,
     onOutputChange,
     onInputChange,
 }: TrackRowRoutingProps) {
@@ -99,6 +101,23 @@ export function TrackRowRouting({
         );
     }
 
+    // Level 1: hide routing column entirely
+    if (heightLevel <= 1) {
+        return (
+            <div
+                style={{
+                    width: 0,
+                    minWidth: 0,
+                    maxWidth: 0,
+                    overflow: 'hidden',
+                }}
+            />
+        );
+    }
+
+    // Show input routing only at Level 3+
+    const showInput = heightLevel >= 3;
+
     return (
         <div
             style={{
@@ -115,18 +134,20 @@ export function TrackRowRouting({
                 background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
             }}
         >
-            <RoutingSelect
-                arrow="←"
-                value={inputValue}
-                title="Audio From"
-                options={[
-                    { value: 'none', label: 'No Input' },
-                    { value: 'ext-1', label: 'Ext. In 1' },
-                    { value: 'ext-2', label: 'Ext. In 2' },
-                    ...availableRoutingTargets.map((t) => ({ value: t.id, label: t.name })),
-                ]}
-                onChange={onInputChange}
-            />
+            {showInput && (
+                <RoutingSelect
+                    arrow="←"
+                    value={inputValue}
+                    title="Audio From"
+                    options={[
+                        { value: 'none', label: 'No Input' },
+                        { value: 'ext-1', label: 'Ext. In 1' },
+                        { value: 'ext-2', label: 'Ext. In 2' },
+                        ...availableRoutingTargets.map((t) => ({ value: t.id, label: t.name })),
+                    ]}
+                    onChange={onInputChange}
+                />
+            )}
             <RoutingSelect
                 arrow="→"
                 value={outputValue}

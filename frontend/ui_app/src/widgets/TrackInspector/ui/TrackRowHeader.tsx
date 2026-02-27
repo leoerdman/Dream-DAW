@@ -6,6 +6,7 @@ import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/
 interface TrackRowHeaderProps {
     track: TrackData;
     trackHeight: number;
+    heightLevel: number;
     isMaster: boolean;
     isGroup: boolean;
     isHeaderSelected: boolean;
@@ -38,6 +39,7 @@ export function TrackRowHeader({
     layout,
     mixerFocusMode,
     isActive,
+    heightLevel,
     onRenameChange,
     onRenameCommit,
     onRenameCancel,
@@ -180,7 +182,7 @@ export function TrackRowHeader({
                     )}
                 </div>
 
-                {!isGroup && !isMaster && (
+                {!isGroup && !isMaster && heightLevel >= 2 && (
                     <span
                         style={{
                             position: 'absolute',

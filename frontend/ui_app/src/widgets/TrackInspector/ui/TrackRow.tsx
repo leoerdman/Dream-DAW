@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { getTrackHeightLevel } from '@/shared/config/trackHeightLevels';
 import { TrackRowHeader } from '@/widgets/TrackInspector/ui/TrackRowHeader';
 import { TrackRowMixer } from '@/widgets/TrackInspector/ui/TrackRowMixer';
 import { TrackRowResizeHandle } from '@/widgets/TrackInspector/ui/TrackRowResizeHandle';
@@ -136,6 +137,8 @@ export const TrackRow = ({
             ? track.color
             : (groupStripeColor || track.color);
 
+    const heightLevel = getTrackHeightLevel(trackHeight);
+
     return (
         <div
             data-track-row="true"
@@ -171,6 +174,7 @@ export const TrackRow = ({
             <TrackRowHeader
                 track={track}
                 trackHeight={trackHeight}
+                heightLevel={heightLevel}
                 isMaster={isMaster}
                 isGroup={isGroup}
                 isHeaderSelected={isHeaderSelected}
@@ -195,6 +199,7 @@ export const TrackRow = ({
                 routingTargets={routingTargets}
                 isMasterFixed={isMasterFixed}
                 layout={layout}
+                heightLevel={heightLevel}
                 onOutputChange={onOutputChange}
                 onInputChange={onInputChange}
             />
@@ -202,6 +207,7 @@ export const TrackRow = ({
             <TrackRowMixer
                 track={track}
                 trackHeight={trackHeight}
+                heightLevel={heightLevel}
                 displayNum={displayNum}
                 anySoloed={anySoloed}
                 isMaster={isMaster}

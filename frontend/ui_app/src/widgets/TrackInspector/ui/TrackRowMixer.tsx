@@ -6,6 +6,7 @@ import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/
 interface TrackRowMixerProps {
     track: TrackData;
     trackHeight: number;
+    heightLevel: number;
     displayNum?: number;
     anySoloed: boolean;
     isMaster: boolean;
@@ -25,6 +26,7 @@ interface TrackRowMixerProps {
 export function TrackRowMixer({
     track,
     trackHeight,
+    heightLevel,
     displayNum,
     anySoloed,
     isMaster,
@@ -41,17 +43,20 @@ export function TrackRowMixer({
     onPanContextMenu,
 }: TrackRowMixerProps) {
     const isMeterActive = !track.isDisabled && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
-    const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
+    const compactControlHeight = 18;  // Fixed control height for consistency
+    const showFaders = heightLevel >= 2;
+    const showArm = heightLevel >= 3;
+    const showPan = heightLevel >= 2;
 
     return (
         <div
             style={{
                 display: 'grid',
-                gridTemplateColumns: `${layout.muteSoloColWidth}px ${layout.faderColWidth}px ${layout.armColWidth}px ${layout.meterColWidth}px`,
+                gridTemplateColumns: `${layout.muteSoloColWidth}px ${showFaders ? `${layout.faderColWidth}px` : '0px'} ${showArm ? `${layout.armColWidth}px` : '0px'} ${layout.meterColWidth}px`,
                 alignItems: 'center',
                 columnGap: layout.mixerColumnGapPx,
                 padding: `${layout.mixerPaddingY}px ${layout.mixerPaddingX}px`,
-                minWidth: layout.mixerSectionWidthPx,
+                minWidth: 0,
                 flex: '1 1 auto',
                 overflow: 'hidden',
                 background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
@@ -124,7 +129,7 @@ export function TrackRowMixer({
                 </div>
             )}
 
-            {!isGroup && !isMaster && mixerFocusMode && onVolumeChange && onPanChange ? (
+            {!isGroup && !isMaster && mixerFocusMode && showFaders && onVolumeChange && onPanChange ? (
                 <VerticalMixerStrip
                     volumeLinear={track.volume}
                     pan={track.pan}
@@ -135,18 +140,18 @@ export function TrackRowMixer({
                     onVolumeChange={onVolumeChange}
                     onPanChange={onPanChange}
                 />
-            ) : (
+            ) : showFaders ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.faderColWidth, minWidth: layout.faderColWidth, maxWidth: layout.faderColWidth, minHeight: compactControlHeight * 2 + 4, justifyContent: 'center' }}>
                     {onVolumeChange && (
                         <VolumeFader volumeLinear={track.volume} onVolumeChange={onVolumeChange} onContextMenu={onVolumeContextMenu} compact showZeroTick controlHeight={compactControlHeight} />
                     )}
-                    {!isMaster && onPanChange && (
+                    {!isMaster && showPan && onPanChange && (
                         <PanFader pan={track.pan} onPanChange={onPanChange} onContextMenu={onPanContextMenu} compact controlHeight={compactControlHeight} />
                     )}
                 </div>
-            )}
+            ) : null}
 
-            {!isMaster && !isGroup ? (
+            {showArm && !isMaster && !isGroup ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.armColWidth, minWidth: layout.armColWidth }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); onToggleArm(); }}
@@ -180,12 +185,12 @@ export function TrackRowMixer({
                     </button>
                     <div aria-hidden style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 10%, transparent)', background: 'var(--surface-elevated)' }} />
                 </div>
-            ) : (
+            ) : showArm ? (
                 <div aria-hidden style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.armColWidth, minWidth: layout.armColWidth }}>
                     <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
                     <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
                 </div>
-            )}
+            ) : null}
 
             <TriColorVU
                 peakDb={track.vuLevel}

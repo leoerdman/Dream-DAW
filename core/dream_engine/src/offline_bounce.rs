@@ -1205,10 +1205,14 @@ impl OfflineRenderer {
                             // we skip this for now (master rarely has param automation).
                             // TODO: When master automation lanes are added, wire them here.
 
-                            let mut ext_left = vec![0.0f32; frame_count];
-                            let mut ext_right = vec![0.0f32; frame_count];
+                            // ENTERPRISE FIX: Use pre-allocated scratch buffers instead of
+                            // per-chunk Vec allocation. Eliminates heap thrashing.
+                            let ext_left = &mut ctx.bounce_scratch_left[..frame_count];
+                            let ext_right = &mut ctx.bounce_scratch_right[..frame_count];
+                            ext_left.fill(0.0);
+                            ext_right.fill(0.0);
                             let mut out_slices: [&mut [f32]; 2] =
-                                [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
+                                [&mut ext_left[..], &mut ext_right[..]];
                             let empty_midi: &[dream_plugins::MidiEvent] = &[];
                             // BOUNCE-FIX: Log process errors instead of silently swallowing.
                             if let Err(proc_err) = host.process_with_sidechain(

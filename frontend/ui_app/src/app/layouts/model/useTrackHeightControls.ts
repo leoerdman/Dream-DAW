@@ -4,11 +4,12 @@ import { scrollSync } from '@/shared/lib/useScrollSync';
 import {
     TIMELINE_RULER_HEIGHT_PX,
     TRACK_HEIGHT_DEFAULT_PX,
-    TRACK_HEIGHT_MAX_PX,
-    TRACK_HEIGHT_MIN_PX,
-    TRACK_HEIGHT_STEP_PX,
     clampTrackHeightPx,
 } from '@/shared/config/layoutConstants';
+import {
+    snapToTrackHeightLevel,
+    nextTrackHeightLevel,
+} from '@/shared/config/trackHeightLevels';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
@@ -42,8 +43,7 @@ export function useTrackHeightControls({
     const tracksByIdSnapshot = tracksEntitySnapshot.byId;
 
     const clampTrackHeight = useCallback((height: number) => {
-        const snapped = Math.round(height / TRACK_HEIGHT_STEP_PX) * TRACK_HEIGHT_STEP_PX;
-        return Math.max(TRACK_HEIGHT_MIN_PX, Math.min(TRACK_HEIGHT_MAX_PX, snapped));
+        return snapToTrackHeightLevel(height).height;
     }, []);
 
     const resolveHeightTargetTrackIds = useCallback((target: EventTarget | null, clientY?: number) => {
@@ -119,14 +119,19 @@ export function useTrackHeightControls({
             if (trackIds.length === 0) return;
             const current = tracksByIdSnapshot[trackIds[0]];
             const currentHeight = clampTrackHeight(typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT_PX);
-            const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP_PX * steps);
-            if (nextHeight === currentHeight) return;
 
-            applyTrackHeightsOptimistic(trackIds, nextHeight);
+            // Step one level at a time via discrete level snapping
+            let targetHeight = currentHeight;
+            for (let i = 0; i < steps; i++) {
+                targetHeight = nextTrackHeightLevel(targetHeight, direction as 1 | -1);
+            }
+            if (targetHeight === currentHeight) return;
+
+            applyTrackHeightsOptimistic(trackIds, targetHeight);
             void Promise.all(
                 trackIds.map((id) =>
                     engineApi
-                        .setTrackHeightWithDeltas(id, nextHeight)
+                        .setTrackHeightWithDeltas(id, targetHeight)
                         .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-track-height-wheel')),
                 ),
             ).catch((err) => {

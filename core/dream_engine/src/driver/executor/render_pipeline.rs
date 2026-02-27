@@ -238,9 +238,10 @@ pub(super) fn interleave_graph_output(
             break;
         }
         if channels == 1 {
-            // User explicit request: Do not attenuate mono fold-down by -6dB or -3dB.
-            // Output raw summed Left + Right.
-            data[base] = graph_out_left[i] + graph_out_right[i];
+            // ENTERPRISE FIX: Standard -6dB mono fold-down.
+            // Summing L+R without attenuation produces +6dBFS with correlated stereo,
+            // causing hard clipping. 0.5 (-6dB) is the industry standard.
+            data[base] = (graph_out_left[i] + graph_out_right[i]) * 0.5;
             continue;
         }
         data[base] = graph_out_left[i];
@@ -328,7 +329,7 @@ pub(super) fn mix_preview_audio(
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
                             data[d_idx] +=
-                                soft_clip(p_left + p_right);
+                                soft_clip((p_left + p_right) * 0.5);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {
@@ -365,9 +366,9 @@ pub(super) fn mix_preview_audio(
                     let d_idx = f * channels;
                     if d_idx < data.len() {
                         if channels == 1 {
-                            // User requested no attenuation on mono output.
+                            // ENTERPRISE FIX: -6dB mono fold-down for preview audio.
                             data[d_idx] +=
-                                soft_clip(p_left + p_right);
+                                soft_clip((p_left + p_right) * 0.5);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {

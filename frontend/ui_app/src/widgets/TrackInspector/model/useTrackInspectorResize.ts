@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { snapToTrackHeightLevel } from '@/shared/config/trackHeightLevels';
 
 interface UseTrackInspectorResizeArgs {
     applyTrackHeightOptimistic: (trackId: string, height: number) => void;
@@ -18,7 +18,7 @@ export function useTrackInspectorResize({
     const [resizingTrackId, setResizingTrackId] = useState<string | null>(null);
 
     const clampRowHeight = useCallback((raw: number) => {
-        return clampTrackHeightPx(raw);
+        return snapToTrackHeightLevel(raw).height;
     }, []);
 
     const beginRowResize = useCallback((trackId: string, startHeight: number, startY: number) => {

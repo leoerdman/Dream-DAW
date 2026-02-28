@@ -4,6 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils';
+import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 
 /**
  * Optimistically removes clips from the engine store state so the canvas
@@ -125,12 +126,8 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 const posFrames = Math.max(0, beatToFrame(cursorBeat + groupOffset, bpm, sampleRate));
                 const response = await engine.pasteClipsFromGlobalClipboard(targetTrack, posFrames);
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-cross-project');
-                // SSOT FIX: Select new clips after cross-project paste.
-                // Extract IDs from both ClipDuplicated and ClipAdded deltas.
-                const nextSelection = response.deltas
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter((d: any) => d.kind === 'ClipDuplicated' || d.kind === 'ClipAdded')
-                    .map((d: any) => (d.data.new_clip_id ?? d.data.clip_id) as string);
+                // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
+                const nextSelection = extractNewClipIdsFromDeltas(response.deltas);
                 if (nextSelection.length > 0) onClipSelectionChanged(nextSelection);
             } else if (trackDelta === 0) {
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => ({
@@ -139,14 +136,8 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                     targetTrackIndex: undefined
                 })));
                 await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-same-track');
-                // SSOT FIX: Extract new clip IDs from deltas for auto-selection.
-                const nextSelection = results.deltas
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter((d: any) => d.kind === 'ClipDuplicated')
-                    .map((d: any) => d.data.new_clip_id as string);
-                if (nextSelection.length === 0 && results.new_id) {
-                    nextSelection.push(results.new_id);
-                }
+                // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
+                const nextSelection = extractNewClipIdsFromDeltas(results.deltas, results.new_id);
                 onClipSelectionChanged(nextSelection);
             } else {
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => {
@@ -160,14 +151,8 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                     };
                 }));
                 await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-cross-track');
-                // SSOT FIX: Extract new clip IDs from deltas for auto-selection.
-                const nextSelection = results.deltas
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter((d: any) => d.kind === 'ClipDuplicated')
-                    .map((d: any) => d.data.new_clip_id as string);
-                if (nextSelection.length === 0 && results.new_id) {
-                    nextSelection.push(results.new_id);
-                }
+                // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
+                const nextSelection = extractNewClipIdsFromDeltas(results.deltas, results.new_id);
                 onClipSelectionChanged(nextSelection);
             }
         } catch (err) {

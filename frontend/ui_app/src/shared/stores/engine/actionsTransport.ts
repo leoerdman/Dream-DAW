@@ -109,11 +109,16 @@ export function createTransportActions(
         },
 
         setLoop: async (enabled: boolean, startFrames: number, endFrames: number) => {
+            // BUG-014 FIX: Validate inputs — reject NaN/Infinity/negative, matching other transport actions.
+            if (!Number.isFinite(startFrames) || !Number.isFinite(endFrames)) return;
+            const safeStart = Math.max(0, Math.round(startFrames));
+            // BUG-015 FIX: Enforce minimum 1-frame loop duration to prevent zero/negative-length loops.
+            const safeEnd = Math.max(safeStart + 1, Math.round(endFrames));
             set((s) => ({
-                transport: { ...s.transport, loop_enabled: enabled, loop_start: startFrames, loop_end: endFrames },
+                transport: { ...s.transport, loop_enabled: enabled, loop_start: safeStart, loop_end: safeEnd },
             }));
             try {
-                const response = await engine.setLoopWithDeltas(enabled, startFrames, endFrames);
+                const response = await engine.setLoopWithDeltas(enabled, safeStart, safeEnd);
                 await get().applyProjectDeltas(response.deltas, 'setLoop');
                 set({ lastError: null });
             } catch (e) {

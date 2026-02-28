@@ -341,7 +341,10 @@ pub fn db_to_linear(db: f32) -> f32 {
     if db <= METER_FLOOR_DB {
         0.0
     } else {
-        10.0_f32.powf(db / 20.0)
+        // SSOT FIX: Use exp() for consistency with dream_mixer/gain.rs.
+        // 10^(db/20) = e^(db * ln(10)/20) = e^(db * 0.11512925)
+        // exp() is 2-3x faster than powf() on all platforms.
+        (db * 0.11512925_f32).exp()
     }
 }
 

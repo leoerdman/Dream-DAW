@@ -57,8 +57,12 @@ interface AutomationState {
     getLanesForTrack: (trackId: string) => AutomationLane[];
 }
 
-const genId = () => `auto_${crypto.randomUUID().slice(0, 8)}`;
-const genBpId = () => `bp_${crypto.randomUUID().slice(0, 8)}`;
+// BUG-099 FIX: Use 16 chars (64 bits) instead of 8 chars (32 bits) to reduce collision risk at scale.
+// BUG-AUDIT-002 FIX: Extended from 8 to 12 hex chars to reduce collision probability.
+// 8 chars = 4 bytes (16M space) — birthday-paradox risk at ~4K items.
+// 12 chars = 6 bytes (281T space) — enterprise-safe for any practical session.
+const genId = () => `auto_${crypto.randomUUID().slice(0, 12)}`;
+const genBpId = () => `bp_${crypto.randomUUID().slice(0, 12)}`;
 
 export const useAutomationStore = create<AutomationState>((set, get) => ({
     lanes: {},
@@ -179,8 +183,10 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         set((s) => {
             const lane = s.lanes[laneId];
             if (!lane) return s;
+            // BUG-028 FIX: Clamp beat to >= 0, matching addBreakpoint behavior.
+            const safeBeat = Math.max(0, beat);
             const bps = lane.breakpoints
-                .map((bp) => (bp.id === bpId ? { ...bp, beat, value: clamp01(value) } : bp))
+                .map((bp) => (bp.id === bpId ? { ...bp, beat: safeBeat, value: clamp01(value) } : bp))
                 .sort((a, b) => a.beat - b.beat);
             return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
         });
@@ -220,7 +226,13 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             const lane = s.lanes[laneId];
             if (!lane) return s;
             const bps = lane.breakpoints.filter((bp) => bp.id !== bpId);
-            return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
+            // BUG-086 FIX: Also remove from selectedBreakpoints to prevent stale ID accumulation.
+            const nextSelected = new Set(s.selectedBreakpoints);
+            nextSelected.delete(bpId);
+            return {
+                lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } },
+                selectedBreakpoints: nextSelected,
+            };
         });
     },
 

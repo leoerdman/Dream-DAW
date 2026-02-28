@@ -145,7 +145,9 @@ export const ExportModal = ({
         }
 
         const durationBeats = endBeat - startBeat;
-        const durationSeconds = (durationBeats / bpm) * 60;
+        // BUG-031 FIX: Guard against zero/NaN bpm to prevent Infinity duration.
+        const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : DEFAULT_BPM;
+        const durationSeconds = (durationBeats / safeBpm) * 60;
         return {
             startBeat,
             endBeat,

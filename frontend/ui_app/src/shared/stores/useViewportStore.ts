@@ -17,7 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { create } from 'zustand';
-import { getSamplesPerBeat } from '@/shared/lib/audioMath';
+import { getSamplesPerBeat, MIN_BPM } from '@/shared/lib/audioMath';
 
 // ── Constants ────────────────────────────────────────────────────────────
 // BUG-036 FIX: Export so ViewportMachine and other modules share the same bounds.
@@ -183,7 +183,8 @@ export const useViewportStore = create<ViewportStore>((set, get) => ({
 
     pixelsPerBeat: (bpm: number, sampleRate: number) => {
         const { samplesPerPixel } = get();
-        const safeBpm = bpm > 0 ? bpm : 120;
+        // BUG-029 FIX: SSOT — use MIN_BPM from audioMath instead of inline fallback.
+        const safeBpm = Number.isFinite(bpm) ? Math.max(MIN_BPM, bpm) : MIN_BPM;
         const samplesPerBeat = getSamplesPerBeat(safeBpm, sampleRate);
         return samplesPerBeat / samplesPerPixel;
     },

@@ -23,12 +23,15 @@ function patchTrackByIndex(
     state: EngineStore,
     trackIndex: number,
     patch: Partial<ProjectTrack>,
-): TrackStatePatch<ProjectTrack> | EngineStore {
+): TrackStatePatch<ProjectTrack> {
     const trackId = state.tracks.allIds[trackIndex];
-    if (!trackId) return state;
+    // BUG-025 FIX: Always return TrackStatePatch, never the full EngineStore.
+    // Previously returned `state` on not-found, which when passed to `set()`
+    // would replace the entire store with a stale snapshot.
+    if (!trackId) return buildTrackStatePatch(state.tracks.allIds, state.tracks.byId);
 
     const sourceTrack = state.tracks.byId[trackId];
-    if (!sourceTrack) return state;
+    if (!sourceTrack) return buildTrackStatePatch(state.tracks.allIds, state.tracks.byId);
 
     const updatedTrack = { ...sourceTrack, ...patch };
     const nextTracksById = { ...state.tracks.byId, [trackId]: updatedTrack };
@@ -210,16 +213,21 @@ export function createTrackProjectActions(
                 pendingPanValues.clear();
                 setPendingMasterVolume(null);
 
-                await Promise.all([
-                    ...volumeEntries.map(async ([trackIndex, volume]) => {
-                        const response = await engine.setTrackVolumeWithDeltas(trackIndex, volume);
-                        await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-volume');
-                    }),
-                    ...panEntries.map(async ([trackIndex, pan]) => {
-                        const response = await engine.setTrackPanWithDeltas(trackIndex, pan);
-                        await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-pan');
-                    }),
+                // BUG-012 FIX: Collect ALL deltas first, then apply in a single batch.
+                // Previously each Promise.all branch called applyProjectDeltas independently,
+                // causing racing state reads where later calls saw stale state.
+                const ipcResults = await Promise.all([
+                    ...volumeEntries.map(async ([trackIndex, volume]) =>
+                        engine.setTrackVolumeWithDeltas(trackIndex, volume),
+                    ),
+                    ...panEntries.map(async ([trackIndex, pan]) =>
+                        engine.setTrackPanWithDeltas(trackIndex, pan),
+                    ),
                 ]);
+                const allDeltas = ipcResults.flatMap((r) => r.deltas);
+                if (allDeltas.length > 0) {
+                    await get().applyProjectDeltas(allDeltas, 'flushTrackControlFinals');
+                }
                 if (pendingMasterVolume != null) {
                     await engine.setMasterVolume(pendingMasterVolume);
                 }
@@ -230,6 +238,9 @@ export function createTrackProjectActions(
         },
 
         setTrackDisabled: async (trackIndex: number, disabled: boolean) => {
+            // BUG-028 FIX: Capture actual pre-call state for rollback instead of assuming !disabled.
+            const preCallTrackId = get().tracks.allIds[trackIndex];
+            const preCallDisabled = preCallTrackId ? get().tracks.byId[preCallTrackId]?.is_disabled : undefined;
             set((s) => {
                 const trackId = s.tracks.allIds[trackIndex];
                 const track = trackId ? s.tracks.byId[trackId] : null;
@@ -241,19 +252,25 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'setTrackDisabled');
                 set({ lastError: null });
             } catch (e) {
-                // BUG-H06 FIX: Rollback optimistic update on IPC failure.
-                // Previously only set lastError, leaving UI out of sync with engine.
-                set((s) => ({
-                    ...patchTrackByIndex(s, trackIndex, { is_disabled: !disabled }),
-                    lastError: String(e),
-                }));
+                // BUG-028 FIX: Rollback to captured pre-call state, not assumed inverse.
+                if (preCallDisabled !== undefined) {
+                    set((s) => ({
+                        ...patchTrackByIndex(s, trackIndex, { is_disabled: preCallDisabled }),
+                        lastError: String(e),
+                    }));
+                } else {
+                    set({ lastError: String(e) });
+                }
             }
         },
 
         setTrackSolo: async (trackIndex: number, soloed: boolean) => {
+            // BUG-010 FIX: Capture original state BEFORE optimistic update.
+            const trackId = get().tracks.allIds[trackIndex];
+            const originalSoloed = trackId ? get().tracks.byId[trackId]?.is_solo : undefined;
             set((s) => {
-                const trackId = s.tracks.allIds[trackIndex];
-                const track = trackId ? s.tracks.byId[trackId] : null;
+                const tid = s.tracks.allIds[trackIndex];
+                const track = tid ? s.tracks.byId[tid] : null;
                 if (!track || track.is_solo === soloed) return s;
                 return patchTrackByIndex(s, trackIndex, { is_solo: soloed });
             });
@@ -262,12 +279,15 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'setTrackSolo');
                 set({ lastError: null });
             } catch (e) {
-                // BUG-H06 FIX: Rollback optimistic update on IPC failure.
-                // Previously only set lastError, leaving UI out of sync with engine.
-                set((s) => ({
-                    ...patchTrackByIndex(s, trackIndex, { is_solo: !soloed }),
-                    lastError: String(e),
-                }));
+                // BUG-010 FIX: Rollback to captured original state, not negation.
+                if (originalSoloed !== undefined) {
+                    set((s) => ({
+                        ...patchTrackByIndex(s, trackIndex, { is_solo: originalSoloed }),
+                        lastError: String(e),
+                    }));
+                } else {
+                    set({ lastError: String(e) });
+                }
             }
         },
 
@@ -283,6 +303,8 @@ export function createTrackProjectActions(
         },
 
         deleteTrack: async (index: number) => {
+            // BUG-029 FIX: Validate index bounds before IPC.
+            if (index < 0 || index >= get().tracks.allIds.length) return;
             try {
                 const response = await engine.deleteTrackWithDeltas(index);
                 clearTrackControlCachesLocal();
@@ -294,8 +316,11 @@ export function createTrackProjectActions(
         },
 
         renameTrack: async (index: number, name: string) => {
+            // BUG-030 FIX: Validate empty/whitespace name.
+            const trimmed = name.trim();
+            if (!trimmed) return;
             try {
-                const response = await engine.renameTrackWithDeltas(index, name);
+                const response = await engine.renameTrackWithDeltas(index, trimmed);
                 await get().applyProjectDeltas(response.deltas, 'renameTrack');
                 set({ lastError: null });
             } catch (e) {

@@ -70,9 +70,13 @@ export function useTimelineRegionEdit({
                 return splitBeat > clipStart + EPS && splitBeat < clipEnd - EPS;
             });
             if (clipsNow.length === 0) continue;
+            // BUG-013 FIX: Collect all IPC deltas first, then apply in a single batch.
+            // Previously each concurrent split called applyProjectDeltas inside Promise.all,
+            // causing racing state reads where later splits saw stale clip data.
             const responses = await Promise.all(clipsNow.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)));
+            const batchedDeltas = responses.flatMap((response) => response.deltas);
             await useEngineStore.getState().applyProjectDeltas(
-                responses.flatMap((response) => response.deltas),
+                batchedDeltas,
                 'timeline:region-boundary-split',
             );
         }

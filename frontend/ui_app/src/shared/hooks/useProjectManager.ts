@@ -228,10 +228,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     /** New project — confirms if dirty. */
     const handleNew = useCallback(async () => {
         // BUG-018 FIX: Use ref for latest isDirty to avoid stale closure.
+        // BUG-033 FIX: Use native Tauri dialog instead of window.confirm (enterprise UX).
         if (isDirtyRef.current) {
-            const confirmed = window.confirm(
-                'You have unsaved changes. Create a new project anyway?'
-            );
+            const { ask } = await import('@tauri-apps/plugin-dialog');
+            const confirmed = await ask('You have unsaved changes. Create a new project anyway?', { title: 'Dream DAW', kind: 'warning' });
             if (!confirmed) return;
         }
         try {
@@ -249,10 +249,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     /** Open project — picks file, confirms if dirty. */
     const handleOpen = useCallback(async () => {
         // BUG-019 FIX: Use ref for latest isDirty to avoid stale closure.
+        // BUG-034 FIX: Use native Tauri dialog instead of window.confirm (enterprise UX).
         if (isDirtyRef.current) {
-            const confirmed = window.confirm(
-                'You have unsaved changes. Open a different project?'
-            );
+            const { ask } = await import('@tauri-apps/plugin-dialog');
+            const confirmed = await ask('You have unsaved changes. Open a different project?', { title: 'Dream DAW', kind: 'warning' });
             if (!confirmed) return;
         }
         try {

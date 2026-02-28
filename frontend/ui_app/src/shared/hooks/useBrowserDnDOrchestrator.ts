@@ -31,7 +31,7 @@ const resolvePluginSlot = (
 export const useBrowserDnDOrchestrator = ({
     tracks,
 
-    projectBpm,
+    projectBpm: _projectBpm,
     transportBpm,
     projectSampleRate,
     importFile,
@@ -117,7 +117,8 @@ export const useBrowserDnDOrchestrator = ({
         const resolvedTrackIndex = getTrackIndexById(track.id);
         if (resolvedTrackIndex < 0) return;
         await importFile(item.path, resolvedTrackIndex, positionFrames);
-    }, [getTrackAtIndex, getTrackIndexById, dropPluginOnTrack, importFile, projectBpm, transportBpm, projectSampleRate]);
+        // BUG-AUDIT-001 FIX: Removed stale `projectBpm` from deps — only `transportBpm` is used inside.
+    }, [getTrackAtIndex, getTrackIndexById, dropPluginOnTrack, importFile, transportBpm, projectSampleRate]);
 
     return {
         dropPluginOnTrack,

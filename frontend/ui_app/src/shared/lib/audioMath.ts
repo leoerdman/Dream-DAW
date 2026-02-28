@@ -58,7 +58,8 @@ export function beatToSeconds(beat: number, bpm: number): number {
  */
 /** BUG-095 SSOT: standardized samples per beat calculation */
 export function getSamplesPerBeat(bpm: number, sampleRate: number): number {
-    const safeBpm = Math.max(0.1, bpm);
+    // BUG-094 FIX: Use MIN_BPM for consistency with other audioMath functions.
+    const safeBpm = Math.max(MIN_BPM, bpm);
     return Math.max(1, (sampleRate * 60) / safeBpm);
 }
 
@@ -72,7 +73,9 @@ export function framesToBeatDuration(durationFrames: number, bpm: number, sample
 
 // Ensure 0 is avoided for playback rates
 export function speedRatioToSemitone(speedRatio: number): number {
-    if (speedRatio <= 0) return -100; // arbitrary very low bound
+    // BUG-100 FIX: Return MIN_PITCH_SHIFT instead of arbitrary -100 sentinel.
+    // Callers pass this to pitch-shift logic which expects clamped values.
+    if (speedRatio <= 0) return MIN_PITCH_SHIFT;
     return 12 * Math.log2(speedRatio);
 }
 /**
@@ -112,10 +115,11 @@ export const MAX_BPM = 999;
  */
 export function resolveBpm(projectBpm?: number | null, transportBpm?: number | null): number {
     if (typeof projectBpm === 'number' && Number.isFinite(projectBpm) && projectBpm > 0) {
-        return Math.max(1, projectBpm);
+        // BUG-017 FIX: Use MIN_BPM instead of arbitrary 1 — SSOT consistency.
+        return Math.max(MIN_BPM, projectBpm);
     }
     if (typeof transportBpm === 'number' && Number.isFinite(transportBpm) && transportBpm > 0) {
-        return Math.max(1, transportBpm);
+        return Math.max(MIN_BPM, transportBpm);
     }
     return DEFAULT_BPM;
 }
@@ -169,6 +173,14 @@ export const MAX_MIDI_VELOCITY = 127;
 export function clampMidiVelocity(velocity: number): number {
     return Math.max(MIN_MIDI_VELOCITY, Math.min(MAX_MIDI_VELOCITY, Math.round(velocity)));
 }
+
+/**
+ * Minimum MIDI note duration in sample frames.
+ * 480 frames at 48kHz ≈ 10ms — the shortest playable note that
+ * avoids inaudible single-sample clicks.
+ * BUG-001 SSOT: Used by both updateMidiClip and updateMidiClipWithDeltas.
+ */
+export const MIN_MIDI_NOTE_DURATION_FRAMES = 480;
 
 /** Clamp a normalized value to [0, 1]. Used for automation, fader positions, etc. */
 export function clamp01(value: number): number {
@@ -247,5 +259,7 @@ export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_
         wholeBeats -= safeBeatsPerBar;
         bars += 1;
     }
-    return `${bars}.${wholeBeats}.${sixteenths}`;
+    // BUG-071 FIX: Use 1-indexed bars/beats/sixteenths matching standard DAW BBS convention.
+    // DAWs display "1.1.1" for beat 0, not "0.0.0".
+    return `${bars + 1}.${wholeBeats + 1}.${sixteenths + 1}`;
 }

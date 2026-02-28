@@ -14,8 +14,19 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 // ── Track selectors ──────────────────────────────────────────────────────
 
-/** Select all tracks as an ordered array. */
-export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => s.tracks.allIds.map(id => s.tracks.byId[id]);
+// BUG-AUDIT-003 FIX: Cache selectAllTracks result to prevent .map() from
+// creating a new array reference on every call, which defeats Zustand shallow equality.
+const _allTracksCache = new WeakMap<string[], (ProjectTrack | undefined)[]>();
+/** Select all tracks as an ordered array (cached by allIds reference). */
+export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => {
+    const key = s.tracks.allIds;
+    let cached = _allTracksCache.get(key);
+    if (!cached) {
+        cached = key.map(id => s.tracks.byId[id]);
+        _allTracksCache.set(key, cached);
+    }
+    return cached;
+};
 
 /** Select a single track by ID. Returns undefined if not found. */
 export const selectTrackById = (id: string) =>

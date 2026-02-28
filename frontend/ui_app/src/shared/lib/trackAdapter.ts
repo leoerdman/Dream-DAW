@@ -221,8 +221,9 @@ export function adaptTrack(raw: unknown): ProjectTrack {
         name: raw.name,
         track_type: raw.track_type || 'Audio',
         color,
-        volume: raw.volume ?? 1.0,
-        pan: raw.pan ?? 0.0,
+        // BUG-021 FIX: Validate volume/pan — backend may send NaN/Infinity.
+        volume: Number.isFinite(raw.volume) ? Math.max(0, raw.volume as number) : 1.0,
+        pan: Number.isFinite(raw.pan) ? Math.max(-1, Math.min(1, raw.pan as number)) : 0.0,
         send_a: readSend('send.A'),
         send_b: readSend('send.B'),
         is_disabled: Boolean(raw.is_disabled ?? false),

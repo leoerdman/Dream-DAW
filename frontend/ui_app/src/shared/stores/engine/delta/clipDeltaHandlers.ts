@@ -166,7 +166,11 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(leftDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
             fadeIn: leftFadeIn,
             fadeOut: leftFadeOut,
-            midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes) ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats <= splitOffsetBeats + 1e-9) : clip.midiNotes,
+            midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
+                // BUG-036 FIX: Use exclusive boundary for left clip to prevent notes from appearing in both clips.
+                // Previously, notes within 2e-9 of the split boundary appeared in BOTH left and right clips.
+                ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats <= splitOffsetBeats)
+                : clip.midiNotes,
         };
         const rightClip: TimelineClip = {
             ...clip,
@@ -178,7 +182,8 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             fadeIn: rightFadeIn,
             fadeOut: rightFadeOut,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
-                ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats - 1e-9).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
+                // BUG-036 FIX: Use strict exclusive boundary — notes starting AT the split go to right clip only.
+                ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
                 : clip.midiNotes,
         };
         upsertClip(state, leftClip);
@@ -223,6 +228,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         nextClips.push(mergedClip);
         state.timelineClips = nextClips;
         syncClipMapFromTimeline(state);
+        // BUG-012 FIX: Also rebuild clips EntityState after merge — previously only clipsById was synced.
+        const mergedAllIds: string[] = [];
+        for (const c of state.timelineClips) mergedAllIds.push(c.id);
+        (state as any).clips = { byId: state.clipsById, allIds: mergedAllIds };
         state.changed = true;
         return true;
     }

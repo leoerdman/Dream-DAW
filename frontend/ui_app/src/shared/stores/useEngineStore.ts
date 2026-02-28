@@ -210,10 +210,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (id === state.activeProjectId) return;
         try {
             const response = await engine.switchProjectTab(id);
-            set({ activeProjectId: id });
+            // BUG-002 FIX: Set activeProjectId AFTER delta application succeeds.
+            // Previously set before — if applyProjectDeltas threw, UI pointed to
+            // a tab with no loaded data.
             if (response.deltas?.length) {
                 await get().applyProjectDeltas(response.deltas, 'multi-project:switch');
             }
+            set({ activeProjectId: id });
         } catch (e) {
             console.error('[MultiProject] switchProjectTab failed:', e);
         }
@@ -243,15 +246,22 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (state.openProjects.length <= 1) return; // Cannot close last tab
         const tab = state.openProjects.find(t => t.id === id);
         // BUG-E007 FIX: Prompt user if trying to close a dirty tab
+        // BUG-035 FIX: Use native Tauri dialog instead of window.confirm (enterprise UX).
         if (tab && tab.isDirty) {
-            if (!window.confirm(`Project "${tab.name}" has unsaved changes. Are you sure you want to close it?`)) {
-                return;
-            }
+            const { ask } = await import('@tauri-apps/plugin-dialog');
+            const confirmed = await ask(`Project "${tab.name}" has unsaved changes. Are you sure you want to close it?`, { title: 'Dream DAW', kind: 'warning' });
+            if (!confirmed) return;
         }
         try {
             const response = await engine.closeProjectTab(id);
             const remaining = state.openProjects.filter(t => t.id !== id);
-            const newActiveId = response.newActiveId ?? state.activeProjectId;
+            // BUG-001 FIX: When backend returns null/undefined for newActiveId,
+            // fall back to first REMAINING tab — not state.activeProjectId which
+            // IS the tab being closed and no longer exists.
+            const newActiveId = response.newActiveId
+                ?? remaining.find(t => t.id !== id)?.id
+                ?? remaining[0]?.id
+                ?? null;
             set({ openProjects: remaining, activeProjectId: newActiveId });
             if (response.deltas?.length) {
                 await get().applyProjectDeltas(response.deltas, 'multi-project:close-switch');

@@ -114,8 +114,11 @@ export class WaveformCache {
         const promise = getPeaks(clipId, lodLevel)
             .then((bytes: Uint8Array) => {
                 this._pending.delete(cacheKey);
-                // Zero-copy view into the returned byte buffer
-                const floats = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+                // BUG-003 FIX: Ensure 4-byte alignment for Float32Array by slicing a fresh copy.
+                // Tauri IPC may return sub-buffer views where byteOffset is not 4-byte aligned,
+                // which causes Float32Array constructor to throw RangeError.
+                const alignedBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+                const floats = new Float32Array(alignedBuffer);
                 if (floats.length > 0) {
                     // O(1) Eviction if full
                     if (this._cache.size >= MAX_CACHE_ENTRIES) {
@@ -164,13 +167,19 @@ export class WaveformCache {
     }
 
     // ── Buffer Pooling ───────────────────────────────────────────────
+    // BUG-030 FIX: Pool now uses exact-size buckets. Previous implementation
+    // used .subarray() which creates views SHARING the same ArrayBuffer —
+    // two concurrent consumers could overwrite each other's waveform data.
     private static _pool64: Float32Array[] = [];
     private static _pool128: Float32Array[] = [];
     private static _pool256: Float32Array[] = [];
     private static _pool512: Float32Array[] = [];
     private static _pool1024: Float32Array[] = [];
+    private static readonly MAX_POOL_SIZE = 16;
 
     private _getBufferFromPool(size: number): Float32Array {
+        // BUG-023 FIX: Use .slice() instead of .subarray() to prevent shared-memory corruption.
+        // .subarray() returns a VIEW into the same ArrayBuffer — two callers would share memory.
         let pool: Float32Array[] | null = null;
         if (size <= 64) pool = WaveformCache._pool64;
         else if (size <= 128) pool = WaveformCache._pool128;
@@ -178,20 +187,29 @@ export class WaveformCache {
         else if (size <= 512) pool = WaveformCache._pool512;
         else if (size <= 1024) pool = WaveformCache._pool1024;
 
-        if (pool && pool.length > 0) return pool.pop()!.subarray(0, size);
+        if (pool && pool.length > 0) {
+            const buf = pool.pop()!;
+            // Return a correctly-sized copy — never a shared view.
+            if (buf.length === size) return buf;
+            return buf.slice(0, size);
+        }
         return new Float32Array(size);
     }
 
     private _releaseBufferToPool(arr: Float32Array): void {
-        // BUG-N01 FIX: Use arr.length (logical element count) instead of
-        // buffer.byteLength/4 which reads the parent ArrayBuffer size —
-        // subarrays share their parent buffer, making byteLength unreliable.
-        const size = arr.length;
-        if (size === 64) WaveformCache._pool64.push(arr);
-        else if (size === 128) WaveformCache._pool128.push(arr);
-        else if (size === 256) WaveformCache._pool256.push(arr);
-        else if (size === 512) WaveformCache._pool512.push(arr);
-        else if (size === 1024) WaveformCache._pool1024.push(arr);
+        // BUG-024 FIX: Use arr.buffer.byteLength / 4 for correct pool bucket routing.
+        const size = arr.buffer.byteLength / 4;
+        let pool: Float32Array[] | null = null;
+        if (size === 64) pool = WaveformCache._pool64;
+        else if (size === 128) pool = WaveformCache._pool128;
+        else if (size === 256) pool = WaveformCache._pool256;
+        else if (size === 512) pool = WaveformCache._pool512;
+        else if (size === 1024) pool = WaveformCache._pool1024;
+
+        // BUG-084 FIX: Cap pool at MAX_POOL_SIZE to prevent unbounded growth.
+        if (pool && pool.length < WaveformCache.MAX_POOL_SIZE) {
+            pool.push(arr);
+        }
     }
 
     /** Extract aligned draw data (Float32Arrays) from the raw floats. */

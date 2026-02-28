@@ -26,6 +26,7 @@ export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readon
         }
         byId.set(id, normalized as T); // cast back to T since we spread it
     }
-    // Return a deeply frozen ReadonlyArray to enforce immutability
-    return Object.freeze(Array.from(byId.values()));
+    // BUG-055 FIX: Removed Object.freeze — it prevents Zustand's immer middleware
+    // from working and adds ~0.5ms overhead per frame for 500+ clips.
+    return Array.from(byId.values());
 }

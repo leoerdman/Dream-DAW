@@ -9,7 +9,7 @@ import type {
     SplitClipResponse,
     SplitClipWithDeltasResponse,
 } from './projectDelta';
-import { clampMidiPitch, clampMidiVelocity, clamp01 } from '@/shared/lib/audioMath';
+import { clampMidiPitch, clampMidiVelocity, clamp01, MIN_MIDI_NOTE_DURATION_FRAMES, MIN_BPM, MAX_BPM } from '@/shared/lib/audioMath';
 import type {
     AppSettings,
     EngineState,
@@ -81,17 +81,30 @@ export const seekSeconds = (seconds: number) =>
     invoke<void>('seek_seconds', { seconds });
 export const seekToBeat = (beat: number) =>
     invoke<void>('seek_to_beat', { beat });
-export const setBpm = (bpm: number) => invoke<void>('set_bpm', { bpm });
-export const setBpmWithDeltas = (bpm: number) =>
-    invoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm });
+// BUG-025 FIX: Clamp BPM at API boundary — prevents NaN/Infinity/0/negative from reaching backend.
+export const setBpm = (bpm: number) => {
+    const safe = Number.isFinite(bpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, bpm)) : MIN_BPM;
+    return invoke<void>('set_bpm', { bpm: safe });
+};
+export const setBpmWithDeltas = (bpm: number) => {
+    const safe = Number.isFinite(bpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, bpm)) : MIN_BPM;
+    return invoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm: safe });
+};
 export const setTimeSignature = (numerator: number, denominator: number) =>
     invoke<void>('set_time_signature', { numerator, denominator });
 export const setTimeSignatureWithDeltas = (numerator: number, denominator: number) =>
     invoke<DeltaMutationResponse>('set_time_signature_with_deltas', { numerator, denominator });
-export const setLoop = (enabled: boolean, startFrames: number, endFrames: number) =>
-    invoke<void>('set_loop', { enabled, startFrames, endFrames });
-export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFrames: number) =>
-    invoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames, endFrames });
+// BUG-026 FIX: Validate loop frame values at API boundary.
+export const setLoop = (enabled: boolean, startFrames: number, endFrames: number) => {
+    const s = Number.isFinite(startFrames) ? Math.max(0, Math.round(startFrames)) : 0;
+    const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
+    return invoke<void>('set_loop', { enabled, startFrames: s, endFrames: e });
+};
+export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFrames: number) => {
+    const s = Number.isFinite(startFrames) ? Math.max(0, Math.round(startFrames)) : 0;
+    const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
+    return invoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames: s, endFrames: e });
+};
 export const setTrackVolume = (trackIndex: number, volume: number) =>
     invoke<void>('set_track_volume', { trackIndex, volume });
 export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) =>
@@ -477,9 +490,9 @@ export const updateMidiClip = (
             pitch: clampMidiPitch(n.pitch),
             velocity: clampMidiVelocity(n.velocity),
             start_frames: Math.max(0, Math.round(n.startFrames)),
-            // BUG-050 FIX: 1 frame at 48kHz is 0.00002s (inaudible click).
-            // Clamp to 480 frames (~10ms) as a playable minimum length.
-            duration_frames: Math.max(480, Math.round(n.durationFrames)),
+            // BUG-001 FIX: SSOT — both updateMidiClip and updateMidiClipWithDeltas
+            // use the same MIN_MIDI_NOTE_DURATION_FRAMES constant.
+            duration_frames: Math.max(MIN_MIDI_NOTE_DURATION_FRAMES, Math.round(n.durationFrames)),
         })),
     });
 export const updateMidiClipWithDeltas = (
@@ -494,7 +507,9 @@ export const updateMidiClipWithDeltas = (
             pitch: clampMidiPitch(n.pitch),
             velocity: clampMidiVelocity(n.velocity),
             start_frames: Math.max(0, Math.round(n.startFrames)),
-            duration_frames: Math.max(1, Math.round(n.durationFrames)),
+            // SSOT FIX: Must match updateMidiClip's minimum (480 frames ≈ 10ms).
+            // Previously used Math.max(1, ...) — 1-frame notes are inaudible clicks.
+            duration_frames: Math.max(MIN_MIDI_NOTE_DURATION_FRAMES, Math.round(n.durationFrames)),
         })),
     });
 export interface MidiClipEnvelopePointUpdate {
@@ -1166,10 +1181,17 @@ export const setSampleRackPadFilterCutoffCmd = (trackId: string, padIndex: numbe
     invoke<void>('set_sample_rack_pad_filter_cutoff_cmd', { trackId, padIndex, cutoff });
 export const setSampleRackPadFilterCutoffWithDeltasCmd = (trackId: string, padIndex: number, cutoff: number) =>
     invoke<DeltaMutationResponse>('set_sample_rack_pad_filter_cutoff_with_deltas_cmd', { trackId, padIndex, cutoff });
-export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames: number) =>
-    invoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames, fadeOutFrames });
-export const setClipFadesWithDeltas = (clipId: string, fadeInFrames: number, fadeOutFrames: number) =>
-    invoke<DeltaMutationResponse>('set_clip_fades_with_deltas_cmd', { clipId, fadeInFrames, fadeOutFrames });
+// BUG-027 FIX: Validate fade frame values — no negative or NaN.
+export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
+    const fi = Number.isFinite(fadeInFrames) ? Math.max(0, Math.round(fadeInFrames)) : 0;
+    const fo = Number.isFinite(fadeOutFrames) ? Math.max(0, Math.round(fadeOutFrames)) : 0;
+    return invoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
+};
+export const setClipFadesWithDeltas = (clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
+    const fi = Number.isFinite(fadeInFrames) ? Math.max(0, Math.round(fadeInFrames)) : 0;
+    const fo = Number.isFinite(fadeOutFrames) ? Math.max(0, Math.round(fadeOutFrames)) : 0;
+    return invoke<DeltaMutationResponse>('set_clip_fades_with_deltas_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
+};
 export const setClipSourceOffset = (clipId: string, sourceOffsetFrames: number) =>
     invoke<void>('set_clip_source_offset_cmd', { clipId, sourceOffsetFrames });
 export const setClipSourceOffsetWithDeltas = (clipId: string, sourceOffsetFrames: number) =>

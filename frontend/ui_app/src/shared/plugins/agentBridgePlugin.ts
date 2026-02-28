@@ -36,10 +36,10 @@ export function agentBridgePlugin(): Plugin {
                 wss = null;
                 return;
             }
-            console.log(`  \u{1F309} Agent Bridge listening on ws://localhost:${BRIDGE_PORT}`);
+            console.debug(`  \u{1F309} Agent Bridge listening on ws://localhost:${BRIDGE_PORT}`);
 
             wss.on('connection', (ws: WebSocket) => {
-                console.log('  \u{1F309} Agent Bridge: client connected');
+                console.debug('  \u{1F309} Agent Bridge: client connected');
 
                 ws.on('message', (raw: Buffer | string) => {
                     try {
@@ -53,7 +53,7 @@ export function agentBridgePlugin(): Plugin {
                             console.warn('  🌉 Agent Bridge: invalid payload shape');
                             return;
                         }
-                        console.log('  \u{1F309} Agent Bridge ← received:', JSON.stringify(data).slice(0, 120));
+                        console.debug('  \u{1F309} Agent Bridge ← received:', JSON.stringify(data).slice(0, 120));
 
                         // Relay to all frontend clients via Vite HMR
                         server.ws.send('agent-bridge:message', data);
@@ -63,7 +63,7 @@ export function agentBridgePlugin(): Plugin {
                 });
 
                 ws.on('close', () => {
-                    console.log('  \u{1F309} Agent Bridge: client disconnected');
+                    console.debug('  \u{1F309} Agent Bridge: client disconnected');
                 });
 
                 ws.on('error', (err: Error) => {

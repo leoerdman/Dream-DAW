@@ -222,8 +222,15 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             clip.trackIndex >= insertIndex ? { ...clip, trackIndex: clip.trackIndex + 1 } : clip
         ));
         const nextClips: typeof state.clipsById = {};
-        for (const clip of state.timelineClips) nextClips[clip.id] = clip;
+        const nextAllIds: string[] = [];
+        for (const clip of state.timelineClips) {
+            nextClips[clip.id] = clip;
+            nextAllIds.push(clip.id);
+        }
         state.clipsById = nextClips;
+        // BUG-009 FIX: Also rebuild clips EntityState — previously only clipsById was updated,
+        // leaving clips.byId/allIds stale after track insertion.
+        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }
@@ -242,9 +249,15 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             .filter((clip) => clip.trackIndex !== removeIndex)
             .map((clip) => (clip.trackIndex > removeIndex ? { ...clip, trackIndex: clip.trackIndex - 1 } : clip));
         const nextClips: typeof state.clipsById = {};
-        for (const clip of nextTimeline) nextClips[clip.id] = clip;
+        const nextAllIds: string[] = [];
+        for (const clip of nextTimeline) {
+            nextClips[clip.id] = clip;
+            nextAllIds.push(clip.id);
+        }
         state.timelineClips = nextTimeline;
         state.clipsById = nextClips;
+        // BUG-010 FIX: Also rebuild clips EntityState after track removal.
+        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }
@@ -267,8 +280,14 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             return clip;
         });
         const nextClips: typeof state.clipsById = {};
-        for (const clip of state.timelineClips) nextClips[clip.id] = clip;
+        const nextAllIds: string[] = [];
+        for (const clip of state.timelineClips) {
+            nextClips[clip.id] = clip;
+            nextAllIds.push(clip.id);
+        }
         state.clipsById = nextClips;
+        // BUG-011 FIX: Also rebuild clips EntityState after track reorder.
+        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }

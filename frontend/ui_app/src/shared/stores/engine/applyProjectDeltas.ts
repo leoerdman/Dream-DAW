@@ -33,13 +33,11 @@ function normalizeMidiNoteStartFrame(
     clipStartFrame: number,
     clipDurationFrame: number,
 ): number {
-    // ENTERPRISE FIX: Only remap absolute→clip-local when the note frame
-    // clearly exceeds the clip's ABSOLUTE end position on the timeline.
-    // Old heuristic (rawStartFrame >= clipDurationFrame && rawStartFrame >= clipStartFrame)
-    // false-positived for clip-local notes near the end of short clips placed
-    // at high timeline positions, corrupting their timing.
+    // BUG-011 FIX: Removed `clipStartFrame > 0` guard that skipped note
+    // remapping for clips at position 0. The >= checks below correctly
+    // handle all positions including 0.
     const clipAbsEnd = clipStartFrame + clipDurationFrame;
-    if (clipStartFrame > 0 && rawStartFrame >= clipAbsEnd && rawStartFrame >= clipStartFrame) {
+    if (rawStartFrame >= clipAbsEnd && rawStartFrame >= clipStartFrame) {
         return Math.max(0, rawStartFrame - clipStartFrame);
     }
     return Math.max(0, rawStartFrame);

@@ -56,10 +56,17 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
 
 // BUG-B08 FIX: In-flight guard prevents rapid Ctrl+D from creating overlapping duplicates.
 let _duplicateInFlight = false;
+// BUG-046 FIX: Safety timeout — if duplicate throws and finally doesn't execute,
+// the flag resets after 10s instead of blocking Ctrl+D permanently.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by clearTimeout/setTimeout safety pattern
+let _duplicateInFlightTimer: ReturnType<typeof setTimeout> | null = null; void _duplicateInFlightTimer;
 
 export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ctx']): Promise<string[] | null> {
     if (_duplicateInFlight) return null;
     _duplicateInFlight = true;
+    // BUG-046 FIX: Safety timeout in case finally block doesn't execute.
+    if (_duplicateInFlightTimer) clearTimeout(_duplicateInFlightTimer);
+    _duplicateInFlightTimer = setTimeout(() => { _duplicateInFlight = false; }, 10_000);
     try {
         const {
             selectedClipId,
@@ -81,7 +88,7 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
             if (end > maxEnd) maxEnd = end;
         }
         const spanBeats = Math.max(0.0001, maxEnd - minStart);
-        const sampleRate = resolveSampleRate(store.projectSampleRate);
+        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const results = await engine.duplicateMultipleClipsWithDeltas(selected.map((clip) => ({
             id: clip.id,
             newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate))

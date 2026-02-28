@@ -21,6 +21,18 @@ interface PluginWindowProps {
     pluginType?: 'instrument' | 'effect';
     /** Current preset name. */
     presetName?: string;
+    /** Show preset section in header. */
+    showPresetControls?: boolean;
+    /** Show bypass toggle in header. */
+    showBypassControl?: boolean;
+    /** Optional custom header background. */
+    headerBackground?: string;
+    /** Optional custom header border color. */
+    headerBorderColor?: string;
+    /** Optional custom left status dot color. */
+    leftDotColor?: string;
+    /** Inner content padding. */
+    contentPadding?: string;
     /** Callback for preset navigation. */
     onNextPreset?: () => void;
     onPrevPreset?: () => void;
@@ -46,6 +58,12 @@ export const PluginWindow = memo(function PluginWindow({
     height = 320,
     pluginType = 'effect',
     presetName = 'Default',
+    showPresetControls = true,
+    showBypassControl = true,
+    headerBackground,
+    headerBorderColor,
+    leftDotColor,
+    contentPadding = 'var(--space-3)',
     onNextPreset,
     onPrevPreset,
     children,
@@ -109,14 +127,14 @@ export const PluginWindow = memo(function PluginWindow({
                 onMouseDown={handleDragStart}
                 style={{
                     height: TITLE_BAR_HEIGHT,
-                    background: headerGradient,
+                    background: headerBackground ?? headerGradient,
                     display: 'flex',
                     alignItems: 'center',
                     padding: '0 var(--space-2)',
                     gap: 'var(--space-2)',
                     cursor: 'grab',
                     flexShrink: 0,
-                    borderBottom: `var(--border-width-1) solid color-mix(in srgb, ${accentColor} 20%, transparent)`,
+                    borderBottom: `var(--border-width-1) solid ${headerBorderColor ?? `color-mix(in srgb, ${accentColor} 20%, transparent)`}`,
                     userSelect: 'none',
                 }}
             >
@@ -124,8 +142,8 @@ export const PluginWindow = memo(function PluginWindow({
                     width: 8,
                     height: 8,
                     borderRadius: '50%',
-                    background: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
-                    boxShadow: isBypassed ? 'none' : '0 0 var(--space-1-5) var(--color-accent-primary)',
+                    background: leftDotColor ?? (isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)'),
+                    boxShadow: isBypassed ? 'none' : `0 0 var(--space-1-5) ${leftDotColor ?? 'var(--color-accent-primary)'}`,
                     transition: 'all var(--transition-fast)',
                 }} />
 
@@ -141,51 +159,55 @@ export const PluginWindow = memo(function PluginWindow({
                     {pluginName}
                 </span>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)' }}>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onPrevPreset?.(); }}
-                        style={presetBtnStyle}
-                    >
-                        ◀
-                    </button>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        color: 'var(--color-text-secondary)',
-                        minWidth: 60,
-                        textAlign: 'center',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                    }}>
-                        {presetName}
-                    </span>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onNextPreset?.(); }}
-                        style={presetBtnStyle}
-                    >
-                        ▶
-                    </button>
-                </div>
+                {showPresetControls && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)' }}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onPrevPreset?.(); }}
+                            style={presetBtnStyle}
+                        >
+                            ◀
+                        </button>
+                        <span style={{
+                            fontSize: 'var(--font-size-2xs)',
+                            color: 'var(--color-text-secondary)',
+                            minWidth: 60,
+                            textAlign: 'center',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                        }}>
+                            {presetName}
+                        </span>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onNextPreset?.(); }}
+                            style={presetBtnStyle}
+                        >
+                            ▶
+                        </button>
+                    </div>
+                )}
 
-                <button
-                    onClick={(e) => { e.stopPropagation(); onToggleBypass(); }}
-                    title={isBypassed ? 'Enable Plugin' : 'Bypass Plugin'}
-                    style={{
-                        width: 20,
-                        height: 20,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: isBypassed ? 'color-mix(in srgb, var(--color-status-error) 20%, transparent)' : 'transparent',
-                        color: isBypassed ? 'var(--color-status-error)' : 'var(--color-text-tertiary)',
-                        border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 10%, transparent)',
-                        borderRadius: 'var(--radius-xs)',
-                        fontSize: 'var(--font-size-2xs)',
-                        cursor: 'pointer',
-                    }}
-                >
-                    ⏻
-                </button>
+                {showBypassControl && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleBypass(); }}
+                        title={isBypassed ? 'Enable Plugin' : 'Bypass Plugin'}
+                        style={{
+                            width: 20,
+                            height: 20,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: isBypassed ? 'color-mix(in srgb, var(--color-status-error) 20%, transparent)' : 'transparent',
+                            color: isBypassed ? 'var(--color-status-error)' : 'var(--color-text-tertiary)',
+                            border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 10%, transparent)',
+                            borderRadius: 'var(--radius-xs)',
+                            fontSize: 'var(--font-size-2xs)',
+                            cursor: 'pointer',
+                        }}
+                    >
+                        ⏻
+                    </button>
+                )}
 
                 <button
                     onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -219,7 +241,7 @@ export const PluginWindow = memo(function PluginWindow({
                 overflow: 'auto',
             }}>
                 {children ? (
-                    <div style={{ padding: 'var(--space-3)', height: '100%' }}>{children}</div>
+                    <div style={{ padding: contentPadding, height: '100%' }}>{children}</div>
                 ) : (
                     <div style={{
                         display: 'grid',

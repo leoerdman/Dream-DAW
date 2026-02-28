@@ -205,6 +205,45 @@ export const PluginGuiSurface = ({
         );
     }
 
+    // ── FLOW SYNTH: Early return — Flow is NOT a sampler ────────────
+    // Flow has effectType 'instrument' but must NOT render PluginGuiSurfaceSampler.
+    // Its real UI lives in the FlowCanvas overlay (opened via eye icon).
+    if (device.pluginId === 'internal://instrument/flow') {
+        return (
+            <div
+                data-no-drag
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 'var(--space-2)',
+                    width: '100%',
+                    height: '100%',
+                    minHeight: 60,
+                    padding: 'var(--space-3)',
+                    textAlign: 'center',
+                }}
+            >
+                <span style={{
+                    fontSize: 'var(--font-size-2xs)',
+                    color: 'var(--color-text-tertiary)',
+                    fontWeight: 'var(--font-weight-bold)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                }}>
+                    Modular Synthesizer
+                </span>
+                <span style={{
+                    fontSize: 'var(--font-size-2xs)',
+                    color: 'var(--color-text-quaternary)',
+                }}>
+                    Click 👁 to open editor
+                </span>
+            </div>
+        );
+    }
+
     if (device.effectType === 'sampler' || device.effectType === 'instrument') {
         return (
             <PluginGuiSurfaceSampler

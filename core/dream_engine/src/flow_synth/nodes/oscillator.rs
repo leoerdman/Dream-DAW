@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::flow_synth::graph::{FlowNode, FlowSignal};
 use crate::synth_types::Waveform;
 use crate::oscillator::oscillator_sample_blep;
@@ -9,12 +10,18 @@ pub struct OscillatorNode {
 }
 
 impl OscillatorNode {
-    pub fn new(waveform: Waveform) -> Self {
+    /// Create an oscillator with a default Sine waveform.
+    /// Waveform can be changed at runtime via a control input or direct setter.
+    pub fn new() -> Self {
         Self {
-            waveform,
+            waveform: Waveform::Sine,
             phase: 0.0,
             tri_state: 0.0,
         }
+    }
+
+    pub fn set_waveform(&mut self, waveform: Waveform) {
+        self.waveform = waveform;
     }
 }
 
@@ -24,11 +31,11 @@ impl FlowNode for OscillatorNode {
         // Input 1: Pulse Width (0..1)
         // Input 2: FM (Frequency modulation)
         // Input 3: PM (Phase modulation)
-        
-        let freq_hz = inputs[0].0.max(0.0) as f64;
-        let pw = inputs[1].0 as f64;
-        let fm = inputs[2].0 as f64;
-        let pm = inputs[3].0 as f64;
+
+        let freq_hz = inputs.first().and_then(|s| s.as_float()).unwrap_or(440.0).max(0.0) as f64;
+        let pw = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.5) as f64;
+        let fm = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.0) as f64;
+        let pm = inputs.get(3).and_then(|s| s.as_float()).unwrap_or(0.0) as f64;
 
         // Apply FM
         let modulated_freq = freq_hz + fm;
@@ -37,13 +44,15 @@ impl FlowNode for OscillatorNode {
         // Apply PM (additive to phase)
         let effective_phase = (self.phase + pm).fract();
 
-        outputs[0] = FlowSignal(oscillator_sample_blep(
+        let sample = oscillator_sample_blep(
             self.waveform,
             effective_phase,
             dt,
             &mut self.tri_state,
             pw,
-        ));
+        );
+
+        outputs[0] = FlowSignal::Audio(sample);
 
         // Advance internal phase
         self.phase = (self.phase + dt).fract();
@@ -53,4 +62,6 @@ impl FlowNode for OscillatorNode {
         self.phase = 0.0;
         self.tri_state = 0.0;
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
 }

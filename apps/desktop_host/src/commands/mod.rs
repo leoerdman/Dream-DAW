@@ -65,6 +65,7 @@ include!("sections/midi_input.rs");
 include!("sections/device_rack.rs");
 include!("sections/spectrum.rs");
 include!("sections/sample_rack.rs");
+include!("sections/flow_synth.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -99,6 +100,8 @@ pub(crate) fn invoke_handler()
         set_track_send_level_with_deltas,
         preview_sampler_note_on_cmd,
         preview_sampler_note_off_cmd,
+        set_flow_enabled_cmd,
+        sync_flow_graph_cmd,
         update_track,
         // State Queries
         get_state,

@@ -424,6 +424,12 @@ pub(super) fn drain_commands(
                     ctx.flow_engines[idx].set_enabled(enabled);
                 }
             }
+            EngineCommand::SyncFlowGraph { track_index, nodes, connections } => {
+                let idx = track_index as usize;
+                if idx < ctx.flow_engines.len() {
+                    ctx.flow_engines[idx].sync_graph(&nodes, &connections);
+                }
+            }
             // ── Essence Synth Commands ────────────────────────────────
             EngineCommand::SetEssenceEnabled { track_index, enabled } => {
                 let idx = track_index as usize;
@@ -579,7 +585,9 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
+                    // RT-SAFETY FIX: pop_front() instead of log::error! which acquires a global mutex.
+                    // The rt_debug_stats counter records the overflow for offline diagnostics.
+                    let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology.push_back(DeferredDeviceChainCmd::AddInternal {
                     track_index,
@@ -593,7 +601,9 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
+                    // RT-SAFETY FIX: pop_front() instead of log::error! which acquires a global mutex.
+                    // The rt_debug_stats counter records the overflow for offline diagnostics.
+                    let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology
                     .push_back(DeferredDeviceChainCmd::Remove {
@@ -608,7 +618,9 @@ pub(super) fn drain_commands(
             } => {
                 if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
-                    log::error!("[Engine] Deferred topology queue exceeded 4096 items! Reallocating (RT violation).");
+                    // RT-SAFETY FIX: pop_front() instead of log::error! which acquires a global mutex.
+                    // The rt_debug_stats counter records the overflow for offline diagnostics.
+                    let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology
                     .push_back(DeferredDeviceChainCmd::Reorder {

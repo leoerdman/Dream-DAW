@@ -26,10 +26,10 @@ pub mod prealloc_queue;
 /// Commands dispatched from the non-real-time UI thread to the audio callback.
 ///
 /// # Safety Contract
-/// - All variants are `Copy` — no heap data ever crosses the RT boundary.
-/// - The audio callback processes these in O(1) with zero allocations.
+/// - The audio callback processes these in O(1) with zero allocations
+///   for simple variants. `SyncFlowGraph` is an O(N) batch command.
 /// - Queue capacity (1024) guarantees no backpressure under normal use.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum EngineCommand {
     // ── Topology (atomic) ────────────────────────────────────────────
     /// Atomically clears ALL device chains on ALL tracks (and master).
@@ -212,6 +212,16 @@ pub enum EngineCommand {
     // ── Flow Synth (Modular Synth) Control ─────────────────────────
     /// Explicitly enable or disable the Flow synth on a track.
     SetFlowEnabled { track_index: u16, enabled: bool },
+
+    /// Synchronize the entire Flow synth node graph for a track.
+    /// This is an O(N) operation on the audio thread, use sparingly.
+    SyncFlowGraph {
+        track_index: u16,
+        // Using a serialized or simplified representation for the command.
+        // For now, let's keep it simple with clear/rebuild.
+        nodes: Vec<(u64, String)>, // (id, type)
+        connections: Vec<(u64, usize, u64, usize)>, // (from_id, from_port, to_id, to_port)
+    },
 
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).

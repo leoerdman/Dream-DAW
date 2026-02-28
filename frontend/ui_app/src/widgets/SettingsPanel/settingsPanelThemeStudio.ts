@@ -7,8 +7,7 @@ const cssGradient = (top: [number, number, number], bottom: [number, number, num
 export const THEME_PRESETS = [
     { label: 'Dark Clean', theme: 'dark', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 90, themeMotionEnabled: true, themeMotionPercent: 85 },
     { label: 'Dark Graphite', theme: 'dark', darkThemeShade: 96, darkThemeTintPercent: 16, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
-    { label: 'Forest Moss', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 92, forestThemeFogPercent: 82, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 84 },
-    { label: 'Forest Pine', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
+    { label: 'Forest', theme: 'forest', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 100, themeMotionEnabled: true, themeMotionPercent: 100 },
     { label: 'Light Studio', theme: 'light', darkThemeShade: 0, darkThemeTintPercent: 0, forestThemeCanopyPercent: 100, forestThemeFogPercent: 100, lightThemeTexturePercent: 56, themeDetailPercent: 92, themeMotionEnabled: true, themeMotionPercent: 68 },
 ] as const;
 
@@ -102,10 +101,11 @@ export function applyAtmosphereProfile(settings: AppSettings, profile: (typeof A
 }
 
 export function resolveThemePresetLabel(settings: AppSettings): string {
-    const isDarkGraphite = settings.theme === 'dark' && settings.darkThemeShade === 96 && settings.darkThemeTintPercent === 16;
-    const isForestMoss = settings.theme === 'forest' && settings.forestThemeCanopyPercent === 92 && settings.forestThemeFogPercent === 82;
-    if (settings.theme === 'dark') return isDarkGraphite ? 'Dark Graphite' : 'Dark Clean';
-    if (settings.theme === 'forest') return isForestMoss ? 'Forest Moss' : 'Forest Pine';
+    if (settings.theme === 'dark') {
+        const isDarkGraphite = settings.darkThemeShade === 96 && settings.darkThemeTintPercent === 16;
+        return isDarkGraphite ? 'Dark Graphite' : 'Dark Clean';
+    }
+    if (settings.theme === 'forest') return 'Forest';
     return 'Light Studio';
 }
 
@@ -120,17 +120,10 @@ export const THEME_STUDIO_PREVIEWS: Record<(typeof THEME_PRESETS)[number]['label
         accent: cssRgb(143, 176, 255),
         note: 'Graphite contrast',
     },
-    'Forest Moss': {
-        bg: cssGradient([21, 49, 36], [13, 32, 24]),
-        accent: cssRgb(125, 243, 173),
-        motif: "url('/themes/forest-leaf-strip.svg')",
-        note: 'Organic soft',
-    },
-    'Forest Pine': {
+    'Forest': {
         bg: cssGradient([23, 56, 39], [11, 29, 20]),
         accent: cssRgb(150, 255, 209),
-        motif: "url('/themes/forest-fireflies.svg')",
-        note: 'Deep forest',
+        note: 'Green ambience',
     },
     'Light Studio': {
         bg: cssGradient([212, 218, 225], [194, 201, 209]),

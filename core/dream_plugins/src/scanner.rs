@@ -318,7 +318,15 @@ impl PluginScanner {
     fn collect_plugin_paths(root: &Path, extension: &str, max_depth: usize) -> Vec<PathBuf> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
+        let mut seen_dirs = HashSet::new();
         let mut stack = vec![(root.to_path_buf(), 0usize)];
+
+        // ENT-SCAN1: Track visited directories to prevent symlink loops.
+        // On macOS, plugin directories can contain symlinks (e.g., vendor
+        // aliases) that point to parent directories, causing infinite recursion.
+        if let Ok(canonical) = root.canonicalize() {
+            seen_dirs.insert(canonical);
+        }
 
         while let Some((dir, depth)) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -336,7 +344,12 @@ impl PluginScanner {
                 }
 
                 if depth < max_depth && path.is_dir() {
-                    stack.push((path, depth + 1));
+                    // ENT-SCAN1: Canonicalize to detect symlink loops.
+                    if let Ok(canonical) = path.canonicalize() {
+                        if seen_dirs.insert(canonical) {
+                            stack.push((path, depth + 1));
+                        }
+                    }
                 }
             }
         }

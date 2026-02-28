@@ -468,7 +468,10 @@ impl EssenceSynthEngine {
         // BUG-019 FIX: Pre-compute inverse sample rate once instead of per-voice.
         let inv_sr = 1.0 / sr;
 
-        for i in 0..frame_count {
+        // ENT-ESS1: Bounds-check frame_count against output buffer sizes.
+        let safe_count = frame_count.min(left_out.len()).min(right_out.len());
+
+        for i in 0..safe_count {
             let vol = self.volume.next();
             let osc1_vol = if self.osc1_enabled { self.osc1_volume.next() } else { 0.0 };
             let osc2_vol = if self.osc2_enabled { self.osc2_volume.next() } else { 0.0 };

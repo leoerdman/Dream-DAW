@@ -83,11 +83,11 @@ export function useViewport() {
 
         e.preventDefault();
 
-        const isZoom = e.ctrlKey || e.metaKey || spaceKeyPressed.current;
+        const isZoom = e.ctrlKey || e.metaKey;
+        const isPanWithSpace = spaceKeyPressed.current;
 
         if (isZoom) {
-            const zoomSensitivity = 0.0025;
-            const delta = -e.deltaY * zoomSensitivity;
+            const zoomFactor = Math.exp(-e.deltaY * 0.0018);
             const element = viewportRef.current;
             if (!element) return;
 
@@ -95,9 +95,11 @@ export function useViewport() {
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            zoomToPoint(1 + delta, mouseX, mouseY);
+            zoomToPoint(zoomFactor, mouseX, mouseY);
         } else {
-            pan(-e.deltaX, -e.deltaY);
+            const dx = isPanWithSpace ? -e.deltaX : -e.deltaX;
+            const dy = isPanWithSpace ? -e.deltaY : -e.deltaY;
+            pan(dx, dy);
         }
     }, [pan, zoomToPoint]);
 

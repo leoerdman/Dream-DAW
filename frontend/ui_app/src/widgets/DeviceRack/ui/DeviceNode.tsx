@@ -148,9 +148,9 @@ export const DeviceNode = ({
                 width: rackWidth,
                 display: 'flex',
                 flexDirection: 'row',
-                background: 'var(--surface-card, var(--token-color-hex-3a3a3a))',
+                background: 'var(--surface-card, var(--color-bg-hover))',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d7)' : 'var(--space-px) solid var(--surface-card, var(--token-color-hex-3a3a3a))',
+                border: isSelected ? 'var(--space-px) solid var(--surface-card-border-selected)' : 'var(--space-px) solid var(--surface-card, var(--color-bg-hover))',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
@@ -166,7 +166,8 @@ export const DeviceNode = ({
                 const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
                 const isSamplerDevice =
                     device.source === 'internal' &&
-                    (device.effectType === 'sampler' || device.effectType === 'instrument');
+                    (device.effectType === 'sampler' || device.effectType === 'instrument')
+                    && device.pluginId !== 'internal://instrument/flow'; // Flow is NOT a sampler
                 if (!isSamplerDevice) return;
                 if (dragging?.path && acceptance.allowed) {
                     onDropSample?.(dragging.path);

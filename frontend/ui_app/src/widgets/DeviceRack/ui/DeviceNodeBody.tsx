@@ -62,6 +62,7 @@ export function DeviceNodeBody({
     onParamContextMenu,
     onSidechainSourceChange,
 }: DeviceNodeBodyProps) {
+    const showSidechainSelector = device.source === 'vst' || device.pluginId === 'internal://instrument/flow';
     const quickPresets = device.source === 'internal'
         ? (QUICK_PRESETS_BY_EFFECT[device.effectType] ?? [])
         : [];
@@ -94,6 +95,7 @@ export function DeviceNodeBody({
     );
 
     if (device.source === 'internal') {
+        const showFlowSidechain = device.pluginId === 'internal://instrument/flow';
         return (
             <div
                 data-no-drag
@@ -103,11 +105,50 @@ export function DeviceNodeBody({
                     minWidth: 0,
                     minHeight: 0,
                     display: 'grid',
-                    gridTemplateRows: showSettings && supportsSettingsToggle ? '1fr auto' : '1fr',
+                    gridTemplateRows: showSettings && supportsSettingsToggle
+                        ? (showFlowSidechain ? 'auto 1fr auto' : '1fr auto')
+                        : (showFlowSidechain ? 'auto 1fr' : '1fr'),
                     gap: 'var(--space-1)',
                     overflow: 'hidden',
                 }}
             >
+                {/* Sidechain selector for Flow synth instrument */}
+                {showFlowSidechain && (
+                    <div data-no-drag style={{ display: 'grid', gap: 'var(--space-1)', padding: '0 var(--space-1)' }}>
+                        <span
+                            style={{
+                                fontSize: 'var(--font-size-2xs)',
+                                color: 'var(--color-text-tertiary)',
+                                fontWeight: 'var(--font-weight-bold)',
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase',
+                            }}
+                        >
+                            Side Chain
+                        </span>
+                        <select
+                            value={sidechainSourceTrackId || 'none'}
+                            onChange={(e) => onSidechainSourceChange?.(e.target.value)}
+                            style={{
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-md)',
+                                background: 'var(--plugin-control-bg)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: 'var(--space-1) var(--space-1-5)',
+                                outline: 'none',
+                                width: '100%',
+                            }}
+                        >
+                            <option value="none">None</option>
+                            {(sidechainOptions ?? []).map((track) => (
+                                <option key={track.id} value={track.id}>
+                                    {track.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 <div style={{ minHeight: 0 }}>
                     <Suspense fallback={null}>
                         <PluginGuiSurfaceLazy
@@ -127,9 +168,9 @@ export function DeviceNodeBody({
                         style={{
                             maxHeight: 230,
                             overflow: 'auto',
-                            border: 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d04)',
+                            border: 'var(--space-px) solid var(--color-border-subtle)',
                             borderRadius: 'var(--radius-sm)',
-                            background: 'var(--token-color-rgba-0-0-0-0d15)',
+                            background: 'var(--color-overlay-light)',
                             padding: 'var(--space-1-5)',
                         }}
                     >
@@ -162,7 +203,7 @@ export function DeviceNodeBody({
                cannot determine bus layout without loading the plugin, so
                supportsSidechain is unreliable. The runtime safely ignores
                sidechain input for plugins that don't expose a sidechain bus. */}
-            {device.source === 'vst' && (
+            {showSidechainSelector && (
                 <div data-no-drag style={{ display: 'grid', gap: 'var(--space-1)', width: '100%' }}>
                     <span
                         style={{
@@ -181,7 +222,7 @@ export function DeviceNodeBody({
                         style={{
                             border: 'var(--space-px) solid var(--color-divider)',
                             borderRadius: 'var(--radius-md)',
-                            background: 'var(--token-color-hex-2a2a2a)',
+                            background: 'var(--plugin-control-bg)',
                             color: 'var(--color-text-primary)',
                             fontSize: 'var(--font-size-2xs)',
                             padding: 'var(--space-1) var(--space-1-5)',

@@ -1,182 +1,348 @@
 import React from 'react';
-import {
-    FLOW_NODE_BODY_MIN_HEIGHT,
-    FLOW_NODE_HEADER_HEIGHT,
-    FLOW_NODE_WIDTH,
-    useFlowSynthStore
-} from '../model/useFlowSynthStore';
+import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import type { SynthNode } from '../model/useFlowSynthStore';
+import {
+    PORT_REGISTRY,
+    FLOW_PORT_SIZE,
+    FLOW_PORT_ROW_HEIGHT,
+    FLOW_NODE_HEADER_HEIGHT,
+    FLOW_NODE_BODY_PADDING,
+    portCenterY,
+    type PortDefinition,
+    type SynthNodeType,
+} from '../model/portRegistry';
 import { viewportProxy } from '../lib/ViewportProxy';
+import { OscillatorControls } from './nodes/OscillatorControls';
+import { FilterControls } from './nodes/FilterControls';
+import { EnvelopeControls } from './nodes/EnvelopeControls';
+import { EqControls } from './nodes/EqControls';
+
+export const FLOW_NODE_WIDTH = 240;
+const FLOW_GRID_SNAP = 20;
 
 interface Props {
     node: SynthNode;
+    interactionDisabled?: boolean;
 }
 
-export function SynthNodeComponent({ node }: Props) {
-    const updateNodePosition = useFlowSynthStore((state) => state.updateNodePosition);
-    const nodeThemeByType: Record<SynthNode['type'], { dot: string; title: string }> = {
-        midiIn: { dot: 'var(--color-synth-osc)', title: 'MIDI In' },
-        oscillator: { dot: 'var(--color-synth-osc)', title: 'Oscillator' },
-        filter: { dot: 'var(--color-synth-filter)', title: 'Filter' },
-        envelope: { dot: 'var(--color-synth-env)', title: 'Envelope' },
-        output: { dot: 'var(--color-synth-out)', title: 'Output' },
-    };
-    const portsByType: Record<SynthNode['type'], { in: boolean; out: boolean; inIsMidi?: boolean; outIsMidi?: boolean }> = {
-        midiIn: { in: false, out: true, outIsMidi: true },
-        oscillator: { in: true, out: true, inIsMidi: true },
-        filter: { in: true, out: true },
-        envelope: { in: true, out: true },
-        output: { in: true, out: false },
-    };
-    const theme = nodeThemeByType[node.type];
-    const ports = portsByType[node.type];
+// ── Per-type controls renderer ─────────────────────────────────
+function NodeControlsBody({ node }: { node: SynthNode }) {
+    switch (node.type) {
+        case 'oscillator':
+            return <OscillatorControls node={node} />;
+        case 'filter':
+            return <FilterControls node={node} />;
+        case 'envelope':
+            return <EnvelopeControls node={node} />;
+        case 'eq':
+            return <EqControls node={node} />;
+        default:
+            return null;
+    }
+}
+
+// ── Single Port Dot ────────────────────────────────────────────
+function PortDot({
+    port,
+    side,
+    index,
+    nodeId,
+    interactionDisabled,
+}: {
+    port: PortDefinition;
+    side: 'in' | 'out';
+    index: number;
+    nodeId: string;
+    interactionDisabled: boolean;
+}) {
+    const startConnectionDrag = useFlowSynthStore((s) => s.startConnectionDrag);
+    const commitConnection = useFlowSynthStore((s) => s.commitConnection);
+    const pendingConnection = useFlowSynthStore((s) => s.pendingConnection);
+    const updatePendingConnection = useFlowSynthStore((s) => s.updatePendingConnection);
+
+    const cy = portCenterY(index);
+    const signalType: 'audio' | 'midi' = port.type === 'midi' ? 'midi' : 'audio';
+    const isAudio = port.type === 'audio';
+    const isMidi = port.type === 'midi';
+
+    const dotColor = isMidi
+        ? 'var(--color-signal-midi)'
+        : isAudio
+            ? 'var(--color-signal-audio)'
+            : 'var(--color-accent-tertiary)';
 
     const handlePointerDown = (e: React.PointerEvent) => {
-        // Only allow left click drag
-        if (e.button !== 0) return;
-
+        if (side !== 'out' || interactionDisabled) return;
         e.stopPropagation();
-        const dragHandle = e.currentTarget as HTMLElement;
-        dragHandle.setPointerCapture?.(e.pointerId);
-        dragHandle.style.cursor = 'grabbing';
+        e.preventDefault();
+
+        const node = useFlowSynthStore.getState().nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+
+        const startX = node.position.x + FLOW_NODE_WIDTH;
+        const startY = node.position.y + FLOW_NODE_HEADER_HEIGHT + cy;
+
+        startConnectionDrag({
+            fromNode: nodeId,
+            fromPort: port.id,
+            signalType,
+            startX,
+            startY,
+        });
+
+        const canvas = (e.currentTarget as HTMLElement).closest('.flow-canvas');
+        if (canvas) {
+            const vp = viewportProxy.getViewport();
+            const rect = (canvas as HTMLElement).getBoundingClientRect();
+            const worldX = (e.clientX - rect.left - vp.x) / vp.zoom;
+            const worldY = (e.clientY - rect.top - vp.y) / vp.zoom;
+            updatePendingConnection(worldX, worldY);
+        }
+    };
+
+    const handlePointerUp = (e: React.PointerEvent) => {
+        if (side !== 'in' || !pendingConnection || interactionDisabled) return;
+        e.stopPropagation();
+        commitConnection(nodeId, port.id, signalType);
+    };
+
+    // ENTERPRISE: Port hover state for scale + glow effect (UDS FlowPort pattern)
+    const [isHovered, setIsHovered] = React.useState(false);
+
+    return (
+        <div
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerEnter={() => setIsHovered(true)}
+            onPointerLeave={() => setIsHovered(false)}
+            style={{
+                position: 'absolute',
+                [side === 'in' ? 'left' : 'right']: -(FLOW_PORT_SIZE / 2),
+                top: cy - FLOW_PORT_SIZE / 2,
+                width: FLOW_PORT_SIZE,
+                height: FLOW_PORT_SIZE,
+                borderRadius: '50%',
+                backgroundColor: side === 'out' ? dotColor : 'var(--color-bg-elevated)',
+                border: `2.5px solid ${dotColor}`,
+                cursor: interactionDisabled ? 'default' : 'crosshair',
+                boxShadow: isHovered
+                    ? `0 0 14px ${dotColor}, 0 0 4px rgba(255,255,255,0.3)`
+                    : (side === 'out' ? `0 0 8px ${dotColor}` : '0 0 0 3px var(--color-overlay-dark)'),
+                transition: 'transform 0.1s ease-out, box-shadow 0.12s',
+                transform: isHovered ? 'scale(1.3)' : 'scale(1)',
+                zIndex: 5,
+                // Enlarged hit area via padding trick
+                padding: 4,
+                margin: -4,
+            }}
+        />
+    );
+}
+
+// ── Port Label ─────────────────────────────────────────────────
+function PortLabel({
+    port,
+    side,
+    index,
+}: {
+    port: PortDefinition;
+    side: 'in' | 'out';
+    index: number;
+}) {
+    const cy = portCenterY(index);
+    return (
+        <span
+            style={{
+                position: 'absolute',
+                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + 4,
+                top: cy - 7,
+                fontSize: 'var(--font-size-2xs)',
+                fontFamily: 'var(--font-role-data)',
+                fontWeight: 'var(--font-weight-semibold)',
+                color: 'var(--color-text-tertiary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                lineHeight: '14px',
+                pointerEvents: 'none',
+                userSelect: 'none',
+                whiteSpace: 'nowrap',
+            }}
+        >
+            {port.label}
+        </span>
+    );
+}
+
+// ── Main SynthNodeComponent ────────────────────────────────────
+export function SynthNodeComponent({ node, interactionDisabled = false }: Props) {
+    const updateNodePosition = useFlowSynthStore((s) => s.updateNodePosition);
+    const selectNode = useFlowSynthStore((s) => s.selectNode);
+    const selectedNodeIds = useFlowSynthStore((s) => s.selectedNodeIds);
+    const isSelected = selectedNodeIds.includes(node.id);
+
+    const config = PORT_REGISTRY[node.type as SynthNodeType];
+    if (!config) return null;
+
+    const maxPorts = Math.max(config.inputs.length, config.outputs.length, 1);
+    const portsHeight = maxPorts * FLOW_PORT_ROW_HEIGHT;
+
+    const handlePointerDown = (e: React.PointerEvent) => {
+        if (e.button !== 0 || interactionDisabled) return;
+        e.stopPropagation();
+        const handle = e.currentTarget as HTMLElement;
+        handle.setPointerCapture?.(e.pointerId);
+        handle.style.cursor = 'grabbing';
 
         const startX = e.clientX;
         const startY = e.clientY;
         const startNodeX = node.position.x;
         const startNodeY = node.position.y;
-
         const zoom = viewportProxy.getViewport().zoom;
+        let raf = 0;
+        let pendingX = startNodeX;
+        let pendingY = startNodeY;
 
-        const handlePointerMove = (moveEvent: PointerEvent) => {
-            const dx = (moveEvent.clientX - startX) / zoom;
-            const dy = (moveEvent.clientY - startY) / zoom;
-            updateNodePosition(node.id, startNodeX + dx, startNodeY + dy);
+        const onMove = (me: PointerEvent) => {
+            const dx = (me.clientX - startX) / zoom;
+            const dy = (me.clientY - startY) / zoom;
+            pendingX = startNodeX + dx;
+            pendingY = startNodeY + dy;
+            if (raf !== 0) return;
+            raf = requestAnimationFrame(() => {
+                raf = 0;
+                updateNodePosition(node.id, pendingX, pendingY);
+            });
         };
 
-        const handlePointerUp = () => {
-            document.removeEventListener('pointermove', handlePointerMove);
-            document.removeEventListener('pointerup', handlePointerUp);
-            document.removeEventListener('pointercancel', handlePointerUp);
-            dragHandle.removeEventListener('lostpointercapture', handlePointerUp);
-            dragHandle.style.cursor = 'grab';
+        const onUp = () => {
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
+            handle.removeEventListener('lostpointercapture', onUp);
+            handle.style.cursor = 'grab';
+            if (raf !== 0) {
+                cancelAnimationFrame(raf);
+                raf = 0;
+            }
+            const snapX = Math.round(pendingX / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
+            const snapY = Math.round(pendingY / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
+            updateNodePosition(node.id, snapX, snapY);
         };
 
-        document.addEventListener('pointermove', handlePointerMove);
-        document.addEventListener('pointerup', handlePointerUp);
-        document.addEventListener('pointercancel', handlePointerUp);
-        dragHandle.addEventListener('lostpointercapture', handlePointerUp);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
+        handle.addEventListener('lostpointercapture', onUp);
     };
 
     return (
         <div
+            data-flow-node-root="true"
+            onMouseDown={(e) => {
+                if (interactionDisabled) return;
+                e.stopPropagation();
+                selectNode(node.id, e.metaKey || e.ctrlKey || e.shiftKey);
+            }}
             style={{
                 position: 'absolute',
                 left: node.position.x,
                 top: node.position.y,
                 width: FLOW_NODE_WIDTH,
-                background: 'color-mix(in srgb, var(--color-bg-panel) 86%, transparent)',
+                background: 'color-mix(in srgb, var(--color-bg-panel) 92%, transparent)',
                 backdropFilter: 'blur(var(--blur-lg))',
                 WebkitBackdropFilter: 'blur(var(--blur-lg))',
-                borderRadius: 'var(--radius-2xl)',
-                border: 'var(--space-px) solid var(--color-divider)',
-                boxShadow: 'var(--shadow-xl)',
-                pointerEvents: 'auto',
+                borderRadius: 'var(--radius-xl)',
+                // ENTERPRISE: Base border always subtle — selection handled via ::after overlay
+                border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+                pointerEvents: interactionDisabled ? 'none' : 'auto',
                 display: 'flex',
                 flexDirection: 'column',
-                transition: 'box-shadow 0.2s ease, transform 0.1s ease-out',
-                zIndex: 10,
+                // ENTERPRISE: No transition — prevents drag jitter (UDS pattern)
+                zIndex: isSelected ? 50 : 10,
+                overflow: 'visible',
             }}
         >
-            {/* Header / Drag Handle */}
+            {/* ── SELECTION OVERLAY (UDS ::after pattern) ── */}
+            {isSelected && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        inset: -2,
+                        borderRadius: 'calc(var(--radius-xl) + 1px)',
+                        border: '2px solid rgba(255, 255, 255, 0.85)',
+                        pointerEvents: 'none',
+                        zIndex: 100,
+                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
+                    }}
+                />
+            )}
+
+            {/* ── HEADER ── */}
             <div
                 onPointerDown={handlePointerDown}
                 style={{
-                    padding: 'var(--space-3-5) var(--space-4)',
-                    cursor: 'grab',
+                    padding: '0 14px',
+                    cursor: interactionDisabled ? 'default' : 'grab',
                     touchAction: 'none',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderBottom: 'var(--space-px) solid var(--color-divider)',
-                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 7%, transparent) 0%, transparent 100%)',
-                    borderTopLeftRadius: 'var(--radius-2xl)',
-                    borderTopRightRadius: 'var(--radius-2xl)',
-                    minHeight: FLOW_NODE_HEADER_HEIGHT,
+                    gap: 'var(--space-2)',
+                    borderBottom: '1px solid var(--color-divider)',
+                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 5%, transparent), transparent)',
+                    borderTopLeftRadius: 'var(--radius-xl)',
+                    borderTopRightRadius: 'var(--radius-xl)',
+                    height: FLOW_NODE_HEADER_HEIGHT,
                     boxSizing: 'border-box',
+                    flexShrink: 0,
                 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2-5)' }}>
-                    <div style={{
-                        width: 10, height: 10, borderRadius: '50%',
-                        backgroundColor: theme.dot,
-                        boxShadow: `0 0 12px ${theme.dot}`
-                    }} />
-                    <span style={{
-                        fontWeight: 'var(--font-weight-bold)',
-                        fontSize: 'var(--font-size-md)',
-                        color: 'var(--color-text-primary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.06em',
-                        fontFamily: 'var(--font-role-data)',
-                    }}>
-                        {theme.title}
-                    </span>
-                </div>
+                <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    backgroundColor: config.color,
+                    boxShadow: `0 0 8px ${config.color}`,
+                    flexShrink: 0,
+                }} />
+                <span style={{
+                    fontWeight: 'var(--font-weight-bold)',
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    fontFamily: 'var(--font-role-data)',
+                    userSelect: 'none',
+                }}>
+                    {config.title}
+                </span>
             </div>
 
-            {/* Body */}
+            {/* ── PORTS ZONE ── */}
             <div style={{
-                padding: 'var(--space-6) var(--space-4)',
-                color: 'var(--color-text-secondary)',
-                fontSize: 'var(--font-size-md)',
-                minHeight: FLOW_NODE_BODY_MIN_HEIGHT,
-                fontFamily: 'var(--font-role-body)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                textAlign: 'center'
+                position: 'relative',
+                height: portsHeight,
+                flexShrink: 0,
             }}>
-                {node.data?.label || 'Empty Node'}
+                {/* Input ports (left) */}
+                {config.inputs.map((port, idx) => (
+                    <React.Fragment key={`in-${port.id}`}>
+                        <PortDot port={port} side="in" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
+                        <PortLabel port={port} side="in" index={idx} />
+                    </React.Fragment>
+                ))}
+                {/* Output ports (right) */}
+                {config.outputs.map((port, idx) => (
+                    <React.Fragment key={`out-${port.id}`}>
+                        <PortDot port={port} side="out" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
+                        <PortLabel port={port} side="out" index={idx} />
+                    </React.Fragment>
+                ))}
             </div>
 
-            {/* IN port (left) */}
-            {ports.in && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: -6,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: 12,
-                        height: 12,
-                        backgroundColor: ports.inIsMidi ? 'var(--color-bg-base)' : 'var(--color-bg-elevated)',
-                        borderRadius: '50%',
-                        border: ports.inIsMidi ? '2px solid var(--color-signal-midi)' : '2px solid var(--color-border-default)',
-                        cursor: 'crosshair',
-                        boxShadow: '0 0 0 4px var(--color-overlay-dark)',
-                        transition: 'border-color 0.2s, background-color 0.2s',
-                    }}
-                />
-            )}
-            {/* OUT port (right) */}
-            {ports.out && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        right: -6,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: 12,
-                        height: 12,
-                        backgroundColor: ports.outIsMidi ? 'var(--color-signal-midi)' : 'var(--color-signal-audio)',
-                        borderRadius: '50%',
-                        border: ports.outIsMidi ? '2px solid var(--color-text-primary)' : '2px solid var(--color-border-highlight)',
-                        cursor: 'crosshair',
-                        boxShadow: ports.outIsMidi ? '0 0 12px var(--color-signal-midi)' : '0 0 12px var(--color-signal-audio)',
-                        transition: 'box-shadow 0.2s',
-                    }}
-                />
-            )}
+            {/* ── CONTROLS ── */}
+            <NodeControlsBody node={node} />
+
+            {/* ── FOOTER PAD ── */}
+            <div style={{ height: FLOW_NODE_BODY_PADDING }} />
         </div>
     );
 }

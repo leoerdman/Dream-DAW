@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { viewportProxy } from '../lib/ViewportProxy';
-import { FLOW_NODE_PORT_CENTER_Y, FLOW_NODE_WIDTH } from '../model/useFlowSynthStore';
+import {
+    PORT_REGISTRY,
+    FLOW_NODE_HEADER_HEIGHT,
+    portCenterY,
+    type SynthNodeType,
+} from '../model/portRegistry';
+import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
 
 const PULSE_DURATION_MS = 520;
 
@@ -13,7 +19,10 @@ function cubicBezierAt(t: number, p0: number, p1: number, p2: number, p3: number
 export function ConnectionsLayer() {
     const connections = useFlowSynthStore((state) => state.connections);
     const nodes = useFlowSynthStore((state) => state.nodes);
+    const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
     const connectionPulseById = useFlowSynthStore((state) => state.connectionPulseById);
+    const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
+    const selectConnection = useFlowSynthStore((state) => state.selectConnection);
     const layerRef = useRef<SVGSVGElement>(null);
     const [now, setNow] = useState(() => Date.now());
 
@@ -43,13 +52,24 @@ export function ConnectionsLayer() {
         };
     }, [connectionPulseById]);
 
-    // Keep connection geometry in sync with actual node dimensions.
-    const getPortPosition = (nodeId: string, type: 'in' | 'out') => {
-        const node = nodes.find(n => n.id === nodeId);
+    // O(1) node lookup
+    const nodeMap = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
+
+    // Calculate port position with multi-port support
+    const getPortPosition = (nodeId: string, portId: string, side: 'in' | 'out') => {
+        const node = nodeMap.get(nodeId);
         if (!node) return { x: 0, y: 0 };
-        const portY = node.position.y + FLOW_NODE_PORT_CENTER_Y;
-        const portX = type === 'in' ? node.position.x : node.position.x + FLOW_NODE_WIDTH;
-        return { x: portX, y: portY };
+
+        const config = PORT_REGISTRY[node.type as SynthNodeType];
+        if (!config) return { x: node.position.x, y: node.position.y + FLOW_NODE_HEADER_HEIGHT };
+
+        const portList = side === 'in' ? config.inputs : config.outputs;
+        const portIndex = portList.findIndex((p) => p.id === portId);
+        const idx = portIndex >= 0 ? portIndex : 0;
+
+        const cy = FLOW_NODE_HEADER_HEIGHT + portCenterY(idx);
+        const x = side === 'in' ? node.position.x : node.position.x + FLOW_NODE_WIDTH;
+        return { x, y: node.position.y + cy };
     };
 
     return (
@@ -63,19 +83,19 @@ export function ConnectionsLayer() {
                 height: '100%',
                 overflow: 'visible',
                 transformOrigin: '0 0',
-                pointerEvents: 'none',
+                pointerEvents: 'auto',
                 willChange: 'transform',
                 zIndex: 1,
             }}
         >
             {connections.map((conn) => {
-                const start = getPortPosition(conn.fromNode, 'out');
-                const end = getPortPosition(conn.toNode, 'in');
+                const start = getPortPosition(conn.fromNode, conn.fromPort, 'out');
+                const end = getPortPosition(conn.toNode, conn.toPort, 'in');
 
-                // Smooth bezier curve
-                const c1x = start.x + Math.max(Math.abs(end.x - start.x) / 2, 50);
+                const dx = Math.abs(end.x - start.x);
+                const c1x = start.x + Math.max(dx / 2, 50);
                 const c1y = start.y;
-                const c2x = end.x - Math.max(Math.abs(end.x - start.x) / 2, 50);
+                const c2x = end.x - Math.max(dx / 2, 50);
                 const c2y = end.y;
 
                 const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
@@ -92,33 +112,54 @@ export function ConnectionsLayer() {
                 const pulseT = Math.min(1, elapsed / PULSE_DURATION_MS);
                 const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);
                 const pulseY = cubicBezierAt(pulseT, start.y, c1y, c2y, end.y);
+                const isSelected = selectedConnectionId === conn.id;
 
                 return (
                     <g key={conn.id}>
-                        {/* Invisible thicker stroke for easier hover/click interactions later */}
+                        {/* Hit test zone */}
                         <path
+                            data-flow-connection-hit="true"
                             d={pathData}
                             fill="none"
                             stroke="transparent"
                             strokeWidth={20}
                             pointerEvents="stroke"
+                            onPointerDown={(e) => {
+                                e.stopPropagation();
+                                selectConnection(conn.id);
+                            }}
                         />
-                        {/* Glow layer */}
+                        {/* Glow */}
                         <path
                             d={pathData}
                             fill="none"
                             stroke={glowColor}
-                            strokeWidth={6}
-                            opacity={0.3}
-                            style={{ filter: 'blur(4px)' }}
+                            strokeWidth={isSelected ? 6 : 4}
+                            opacity={isSelected ? 0.28 : 0.14}
+                            pointerEvents="none"
+                            style={{ filter: 'none' }}
                         />
-                        {/* Core connection path */}
+                        {/* Core path */}
                         <path
                             d={pathData}
                             fill="none"
-                            stroke={baseColor}
-                            strokeWidth={2.5}
+                            stroke={isSelected ? 'color-mix(in srgb, white 32%, var(--color-accent-primary))' : baseColor}
+                            strokeWidth={isSelected ? 3 : 2}
                             opacity={1.0}
+                            pointerEvents="none"
+                        />
+                        {/* Flow highlight */}
+                        <path
+                            d={pathData}
+                            fill="none"
+                            stroke="rgba(255, 255, 255, 0.35)"
+                            strokeWidth={1}
+                            strokeDasharray="20 180"
+                            pointerEvents="none"
+                            style={{
+                                animation: 'flow-cable 4s linear infinite',
+                                filter: 'blur(0.5px)',
+                            }}
                         />
                         {pulseActive && (
                             <circle
@@ -129,11 +170,36 @@ export function ConnectionsLayer() {
                                     ? 'color-mix(in srgb, var(--color-signal-midi) 80%, white)'
                                     : 'color-mix(in srgb, var(--color-signal-audio) 80%, white)'}
                                 opacity={1 - pulseT * 0.35}
+                                pointerEvents="none"
                             />
                         )}
                     </g>
                 );
             })}
+            {pendingConnection && (() => {
+                const start = { x: pendingConnection.startX, y: pendingConnection.startY };
+                const end = { x: pendingConnection.currentX, y: pendingConnection.currentY };
+                const dx = Math.abs(end.x - start.x);
+                const c1x = start.x + Math.max(dx / 2, 50);
+                const c1y = start.y;
+                const c2x = end.x - Math.max(dx / 2, 50);
+                const c2y = end.y;
+                const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
+                const baseColor = pendingConnection.signalType === 'midi'
+                    ? 'var(--color-signal-midi)'
+                    : 'var(--color-signal-audio)';
+                return (
+                    <path
+                        d={pathData}
+                        fill="none"
+                        stroke={baseColor}
+                        strokeWidth={2}
+                        opacity={0.9}
+                        strokeDasharray="6 4"
+                        pointerEvents="none"
+                    />
+                );
+            })()}
         </svg>
     );
 }

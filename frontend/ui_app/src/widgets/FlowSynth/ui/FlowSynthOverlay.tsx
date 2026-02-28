@@ -1,13 +1,16 @@
 import { useEffect } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
-import { CloseButton } from '@/shared/ui/CloseButton';
 import { FlowCanvas } from './FlowCanvas';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 
 export function FlowSynthOverlay() {
     const isOpen = useFlowSynthStore((state) => state.isOpen);
     const closeFlowEditor = useFlowSynthStore((state) => state.closeFlowEditor);
     const activeDeviceId = useFlowSynthStore((state) => state.activeDeviceId);
+    const activeTrackId = useFlowSynthStore((state) => state.activeTrackId);
+    const nodes = useFlowSynthStore((state) => state.nodes);
+    const connections = useFlowSynthStore((state) => state.connections);
 
     // Close on Escape key
     useEffect(() => {
@@ -89,66 +92,40 @@ export function FlowSynthOverlay() {
         };
     }, [isOpen]);
 
+    useEffect(() => {
+        if (!isOpen || !activeTrackId) return;
+        const timer = window.setTimeout(() => {
+            void useFlowSynthStore.getState().syncFlowGraphToEngine().catch((err) => {
+                console.warn('[FlowSynth] syncFlowGraphToEngine failed:', err);
+            });
+        }, 60);
+        return () => window.clearTimeout(timer);
+    }, [isOpen, activeTrackId, nodes, connections]);
+
     if (!isOpen) return null;
 
     return (
-        <div
-            className="flow-synth-overlay-root"
-            style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'var(--color-bg-app)',
-                zIndex: 'var(--z-modal)',
-                display: 'flex',
-                flexDirection: 'column',
-            }}
+        <PluginWindow
+            pluginId={activeDeviceId ?? 'flow'}
+            pluginName="Flow"
+            pluginType="instrument"
+            isBypassed={false}
+            onToggleBypass={() => { }}
+            onClose={closeFlowEditor}
+            width={1120}
+            height={700}
+            initialX={140}
+            initialY={84}
+            showPresetControls={false}
+            showBypassControl={false}
+            headerBackground="color-mix(in srgb, var(--color-bg-header) 92%, black 8%)"
+            headerBorderColor="color-mix(in srgb, var(--color-divider) 82%, transparent)"
+            leftDotColor="var(--color-signal-audio)"
+            contentPadding="0"
         >
-            <div
-                style={{
-                    height: 48,
-                    borderBottom: 'var(--space-px) solid var(--color-divider)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '0 var(--space-4)',
-                    justifyContent: 'space-between',
-                    backgroundColor: 'var(--color-bg-panel)',
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <div
-                        style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 4,
-                            background: 'var(--color-plugin-internal)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--color-text-primary)',
-                            fontWeight: 'var(--font-weight-bold)',
-                            fontSize: 'var(--font-size-sm)',
-                            fontFamily: 'var(--font-role-data)',
-                        }}
-                    >
-                        F
-                    </div>
-                    <span style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
-                        Flow Modular Synth
-                    </span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>
-                        {activeDeviceId}
-                    </span>
-                </div>
-
-                <CloseButton onClick={closeFlowEditor} />
-            </div>
-
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', boxShadow: 'none' }}>
                 <FlowCanvas />
             </div>
-        </div>
+        </PluginWindow>
     );
 }

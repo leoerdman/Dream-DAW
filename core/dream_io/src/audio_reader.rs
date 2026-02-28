@@ -25,7 +25,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 /// Decoded audio data stored as de-interleaved f32 channels.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AudioBuffer {
     /// De-interleaved channel data. `channels[0]` = left, `channels[1]` = right, etc.
     pub channels: Vec<Vec<f32>>,
@@ -44,13 +44,20 @@ impl AudioBuffer {
     }
 
     /// Returns the duration in seconds.
+    ///
+    /// Returns 0.0 if `sample_rate` is 0 (prevents division by zero).
     pub fn duration_seconds(&self) -> f64 {
+        if self.sample_rate == 0 {
+            return 0.0;
+        }
         self.num_frames as f64 / self.sample_rate as f64
     }
 
-    /// Returns channel data as a slice. Panics if channel is out of bounds.
+    /// Returns channel data as a slice.
+    ///
+    /// Returns an empty slice if the channel index is out of bounds.
     pub fn channel(&self, index: usize) -> &[f32] {
-        &self.channels[index]
+        self.channels.get(index).map(|ch| ch.as_slice()).unwrap_or(&[])
     }
 
     /// Returns a mono mixdown (average of all channels).

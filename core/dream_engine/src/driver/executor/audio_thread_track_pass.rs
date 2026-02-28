@@ -58,6 +58,12 @@ pub(crate) struct TrackPassContext<'a> {
     pub time_sig_denominator: u8,
     pub timeline_sample_rate: f64,
     pub loop_region: Option<LoopRegion>,
+    /// EXPORT-DISTORTION-FIX: When true, skip ALL external VST plugin
+    /// try_lock() calls on the RT thread. The offline renderer holds
+    /// exclusive access to plugins during export — contention here
+    /// caused interleaved process() calls that corrupted plugin DSP
+    /// state, producing crackling/distortion in the exported audio.
+    pub export_active: bool,
 }
 
 pub(crate) fn process_track_graph_node(
@@ -150,6 +156,20 @@ pub(crate) fn process_track_graph_node(
 
                         ctx.external_left[..c].copy_from_slice(&left[..c]);
                         ctx.external_right[..c].copy_from_slice(&right[..c]);
+
+                        // EXPORT-DISTORTION-FIX: Skip VST processing entirely
+                        // when offline export is active. The offline renderer
+                        // holds exclusive plugin access — any RT try_lock()
+                        // success would feed the plugin a different playhead/
+                        // buffer, corrupting its internal state and producing
+                        // distorted audio in the export file.
+                        if ctx.export_active {
+                            // Dry passthrough: external_left/right already
+                            // contain the input signal from copy above.
+                            left[..c].copy_from_slice(&ctx.external_left[..c]);
+                            right[..c].copy_from_slice(&ctx.external_right[..c]);
+                            continue;
+                        }
 
                         if let Some(mut host) = plugin_mtx.try_lock() {
                             apply_external_plugin_param_automation_block(

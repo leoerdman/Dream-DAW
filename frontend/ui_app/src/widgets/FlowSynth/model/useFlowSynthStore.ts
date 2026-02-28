@@ -1,12 +1,10 @@
 import { create } from 'zustand';
-import type { ViewportState } from '../lib/ViewportProxy';
-import { viewportProxy } from '../lib/ViewportProxy';
+import * as engine from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
+import { portNameToIndex, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType } from './portRegistry';
 
-export type SynthNodeType = 'midiIn' | 'oscillator' | 'filter' | 'envelope' | 'output';
-export const FLOW_NODE_WIDTH = 260;
-export const FLOW_NODE_HEADER_HEIGHT = 48;
-export const FLOW_NODE_BODY_MIN_HEIGHT = 100;
-export const FLOW_NODE_PORT_CENTER_Y = FLOW_NODE_HEADER_HEIGHT + FLOW_NODE_BODY_MIN_HEIGHT / 2;
+export type { SynthNodeType };
 
 export interface SynthNode {
     id: string;
@@ -24,6 +22,16 @@ export interface SynthConnection {
     signalType?: 'audio' | 'midi';
 }
 
+export interface PendingConnection {
+    fromNode: string;
+    fromPort: string;
+    signalType: 'audio' | 'midi';
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+}
+
 interface FlowGraph {
     nodes: SynthNode[];
     connections: SynthConnection[];
@@ -37,61 +45,86 @@ interface FlowSynthState {
 
     nodes: SynthNode[];
     connections: SynthConnection[];
+    selectedNodeIds: string[];
+    selectedConnectionId: string | null;
     connectionPulseById: Record<string, number>;
+    pendingConnection: PendingConnection | null;
     graphsByDeviceId: Record<string, FlowGraph>;
 
     openFlowEditor: (deviceId: string, trackId: string) => void;
     closeFlowEditor: () => void;
 
     addNode: (node: SynthNode) => void;
+    selectNode: (id: string, multi?: boolean) => void;
+    selectConnection: (id: string | null) => void;
+    clearSelection: () => void;
+    removeNode: (id: string) => void;
+    updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+    deleteSelectedNodes: () => void;
+    setSelectionBox: (box: { x: number; y: number; width: number; height: number } | null) => void;
+    deleteConnection: (id: string) => void;
     updateNodePosition: (id: string, x: number, y: number) => void;
     setNodes: (nodes: SynthNode[]) => void;
     setConnections: (connections: SynthConnection[]) => void;
+    startConnectionDrag: (connection: Omit<PendingConnection, 'currentX' | 'currentY'>) => void;
+    updatePendingConnection: (x: number, y: number) => void;
+    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi') => void;
+    cancelConnectionDrag: () => void;
     pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi') => void;
     pulseConnection: (connectionId: string) => void;
+    syncFlowGraphToEngine: () => Promise<void>;
 }
+
+type SyncNodeParam = [string, string];
 
 const DEFAULT_FLOW_GRAPH: FlowGraph = {
     nodes: [
         {
             id: 'node-midi-in-1',
             type: 'midiIn',
-            position: { x: 80, y: 280 },
+            position: { x: 80, y: 260 },
             data: { label: 'Track MIDI In' },
         },
         {
             id: 'node-osc-1',
             type: 'oscillator',
-            position: { x: 380, y: 280 },
-            data: { label: 'Oscillator (free-run + MIDI)' },
+            position: { x: 380, y: 260 },
+            data: { label: 'Oscillator' },
         },
         {
             id: 'node-out-1',
             type: 'output',
-            position: { x: 720, y: 280 },
+            position: { x: 720, y: 260 },
             data: { label: 'Audio Out' },
         },
     ],
     connections: [
         {
-            id: 'conn-midi-in-1',
-            fromNode: 'node-midi-in-1',
-            fromPort: 'midi-out',
-            toNode: 'node-osc-1',
-            toPort: 'midi-in',
-            signalType: 'midi',
-        },
-        {
-            id: 'conn-audio-out-1',
+            id: 'conn-osc-to-out',
             fromNode: 'node-osc-1',
-            fromPort: 'audio-out',
+            fromPort: 'audio',
             toNode: 'node-out-1',
-            toPort: 'audio-in',
+            toPort: 'audio',
             signalType: 'audio',
         },
     ],
     viewport: { x: 0, y: 0, zoom: 1 },
 };
+
+function stableNodeNumericId(nodeId: string): number {
+    let hash = 2166136261 >>> 0;
+    for (let i = 0; i < nodeId.length; i += 1) {
+        hash ^= nodeId.charCodeAt(i);
+        hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return (hash || 1) >>> 0;
+}
+
+function resolvePortIndex(nodeId: string, portId: string, side: 'in' | 'out', nodesState: SynthNode[]): number {
+    const node = nodesState.find((n) => n.id === nodeId);
+    if (!node) return 0;
+    return portNameToIndex(node.type as SynthNodeType, portId, side);
+}
 
 function cloneDefaultGraph(): FlowGraph {
     return {
@@ -105,14 +138,17 @@ function cloneDefaultGraph(): FlowGraph {
     };
 }
 
-export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
+export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     isOpen: false,
     activeDeviceId: null,
     activeTrackId: null,
 
     nodes: cloneDefaultGraph().nodes,
     connections: cloneDefaultGraph().connections,
+    selectedNodeIds: [],
+    selectedConnectionId: null,
     connectionPulseById: {},
+    pendingConnection: null,
     graphsByDeviceId: {},
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
@@ -124,19 +160,25 @@ export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
             activeTrackId: trackId,
             nodes: graph.nodes,
             connections: graph.connections,
+            selectedNodeIds: [],
+            selectedConnectionId: null,
+            pendingConnection: null,
             graphsByDeviceId: state.graphsByDeviceId[deviceId]
                 ? state.graphsByDeviceId
                 : { ...state.graphsByDeviceId, [deviceId]: graph },
         };
     }),
 
-    closeFlowEditor: () => set((state) => {
+    closeFlowEditor: () => set((state: FlowSynthState) => {
         if (!state.activeDeviceId) {
             viewportProxy.reset();
             return {
                 isOpen: false,
                 activeDeviceId: null,
                 activeTrackId: null,
+                selectedNodeIds: [],
+                selectedConnectionId: null,
+                pendingConnection: null,
             };
         }
         const activeDeviceId = state.activeDeviceId;
@@ -153,22 +195,31 @@ export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
             isOpen: false,
             activeDeviceId: null,
             activeTrackId: null,
+            selectedNodeIds: [],
+            selectedConnectionId: null,
+            pendingConnection: null,
             graphsByDeviceId: nextGraphs,
         };
     }),
 
-    addNode: (node) => set((state) => {
-        if (node.type === 'output' && state.nodes.some((n) => n.type === 'output')) {
+    addNode: (node: SynthNode) => set((state: FlowSynthState) => {
+        if (node.type === 'output' && state.nodes.some((n: SynthNode) => n.type === 'output')) {
             return {};
         }
-        const hasDuplicateId = state.nodes.some((n) => n.id === node.id);
+        const hasDuplicateId = state.nodes.some((n: SynthNode) => n.id === node.id);
         const safeNode = hasDuplicateId
             ? { ...node, id: `${node.id}-${Math.random().toString(36).slice(2, 8)}` }
             : node;
         const nextNodes = [...state.nodes, safeNode];
+
+        // Trigger sync
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+
         if (!state.activeDeviceId) return { nodes: nextNodes };
         return {
             nodes: nextNodes,
+            selectedNodeIds: [safeNode.id],
+            selectedConnectionId: null,
             graphsByDeviceId: {
                 ...state.graphsByDeviceId,
                 [state.activeDeviceId]: {
@@ -180,46 +231,201 @@ export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
         };
     }),
 
-    updateNodePosition: (id, x, y) => set((state) => ({
-        nodes: state.nodes.map((n) => {
+    selectNode: (id: string, multi = false) => set((state) => {
+        if (!multi) return { selectedNodeIds: [id], selectedConnectionId: null };
+        const exists = state.selectedNodeIds.includes(id);
+        return {
+            selectedNodeIds: exists
+                ? state.selectedNodeIds.filter((nodeId) => nodeId !== id)
+                : [...state.selectedNodeIds, id],
+            selectedConnectionId: null,
+        };
+    }),
+
+    selectConnection: (id) => set({
+        selectedConnectionId: id,
+        selectedNodeIds: [],
+    }),
+
+    clearSelection: () => set({ selectedNodeIds: [], selectedConnectionId: null }),
+
+    // FIX #3: removeNode — cascading connection cleanup + graph persistence
+    removeNode: (id) => set((state) => {
+        const nextNodes = state.nodes.filter((n) => n.id !== id);
+        const nextConnections = state.connections.filter(
+            (c) => c.fromNode !== id && c.toNode !== id,
+        );
+
+        // Trigger sync
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+
+        return {
+            nodes: nextNodes,
+            connections: nextConnections,
+            selectedNodeIds: state.selectedNodeIds.filter((nodeId) => nodeId !== id),
+            selectedConnectionId: state.selectedConnectionId && nextConnections.some((c) => c.id === state.selectedConnectionId)
+                ? state.selectedConnectionId
+                : null,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: nextNodes,
+                        connections: nextConnections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        };
+    }),
+
+    updateNodeData: (id, patch) => {
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        return set((state) => {
+            const nextNodes = state.nodes.map((node) => {
+                if (node.id !== id) return node;
+                return {
+                    ...node,
+                    data: {
+                        ...(node.data ?? {}),
+                        ...patch,
+                    },
+                };
+            });
+            return {
+                nodes: nextNodes,
+                graphsByDeviceId: state.activeDeviceId
+                    ? {
+                        ...state.graphsByDeviceId,
+                        [state.activeDeviceId]: {
+                            nodes: nextNodes,
+                            connections: state.connections,
+                            viewport: viewportProxy.getViewport(),
+                        },
+                    }
+                    : state.graphsByDeviceId,
+            };
+        });
+    },
+
+    deleteSelectedNodes: () => set((state) => {
+        if (state.selectedNodeIds.length === 0) return {};
+        const selected = new Set(state.selectedNodeIds);
+        const nextNodes = state.nodes.filter((node) => !selected.has(node.id));
+        const nextConnections = state.connections.filter((conn) =>
+            !selected.has(conn.fromNode) && !selected.has(conn.toNode),
+        );
+
+        // Trigger sync
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+
+        return {
+            nodes: nextNodes,
+            connections: nextConnections,
+            selectedNodeIds: [],
+            selectedConnectionId: null,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: nextNodes,
+                        connections: nextConnections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        };
+    }),
+
+    setSelectionBox: (box) => set((state) => {
+        if (!box) return {};
+        const selectedIds = state.nodes
+            .filter((node) => {
+                const left = node.position.x;
+                const right = node.position.x + 240;
+                const top = node.position.y;
+                const bottom = node.position.y + FLOW_NODE_HEADER_HEIGHT + 100;
+                return right >= box.x
+                    && left <= box.x + box.width
+                    && bottom >= box.y
+                    && top <= box.y + box.height;
+            })
+            .map((node) => node.id);
+        return { selectedNodeIds: selectedIds, selectedConnectionId: null };
+    }),
+
+    // FIX #3: deleteConnection — targeted removal
+    deleteConnection: (id) => set((state) => {
+        const nextConnections = state.connections.filter((c) => c.id !== id);
+
+        // Trigger sync
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+
+        return {
+            connections: nextConnections,
+            selectedConnectionId: state.selectedConnectionId === id ? null : state.selectedConnectionId,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: state.nodes,
+                        connections: nextConnections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        };
+    }),
+
+    // FIX #4: Map nodes ONCE, reuse for both `nodes` and `graphsByDeviceId`.
+    updateNodePosition: (id, x, y) => set((state) => {
+        const nextNodes = state.nodes.map((n) => {
             if (n.id !== id) return n;
             const safeX = Number.isFinite(x) ? x : n.position.x;
             const safeY = Number.isFinite(y) ? y : n.position.y;
             return { ...n, position: { x: safeX, y: safeY } };
-        }),
-        graphsByDeviceId: state.activeDeviceId
-            ? {
-                ...state.graphsByDeviceId,
-                [state.activeDeviceId]: {
-                    nodes: state.nodes.map((n) => {
-                        if (n.id !== id) return n;
-                        const safeX = Number.isFinite(x) ? x : n.position.x;
-                        const safeY = Number.isFinite(y) ? y : n.position.y;
-                        return { ...n, position: { x: safeX, y: safeY } };
-                    }),
-                    connections: state.connections,
-                    viewport: viewportProxy.getViewport(),
-                },
-            }
-            : state.graphsByDeviceId,
-    })),
+        });
+        return {
+            nodes: nextNodes,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: nextNodes,
+                        connections: state.connections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        };
+    }),
 
-    setNodes: (nodes) => set((state) => ({
-        nodes,
-        graphsByDeviceId: state.activeDeviceId
-            ? {
-                ...state.graphsByDeviceId,
-                [state.activeDeviceId]: {
-                    nodes,
-                    connections: state.connections,
-                    viewport: viewportProxy.getViewport(),
-                },
-            }
-            : state.graphsByDeviceId,
-    })),
+    setNodes: (nodes) => {
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        return set((state) => ({
+            nodes,
+            selectedNodeIds: state.selectedNodeIds.filter((id) => nodes.some((node) => node.id === id)),
+            selectedConnectionId: state.selectedConnectionId && state.connections.some((c) => c.id === state.selectedConnectionId)
+                ? state.selectedConnectionId
+                : null,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes,
+                        connections: state.connections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        }));
+    },
 
     setConnections: (connections) => set((state) => ({
         connections,
+        selectedConnectionId: state.selectedConnectionId && connections.some((c) => c.id === state.selectedConnectionId)
+            ? state.selectedConnectionId
+            : null,
         graphsByDeviceId: state.activeDeviceId
             ? {
                 ...state.graphsByDeviceId,
@@ -231,6 +437,79 @@ export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
             }
             : state.graphsByDeviceId,
     })),
+
+    startConnectionDrag: (connection) => set({
+        selectedConnectionId: null,
+        pendingConnection: {
+            ...connection,
+            currentX: connection.startX,
+            currentY: connection.startY,
+        },
+    }),
+
+    updatePendingConnection: (x, y) => set((state) => {
+        if (!state.pendingConnection) return {};
+        return {
+            pendingConnection: {
+                ...state.pendingConnection,
+                currentX: Number.isFinite(x) ? x : state.pendingConnection.currentX,
+                currentY: Number.isFinite(y) ? y : state.pendingConnection.currentY,
+            },
+        };
+    }),
+
+    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi') => set((state: FlowSynthState) => {
+        const pending = state.pendingConnection;
+        if (!pending) return {};
+        if (pending.fromNode === toNode) return { pendingConnection: null };
+        if (pending.signalType !== signalType) return { pendingConnection: null };
+        // Guard: exact duplicate
+        const exists = state.connections.some((conn: SynthConnection) =>
+            conn.fromNode === pending.fromNode
+            && conn.fromPort === pending.fromPort
+            && conn.toNode === toNode
+            && conn.toPort === toPort,
+        );
+        if (exists) return { pendingConnection: null };
+        // FIX #2 ENTERPRISE: Single-input guard — an input port accepts only one cable.
+        // Multiple inputs require an explicit merge/mix node.
+        const inputOccupied = state.connections.some(
+            (conn: SynthConnection) => conn.toNode === toNode && conn.toPort === toPort,
+        );
+        if (inputOccupied) {
+            console.warn(`[FlowSynth] Input port ${toPort} on node ${toNode} already connected. Use a merge node for multiple inputs.`);
+            return { pendingConnection: null };
+        }
+        const newConnection: SynthConnection = {
+            id: `conn-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
+            fromNode: pending.fromNode,
+            fromPort: pending.fromPort,
+            toNode,
+            toPort,
+            signalType,
+        };
+        const nextConnections = [...state.connections, newConnection];
+
+        // Trigger sync
+        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+
+        return {
+            connections: nextConnections,
+            pendingConnection: null,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: state.nodes,
+                        connections: nextConnections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        };
+    }),
+
+    cancelConnectionDrag: () => set({ pendingConnection: null }),
 
     pulseFromNode: (nodeId, signalType = 'audio') => set((state) => {
         const now = Date.now();
@@ -251,4 +530,62 @@ export const useFlowSynthStore = create<FlowSynthState>()((set) => ({
             [connectionId]: Date.now(),
         },
     })),
+
+    syncFlowGraphToEngine: async () => {
+        const state = useFlowSynthStore.getState();
+        const activeTrackId = state.activeTrackId;
+        if (!activeTrackId) return;
+
+        const engineState = useEngineStore.getState();
+        const trackIndex = engineState.tracks.allIds.indexOf(activeTrackId);
+        if (trackIndex < 0) return;
+
+        // Safety: enable Flow only on tracks that actually host a Flow instrument.
+        const track = engineState.tracks.byId[activeTrackId];
+        const hasFlowOnTrack =
+            (track?.instrument?.plugin_id === 'internal://instrument/flow')
+            || !!track?.effects?.some((slot) => slot.plugin_id === 'internal://instrument/flow');
+        if (!hasFlowOnTrack) return;
+
+        const idMap = new Map<string, number>();
+        const used = new Set<number>();
+        const mapNode = (id: string) => {
+            if (idMap.has(id)) return idMap.get(id)!;
+            let numeric = stableNodeNumericId(id);
+            while (used.has(numeric)) numeric = (numeric + 1) >>> 0;
+            used.add(numeric);
+            idMap.set(id, numeric);
+            return numeric;
+        };
+
+        const encodeNodeParams = (data: Record<string, unknown> | undefined): SyncNodeParam[] => {
+            if (!data) return [];
+            const out: SyncNodeParam[] = [];
+            for (const [k, v] of Object.entries(data)) {
+                if (v === null || v === undefined) continue;
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+                    out.push([k, String(v)]);
+                }
+            }
+            return out;
+        };
+
+        const nodes: [number, string, SyncNodeParam[]][] = state.nodes.map((n) => {
+            const numericId = mapNode(n.id);
+            return [numericId, n.type, encodeNodeParams(n.data)];
+        });
+        const connections: [number, number, number, number][] = state.connections.map((c) => {
+            const fromId = mapNode(c.fromNode);
+            const toId = mapNode(c.toNode);
+            return [
+                fromId,
+                resolvePortIndex(c.fromNode, c.fromPort, 'out', state.nodes),
+                toId,
+                resolvePortIndex(c.toNode, c.toPort, 'in', state.nodes),
+            ];
+        });
+
+        await engine.setFlowEnabled(trackIndex, true);
+        await engine.syncFlowGraph(trackIndex, nodes, connections);
+    },
 }));

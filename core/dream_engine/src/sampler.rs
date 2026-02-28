@@ -135,7 +135,6 @@ impl SamplerVoice {
             self.envelope.fill_block(current_chunk);
 
             for &env in current_chunk.iter() {
-                // Integer position and fractional part for linear interpolation
                 let pos = self.cursor;
                 let idx = pos as usize;
 
@@ -146,12 +145,45 @@ impl SamplerVoice {
                     return;
                 }
 
-                let frac = (pos - idx as f64) as f32;
-                let inv_frac = 1.0 - frac;
+                let x = (pos - idx as f64) as f32;
+                let x2 = x * x;
+                let x3 = x2 * x;
 
-                // Linear interpolation — 2 multiplies + 1 add per channel
-                let l = sample_left[idx] * inv_frac + sample_left[idx + 1] * frac;
-                let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
+                // 4-point Cubic Hermite (Catmull-Rom)
+                // Indices: i-1, i, i+1, i+2
+                let i0 = idx.saturating_sub(1);
+                let i1 = idx;
+                let i2 = (idx + 1).min(last_idx);
+                let i3 = (idx + 2).min(last_idx);
+
+                // Catmull-Rom formula:
+                // out = 0.5 * ( (2*y1) + (-y0 + y2)*x + (2*y0 - 5*y1 + 4*y2 - y3)*x^2 + (-y0 + 3*y1 - 3*y2 + y3)*x^3 )
+
+                // Left channel
+                let l_y0 = sample_left[i0];
+                let l_y1 = sample_left[i1];
+                let l_y2 = sample_left[i2];
+                let l_y3 = sample_left[i3];
+
+                let l = 0.5 * (
+                    (2.0 * l_y1) +
+                    (-l_y0 + l_y2) * x +
+                    (2.0 * l_y0 - 5.0 * l_y1 + 4.0 * l_y2 - l_y3) * x2 +
+                    (-l_y0 + 3.0 * l_y1 - 3.0 * l_y2 + l_y3) * x3
+                );
+
+                // Right channel
+                let r_y0 = sample_right[i0];
+                let r_y1 = sample_right[i1];
+                let r_y2 = sample_right[i2];
+                let r_y3 = sample_right[i3];
+
+                let r = 0.5 * (
+                    (2.0 * r_y1) +
+                    (-r_y0 + r_y2) * x +
+                    (2.0 * r_y0 - 5.0 * r_y1 + 4.0 * r_y2 - r_y3) * x2 +
+                    (-r_y0 + 3.0 * r_y1 - 3.0 * r_y2 + r_y3) * x3
+                );
 
                 // Apply velocity, envelope, and master volume
                 let gain = self.velocity * env * master_vol;
@@ -724,5 +756,84 @@ mod tests {
             env.process();
         }
         assert!(env.is_idle(), "Should be idle after release");
+    }
+
+    #[test]
+    fn adsr_block_continuity() {
+        let sr = 44100.0;
+        let params = AdsrParams {
+            attack: 0.01,
+            decay: 0.02,
+            sustain: 0.5,
+            release: 0.05,
+        };
+
+        // Compare sample-by-sample vs block-fill
+        let mut env1 = AdsrEnvelope::new(sr);
+        let mut env2 = AdsrEnvelope::new(sr);
+        env1.set_params(&params);
+        env2.set_params(&params);
+        env1.note_on();
+        env2.note_on();
+
+        let mut out1 = vec![0.0f32; 2048];
+        let mut out2 = vec![0.0f32; 2048];
+
+        for v in out1.iter_mut() {
+            *v = env1.process();
+        }
+        env2.fill_block(&mut out2);
+
+        for i in 0..out1.len() {
+            assert!((out1[i] - out2[i]).abs() < 1e-6, "Block fill mismatch at index {}", i);
+        }
+
+        // Test Release continuity
+        env1.note_off();
+        env2.note_off();
+        
+        for v in out1.iter_mut() {
+            *v = env1.process();
+        }
+        env2.fill_block(&mut out2);
+
+        for i in 0..out1.len() {
+            assert!((out1[i] - out2[i]).abs() < 1e-6, "Release block fill mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn cubic_interpolation_fidelity() {
+        let sr = 44100.0;
+        // Longer pulse wave to ensure audible sum
+        let mut data = vec![1.0f32; 100];
+        data.extend(vec![-1.0f32; 100]);
+        let sample = ClipAudio::new("__test__/pulse.wav", vec![
+            data.clone(),
+            data,
+        ], 44100);
+        
+        let mut engine = SamplerEngine::new(sr);
+        engine.set_sample(Arc::new(sample));
+        
+        // Zero attack for instantaneous level
+        engine.set_adsr(AdsrParams {
+            attack: 0.0,
+            decay: 0.1,
+            sustain: 1.0,
+            release: 0.1,
+        });
+        
+        // Play at non-integer ratio
+        engine.note_on(67, 100);
+        
+        let mut left = vec![0.0f32; 512];
+        let mut right = vec![0.0f32; 512];
+        engine.render(&mut left, &mut right, 512);
+
+        // Verification: Ensure the level is significant and finite
+        let sum: f32 = left.iter().map(|s| s.abs()).sum();
+        assert!(sum > 10.0, "Sum too low: {}", sum);
+        assert!(left.iter().all(|s| s.is_finite()));
     }
 }

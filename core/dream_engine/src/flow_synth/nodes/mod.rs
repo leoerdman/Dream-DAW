@@ -3,9 +3,17 @@ pub mod filter;
 pub mod envelope;
 pub mod midi_in;
 pub mod audio_out;
+pub mod eq;
+pub mod autofilter;
+pub mod reverse;
+pub mod audio_in;
 
 pub use oscillator::OscillatorNode;
 pub use filter::FilterNode;
 pub use envelope::EnvelopeNode;
 pub use midi_in::MidiInNode;
 pub use audio_out::AudioOutNode;
+pub use eq::EqNode;
+pub use autofilter::AutoFilterNode;
+pub use reverse::ReverseNode;
+pub use audio_in::AudioInNode;

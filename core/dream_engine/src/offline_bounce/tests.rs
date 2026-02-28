@@ -415,7 +415,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut test_scratch_r_1 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
     let mut test_midi_events_1: Vec<MidiEvent> = Vec::new();
 
-    let mut track_latencies_1 = vec![0u32; project.tracks.len()];
+    let track_latencies_1 = vec![0u32; project.tracks.len()];
     let mut pdc_buffers_1: Vec<super::DelayBuffer> = (0..project.tracks.len()).map(|_| super::DelayBuffer::new()).collect();
 
     let mut routing_ctx_none = super::RenderRoutingCtx {
@@ -462,7 +462,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut test_scratch_r_2 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
     let mut test_midi_events_2: Vec<MidiEvent> = Vec::new();
 
-    let mut track_latencies_2 = vec![0u32; project.tracks.len()];
+    let track_latencies_2 = vec![0u32; project.tracks.len()];
     let mut pdc_buffers_2: Vec<super::DelayBuffer> = (0..project.tracks.len()).map(|_| super::DelayBuffer::new()).collect();
 
     let mut routing_ctx_utility = super::RenderRoutingCtx {

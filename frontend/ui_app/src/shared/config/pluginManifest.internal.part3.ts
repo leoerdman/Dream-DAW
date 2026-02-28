@@ -230,6 +230,6 @@ export const INTERNAL_PLUGINS_PART_3: PluginManifestEntry[] = [
         hasEditor: true,
         cardWidth: 520,
         supportsSettings: true,
-        supportsSidechain: false,
+        supportsSidechain: true,
     },
 ];

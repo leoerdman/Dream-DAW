@@ -772,13 +772,11 @@ impl OfflineRenderer {
                         // ── VST3 FX slot ──
                         if let Some(instance_id) = runtime_slot.instance_id {
                             if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
-                                // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
-                                let mut host = loop {
-                                    if let Some(guard) = plugin_mtx.try_lock() {
-                                        break guard;
-                                    }
-                                    std::thread::sleep(std::time::Duration::from_millis(1));
-                                };
+                                // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
+                                // thread skips all VST try_lock() calls when export_active=true,
+                                // so no contention exists. The previous cooperative try_lock()+
+                                // sleep(1ms) loop introduced timing jitter in the render.
+                                let mut host = plugin_mtx.lock();
                                 let transport = TransportContext {
                                     sample_rate: ctx.sample_rate,
                                     position_samples: ctx.playhead_pos,
@@ -1268,13 +1266,11 @@ impl OfflineRenderer {
                                 );
                                 continue;
                             };
-                            // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
-                            let mut host = loop {
-                                if let Some(guard) = plugin_mtx.try_lock() {
-                                    break guard;
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(1));
-                            };
+                            // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
+                            // thread skips all VST try_lock() calls when export_active=true,
+                            // so no contention exists. The previous cooperative try_lock()+
+                            // sleep(1ms) loop introduced timing jitter in the render.
+                            let mut host = plugin_mtx.lock();
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let main_inputs: [&[f32]; 2] =
                                 [&master_l[..frame_count], &master_r[..frame_count]];
@@ -2198,13 +2194,11 @@ impl OfflineRenderer {
                                 let Some(plugin_mtx) = plugin_registry.get(&instance_id) else {
                                     continue;
                                 };
-                                // BUG-A004 FIX: Use cooperative lock acquisition to prevent deadlocking the UI thread during offline bounce
-                                let mut host = loop {
-                                    if let Some(guard) = plugin_mtx.try_lock() {
-                                        break guard;
-                                    }
-                                    std::thread::sleep(std::time::Duration::from_millis(1));
-                                };
+                                // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
+                                // thread skips all VST try_lock() calls when export_active=true,
+                                // so no contention exists. The previous cooperative try_lock() +
+                                // sleep(1ms) loop introduced timing jitter in the render.
+                                let mut host = plugin_mtx.lock();
                                 let main_inputs: [&[f32]; 2] =
                                     [&tail_slice_l[..actual], &tail_slice_r[..actual]];
                                 let transport = dream_plugins::TransportContext {

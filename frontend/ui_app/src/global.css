@@ -461,3 +461,16 @@ body::after {
       transform: translate3d(0, calc(-2px * var(--theme-motion-strength)), 0);
    }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   FLOW SYNTH — Cable Animations
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes flow-cable {
+   0% {
+      stroke-dashoffset: 0;
+   }
+
+   100% {
+      stroke-dashoffset: -200;
+   }
+}

@@ -112,10 +112,11 @@ export function useKeyboardInteractions({
         if (activeEl === searchRef.current) {
             const first = items[0] ?? null;
             if (!first) return;
-            // Enter in search is a focus/selection step, not an apply step.
+            // UX: Enter in search immediately applies the top relevant result.
             setSelectedItemId(first.id);
             if (previewEnabled) syncPreviewForItem(first);
             focusResults();
+            void handleItemEnter(first);
             return;
         }
         const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;

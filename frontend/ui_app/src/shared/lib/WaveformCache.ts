@@ -163,6 +163,34 @@ export class WaveformCache {
         return 0; // Finest level
     }
 
+    // ── Buffer Pooling ───────────────────────────────────────────────
+    private static _pool64: Float32Array[] = [];
+    private static _pool128: Float32Array[] = [];
+    private static _pool256: Float32Array[] = [];
+    private static _pool512: Float32Array[] = [];
+    private static _pool1024: Float32Array[] = [];
+
+    private _getBufferFromPool(size: number): Float32Array {
+        let pool: Float32Array[] | null = null;
+        if (size <= 64) pool = WaveformCache._pool64;
+        else if (size <= 128) pool = WaveformCache._pool128;
+        else if (size <= 256) pool = WaveformCache._pool256;
+        else if (size <= 512) pool = WaveformCache._pool512;
+        else if (size <= 1024) pool = WaveformCache._pool1024;
+
+        if (pool && pool.length > 0) return pool.pop()!.subarray(0, size);
+        return new Float32Array(size);
+    }
+
+    private _releaseBufferToPool(arr: Float32Array): void {
+        const size = arr.buffer.byteLength / 4;
+        if (size === 64) WaveformCache._pool64.push(arr);
+        else if (size === 128) WaveformCache._pool128.push(arr);
+        else if (size === 256) WaveformCache._pool256.push(arr);
+        else if (size === 512) WaveformCache._pool512.push(arr);
+        else if (size === 1024) WaveformCache._pool1024.push(arr);
+    }
+
     /** Extract aligned draw data (Float32Arrays) from the raw floats. */
     private _extractDrawData(
         sourceOffset: number,
@@ -185,8 +213,14 @@ export class WaveformCache {
             return entry.lastDrawData.data;
         }
 
-        const mins = new Float32Array(count);
-        const maxs = new Float32Array(count);
+        // Release old draw data buffers back to pool
+        if (entry.lastDrawData) {
+            this._releaseBufferToPool(entry.lastDrawData.data.mins);
+            this._releaseBufferToPool(entry.lastDrawData.data.maxs);
+        }
+
+        const mins = this._getBufferFromPool(count);
+        const maxs = this._getBufferFromPool(count);
 
         for (let i = 0; i < count; i++) {
             const idx = (startPeak + i) * 2;

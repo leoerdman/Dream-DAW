@@ -118,8 +118,9 @@ fn main() {
 /// Sends a command via the lock-free ring buffer.
 /// If queue full (extremely unlikely), logs warning and drops command.
 fn send(producer: &mut rtrb::Producer<EngineCommand>, cmd: EngineCommand) {
+    let dbg = format!("{:?}", &cmd);
     if producer.push(cmd).is_err() {
-        log::warn!("⚠  Command queue full, dropping: {:?}", cmd);
+        log::warn!("⚠  Command queue full, dropping: {}", dbg);
     }
 }
 

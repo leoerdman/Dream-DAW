@@ -14,7 +14,7 @@ export function createTransportActions(
     return {
         togglePlay: async () => {
             try {
-                const isPlaying = await engine.togglePlayback();
+                const isPlaying = await engine.withTimeout(engine.togglePlayback(), 500);
                 set((s) => ({
                     transport: { ...s.transport, is_playing: isPlaying },
                     lastError: null,
@@ -26,7 +26,7 @@ export function createTransportActions(
 
         play: async () => {
             try {
-                await engine.play();
+                await engine.withTimeout(engine.play(), 500);
                 set((s) => ({
                     transport: { ...s.transport, is_playing: true },
                     lastError: null,
@@ -38,7 +38,7 @@ export function createTransportActions(
 
         stop: async () => {
             try {
-                await engine.stop();
+                await engine.withTimeout(engine.stop(), 500);
                 set((s) => ({
                     transport: { ...s.transport, is_playing: false },
                     lastError: null,
@@ -54,7 +54,7 @@ export function createTransportActions(
             set((s) => ({ transport: { ...s.transport, bpm: clamped }, projectBpm: clamped }));
             markBpmPending(500);
             try {
-                const response = await engine.setBpmWithDeltas(clamped);
+                const response = await engine.withTimeout(engine.setBpmWithDeltas(clamped), 500);
                 await get().applyProjectDeltas(response.deltas, 'setBpm');
                 set({ lastError: null });
             } catch (e) {
@@ -90,7 +90,7 @@ export function createTransportActions(
             // BUG-006: Validate input — reject NaN, Infinity, and negative values.
             const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
             try {
-                await engine.seekSeconds(safe);
+                await engine.withTimeout(engine.seekSeconds(safe), 500);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });
@@ -101,7 +101,7 @@ export function createTransportActions(
             // BUG-006: Validate input — reject NaN, Infinity, and negative values.
             const safe = Number.isFinite(beat) ? Math.max(0, beat) : 0;
             try {
-                await engine.seekToBeat(safe);
+                await engine.withTimeout(engine.seekToBeat(safe), 500);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

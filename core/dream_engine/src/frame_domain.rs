@@ -55,7 +55,7 @@ pub struct FrameDomainConverter {
 impl FrameDomainConverter {
     // ── Ratio bounds ───────────────────────────────────────────────────
     // Guard against pathological SR mismatches (e.g. 8kHz device, 192kHz
-    // timeline).  Clamp to 8× which covers all professional scenarios.
+    // timeline).  Clamp to 20× which covers all professional scenarios.
     const RATIO_MIN: f64 = 0.05;
     const RATIO_MAX: f64 = 20.0;
 
@@ -352,15 +352,15 @@ mod tests {
     #[test]
     fn zero_device_sr_clamped() {
         let fc = FrameDomainConverter::new(0.0, 44100.0, 512);
-        // device_sr clamped to 1.0, ratio = 44100/1 clamped to 8.0
-        assert!((fc.device_to_timeline_ratio() - 8.0).abs() < 1e-10);
+        // device_sr clamped to 1.0, ratio = 44100/1 clamped to RATIO_MAX (20.0)
+        assert!((fc.device_to_timeline_ratio() - FrameDomainConverter::RATIO_MAX).abs() < 1e-10);
     }
 
     #[test]
     fn zero_timeline_sr_clamped() {
         let fc = FrameDomainConverter::new(44100.0, 0.0, 512);
-        // timeline_sr clamped to 1.0, ratio = 1/44100 clamped to 0.125
-        assert!((fc.device_to_timeline_ratio() - 0.125).abs() < 1e-10);
+        // timeline_sr clamped to 1.0, ratio = 1/44100 clamped to RATIO_MIN (0.05)
+        assert!((fc.device_to_timeline_ratio() - FrameDomainConverter::RATIO_MIN).abs() < 1e-10);
     }
 
     #[test]
@@ -374,7 +374,7 @@ mod tests {
     fn source_sr_zero_clamped() {
         let fc = FrameDomainConverter::new(44100.0, 44100.0, 512);
         let r = fc.source_to_device_ratio(0);
-        // source clamped to 1, ratio = 1/44100 clamped to 0.125
-        assert!((r - 0.125).abs() < 1e-10);
+        // source clamped to 1, ratio = 1/44100 clamped to RATIO_MIN (0.05)
+        assert!((r - FrameDomainConverter::RATIO_MIN).abs() < 1e-10);
     }
 }

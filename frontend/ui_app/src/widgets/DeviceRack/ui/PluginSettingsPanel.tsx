@@ -50,6 +50,7 @@ export const PluginSettingsPanel = ({
     editorReason,
     onParamContextMenu,
 }: PluginSettingsPanelProps) => {
+    const showSidechainSelector = device.source === 'vst' || device.pluginId === 'internal://instrument/flow';
     const [paramSearch, setParamSearch] = useState('');
     const baseParams = useMemo(() => (
         device.source === 'internal' ? buildSurfaceKnobParams(device) : device.params
@@ -117,7 +118,7 @@ export const PluginSettingsPanel = ({
                     />
                 </div>
             )}
-            {device.source === 'vst' && (
+            {showSidechainSelector && (
                 <div style={{ display: 'grid', gap: 4, width: 240, maxWidth: '100%' }}>
                     <span style={{
                         fontSize: 'var(--font-size-xs)',

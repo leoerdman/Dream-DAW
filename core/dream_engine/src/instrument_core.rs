@@ -195,13 +195,72 @@ impl AdsrEnvelope {
                     output[i..].fill(0.0);
                     return;
                 }
+                EnvelopeStage::Attack => {
+                    let rate = self.attack_rate;
+                    let remaining_samples = len - i;
+                    let samples_to_target = if rate > 0.0 {
+                        ((1.0 - self.level) / rate).ceil() as usize
+                    } else {
+                        0
+                    };
+                    let samples_to_process = remaining_samples.min(samples_to_target).max(1);
+
+                    for j in 0..samples_to_process {
+                        self.level += rate;
+                        output[i + j] = self.level as f32;
+                    }
+                    i += samples_to_process;
+
+                    if self.level >= 1.0 {
+                        self.level = 1.0;
+                        self.stage = EnvelopeStage::Decay;
+                    }
+                }
+                EnvelopeStage::Decay => {
+                    let rate = self.decay_rate;
+                    let sustain = self.sustain_level;
+                    let remaining_samples = len - i;
+                    
+                    // Convergence target for "close enough to sustain"
+                    const DECAY_EPSILON: f64 = 0.0001;
+                    
+                    for j in 0..remaining_samples {
+                        self.level = sustain + (self.level - sustain) * rate;
+                        output[i + j] = self.level as f32;
+                        
+                        if self.level <= sustain + DECAY_EPSILON {
+                            self.level = sustain;
+                            self.stage = EnvelopeStage::Sustain;
+                            i += j + 1;
+                            break;
+                        }
+                        if j == remaining_samples - 1 {
+                            i = len;
+                        }
+                    }
+                }
                 EnvelopeStage::Sustain => {
                     output[i..].fill(self.sustain_level as f32);
                     return;
                 }
-                _ => {
-                    output[i] = self.process();
-                    i += 1;
+                EnvelopeStage::Release => {
+                    let rate = self.release_rate;
+                    let remaining_samples = len - i;
+                    
+                    for j in 0..remaining_samples {
+                        self.level *= rate;
+                        output[i + j] = self.level as f32;
+                        
+                        if self.level < 0.0001 {
+                            self.level = 0.0;
+                            self.stage = EnvelopeStage::Idle;
+                            i += j + 1;
+                            break;
+                        }
+                        if j == remaining_samples - 1 {
+                            i = len;
+                        }
+                    }
                 }
             }
         }

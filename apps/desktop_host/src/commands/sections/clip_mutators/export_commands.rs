@@ -67,16 +67,17 @@ fn ensure_slot_loaded_for_export(
     }
 }
 
-fn export_quiescence_wait_ms(sample_rate_hz: f64) -> u64 {
+fn export_quiescence_wait_ms(sample_rate_hz: f64, frames_ref: u32) -> u64 {
     let sr = if sample_rate_hz.is_finite() && sample_rate_hz > 0.0 {
         sample_rate_hz
     } else {
         44_100.0
     };
-    // Wait roughly two callback periods, using the offline buffer size as
-    // a conservative reference. Keeps the wait tight to avoid UI stalls.
-    let frames_ref = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS as f64;
-    ((frames_ref * 2.0 / sr) * 1000.0).round().clamp(35.0, 140.0) as u64
+    // Wait roughly two callback periods using the real RT block size.
+    // If this is too short, RT may still touch plugin instances while
+    // offline bounce reactivates/processes them, causing audible corruption.
+    let frames = frames_ref.max(64) as f64;
+    ((frames * 2.0 / sr) * 1000.0).round().clamp(35.0, 500.0) as u64
 }
 
 /// Offline bounce/export command.
@@ -89,6 +90,12 @@ async fn export_mix_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
+    let (rt_sample_rate_hz, rt_buffer_frames) = {
+        let host = plugin_host_state.host.lock();
+        let (sr, bs) = host.audio_config();
+        (sr, bs.max(1) as u32)
+    };
+
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     let project = project_state
@@ -348,13 +355,15 @@ async fn export_mix_cmd(
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
         let wait_start = std::time::Instant::now();
-        let wait_ms = export_quiescence_wait_ms(timeline_sr);
+        let wait_frames = rt_buffer_frames.max(handle.output_latency_frames);
+        let wait_ms = export_quiescence_wait_ms(rt_sample_rate_hz.max(timeline_sr), wait_frames);
         std::thread::sleep(std::time::Duration::from_millis(wait_ms));
         log::info!(
-            "[Export] Waited {}ms for RT thread quiescence (target={}ms @ {:.0}Hz)",
+            "[Export] Waited {}ms for RT thread quiescence (target={}ms @ {:.0}Hz, {} frames)",
             wait_start.elapsed().as_millis(),
             wait_ms,
-            timeline_sr
+            rt_sample_rate_hz.max(timeline_sr),
+            wait_frames
         );
     }
 
@@ -367,7 +376,12 @@ async fn export_mix_cmd(
     // The old hardcoded 50ms was insufficient at high buffer sizes (e.g.
     // 8192 frames @ 44.1kHz = 186ms callback period). Now uses the same
     // adaptive quiescence calculation to ensure at least one full callback.
-    let export_active_wait = export_quiescence_wait_ms(project.sample_rate.max(1.0));
+    let export_active_wait = export_quiescence_wait_ms(
+        rt_sample_rate_hz,
+        rt_buffer_frames
+            .max(handle.output_latency_frames)
+            .max(dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS as u32),
+    );
     std::thread::sleep(std::time::Duration::from_millis(export_active_wait));
 
     // Ensure plugins are reactivated for the offline export processing format.
@@ -429,7 +443,7 @@ async fn export_mix_cmd(
     let job_id_for_finish = job_id.clone();
     // Capture plugin host Arc for post-export reactivation back to RT buffer size.
     let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-    let project_sr_for_reactivate = project.sample_rate.max(1.0);
+    let rt_sample_rate_for_reactivate = rt_sample_rate_hz.max(1.0);
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineRenderer::new(cfg);
@@ -478,10 +492,14 @@ async fn export_mix_cmd(
         {
             let mut host = plugin_host_arc.lock();
             host.reactivate_all(
-                project_sr_for_reactivate,
+                rt_sample_rate_for_reactivate,
                 dream_engine::render_callback::MAX_BUFFER_FRAMES,
             );
-            log::info!("[Export] Reactivated plugins to RT buffer size ({})", dream_engine::render_callback::MAX_BUFFER_FRAMES);
+            log::info!(
+                "[Export] Reactivated plugins to RT config: {:.0}Hz / {} max frames",
+                rt_sample_rate_for_reactivate,
+                dream_engine::render_callback::MAX_BUFFER_FRAMES
+            );
         }
 
         // ── Re-enable RT external VST processing after export ───────

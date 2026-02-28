@@ -80,7 +80,7 @@ pub(super) fn process_master_bus(
     master_gain_smoother: &mut crate::oscillator::ParameterSmoother,
     _render_ctx: &mut RenderContext,
     process_ctx: &ProcessContext,
-    _export_active: bool,
+    export_active: bool,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
@@ -124,11 +124,6 @@ pub(super) fn process_master_bus(
                             MASTER_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             continue;
                         };
-                        // BUG-008 FIX: Do NOT skip master bus VSTs during export.
-                        // The offline renderer processes sequentially — blocking locks
-                        // are safe and necessary for correct exported audio.
-                        // Previously, export_active caused `continue`, producing
-                        // exported audio with NO master bus VST effects at all.
                         // CRACKLE-FIX-1: Copy input into external buffers BEFORE
                         // attempting lock. On lock miss, the dry signal is already
                         // in external_left/right, so the copy-back below produces
@@ -136,7 +131,19 @@ pub(super) fn process_master_bus(
                         external_left[..n].copy_from_slice(&graph_out_left[..n]);
                         external_right[..n].copy_from_slice(&graph_out_right[..n]);
 
-                        if let Some(mut host) = plugin_mtx.try_lock() {
+                        // EXPORT-DISTORTION-FIX: Skip master bus VST processing
+                        // on the RT thread when offline export is active. The
+                        // offline renderer holds exclusive plugin access via
+                        // blocking lock — any RT try_lock() success here would
+                        // feed the plugin a different playhead/buffer, corrupting
+                        // its DSP state and producing distorted export audio.
+                        // Master bus FX are applied by the offline renderer's
+                        // Phase 4.5 (render_routing_aware), so they ARE included
+                        // in the export — just not processed by the RT thread.
+                        if export_active {
+                            // Dry passthrough — external buffers already contain
+                            // the input. Sanitize and copy back below.
+                        } else if let Some(mut host) = plugin_mtx.try_lock() {
                             // Lock acquired — full plugin processing
                             let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
                             let transport = TransportContext {

@@ -3,7 +3,11 @@ import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { viewportProxy } from '../lib/ViewportProxy';
 import { SynthNodeComponent } from './SynthNodeComponent';
 
-export function NodesLayer() {
+interface NodesLayerProps {
+    interactionDisabled?: boolean;
+}
+
+export function NodesLayer({ interactionDisabled = false }: NodesLayerProps) {
     const nodes = useFlowSynthStore((state) => state.nodes);
     const layerRef = useRef<HTMLDivElement>(null);
 
@@ -31,7 +35,7 @@ export function NodesLayer() {
             }}
         >
             {nodes.map((node) => (
-                <SynthNodeComponent key={node.id} node={node} />
+                <SynthNodeComponent key={node.id} node={node} interactionDisabled={interactionDisabled} />
             ))}
         </div>
     );

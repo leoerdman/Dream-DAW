@@ -1,11 +1,11 @@
 {
     "productName": "Dream DAW",
-    "version": "1.0.474",
+    "version": "1.0.482",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
         "devUrl": "http://localhost:5179",
-        "beforeDevCommand": "bash -lc 'for p in 5179 5180; do pids=$(lsof -ti tcp:$p -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; sleep 0.2; fi; done; pnpm --filter ui_app dev -- --port 5179 --strictPort'",
+        "beforeDevCommand": "bash -lc 'for p in 5179 5180; do pids=$(lsof -ti tcp:$p -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; sleep 0.3; pids2=$(lsof -ti tcp:$p -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids2\" ]; then kill -9 $pids2 2>/dev/null || true; fi; fi; done; pkill -f \"vite -- --port 5179 --strictPort\" 2>/dev/null || true; pnpm --filter ui_app dev -- --port 5179 --strictPort'",
         "beforeBuildCommand": "pnpm --filter ui_app build"
     },
     "app": {

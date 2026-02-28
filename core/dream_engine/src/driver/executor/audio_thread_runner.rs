@@ -631,6 +631,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         time_sig_denominator,
                                         timeline_sample_rate: render_ctx.timeline_sample_rate,
                                         loop_region: render_ctx.loop_region,
+                                        export_active,
                                     };
 
                                     process_track_graph_node(left, right, &mut ctx, sidechain_resolver);

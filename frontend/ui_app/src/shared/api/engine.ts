@@ -49,6 +49,25 @@ export type {
     SplitClipResponse,
     SplitClipWithDeltasResponse,
 } from './projectDelta';
+
+/** IPC Resilience: Wraps a promise with a timeout to prevent UI hangs. */
+export async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`IPC Timeout: Command failed to respond within ${ms}ms`));
+        }, ms);
+    });
+    try {
+        const result = await Promise.race([promise, timeout]);
+        clearTimeout(timeoutId!);
+        return result;
+    } catch (err) {
+        clearTimeout(timeoutId!);
+        throw err;
+    }
+}
+
 export const play = () => invoke<void>('play');
 /** ENTERPRISE FIX: Atomic seek-and-play — eliminates the 1-buffer stutter
  *  caused by separate togglePlayback() + seekToBeat() IPC calls. */
@@ -1329,3 +1348,8 @@ export const loadDevicePreset = (
     invoke<string>('load_device_preset_cmd', {
         payload: { trackId, presetPath, insertIndex: insertIndex ?? null },
     });
+export const setFlowEnabled = (trackIndex: number, enabled: boolean) =>
+    invoke<void>('set_flow_enabled_cmd', { trackIndex, enabled });
+
+export const syncFlowGraph = (trackIndex: number, nodes: [number, string][], connections: [number, number, number, number][]) =>
+    invoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });

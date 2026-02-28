@@ -119,6 +119,7 @@ pub(super) fn render_instrument_sources(
             && !rack_active
             && !essence_active
             && !flow_active
+            && !use_flow
         {
             continue;
         }
@@ -247,7 +248,8 @@ pub(super) fn render_instrument_sources(
                     && let Some(ref mut ess) = essence {
                         ess.note_off(off_pitch);
                     }
-                if let Some(ref mut fl) = flow {
+                if use_flow
+                    && let Some(ref mut fl) = flow {
                     fl.note_off(off_pitch);
                 }
             } else {
@@ -295,7 +297,8 @@ pub(super) fn render_instrument_sources(
                         && let Some(ref mut ess) = essence {
                             ess.note_off(previous.mapped_pitch);
                         }
-                    if let Some(ref mut fl) = flow {
+                    if use_flow
+                        && let Some(ref mut fl) = flow {
                         fl.note_off(previous.mapped_pitch);
                     }
                 }
@@ -311,7 +314,8 @@ pub(super) fn render_instrument_sources(
                     && let Some(ref mut ess) = essence {
                         ess.note_on(mapped_pitch, mapped_velocity);
                     }
-                if let Some(ref mut fl) = flow {
+                if use_flow
+                    && let Some(ref mut fl) = flow {
                     fl.note_on(mapped_pitch, mapped_velocity);
                 }
             }

@@ -1,5 +1,9 @@
+use std::any::Any;
 use crate::flow_synth::graph::{FlowNode, FlowSignal};
 use crate::instrument_core::{AdsrEnvelope, AdsrParams};
+
+/// Default sample rate used when the EnvelopeNode is created without context.
+const DEFAULT_SAMPLE_RATE: f64 = 44100.0;
 
 pub struct EnvelopeNode {
     envelope: AdsrEnvelope,
@@ -8,9 +12,12 @@ pub struct EnvelopeNode {
 }
 
 impl EnvelopeNode {
-    pub fn new(sample_rate: f64) -> Self {
+    /// Create with default sample rate. The audio thread will call process
+    /// with the actual sample rate, but the envelope time constants are set
+    /// here as a starting point.
+    pub fn new() -> Self {
         let params = AdsrParams::default();
-        let mut envelope = AdsrEnvelope::new(sample_rate);
+        let mut envelope = AdsrEnvelope::new(DEFAULT_SAMPLE_RATE);
         envelope.set_params(&params);
         Self {
             envelope,
@@ -27,21 +34,20 @@ impl FlowNode for EnvelopeNode {
         // Input 2: Decay (seconds)
         // Input 3: Sustain (level 0..1)
         // Input 4: Release (seconds)
-        
-        let gate = inputs[0].0;
-        
-        // Update parameters if they changed (simplified: always check or update periodically)
-        let attack = inputs[1].0 as f64;
-        let decay = inputs[2].0 as f64;
-        let sustain = inputs[3].0 as f64;
-        let release = inputs[4].0 as f64;
 
-        // Check if params changed significantly to avoid recalculating every sample
-        // For a 100x engine, we'd only update when changed.
-        if (self.params.attack - attack).abs() > 0.001 || 
-           (self.params.decay - decay).abs() > 0.001 ||
-           (self.params.sustain - sustain).abs() > 0.001 ||
-           (self.params.release - release).abs() > 0.001 {
+        let gate = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
+
+        // Update parameters if they changed
+        let attack = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.01) as f64;
+        let decay = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.1) as f64;
+        let sustain = inputs.get(3).and_then(|s| s.as_float()).unwrap_or(0.7) as f64;
+        let release = inputs.get(4).and_then(|s| s.as_float()).unwrap_or(0.3) as f64;
+
+        if (self.params.attack - attack).abs() > 0.001
+            || (self.params.decay - decay).abs() > 0.001
+            || (self.params.sustain - sustain).abs() > 0.001
+            || (self.params.release - release).abs() > 0.001
+        {
             self.params = AdsrParams { attack, decay, sustain, release };
             self.envelope.set_params(&self.params);
         }
@@ -54,11 +60,13 @@ impl FlowNode for EnvelopeNode {
         }
         self.last_gate = gate;
 
-        outputs[0] = FlowSignal(self.envelope.process());
+        outputs[0] = FlowSignal::Control(self.envelope.process());
     }
 
     fn reset(&mut self) {
         self.envelope.reset();
         self.last_gate = 0.0;
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
 }

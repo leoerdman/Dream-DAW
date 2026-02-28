@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::flow_synth::graph::{FlowNode, FlowSignal};
 use crate::synth_types::SynthFilterType;
 use dream_dsp::svf::SvfState;
@@ -8,11 +9,16 @@ pub struct FilterNode {
 }
 
 impl FilterNode {
-    pub fn new(filter_type: SynthFilterType) -> Self {
+    /// Create a Filter with default Lowpass type.
+    pub fn new() -> Self {
         Self {
-            filter_type,
+            filter_type: SynthFilterType::Lowpass,
             state: SvfState::default(),
         }
+    }
+
+    pub fn set_filter_type(&mut self, filter_type: SynthFilterType) {
+        self.filter_type = filter_type;
     }
 }
 
@@ -21,10 +27,10 @@ impl FlowNode for FilterNode {
         // Input 0: Audio Signal to filter
         // Input 1: Cutoff Frequency in Hz
         // Input 2: Resonance (0..1)
-        
-        let input = inputs[0].0;
-        let cutoff = inputs[1].0.clamp(20.0, 20000.0) as f64;
-        let resonance = inputs[2].0.clamp(0.0, 0.99) as f64;
+
+        let input = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
+        let cutoff = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(1000.0).clamp(20.0, 20000.0) as f64;
+        let resonance = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.0).clamp(0.0, 0.99) as f64;
 
         let inv_sr = 1.0 / sample_rate;
         let g = (std::f64::consts::PI * cutoff * inv_sr).tan() as f32;
@@ -59,10 +65,12 @@ impl FlowNode for FilterNode {
             SynthFilterType::Notch => lp + hp,
         };
 
-        outputs[0] = FlowSignal(filtered);
+        outputs[0] = FlowSignal::Audio(filtered);
     }
 
     fn reset(&mut self) {
         self.state.reset();
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
 }

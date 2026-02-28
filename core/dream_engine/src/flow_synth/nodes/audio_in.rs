@@ -5,25 +5,27 @@ use super::super::graph::{FlowNode, FlowSignal};
 /// This node doesn't have internal state, but it acts as a placeholder
 /// for the engine to inject external track audio into the graph.
 pub struct AudioInNode {
-    // No state needed, just a marker
+    input_sample: f32,
 }
 
 impl AudioInNode {
     pub fn new() -> Self {
-        Self {}
+        Self { input_sample: 0.0 }
+    }
+
+    pub fn set_input_sample(&mut self, sample: f32) {
+        self.input_sample = sample;
     }
 }
 
 impl FlowNode for AudioInNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
-        // In modular context, the input 0 of this node is expected to be
-        // pre-filled by the FlowSynthEngine before the graph is processed.
-        // If nothing is connected, it defaults to silence.
-        outputs[0] = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));
+        let _ = inputs;
+        outputs[0] = FlowSignal::Audio(self.input_sample);
     }
 
     fn reset(&mut self) {
-        // No-op
+        self.input_sample = 0.0;
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any { self }

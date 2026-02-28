@@ -1,11 +1,19 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { beatDurationToFrames, beatToFrame, DEFAULT_TIME_SIG_NUMERATOR, resolveBpm } from '@/shared/lib/audioMath';
-import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useEngineStore, type EngineStore } from '@/shared/stores/useEngineStore';
+import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
+
+/**
+ * SSOT: Canonical clip lookup — uses clips.byId first, falls back to clipsById
+ * for backward compatibility during migration.
+ */
+function resolveClipById(state: EngineStore, clipId: string): TimelineClip | undefined {
+    return state.clips.byId[clipId] ?? state.clipsById[clipId];
+}
 
 type BottomPanelMode = 'rack' | 'clip';
 
@@ -49,29 +57,24 @@ export function useTimelineClipHandlers({
         return /clip/i.test(message) && /(not\s+found|unknown|does\s+not\s+exist|missing)/i.test(message);
     };
 
+    // SSOT FIX: Use timelineClips as the single source of truth.
+    // Previously guessed which byId map was canonical — now always derives from the array.
+    // SSOT FIX: pruneGhostClip derives all state from single filtered array.
     const pruneGhostClip = useCallback((clipId: string) => {
         if (!clipId) return;
         useEngineStore.setState((s) => {
-            const canonicalById = Object.keys(s.clips.byId).length > 0 ? s.clips.byId : s.clipsById;
-            if (!canonicalById[clipId]) return s;
-
-            const nextClipIds = s.clips.allIds.filter((id) => id !== clipId);
-            const nextClipsEntityById = { ...canonicalById };
-            delete nextClipsEntityById[clipId];
-            const nextTimelineClips = normalizeTimelineClips(
-                nextClipIds
-                    .map((id) => nextClipsEntityById[id])
-                    .filter((clip): clip is TimelineClip => Boolean(clip)),
-            ) as TimelineClip[];
-            const nextClipsById = Object.fromEntries(nextTimelineClips.map((clip) => [clip.id, clip]));
-
+            if (!resolveClipById(s as unknown as EngineStore, clipId)) return s;
+            const nextTimelineClips = s.timelineClips.filter((c) => c.id !== clipId);
+            const nextClipsById: Record<string, TimelineClip> = {};
+            const nextAllIds: string[] = [];
+            for (const c of nextTimelineClips) {
+                nextClipsById[c.id] = c;
+                nextAllIds.push(c.id);
+            }
             return {
                 timelineClips: nextTimelineClips,
                 clipsById: nextClipsById,
-                clips: {
-                    byId: nextClipsById,
-                    allIds: nextTimelineClips.map((clip) => clip.id),
-                },
+                clips: { byId: nextClipsById, allIds: nextAllIds },
             };
         });
         setSelectedClipIds((prev) => prev.filter((id) => id !== clipId));
@@ -94,7 +97,8 @@ export function useTimelineClipHandlers({
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
-        const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
+        // SSOT: Use clipsById as the single canonical lookup map.
+        const liveClip = resolveClipById(liveState, clipId);
         const liveExists = Boolean(liveClip);
         if (!liveExists) {
             pruneGhostClip(clipId);
@@ -139,7 +143,7 @@ export function useTimelineClipHandlers({
             if (moveAsGroup) {
                 const seen = new Set<string>();
                 clipsToMove = selectedClipIds
-                    .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                    .map((id) => resolveClipById(liveState, id))
                     .filter((clip): clip is TimelineClip => Boolean(clip))
                     .filter((clip) => {
                         if (!selectedSet.has(clip.id)) return false;
@@ -200,7 +204,7 @@ export function useTimelineClipHandlers({
         if (!Number.isFinite(newStartBeat) || newStartBeat < 0) return;
         if (!Number.isFinite(newDurationBeats) || newDurationBeats <= 0) return;
         const liveState = useEngineStore.getState();
-        const liveExists = Boolean(liveState.clips.byId[clipId] ?? liveState.clipsById[clipId]);
+        const liveExists = Boolean(resolveClipById(liveState, clipId));
         if (!liveExists) {
             pruneGhostClip(clipId);
             return;
@@ -227,7 +231,7 @@ export function useTimelineClipHandlers({
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         const liveState = useEngineStore.getState();
-        const liveExists = Boolean(liveState.clips.byId[clipId] ?? liveState.clipsById[clipId]);
+        const liveExists = Boolean(resolveClipById(liveState, clipId));
         if (!liveExists) {
             pruneGhostClip(clipId);
             return;
@@ -257,7 +261,7 @@ export function useTimelineClipHandlers({
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
-        const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
+        const liveClip = resolveClipById(liveState, clipId);
         if (!liveClip) {
             pruneGhostClip(clipId);
             return;
@@ -285,7 +289,7 @@ export function useTimelineClipHandlers({
             if (duplicateAsGroup) {
                 const seen = new Set<string>();
                 clipsToDuplicate = selectedClipIds
-                    .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                    .map((id) => resolveClipById(liveState, id))
                     .filter((clip): clip is TimelineClip => Boolean(clip))
                     .filter((clip) => {
                         if (!selectedSet.has(clip.id)) return false;
@@ -310,9 +314,8 @@ export function useTimelineClipHandlers({
             try {
                 const response = await engineApi.duplicateMultipleClipsWithDeltas(requests);
                 await applyProjectDeltas(response.deltas, 'clip-duplicate-drag');
-                const newIds = response.deltas
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter((d) => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+                // SSOT FIX: Use typed helper for delta extraction.
+                const newIds = extractNewClipIdsFromDeltas(response.deltas, response.new_id);
 
                 if (newIds.length > 0) {
                     setSelectedClipIds(newIds);

@@ -53,6 +53,8 @@ export function usePianoRollClipboard({
             : Math.max(0, ...notes.map((note) => note.startBeat + note.durationBeats));
         let offset = pasteAt - minBeat;
         const groupDuration = maxEnd - minBeat;
+        // BUG-N07 FIX: Clamp maxOffset to 0 — if the group is wider than the clip,
+        // place it at the start rather than before the clip boundary.
         const maxOffset = Math.max(0, clipBeats - groupDuration);
         offset = Math.max(-minBeat, Math.min(maxOffset, offset));
 

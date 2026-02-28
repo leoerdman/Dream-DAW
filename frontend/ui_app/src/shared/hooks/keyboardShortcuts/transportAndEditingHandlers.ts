@@ -239,14 +239,15 @@ export async function handlePitchShortcuts(
         const targetClips = timelineClips.filter((clip) => targets.includes(clip.id));
         if (targetClips.length === 0) return true;
         try {
-            const responses = await Promise.all(
-                targetClips.map((clip) => {
-                    const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
-                    const nextPitch = clampPitchShift(currentPitch + 12);
-                    return engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
-                }),
-            );
-            await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut:pitch-plus-12');
+            // SSOT FIX: Sequential pitch changes with batched delta apply.
+            const batchedDeltas: engine.ProjectDelta[] = [];
+            for (const clip of targetClips) {
+                const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
+                const nextPitch = clampPitchShift(currentPitch + 12);
+                const r = await engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
+                batchedDeltas.push(...r.deltas);
+            }
+            await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut:pitch-plus-12');
         } catch (err) {
             console.error('[Shortcuts] Pitch +12 failed:', err);
         }
@@ -262,14 +263,15 @@ export async function handlePitchShortcuts(
         const targetClips = timelineClips.filter((clip) => targets.includes(clip.id));
         if (targetClips.length === 0) return true;
         try {
-            const responses = await Promise.all(
-                targetClips.map((clip) => {
-                    const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
-                    const nextPitch = clampPitchShift(currentPitch - 12);
-                    return engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
-                }),
-            );
-            await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut:pitch-minus-12');
+            // SSOT FIX: Sequential pitch changes with batched delta apply.
+            const batchedDeltas: engine.ProjectDelta[] = [];
+            for (const clip of targetClips) {
+                const currentPitch = Number.isFinite(clip.pitchShiftSemitones ?? NaN) ? (clip.pitchShiftSemitones ?? 0) : 0;
+                const nextPitch = clampPitchShift(currentPitch - 12);
+                const r = await engine.setClipPitchWithDeltas({ clipId: clip.id, pitchShiftSemitones: nextPitch });
+                batchedDeltas.push(...r.deltas);
+            }
+            await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut:pitch-minus-12');
         } catch (err) {
             console.error('[Shortcuts] Pitch -12 failed:', err);
         }

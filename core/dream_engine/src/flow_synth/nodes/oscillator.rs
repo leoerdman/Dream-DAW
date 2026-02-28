@@ -7,6 +7,7 @@ pub struct OscillatorNode {
     waveform: Waveform,
     phase: f64,
     tri_state: f64,
+    base_frequency_hz: f32,
 }
 
 impl OscillatorNode {
@@ -17,11 +18,25 @@ impl OscillatorNode {
             waveform: Waveform::Sine,
             phase: 0.0,
             tri_state: 0.0,
+            base_frequency_hz: 440.0,
         }
     }
 
     pub fn set_waveform(&mut self, waveform: Waveform) {
         self.waveform = waveform;
+    }
+
+    pub fn set_waveform_by_name(&mut self, name: &str) {
+        self.waveform = match name {
+            "saw" => Waveform::Saw,
+            "square" => Waveform::Square,
+            "triangle" => Waveform::Triangle,
+            _ => Waveform::Sine,
+        };
+    }
+
+    pub fn set_base_frequency(&mut self, freq_hz: f32) {
+        self.base_frequency_hz = freq_hz.clamp(20.0, 20_000.0);
     }
 }
 
@@ -32,10 +47,14 @@ impl FlowNode for OscillatorNode {
         // Input 2: FM (Frequency modulation)
         // Input 3: PM (Phase modulation)
 
-        let freq_hz = inputs.first().and_then(|s| s.as_float()).unwrap_or(440.0).max(0.0) as f64;
-        let pw = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.5) as f64;
-        let fm = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.0) as f64;
-        let pm = inputs.get(3).and_then(|s| s.as_float()).unwrap_or(0.0) as f64;
+        let control_or_default = |idx: usize, default: f32| -> f32 {
+            inputs.get(idx).and_then(|s| s.as_float()).unwrap_or(default)
+        };
+
+        let freq_hz = control_or_default(0, self.base_frequency_hz).max(0.0) as f64;
+        let pw = control_or_default(1, 0.5) as f64;
+        let fm = control_or_default(2, 0.0) as f64;
+        let pm = control_or_default(3, 0.0) as f64;
 
         // Apply FM
         let modulated_freq = freq_hz + fm;

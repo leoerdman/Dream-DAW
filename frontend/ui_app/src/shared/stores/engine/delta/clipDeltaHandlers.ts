@@ -122,16 +122,17 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         if (!isValidClipId(delta.data.new_clip_id)) return true;
         const sourceClip = resolveClip(state, delta.data.source_clip_id);
         if (!sourceClip) return false;
-        // BUG-F002 FIX: Carry over duration/sourceOffset from delta if provided,
-        // ensuring duplicated clip reflects server-side modifications.
+        // SSOT FIX: Apply new_track_index and new_duration from delta data.
+        // Prevents ghost clip rendering on the wrong track while waiting for snapshot.
         const nextClip: TimelineClip = {
             ...sourceClip,
             id: delta.data.new_clip_id,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
-            ...(delta.data.new_duration != null ? {
-                durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
-                durationSamples: delta.data.new_duration,
-            } : {}),
+            trackIndex: delta.data.new_track_index ?? sourceClip.trackIndex,
+            durationBeats: delta.data.new_duration != null
+                ? frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate)
+                : sourceClip.durationBeats,
+            durationSamples: delta.data.new_duration ?? sourceClip.durationSamples,
             ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
         };
         upsertClip(state, nextClip);
@@ -352,6 +353,20 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             ...clip,
             filePath: delta.data.file_path,
             isOffline: delta.data.is_offline,
+        };
+        upsertClip(state, next);
+        state.changed = true;
+        return true;
+    }
+
+    // SSOT FIX: Handle clip rename deltas for immediate UI update.
+    if (delta.kind === 'ClipRenamed') {
+        const clip = resolveClip(state, delta.data.clip_id);
+        if (!clip) return false;
+        const trimmedName = typeof delta.data.new_name === 'string' ? delta.data.new_name.trim() : '';
+        const next = {
+            ...clip,
+            name: trimmedName || clip.name,
         };
         upsertClip(state, next);
         state.changed = true;

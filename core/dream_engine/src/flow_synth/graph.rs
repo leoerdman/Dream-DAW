@@ -9,6 +9,7 @@ pub type NodeId = u64;
 /// control voltage (CV) or audio signal represented as an f32.
 #[derive(Debug, Clone, Copy)]
 pub enum FlowSignal {
+    None,
     Audio(f32),
     Control(f32),
     Midi { pitch: u8, velocity: u8, gate: bool },
@@ -16,7 +17,7 @@ pub enum FlowSignal {
 
 impl Default for FlowSignal {
     fn default() -> Self {
-        Self::Audio(0.0)
+        Self::None
     }
 }
 
@@ -64,6 +65,8 @@ pub struct FlowGraph {
     signal_buffer: Vec<FlowSignal>,
     /// Index of the AudioOut node (if present) for fast output retrieval.
     audio_out_index: Option<usize>,
+    /// Indices of AudioIn nodes for per-sample external input injection.
+    audio_in_indices: Vec<usize>,
 }
 
 impl FlowGraph {
@@ -75,6 +78,7 @@ impl FlowGraph {
             connections: Vec::with_capacity(32),
             signal_buffer: vec![FlowSignal::default(); 16 * MAX_NODE_PORTS],
             audio_out_index: None,
+            audio_in_indices: Vec::new(),
         }
     }
 }
@@ -88,6 +92,7 @@ impl Default for FlowGraph {
 impl FlowGraph {
     pub fn add_node(&mut self, id: NodeId, node_type: &str) {
         let is_audio_out = node_type == "audio_out" || node_type == "output";
+        let is_audio_in = node_type == "audioIn" || node_type == "audio_in";
 
         let node: Box<dyn FlowNode> = match node_type {
             "oscillator" => Box::new(OscillatorNode::new()),
@@ -110,6 +115,9 @@ impl FlowGraph {
         if is_audio_out {
             self.audio_out_index = Some(idx);
         }
+        if is_audio_in {
+            self.audio_in_indices.push(idx);
+        }
 
         // Ensure signal buffer is large enough
         let required = (idx + 1) * MAX_NODE_PORTS;
@@ -122,6 +130,162 @@ impl FlowGraph {
         self.connections.push(conn);
     }
 
+    pub fn set_audio_in_sample(&mut self, sample: f32) {
+        for &idx in &self.audio_in_indices {
+            if let Some(node) = self.nodes.get_mut(idx)
+                && let Some(audio_in) = node.as_any_mut().downcast_mut::<AudioInNode>() {
+                    audio_in.set_input_sample(sample);
+                }
+        }
+    }
+
+    pub fn set_node_params(&mut self, id: NodeId, params: &[(String, String)]) {
+        let Some(&idx) = self.node_map.get(&id) else {
+            return;
+        };
+        let Some(node) = self.nodes.get_mut(idx) else {
+            return;
+        };
+
+        if let Some(osc) = node.as_any_mut().downcast_mut::<OscillatorNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "waveform" => osc.set_waveform_by_name(v),
+                    "frequency" => {
+                        if let Ok(freq) = v.parse::<f32>() {
+                            osc.set_base_frequency(freq);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(filter) = node.as_any_mut().downcast_mut::<FilterNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "filterType" => filter.set_filter_type_by_name(v),
+                    "cutoff" => {
+                        if let Ok(cutoff) = v.parse::<f32>() {
+                            filter.set_default_cutoff(cutoff);
+                        }
+                    }
+                    "resonance" => {
+                        if let Ok(resonance) = v.parse::<f32>() {
+                            filter.set_default_resonance(resonance);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(eq) = node.as_any_mut().downcast_mut::<EqNode>() {
+            let mut low = None;
+            let mut mid = None;
+            let mut high = None;
+            for (k, v) in params {
+                match k.as_str() {
+                    "eqLow" => low = v.parse::<f32>().ok(),
+                    "eqMid" => mid = v.parse::<f32>().ok(),
+                    "eqHigh" => high = v.parse::<f32>().ok(),
+                    _ => {}
+                }
+            }
+            eq.set_band_gains(low.unwrap_or(0.0), mid.unwrap_or(0.0), high.unwrap_or(0.0));
+            return;
+        }
+
+        if let Some(af) = node.as_any_mut().downcast_mut::<AutoFilterNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "filterType" => af.set_filter_type_by_name(v),
+                    "cutoff" => {
+                        if let Ok(cutoff) = v.parse::<f32>() {
+                            af.set_base_freq(cutoff);
+                        }
+                    }
+                    "resonance" => {
+                        if let Ok(res) = v.parse::<f32>() {
+                            af.set_resonance(res);
+                        }
+                    }
+                    "rate" => {
+                        if let Ok(rate) = v.parse::<f32>() {
+                            af.set_lfo_rate(rate);
+                        }
+                    }
+                    "depth" => {
+                        if let Ok(depth) = v.parse::<f32>() {
+                            af.set_lfo_depth(depth);
+                        }
+                    }
+                    "envDepth" => {
+                        if let Ok(depth) = v.parse::<f32>() {
+                            af.set_env_follow_depth(depth);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(rv) = node.as_any_mut().downcast_mut::<ReverseNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "windowMs" => {
+                        if let Ok(ms) = v.parse::<f32>() {
+                            rv.set_window_ms(ms);
+                        }
+                    }
+                    "feedback" => {
+                        if let Ok(feedback) = v.parse::<f32>() {
+                            rv.set_feedback(feedback);
+                        }
+                    }
+                    "mix" => {
+                        if let Ok(mix) = v.parse::<f32>() {
+                            rv.set_mix(mix);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "attack" => {
+                        if let Ok(a) = v.parse::<f32>() {
+                            env.set_attack(a as f64);
+                        }
+                    }
+                    "decay" => {
+                        if let Ok(d) = v.parse::<f32>() {
+                            env.set_decay(d as f64);
+                        }
+                    }
+                    "sustain" => {
+                        if let Ok(s) = v.parse::<f32>() {
+                            env.set_sustain(s as f64);
+                        }
+                    }
+                    "release" => {
+                        if let Ok(r) = v.parse::<f32>() {
+                            env.set_release(r as f64);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.node_map.clear();
@@ -129,6 +293,7 @@ impl FlowGraph {
         self.connections.clear();
         self.signal_buffer.fill(FlowSignal::default());
         self.audio_out_index = None;
+        self.audio_in_indices.clear();
     }
 
     /// Resets all nodes in the graph.
@@ -176,6 +341,7 @@ impl FlowGraph {
             let start = i * MAX_NODE_PORTS;
             let end = start + MAX_NODE_PORTS;
             let outputs = &mut self.signal_buffer[start..end];
+            outputs.fill(FlowSignal::default());
 
             self.nodes[i].process(&inputs, outputs, sample_rate);
         }
@@ -193,5 +359,221 @@ impl FlowGraph {
         } else {
             0.0
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow_synth::nodes::MidiInNode;
+
+    fn rms(samples: &[f32]) -> f32 {
+        if samples.is_empty() {
+            return 0.0;
+        }
+        let sum = samples.iter().map(|s| s * s).sum::<f32>();
+        (sum / samples.len() as f32).sqrt()
+    }
+
+    fn render(graph: &mut FlowGraph, sample_rate: f64, frames: usize) -> Vec<f32> {
+        let mut out = Vec::with_capacity(frames);
+        for _ in 0..frames {
+            out.push(graph.process_sample(sample_rate));
+        }
+        out
+    }
+
+    fn set_midi_state(graph: &mut FlowGraph, node_id: u64, note: u8, velocity: u8, gate: bool) {
+        let Some(idx) = graph.get_node_index(node_id) else {
+            panic!("midi node not found");
+        };
+        let Some(node_box) = graph.get_node_mut(idx) else {
+            panic!("midi node index invalid");
+        };
+        let Some(midi) = node_box.as_any_mut().downcast_mut::<MidiInNode>() else {
+            panic!("node is not MidiInNode");
+        };
+        midi.note = note;
+        midi.velocity = velocity;
+        midi.gate = gate;
+    }
+
+    #[test]
+    fn oscillator_to_output_generates_signal() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "output");
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        assert!(rms(&out) > 0.01, "expected audible RMS, got {}", rms(&out));
+    }
+
+    #[test]
+    fn oscillator_params_affect_rendered_audio() {
+        let mut g_default = FlowGraph::new();
+        g_default.add_node(1, "oscillator");
+        g_default.add_node(2, "output");
+        g_default.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let mut g_tweaked = FlowGraph::new();
+        g_tweaked.add_node(1, "oscillator");
+        g_tweaked.set_node_params(1, &[
+            ("waveform".to_string(), "square".to_string()),
+            ("frequency".to_string(), "880".to_string()),
+        ]);
+        g_tweaked.add_node(2, "output");
+        g_tweaked.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let a = render(&mut g_default, 44_100.0, 512);
+        let b = render(&mut g_tweaked, 44_100.0, 512);
+
+        let diff = a
+            .iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .sum::<f32>()
+            / 512.0;
+        assert!(diff > 0.02, "expected paramized oscillator output to differ, diff={diff}");
+    }
+
+    #[test]
+    fn eq_band_gain_changes_level() {
+        let mut dry = FlowGraph::new();
+        dry.add_node(1, "oscillator");
+        dry.add_node(2, "eq");
+        dry.add_node(3, "output");
+        dry.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        dry.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let mut boosted = FlowGraph::new();
+        boosted.add_node(1, "oscillator");
+        boosted.add_node(2, "eq");
+        boosted.set_node_params(2, &[
+            ("eqLow".to_string(), "12".to_string()),
+            ("eqMid".to_string(), "0".to_string()),
+            ("eqHigh".to_string(), "0".to_string()),
+        ]);
+        boosted.add_node(3, "output");
+        boosted.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        boosted.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let dry_out = render(&mut dry, 44_100.0, 1024);
+        let boosted_out = render(&mut boosted, 44_100.0, 1024);
+        assert!(rms(&boosted_out) > rms(&dry_out) * 1.05);
+    }
+
+    #[test]
+    fn audio_in_to_output_passes_injected_sample() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "audioIn");
+        g.add_node(2, "output");
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        g.set_audio_in_sample(0.37);
+        let out = g.process_sample(44_100.0);
+        assert!((out - 0.37).abs() < 0.01, "expected injected sample pass-through, got {out}");
+    }
+
+    #[test]
+    fn autofilter_depth_changes_output_shape() {
+        let mut base = FlowGraph::new();
+        base.add_node(1, "oscillator");
+        base.add_node(2, "autofilter");
+        base.set_node_params(2, &[
+            ("cutoff".to_string(), "1200".to_string()),
+            ("rate".to_string(), "2.0".to_string()),
+            ("depth".to_string(), "0.0".to_string()),
+        ]);
+        base.add_node(3, "output");
+        base.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        base.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let mut modulated = FlowGraph::new();
+        modulated.add_node(1, "oscillator");
+        modulated.add_node(2, "autofilter");
+        modulated.set_node_params(2, &[
+            ("cutoff".to_string(), "1200".to_string()),
+            ("rate".to_string(), "2.0".to_string()),
+            ("depth".to_string(), "0.8".to_string()),
+        ]);
+        modulated.add_node(3, "output");
+        modulated.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        modulated.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let a = render(&mut base, 44_100.0, 2048);
+        let b = render(&mut modulated, 44_100.0, 2048);
+        let diff = a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum::<f32>() / 2048.0;
+        assert!(diff > 0.005, "expected modulation to alter signal, diff={diff}");
+    }
+
+    #[test]
+    fn reverse_node_produces_wet_signal_after_warmup() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.set_node_params(1, &[("waveform".to_string(), "saw".to_string())]);
+        g.add_node(2, "reverse");
+        g.set_node_params(2, &[
+            ("windowMs".to_string(), "40".to_string()),
+            ("feedback".to_string(), "0.25".to_string()),
+            ("mix".to_string(), "1.0".to_string()),
+        ]);
+        g.add_node(3, "output");
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 4096);
+        let tail = &out[1024..];
+        assert!(rms(tail) > 0.005, "expected wet reverse tail to be audible");
+    }
+
+    #[test]
+    fn midi_freq_controls_oscillator_pitch() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "midiIn");
+        g.add_node(2, "oscillator");
+        g.add_node(3, "output");
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        set_midi_state(&mut g, 1, 60, 100, true);
+        let low = render(&mut g, 44_100.0, 512);
+
+        set_midi_state(&mut g, 1, 84, 100, true);
+        let high = render(&mut g, 44_100.0, 512);
+
+        let diff = low
+            .iter()
+            .zip(high.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / 512.0;
+        assert!(diff > 0.05, "expected pitch-controlled oscillator to change output, diff={diff}");
+    }
+
+    #[test]
+    fn midi_gate_drives_envelope_output() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "midiIn");
+        g.add_node(2, "envelope");
+        g.set_node_params(2, &[
+            ("attack".to_string(), "0.005".to_string()),
+            ("decay".to_string(), "0.02".to_string()),
+            ("sustain".to_string(), "0.5".to_string()),
+            ("release".to_string(), "0.01".to_string()),
+        ]);
+        g.add_node(3, "output");
+        g.add_connection(FlowConnection { from_node: 1, from_port: 2, to_node: 2, to_port: 0 }); // gate
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 }); // env cv
+
+        set_midi_state(&mut g, 1, 69, 100, true);
+        let on = render(&mut g, 44_100.0, 512);
+        let on_peak = on.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
+        assert!(on_peak > 0.02, "expected envelope to rise on gate, peak={on_peak}");
+
+        set_midi_state(&mut g, 1, 69, 0, false);
+        let off = render(&mut g, 44_100.0, 4096);
+        let off_tail = off.iter().rev().take(128).map(|v| v.abs()).sum::<f32>() / 128.0;
+        assert!(off_tail < 0.04, "expected envelope to release after gate off, tail={off_tail}");
     }
 }

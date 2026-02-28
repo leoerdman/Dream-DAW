@@ -16,6 +16,10 @@ import { OscillatorControls } from './nodes/OscillatorControls';
 import { FilterControls } from './nodes/FilterControls';
 import { EnvelopeControls } from './nodes/EnvelopeControls';
 import { EqControls } from './nodes/EqControls';
+import { AutoFilterControls } from './nodes/AutoFilterControls';
+import { ReverseControls } from './nodes/ReverseControls';
+import { OutputControls } from './nodes/OutputControls';
+import { MidiInControls } from './nodes/MidiInControls';
 
 export const FLOW_NODE_WIDTH = 240;
 const FLOW_GRID_SNAP = 20;
@@ -36,6 +40,16 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <EnvelopeControls node={node} />;
         case 'eq':
             return <EqControls node={node} />;
+        case 'autofilter':
+            return <AutoFilterControls node={node} />;
+        case 'reverse':
+            return <ReverseControls node={node} />;
+        case 'output':
+            return <OutputControls node={node} />;
+        case 'midiIn':
+            return <MidiInControls node={node} />;
+        case 'audioIn':
+            return null; // Audio In is a passthrough — no controls needed
         default:
             return null;
     }

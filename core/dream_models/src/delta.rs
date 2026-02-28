@@ -87,6 +87,8 @@ pub enum ProjectDelta {
         source_clip_id: Uuid,
         new_clip_id: Uuid,
         new_position: i64,
+        new_track_index: usize,
+        new_duration: i64,
     },
 
     /// A clip's mute state changed.

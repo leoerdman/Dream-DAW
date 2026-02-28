@@ -15,19 +15,15 @@ interface Props {
 }
 
 export function FilterControls({ node }: Props) {
-    const setNodes = useFlowSynthStore((s) => s.setNodes);
-    const nodes = useFlowSynthStore((s) => s.nodes);
+    const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
     const filterType = node.data?.filterType || 'lowpass';
     const cutoff = node.data?.cutoff ?? 1000;
     const resonance = node.data?.resonance ?? 0.5;
 
     const updateData = useCallback((patch: Record<string, unknown>) => {
-        const next = nodes.map((n) =>
-            n.id === node.id ? { ...n, data: { ...n.data, ...patch } } : n,
-        );
-        setNodes(next);
-    }, [node.id, nodes, setNodes]);
+        updateNodeData(node.id, patch);
+    }, [node.id, updateNodeData]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
@@ -39,9 +35,27 @@ export function FilterControls({ node }: Props) {
                 />
             </ControlRow>
             <ControlRow label="Cutoff">
+                <input
+                    type="range"
+                    min={20}
+                    max={20000}
+                    step={1}
+                    value={cutoff}
+                    onChange={(e) => updateData({ cutoff: Number(e.target.value) })}
+                    style={{ width: 90 }}
+                />
                 <NodeValue value={cutoff} unit="Hz" />
             </ControlRow>
             <ControlRow label="Res">
+                <input
+                    type="range"
+                    min={0}
+                    max={0.99}
+                    step={0.01}
+                    value={resonance}
+                    onChange={(e) => updateData({ resonance: Number(e.target.value) })}
+                    style={{ width: 90 }}
+                />
                 <NodeValue value={resonance} />
             </ControlRow>
         </div>

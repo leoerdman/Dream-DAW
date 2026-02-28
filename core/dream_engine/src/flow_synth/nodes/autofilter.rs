@@ -7,6 +7,11 @@ pub struct AutoFilterNode {
     filter: FilterNode,
     lfo_phase: f32,
     envelope_state: f32,
+    base_freq: f32,
+    resonance: f32,
+    lfo_rate: f32,
+    lfo_depth: f32,
+    env_follow_depth: f32,
 }
 
 impl AutoFilterNode {
@@ -15,18 +20,50 @@ impl AutoFilterNode {
             filter: FilterNode::new(),
             lfo_phase: 0.0,
             envelope_state: 0.0,
+            base_freq: 1000.0,
+            resonance: 0.5,
+            lfo_rate: 1.0,
+            lfo_depth: 0.0,
+            env_follow_depth: 0.0,
         }
+    }
+
+    pub fn set_filter_type_by_name(&mut self, name: &str) {
+        self.filter.set_filter_type_by_name(name);
+    }
+
+    pub fn set_base_freq(&mut self, freq: f32) {
+        self.base_freq = freq.clamp(20.0, 20_000.0);
+    }
+
+    pub fn set_resonance(&mut self, res: f32) {
+        self.resonance = res.clamp(0.0, 0.99);
+    }
+
+    pub fn set_lfo_rate(&mut self, rate: f32) {
+        self.lfo_rate = rate.clamp(0.01, 20.0);
+    }
+
+    pub fn set_lfo_depth(&mut self, depth: f32) {
+        self.lfo_depth = depth.clamp(0.0, 1.0);
+    }
+
+    pub fn set_env_follow_depth(&mut self, depth: f32) {
+        self.env_follow_depth = depth.clamp(0.0, 2.0);
     }
 }
 
 impl FlowNode for AutoFilterNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64) {
         let input = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));
-        let base_freq = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(1000.0);
-        let resonance = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.5);
-        let lfo_rate = inputs.get(3).and_then(|s| s.as_float()).unwrap_or(1.0);
-        let lfo_depth = inputs.get(4).and_then(|s| s.as_float()).unwrap_or(0.0);
-        let env_follow_depth = inputs.get(5).and_then(|s| s.as_float()).unwrap_or(0.0);
+        let control_or_default = |idx: usize, default: f32| -> f32 {
+            inputs.get(idx).and_then(|s| s.as_float()).unwrap_or(default)
+        };
+        let base_freq = control_or_default(1, self.base_freq);
+        let resonance = control_or_default(2, self.resonance);
+        let lfo_rate = control_or_default(3, self.lfo_rate);
+        let lfo_depth = control_or_default(4, self.lfo_depth);
+        let env_follow_depth = control_or_default(5, self.env_follow_depth);
 
         let input_val = input.as_float().unwrap_or(0.0);
 
@@ -51,13 +88,11 @@ impl FlowNode for AutoFilterNode {
         let modulation = (lfo_val * lfo_depth) + (self.envelope_state * env_follow_depth);
         let modulated_freq = base_freq * 2.0f32.powf(modulation);
         
-        // Use internal FilterNode for the actual signal processing
-        // FilterNode inputs: 0: Audio, 1: Freq, 2: Res, 3: Type (0.0=LP)
+        // Use internal FilterNode for the actual signal processing.
         let filter_inputs = [
             input,
             FlowSignal::Control(modulated_freq),
             FlowSignal::Control(resonance),
-            FlowSignal::Control(0.0), // LP
         ];
         
         self.filter.process(&filter_inputs, outputs, sample_rate);

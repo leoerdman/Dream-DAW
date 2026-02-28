@@ -36,7 +36,7 @@ fn set_flow_enabled_cmd(
 #[tauri::command]
 fn sync_flow_graph_cmd(
     track_index: u16,
-    nodes: Vec<(u64, String)>,
+    nodes: Vec<(u64, String, Vec<(String, String)>)>,
     connections: Vec<(u64, usize, u64, usize)>,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,

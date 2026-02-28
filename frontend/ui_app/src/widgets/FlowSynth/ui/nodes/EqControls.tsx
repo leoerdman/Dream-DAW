@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeValue } from './shared';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
+import { RotaryKnob } from './RotaryKnob';
 
 interface Props {
     node: SynthNode;
@@ -18,43 +18,43 @@ export function EqControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
-            <ControlRow label="Low">
-                <input
-                    type="range"
-                    min={-18}
-                    max={18}
-                    step={0.5}
-                    value={low}
-                    onChange={(e) => setBand('eqLow', Number(e.target.value))}
-                    style={{ width: 90 }}
-                />
-                <NodeValue value={low.toFixed(1)} unit="dB" />
-            </ControlRow>
-            <ControlRow label="Mid">
-                <input
-                    type="range"
-                    min={-18}
-                    max={18}
-                    step={0.5}
-                    value={mid}
-                    onChange={(e) => setBand('eqMid', Number(e.target.value))}
-                    style={{ width: 90 }}
-                />
-                <NodeValue value={mid.toFixed(1)} unit="dB" />
-            </ControlRow>
-            <ControlRow label="High">
-                <input
-                    type="range"
-                    min={-18}
-                    max={18}
-                    step={0.5}
-                    value={high}
-                    onChange={(e) => setBand('eqHigh', Number(e.target.value))}
-                    style={{ width: 90 }}
-                />
-                <NodeValue value={high.toFixed(1)} unit="dB" />
-            </ControlRow>
+        <div style={{
+            display: 'flex',
+            justifyContent: 'space-around',
+            alignItems: 'center',
+            padding: '8px 8px 4px',
+            gap: 4,
+        }}>
+            <RotaryKnob
+                value={low}
+                min={-18}
+                max={18}
+                step={0.5}
+                label="Low"
+                unit="dB"
+                color="var(--color-accent-warm)"
+                onChange={(v) => setBand('eqLow', v)}
+            />
+            <RotaryKnob
+                value={mid}
+                min={-18}
+                max={18}
+                step={0.5}
+                label="Mid"
+                unit="dB"
+                color="var(--color-accent-primary)"
+                onChange={(v) => setBand('eqMid', v)}
+            />
+            <RotaryKnob
+                value={high}
+                min={-18}
+                max={18}
+                step={0.5}
+                label="High"
+                unit="dB"
+                color="var(--color-accent-cool)"
+                onChange={(v) => setBand('eqHigh', v)}
+            />
         </div>
     );
 }

@@ -15,6 +15,7 @@ pub struct DuplicateClipResult {
     pub new_id: Uuid,
     pub new_position_frames: i64,
     pub track_index: usize,
+    pub new_duration_frames: i64,
 }
 
 /// Duplicate a clip (audio or MIDI), optionally at a specific position.
@@ -68,18 +69,19 @@ impl Command for DuplicateClipCommand {
             .iter()
             .any(|c| c.id == self.clip_id);
 
-        let (new_id, new_position_frames) = if is_audio_clip {
+        let (new_id, new_position_frames, new_duration_frames) = if is_audio_clip {
             let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
-            (dup.id, dup.position.sample_frame)
+            (dup.id, dup.position.sample_frame, dup.duration.sample_frame)
         } else {
             let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
-            (dup.id, dup.position.sample_frame)
+            (dup.id, dup.position.sample_frame, dup.duration.sample_frame)
         };
 
         Ok(DuplicateClipResult {
             new_id,
             new_position_frames,
             track_index: self.target_track_index.unwrap_or(track_index),
+            new_duration_frames,
         })
     }
 }
@@ -122,6 +124,7 @@ impl Command for DuplicateMultipleClipsCommand {
                         new_id: dup.id,
                         new_position_frames: dup.position.sample_frame,
                         track_index: dest_track.unwrap_or(track_index),
+                        new_duration_frames: dup.duration.sample_frame,
                     });
                 }
             } else if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
@@ -129,6 +132,7 @@ impl Command for DuplicateMultipleClipsCommand {
                     new_id: dup.id,
                     new_position_frames: dup.position.sample_frame,
                     track_index: dest_track.unwrap_or(track_index),
+                    new_duration_frames: dup.duration.sample_frame,
                 });
             }
         }

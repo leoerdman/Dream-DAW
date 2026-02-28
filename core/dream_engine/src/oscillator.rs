@@ -85,6 +85,14 @@ pub(super) fn oscillator_sample_blep(
             *tri_state = leak * *tri_state + 4.0 * dt * sq;
             (*tri_state).clamp(-1.0, 1.0) as f32
         }
+        Waveform::Noise => {
+            // RT-safe white noise using a fast integer hash of the phase.
+            // No heap allocation, no RNG state — fully deterministic per phase tick.
+            let bits = (phase * 2_147_483_647.0) as u64;
+            let h = bits.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let normalized = ((h >> 33) as f64) / (2_147_483_647.0) * 2.0 - 1.0;
+            normalized as f32
+        }
     }
 }
 

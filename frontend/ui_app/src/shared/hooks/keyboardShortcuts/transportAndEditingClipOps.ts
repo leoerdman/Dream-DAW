@@ -3,6 +3,7 @@ import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/share
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 import { resolveSplitFrame } from './utils';
 import type { KeyboardShortcutHandlerEnv } from './types';
 
@@ -86,9 +87,8 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
             newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate))
         })));
         await useEngineStore.getState().applyProjectDeltas(results.deltas, 'keyboard:duplicate-clips');
-        const nextSelection = results.deltas
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((d) => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+        // SSOT FIX: Use typed helper for delta extraction.
+        const nextSelection = extractNewClipIdsFromDeltas(results.deltas, results.new_id);
         onClipSelectionChanged(nextSelection);
         useStatusStore.getState().setInfo(`Duplicate: ${nextSelection.length} clip(s)`);
         return nextSelection;

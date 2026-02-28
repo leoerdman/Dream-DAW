@@ -46,7 +46,16 @@ async fn move_clip_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
-    let _clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+
+    // Capture the clip's original track index for the ClipMoved delta.
+    let old_track_index = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().position(|track| {
+            track.clips.iter().any(|c| c.id == clip_uuid)
+                || track.midi_clips.iter().any(|c| c.id == clip_uuid)
+        }).unwrap_or(0)
+    };
 
     let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
         &clip_id,
@@ -66,9 +75,17 @@ async fn move_clip_with_deltas_cmd(
     )?;
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    }];
+    let deltas = vec![
+        dream_models::delta::ProjectDelta::ClipMoved {
+            clip_id: clip_uuid,
+            old_track_index,
+            new_track_index,
+            new_position: new_position_frames,
+        },
+        dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        },
+    ];
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -92,10 +109,20 @@ async fn move_multiple_clips_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo_coalesced(&project_state)?;
 
+    // Capture original track indices for ClipMoved deltas.
     let mut valid_clips = Vec::with_capacity(requests.len());
-    for req in requests {
-        if let Ok(uid) = Uuid::parse_str(&req.id) {
-            valid_clips.push((uid, req.new_track_index, req.new_position_frames));
+    let mut old_track_indices: Vec<(Uuid, usize)> = Vec::with_capacity(requests.len());
+    {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        for req in &requests {
+            if let Ok(uid) = Uuid::parse_str(&req.id) {
+                let old_idx = project.tracks.iter().position(|track| {
+                    track.clips.iter().any(|c| c.id == uid)
+                        || track.midi_clips.iter().any(|c| c.id == uid)
+                }).unwrap_or(0);
+                old_track_indices.push((uid, old_idx));
+                valid_clips.push((uid, req.new_track_index, req.new_position_frames));
+            }
         }
     }
 
@@ -111,9 +138,18 @@ async fn move_multiple_clips_with_deltas_cmd(
     )?;
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+    let mut deltas: Vec<dream_models::delta::ProjectDelta> = Vec::with_capacity(old_track_indices.len() + 1);
+    for ((uid, old_idx), req) in old_track_indices.iter().zip(requests.iter()) {
+        deltas.push(dream_models::delta::ProjectDelta::ClipMoved {
+            clip_id: *uid,
+            old_track_index: *old_idx,
+            new_track_index: req.new_track_index,
+            new_position: req.new_position_frames,
+        });
+    }
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
         project: Box::new(project.clone()),
-    }];
+    });
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -464,6 +500,8 @@ async fn duplicate_clip_with_deltas_cmd(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     push_undo(&project_state)?;
 
+    let source_clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+
     let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
         &clip_id,
         new_position_frames,
@@ -482,9 +520,20 @@ async fn duplicate_clip_with_deltas_cmd(
     )?;
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    }];
+    // SSOT FIX: Emit ClipDuplicated delta so frontend can extract new clip ID
+    // for auto-selection. ProjectSnapshotReplaced handles full state rebuild.
+    let deltas = vec![
+        dream_models::delta::ProjectDelta::ClipDuplicated {
+            source_clip_id: source_clip_uuid,
+            new_clip_id: result.new_id,
+            new_position: result.new_position_frames,
+            new_track_index: result.track_index,
+            new_duration: result.new_duration_frames,
+        },
+        dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        },
+    ];
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: result.new_id.to_string(),
@@ -512,17 +561,33 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
     push_undo(&project_state)?;
 
     let mut valid_clips = Vec::with_capacity(requests.len());
-    for req in requests {
+    let mut source_ids: Vec<Uuid> = Vec::with_capacity(requests.len());
+    for req in &requests {
         if let Ok(uid) = Uuid::parse_str(&req.id) {
+            source_ids.push(uid);
             valid_clips.push((uid, req.new_position_frames, req.target_track_index));
         }
     }
 
     let cmd = dream_orchestrator::commands::DuplicateMultipleClipsCommand { clips: valid_clips };
     let results = execute_orchestrator_command(&project_state, &cmd)?;
-    let mut last_new_id = String::new();
-    for res in results {
-        last_new_id = res.new_id.to_string();
+
+    // SSOT FIX: Collect ALL new IDs and emit ClipDuplicated deltas for each.
+    // This enables the frontend to auto-select all duplicated clips.
+    let mut first_new_id = String::new();
+    let mut clip_duplicated_deltas: Vec<dream_models::delta::ProjectDelta> = Vec::with_capacity(results.len());
+    for (idx, res) in results.iter().enumerate() {
+        if first_new_id.is_empty() {
+            first_new_id = res.new_id.to_string();
+        }
+        let source_id = source_ids.get(idx).copied().unwrap_or(res.new_id);
+        clip_duplicated_deltas.push(dream_models::delta::ProjectDelta::ClipDuplicated {
+            source_clip_id: source_id,
+            new_clip_id: res.new_id,
+            new_position: res.new_position_frames,
+            new_track_index: res.track_index,
+            new_duration: res.new_duration_frames,
+        });
     }
 
     rebuild_clip_views_and_mark_dirty(
@@ -534,12 +599,13 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
     )?;
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    let deltas = vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+    let mut deltas = clip_duplicated_deltas;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
         project: Box::new(project.clone()),
-    }];
+    });
 
     Ok(DuplicateClipWithDeltasResponse {
-        new_id: last_new_id,
+        new_id: first_new_id,
         deltas,
     })
 }

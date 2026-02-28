@@ -183,7 +183,10 @@ export class WaveformCache {
     }
 
     private _releaseBufferToPool(arr: Float32Array): void {
-        const size = arr.buffer.byteLength / 4;
+        // BUG-N01 FIX: Use arr.length (logical element count) instead of
+        // buffer.byteLength/4 which reads the parent ArrayBuffer size —
+        // subarrays share their parent buffer, making byteLength unreliable.
+        const size = arr.length;
         if (size === 64) WaveformCache._pool64.push(arr);
         else if (size === 128) WaveformCache._pool128.push(arr);
         else if (size === 256) WaveformCache._pool256.push(arr);

@@ -13,7 +13,7 @@ export type ProjectDelta =
     | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number; new_source_offset?: number } }
     | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
     | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }
-    | { kind: 'ClipDuplicated'; data: { source_clip_id: string; new_clip_id: string; new_position: number; new_duration?: number; new_source_offset?: number } }
+    | { kind: 'ClipDuplicated'; data: { source_clip_id: string; new_clip_id: string; new_position: number; new_track_index: number; new_duration: number; new_source_offset?: number } }
     | { kind: 'ClipsMerged'; data: { source_clip_ids: string[]; new_clip_id: string } }
     | { kind: 'ClipMuteChanged'; data: { clip_id: string; muted: boolean } }
     | { kind: 'MidiClipNotesReplaced'; data: { clip_id: string; notes: MidiClipDeltaNote[] } }
@@ -25,7 +25,7 @@ export type ProjectDelta =
     | { kind: 'ClipRenamed'; data: { clip_id: string; new_name: string } }
     | { kind: 'TrackVolumeChanged'; data: { track_id: string; volume: number } }
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
-    | { kind: 'TrackDisabledChanged'; data: { track_id: string; muted: boolean } }
+    | { kind: 'TrackDisabledChanged'; data: { track_id: string; disabled: boolean } }
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
     | { kind: 'TrackArmChanged'; data: { track_index: number; armed: boolean } }
     | { kind: 'TrackRoutingChanged'; data: { track_id: string; output_destination_id: string | null } }

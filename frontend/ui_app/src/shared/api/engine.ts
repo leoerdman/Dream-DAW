@@ -1351,5 +1351,9 @@ export const loadDevicePreset = (
 export const setFlowEnabled = (trackIndex: number, enabled: boolean) =>
     invoke<void>('set_flow_enabled_cmd', { trackIndex, enabled });
 
-export const syncFlowGraph = (trackIndex: number, nodes: [number, string][], connections: [number, number, number, number][]) =>
+export const syncFlowGraph = (
+    trackIndex: number,
+    nodes: [number, string, [string, string][]][],
+    connections: [number, number, number, number][],
+) =>
     invoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });

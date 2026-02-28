@@ -37,13 +37,14 @@ export async function handleCreateMidiClipRangeShortcut(
     }
     if (midiTrackIndices.length === 0) return true;
     try {
-        await Promise.all(
-            midiTrackIndices.map((trackIndex) =>
-                engine
-                    .createMidiClipWithDeltas(trackIndex, positionFrames, durationFrames)
-                    .then((r) => useEngineStore.getState().applyProjectDeltas(r.deltas, 'keyboard:create-midi-clip-range')),
-            ),
-        );
+        // SSOT FIX: Sequential MIDI clip creation with batched delta apply.
+        // Prevents race conditions from N parallel applyProjectDeltas calls.
+        const batchedDeltas: engine.ProjectDelta[] = [];
+        for (const trackIndex of midiTrackIndices) {
+            const r = await engine.createMidiClipWithDeltas(trackIndex, positionFrames, durationFrames);
+            batchedDeltas.push(...r.deltas);
+        }
+        await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:create-midi-clip-range');
     } catch (err) {
         console.error('[Shortcuts] Create MIDI clips from box failed:', err);
     }

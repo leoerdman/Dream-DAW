@@ -415,6 +415,7 @@ export class CanvasClipRenderer {
         // ── P5: Reuse pre-allocated buffer instead of filter() ──
         const filtered = this._filteredClips;
         filtered.length = 0;
+        let hasAnySelected = false;
         for (let i = 0, len = clips.length; i < len; i++) {
             const c = clips[i];
             const endBeat = c.startBeat + c.durationBeats;
@@ -423,13 +424,18 @@ export class CanvasClipRenderer {
             if (c.trackIndex < range.startTrack - 1) continue;
             if (c.trackIndex > range.endTrack + 1) continue;
             filtered.push(c);
+            if (c.selected || c.primarySelected) hasAnySelected = true;
         }
 
-        filtered.sort((a, b) => {
-            const aPriority = a.primarySelected ? 2 : (a.selected ? 1 : 0);
-            const bPriority = b.primarySelected ? 2 : (b.selected ? 1 : 0);
-            return aPriority - bPriority;
-        });
+        // BUG-N05 FIX: Skip O(N·logN) sort when no clips have selection priority
+        // (common case during playback). Selection changes are infrequent.
+        if (hasAnySelected) {
+            filtered.sort((a, b) => {
+                const aPriority = a.primarySelected ? 2 : (a.selected ? 1 : 0);
+                const bPriority = b.primarySelected ? 2 : (b.selected ? 1 : 0);
+                return aPriority - bPriority;
+            });
+        }
 
         for (const clip of filtered) {
             this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible);

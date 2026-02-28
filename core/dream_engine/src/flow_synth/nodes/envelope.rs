@@ -25,6 +25,26 @@ impl EnvelopeNode {
             params,
         }
     }
+
+    pub fn set_attack(&mut self, attack: f64) {
+        self.params.attack = attack.clamp(0.001, 10.0);
+        self.envelope.set_params(&self.params);
+    }
+
+    pub fn set_decay(&mut self, decay: f64) {
+        self.params.decay = decay.clamp(0.001, 10.0);
+        self.envelope.set_params(&self.params);
+    }
+
+    pub fn set_sustain(&mut self, sustain: f64) {
+        self.params.sustain = sustain.clamp(0.0, 1.0);
+        self.envelope.set_params(&self.params);
+    }
+
+    pub fn set_release(&mut self, release: f64) {
+        self.params.release = release.clamp(0.001, 10.0);
+        self.envelope.set_params(&self.params);
+    }
 }
 
 impl FlowNode for EnvelopeNode {
@@ -36,12 +56,15 @@ impl FlowNode for EnvelopeNode {
         // Input 4: Release (seconds)
 
         let gate = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
+        let control_or_default = |idx: usize, default: f64| -> f64 {
+            inputs.get(idx).and_then(|s| s.as_float()).map(|v| v as f64).unwrap_or(default)
+        };
 
         // Update parameters if they changed
-        let attack = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.01) as f64;
-        let decay = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.1) as f64;
-        let sustain = inputs.get(3).and_then(|s| s.as_float()).unwrap_or(0.7) as f64;
-        let release = inputs.get(4).and_then(|s| s.as_float()).unwrap_or(0.3) as f64;
+        let attack = control_or_default(1, self.params.attack);
+        let decay = control_or_default(2, self.params.decay);
+        let sustain = control_or_default(3, self.params.sustain);
+        let release = control_or_default(4, self.params.release);
 
         if (self.params.attack - attack).abs() > 0.001
             || (self.params.decay - decay).abs() > 0.001

@@ -20,6 +20,7 @@ pub enum Waveform {
     Triangle = 1,
     Saw = 2,
     Square = 3,
+    Noise = 4,
 }
 
 impl Waveform {
@@ -29,6 +30,7 @@ impl Waveform {
             1 => Self::Triangle,
             2 => Self::Saw,
             3 => Self::Square,
+            4 => Self::Noise,
             // Safe fallback — no logging on RT thread (zero-alloc contract).
             _ => Self::Sine,
         }

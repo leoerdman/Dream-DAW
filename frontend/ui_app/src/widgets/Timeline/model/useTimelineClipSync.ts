@@ -17,13 +17,16 @@ export function useTimelineClipSync({
     clips,
     selectedClipIdsRef,
 }: UseTimelineClipSyncArgs) {
-    const tracksEntity = useEngineStore((s) => s.tracks);
+    // BUG-N06 FIX: Select allIds + byId separately with shallow equality
+    // to avoid recomputing trackActiveStates on unrelated store updates.
+    const tracksAllIds = useEngineStore((s) => s.tracks.allIds);
+    const tracksByIdRef = useEngineStore((s) => s.tracks.byId);
     const trackActiveStates = useMemo(() => {
-        const orderedTracks = tracksEntity.allIds
-            .map((id) => tracksEntity.byId[id])
+        const orderedTracks = tracksAllIds
+            .map((id) => tracksByIdRef[id])
             .filter((track): track is NonNullable<typeof track> => Boolean(track));
         return orderedTracks.map((_t, i, arr) => isTrackActive(i, arr));
-    }, [tracksEntity]);
+    }, [tracksAllIds, tracksByIdRef]);
 
     useEffect(() => {
         const engine = engineRef.current;

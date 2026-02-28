@@ -90,10 +90,16 @@ export const ClipRenderer = memo(function ClipRenderer({
         );
     }
 
+    // BUG-N02 FIX: Set canvas backing-store dimensions for DPR.
+    // Without this, the canvas defaults to 300x150 and waveforms are blurry on Retina.
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
     return (
         <canvas
             ref={canvasRef}
             className={className}
+            width={Math.ceil(width * dpr)}
+            height={Math.ceil(height * dpr)}
             style={{
                 width,
                 height,

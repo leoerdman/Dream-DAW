@@ -219,7 +219,7 @@ pub enum EngineCommand {
         track_index: u16,
         // Using a serialized or simplified representation for the command.
         // For now, let's keep it simple with clear/rebuild.
-        nodes: Vec<(u64, String)>, // (id, type)
+        nodes: Vec<(u64, String, Vec<(String, String)>)>, // (id, type, params[k,v])
         connections: Vec<(u64, usize, u64, usize)>, // (from_id, from_port, to_id, to_port)
     },
 

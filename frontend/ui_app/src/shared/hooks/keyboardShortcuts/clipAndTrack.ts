@@ -9,6 +9,7 @@ import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils
  * Optimistically removes clips from the engine store state so the canvas
  * redraws immediately, without waiting for the async IPC round-trip.
  * Returns a rollback function that restores the previous state on failure.
+ * SSOT: All three state containers are derived from a single filtered array.
  */
 function optimisticRemoveClips(clipIds: string[]): () => void {
     const idSet = new Set(clipIds);
@@ -19,23 +20,18 @@ function optimisticRemoveClips(clipIds: string[]): () => void {
         clips: state.clips,
     };
 
-    // BUG-046: Use structural sharing — only remove deleted entries instead of
-    // rebuilding entire state from scratch on every Delete key press.
     const nextTimelineClips = state.timelineClips.filter((c: TimelineClip) => !idSet.has(c.id));
-    const nextClipsById = { ...state.clipsById };
-    const nextClipsByIdEntity = { ...state.clips.byId };
-    for (const id of clipIds) {
-        delete nextClipsById[id];
-        delete nextClipsByIdEntity[id];
+    // SSOT: Derive maps from the single filtered array — no independent construction.
+    const nextClipsById: Record<string, TimelineClip> = {};
+    const nextAllIds: string[] = [];
+    for (const c of nextTimelineClips) {
+        nextClipsById[c.id] = c;
+        nextAllIds.push(c.id);
     }
-    const nextAllIds = state.clips.allIds.filter((id) => !idSet.has(id));
     useEngineStore.setState({
         timelineClips: nextTimelineClips,
         clipsById: nextClipsById,
-        clips: {
-            byId: nextClipsByIdEntity,
-            allIds: nextAllIds,
-        },
+        clips: { byId: nextClipsById, allIds: nextAllIds },
     });
 
     return () => useEngineStore.setState(snapshot);
@@ -129,6 +125,13 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 const posFrames = Math.max(0, beatToFrame(cursorBeat + groupOffset, bpm, sampleRate));
                 const response = await engine.pasteClipsFromGlobalClipboard(targetTrack, posFrames);
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-cross-project');
+                // SSOT FIX: Select new clips after cross-project paste.
+                // Extract IDs from both ClipDuplicated and ClipAdded deltas.
+                const nextSelection = response.deltas
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    .filter((d: any) => d.kind === 'ClipDuplicated' || d.kind === 'ClipAdded')
+                    .map((d: any) => (d.data.new_clip_id ?? d.data.clip_id) as string);
+                if (nextSelection.length > 0) onClipSelectionChanged(nextSelection);
             } else if (trackDelta === 0) {
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => ({
                     id: clip.id,
@@ -136,9 +139,14 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                     targetTrackIndex: undefined
                 })));
                 await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-same-track');
+                // SSOT FIX: Extract new clip IDs from deltas for auto-selection.
                 const nextSelection = results.deltas
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter(d => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+                    .filter((d: any) => d.kind === 'ClipDuplicated')
+                    .map((d: any) => d.data.new_clip_id as string);
+                if (nextSelection.length === 0 && results.new_id) {
+                    nextSelection.push(results.new_id);
+                }
                 onClipSelectionChanged(nextSelection);
             } else {
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => {
@@ -152,9 +160,14 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                     };
                 }));
                 await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-cross-track');
+                // SSOT FIX: Extract new clip IDs from deltas for auto-selection.
                 const nextSelection = results.deltas
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    .filter(d => 'ClipDuplicated' in d).map((d: any) => d.ClipDuplicated.new_clip_id as string);
+                    .filter((d: any) => d.kind === 'ClipDuplicated')
+                    .map((d: any) => d.data.new_clip_id as string);
+                if (nextSelection.length === 0 && results.new_id) {
+                    nextSelection.push(results.new_id);
+                }
                 onClipSelectionChanged(nextSelection);
             }
         } catch (err) {
@@ -177,8 +190,14 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const rollback = optimisticRemoveClips(selected.map((c) => c.id));
         onClipSelectionChanged([]);
         try {
-            const responses = await Promise.all(selected.map((c) => engine.deleteClipWithDeltas(c.id)));
-            await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut-cut');
+            // SSOT FIX: Sequential deletes with single batched delta apply.
+            // Avoids N parallel IPC calls that can partially fail and corrupt state.
+            const batchedDeltas: engine.ProjectDelta[] = [];
+            for (const c of selected) {
+                const r = await engine.deleteClipWithDeltas(c.id);
+                batchedDeltas.push(...r.deltas);
+            }
+            await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-cut');
         } catch (err) {
             console.error('[Shortcuts] Cut clip failed:', err);
             rollback();
@@ -196,8 +215,14 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const rollback = optimisticRemoveClips(targets);
         onClipSelectionChanged([]);
         try {
-            const responses = await Promise.all(targets.map((id) => engine.deleteClipWithDeltas(id)));
-            await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut-delete');
+            // SSOT FIX: Sequential deletes with batched delta apply.
+            // Prevents partial failure from N parallel IPC round-trips.
+            const batchedDeltas: engine.ProjectDelta[] = [];
+            for (const id of targets) {
+                const r = await engine.deleteClipWithDeltas(id);
+                batchedDeltas.push(...r.deltas);
+            }
+            await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-delete');
         } catch (err) {
             console.error('[Shortcuts] Delete clip failed:', err);
             rollback();

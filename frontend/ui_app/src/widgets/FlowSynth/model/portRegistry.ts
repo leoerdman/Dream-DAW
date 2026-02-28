@@ -35,8 +35,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         inputs: [],
         outputs: [
             { id: 'freq', label: 'Freq', type: 'control' },
-            { id: 'gate', label: 'Gate', type: 'control' },
             { id: 'velocity', label: 'Vel', type: 'control' },
+            { id: 'gate', label: 'Gate', type: 'control' },
         ],
     },
     oscillator: {

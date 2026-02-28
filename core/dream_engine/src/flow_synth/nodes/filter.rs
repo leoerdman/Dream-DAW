@@ -6,6 +6,8 @@ use dream_dsp::svf::SvfState;
 pub struct FilterNode {
     filter_type: SynthFilterType,
     state: SvfState,
+    default_cutoff_hz: f32,
+    default_resonance: f32,
 }
 
 impl FilterNode {
@@ -14,11 +16,30 @@ impl FilterNode {
         Self {
             filter_type: SynthFilterType::Lowpass,
             state: SvfState::default(),
+            default_cutoff_hz: 1000.0,
+            default_resonance: 0.0,
         }
     }
 
     pub fn set_filter_type(&mut self, filter_type: SynthFilterType) {
         self.filter_type = filter_type;
+    }
+
+    pub fn set_filter_type_by_name(&mut self, name: &str) {
+        self.filter_type = match name {
+            "highpass" => SynthFilterType::Highpass,
+            "bandpass" => SynthFilterType::Bandpass,
+            "notch" => SynthFilterType::Notch,
+            _ => SynthFilterType::Lowpass,
+        };
+    }
+
+    pub fn set_default_cutoff(&mut self, cutoff_hz: f32) {
+        self.default_cutoff_hz = cutoff_hz.clamp(20.0, 20_000.0);
+    }
+
+    pub fn set_default_resonance(&mut self, resonance: f32) {
+        self.default_resonance = resonance.clamp(0.0, 0.99);
     }
 }
 
@@ -29,8 +50,11 @@ impl FlowNode for FilterNode {
         // Input 2: Resonance (0..1)
 
         let input = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
-        let cutoff = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(1000.0).clamp(20.0, 20000.0) as f64;
-        let resonance = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.0).clamp(0.0, 0.99) as f64;
+        let control_or_default = |idx: usize, default: f32| -> f32 {
+            inputs.get(idx).and_then(|s| s.as_float()).unwrap_or(default)
+        };
+        let cutoff = control_or_default(1, self.default_cutoff_hz).clamp(20.0, 20000.0) as f64;
+        let resonance = control_or_default(2, self.default_resonance).clamp(0.0, 0.99) as f64;
 
         let inv_sr = 1.0 / sample_rate;
         let g = (std::f64::consts::PI * cutoff * inv_sr).tan() as f32;

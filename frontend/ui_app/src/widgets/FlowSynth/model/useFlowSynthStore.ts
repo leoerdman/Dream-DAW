@@ -75,7 +75,7 @@ interface FlowSynthState {
     syncFlowGraphToEngine: () => Promise<void>;
 }
 
-type SyncNodeParam = [string, string];
+
 
 const DEFAULT_FLOW_GRAPH: FlowGraph = {
     nodes: [
@@ -99,6 +99,14 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
         },
     ],
     connections: [
+        {
+            id: 'conn-midi-freq-to-osc',
+            fromNode: 'node-midi-in-1',
+            fromPort: 'freq',
+            toNode: 'node-osc-1',
+            toPort: 'freq',
+            signalType: 'audio',
+        },
         {
             id: 'conn-osc-to-out',
             fromNode: 'node-osc-1',
@@ -138,6 +146,18 @@ function cloneDefaultGraph(): FlowGraph {
     };
 }
 
+// BUG-N03 FIX: Module-level debounce guard for syncFlowGraphToEngine.
+// Coalesces multiple mutations per microtask frame into a single sync call.
+let _syncScheduled = false;
+function _scheduleSyncFlowGraph(get: () => FlowSynthState): void {
+    if (_syncScheduled) return;
+    _syncScheduled = true;
+    queueMicrotask(() => {
+        _syncScheduled = false;
+        get().syncFlowGraphToEngine();
+    });
+}
+
 export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     isOpen: false,
     activeDeviceId: null,
@@ -154,6 +174,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     openFlowEditor: (deviceId, trackId) => set((state) => {
         const graph = state.graphsByDeviceId[deviceId] ?? cloneDefaultGraph();
         viewportProxy.setViewport(graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
+
+        // CRITICAL: Sync graph to engine on editor open so the Rust backend
+        // receives the graph and enables Flow processing for this track.
+        _scheduleSyncFlowGraph(get);
+
         return {
             isOpen: true,
             activeDeviceId: deviceId,
@@ -213,7 +238,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const nextNodes = [...state.nodes, safeNode];
 
         // Trigger sync
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
 
         if (!state.activeDeviceId) return { nodes: nextNodes };
         return {
@@ -257,7 +282,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         );
 
         // Trigger sync
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
 
         return {
             nodes: nextNodes,
@@ -280,7 +305,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     }),
 
     updateNodeData: (id, patch) => {
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
         return set((state) => {
             const nextNodes = state.nodes.map((node) => {
                 if (node.id !== id) return node;
@@ -317,7 +342,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         );
 
         // Trigger sync
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
 
         return {
             nodes: nextNodes,
@@ -359,7 +384,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const nextConnections = state.connections.filter((c) => c.id !== id);
 
         // Trigger sync
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
 
         return {
             connections: nextConnections,
@@ -401,7 +426,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     }),
 
     setNodes: (nodes) => {
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
         return set((state) => ({
             nodes,
             selectedNodeIds: state.selectedNodeIds.filter((id) => nodes.some((node) => node.id === id)),
@@ -421,22 +446,25 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         }));
     },
 
-    setConnections: (connections) => set((state) => ({
-        connections,
-        selectedConnectionId: state.selectedConnectionId && connections.some((c) => c.id === state.selectedConnectionId)
-            ? state.selectedConnectionId
-            : null,
-        graphsByDeviceId: state.activeDeviceId
-            ? {
-                ...state.graphsByDeviceId,
-                [state.activeDeviceId]: {
-                    nodes: state.nodes,
-                    connections,
-                    viewport: viewportProxy.getViewport(),
-                },
-            }
-            : state.graphsByDeviceId,
-    })),
+    setConnections: (connections) => {
+        _scheduleSyncFlowGraph(get);
+        return set((state) => ({
+            connections,
+            selectedConnectionId: state.selectedConnectionId && connections.some((c) => c.id === state.selectedConnectionId)
+                ? state.selectedConnectionId
+                : null,
+            graphsByDeviceId: state.activeDeviceId
+                ? {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: state.nodes,
+                        connections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                }
+                : state.graphsByDeviceId,
+        }));
+    },
 
     startConnectionDrag: (connection) => set({
         selectedConnectionId: null,
@@ -491,7 +519,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const nextConnections = [...state.connections, newConnection];
 
         // Trigger sync
-        setTimeout(() => get().syncFlowGraphToEngine(), 0);
+        _scheduleSyncFlowGraph(get);
 
         return {
             connections: nextConnections,
@@ -558,9 +586,9 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             return numeric;
         };
 
-        const encodeNodeParams = (data: Record<string, unknown> | undefined): SyncNodeParam[] => {
+        const encodeNodeParams = (data: Record<string, unknown> | undefined): [string, string][] => {
             if (!data) return [];
-            const out: SyncNodeParam[] = [];
+            const out: [string, string][] = [];
             for (const [k, v] of Object.entries(data)) {
                 if (v === null || v === undefined) continue;
                 if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
@@ -570,7 +598,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             return out;
         };
 
-        const nodes: [number, string, SyncNodeParam[]][] = state.nodes.map((n) => {
+        const nodes: [number, string, [string, string][]][] = state.nodes.map((n) => {
             const numericId = mapNode(n.id);
             return [numericId, n.type, encodeNodeParams(n.data)];
         });

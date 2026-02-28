@@ -8,7 +8,6 @@ const WAVEFORMS = [
     { value: 'saw', label: 'Saw' },
     { value: 'square', label: 'Square' },
     { value: 'triangle', label: 'Triangle' },
-    { value: 'noise', label: 'Noise' },
 ];
 
 interface Props {
@@ -35,6 +34,15 @@ export function OscillatorControls({ node }: Props) {
                 />
             </ControlRow>
             <ControlRow label="Freq">
+                <input
+                    type="range"
+                    min={20}
+                    max={20000}
+                    step={1}
+                    value={freq}
+                    onChange={(e) => updateData({ frequency: Number(e.target.value) })}
+                    style={{ width: 90 }}
+                />
                 <NodeValue value={freq} unit="Hz" />
             </ControlRow>
         </div>

@@ -1,6 +1,7 @@
 import * as engine from '@/shared/api/engine';
 import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 import type { KeyboardShortcutHandlerEnv } from './types';
 
 export type RegionBox = { startBeat: number; endBeat: number; startTrack: number; endTrack: number };
@@ -26,6 +27,8 @@ function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv[
     });
 }
 
+// SSOT FIX: Sequential splits with batched delta apply.
+// Prevents race conditions from parallel IPC calls mutating the same project state.
 async function splitRegionBoundaries(range: RegionBox): Promise<void> {
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
@@ -42,14 +45,19 @@ async function splitRegionBoundaries(range: RegionBox): Promise<void> {
             return splitBeat > clipStart + EPS && splitBeat < clipEnd - EPS;
         });
         if (clips.length === 0) continue;
-        const responses = await Promise.all(clips.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)));
+        const batchedDeltas: engine.ProjectDelta[] = [];
+        for (const clip of clips) {
+            const r = await engine.splitClipWithDeltas(clip.id, splitFrame);
+            batchedDeltas.push(...r.deltas);
+        }
         await useEngineStore.getState().applyProjectDeltas(
-            responses.flatMap((response) => response.deltas),
+            batchedDeltas,
             'keyboard:region-boundary-split',
         );
     }
 }
 
+// SSOT FIX: Use batch duplicate API for atomic undo + reliable new-ID extraction.
 export async function duplicateRegion(range: RegionBox): Promise<string[]> {
     await splitRegionBoundaries(range);
     const sourceClips = collectRegionClips(range);
@@ -58,21 +66,20 @@ export async function duplicateRegion(range: RegionBox): Promise<string[]> {
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const responses = await Promise.all(
-        sourceClips.map((clip) =>
-            engine.duplicateClipWithDeltas(
-                clip.id,
-                Math.max(0, beatToFrame(clip.startBeat + lenBeats, bpm, sampleRate)),
-            ),
-        ),
+    const response = await engine.duplicateMultipleClipsWithDeltas(
+        sourceClips.map((clip) => ({
+            id: clip.id,
+            newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + lenBeats, bpm, sampleRate)),
+        })),
     );
     await useEngineStore.getState().applyProjectDeltas(
-        responses.flatMap((response) => response.deltas),
+        response.deltas,
         'keyboard:region-duplicate',
     );
-    return responses.map((response) => response.new_id);
+    return extractNewClipIdsFromDeltas(response.deltas, response.new_id);
 }
 
+// SSOT FIX: Use batch move API for atomic undo.
 export async function moveRegion(range: RegionBox, direction: -1 | 1): Promise<number> {
     await splitRegionBoundaries(range);
     const clips = collectRegionClips(range);
@@ -85,23 +92,21 @@ export async function moveRegion(range: RegionBox, direction: -1 | 1): Promise<n
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const responses = await Promise.all(
-        clips.map((clip) => {
-            const nextBeat = Math.max(0, clip.startBeat + deltaBeats);
-            return engine.moveClipWithDeltas(
-                clip.id,
-                clip.trackIndex,
-                Math.max(0, beatToFrame(nextBeat, bpm, sampleRate)),
-            );
-        }),
+    const response = await engine.moveMultipleClipsWithDeltas(
+        clips.map((clip) => ({
+            id: clip.id,
+            newTrackIndex: clip.trackIndex,
+            newPositionFrames: Math.max(0, beatToFrame(Math.max(0, clip.startBeat + deltaBeats), bpm, sampleRate)),
+        })),
     );
     await useEngineStore.getState().applyProjectDeltas(
-        responses.flatMap((response) => response.deltas),
+        response.deltas,
         'keyboard:region-move',
     );
     return clips.length;
 }
 
+// SSOT FIX: Use batch move API for atomic undo. Two batches (A→B, B→A) run sequentially.
 export async function swapRegions(regionA: RegionBox, regionB: RegionBox): Promise<number> {
     const lenA = regionA.endBeat - regionA.startBeat;
     const lenB = regionB.endBeat - regionB.startBeat;
@@ -127,25 +132,26 @@ export async function swapRegions(regionA: RegionBox, regionB: RegionBox): Promi
     const deltaBeat = regionB.startBeat - regionA.startBeat;
     const deltaTrack = regionB.startTrack - regionA.startTrack;
 
-    const responses = await Promise.all([
-        ...clipsA.map((clip) =>
-            engine.moveClipWithDeltas(
-                clip.id,
-                clip.trackIndex + deltaTrack,
-                Math.max(0, beatToFrame(clip.startBeat + deltaBeat, bpm, sampleRate)),
-            ),
-        ),
-        ...clipsB.map((clip) =>
-            engine.moveClipWithDeltas(
-                clip.id,
-                clip.trackIndex - deltaTrack,
-                Math.max(0, beatToFrame(clip.startBeat - deltaBeat, bpm, sampleRate)),
-            ),
-        ),
-    ]);
-    await useEngineStore.getState().applyProjectDeltas(
-        responses.flatMap((response) => response.deltas),
-        'keyboard:region-swap',
-    );
+    // Move A→B first, then B→A (sequential to avoid position conflicts)
+    if (clipsA.length > 0) {
+        const responseA = await engine.moveMultipleClipsWithDeltas(
+            clipsA.map((clip) => ({
+                id: clip.id,
+                newTrackIndex: clip.trackIndex + deltaTrack,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + deltaBeat, bpm, sampleRate)),
+            })),
+        );
+        await useEngineStore.getState().applyProjectDeltas(responseA.deltas, 'keyboard:region-swap-a');
+    }
+    if (clipsB.length > 0) {
+        const responseB = await engine.moveMultipleClipsWithDeltas(
+            clipsB.map((clip) => ({
+                id: clip.id,
+                newTrackIndex: clip.trackIndex - deltaTrack,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat - deltaBeat, bpm, sampleRate)),
+            })),
+        );
+        await useEngineStore.getState().applyProjectDeltas(responseB.deltas, 'keyboard:region-swap-b');
+    }
     return clipsA.length + clipsB.length;
 }

@@ -9,13 +9,6 @@ import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackPr
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
 
-// BUG-A017 FIX: Module-level constant — avoids re-creating a Set on every delta application.
-const SNAPSHOT_REASONS = new Set([
-    'open', 'open-project', 'last-project', 'last-project:restore',
-    'engine:new', 'keyboard:new', 'native-menu:new', 'multi-project:new',
-    'auto-recovery:restore', 'project-manager:new-project',
-    'multi-project:switch',
-]);
 import { createTelemetryActions, getLatestMetersSnapshot, setBpmPendingUntil, resetTelemetryPeaks } from '@/shared/stores/engine/actionsTelemetry';
 import type {
     TransportState,
@@ -29,6 +22,14 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 export type { ProjectTrack } from '@/shared/lib/trackAdapter';
+// BUG-A017 FIX: Module-level constant — avoids re-creating a Set on every delta application.
+const SNAPSHOT_REASONS = new Set([
+    'open', 'open-project', 'last-project', 'last-project:restore',
+    'engine:new', 'keyboard:new', 'native-menu:new', 'multi-project:new',
+    'auto-recovery:restore', 'project-manager:new-project',
+    'multi-project:switch',
+]);
+
 // ── BUG-042: Viewport restore epsilon constants ────────────────────────
 const VIEWPORT_POSITION_EPSILON = 0.5;
 const VIEWPORT_ZOOM_EPSILON = 0.0001;

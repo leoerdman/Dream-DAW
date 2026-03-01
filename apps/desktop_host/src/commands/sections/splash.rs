@@ -48,17 +48,17 @@ fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     // Now showing the window will be an instant painted reveal of the pre-stretched bounds.
-    main_window
-        .show()
-        .map_err(|e| format!("Failed to show main window: {e}"))?;
-    main_window
-        .set_focus()
-        .map_err(|e| format!("Failed to focus main window: {e}"))?;
+    if let Err(e) = main_window.show() {
+        log::warn!("Failed to show main window: {e}");
+    }
+    if let Err(e) = main_window.set_focus() {
+        log::warn!("Failed to focus main window: {e}");
+    }
     
     // Register the OS maximized state so native window controls (green button) sync up
-    main_window
-        .maximize()
-        .map_err(|e| format!("Failed to maximize main window: {e}"))?;
+    if let Err(e) = main_window.maximize() {
+        log::warn!("Failed to maximize main window: {e}");
+    }
 
     let main_window_for_release = main_window.clone();
     if let Err(err) = std::thread::Builder::new()

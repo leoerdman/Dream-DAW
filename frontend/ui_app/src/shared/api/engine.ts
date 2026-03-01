@@ -34,6 +34,21 @@ interface InvokeOptions {
 }
 
 async function invokeTauri<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+    // ENTERPRISE FIX: Tauri bridge injection race condition.
+    // If the frontend evaluates and calls `invoke` before Tauri completes its async
+    // bridge injection, `invoke` throws a non-catchable TypeError leading to unhandled rejections.
+    // We poll for up to 8 seconds to ensure the bridge exists.
+    let retries = 0;
+    while (!window.__TAURI_INTERNALS__ && retries < 80) {
+        await new Promise(r => setTimeout(r, 100));
+        retries++;
+    }
+    if (!window.__TAURI_INTERNALS__) {
+        const msg = `invokeTauri timeout: Tauri bridge never injected for ${command}`;
+        console.error(`[Dream] ${msg}`);
+        throw new IpcCommandError(command, null, msg);
+    }
+
     try {
         return await invoke<T>(command, args);
     } catch (error) {

@@ -203,31 +203,39 @@ export function useAudioFailoverRecovery(args: {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
             if (!window.__TAURI_INTERNALS__) return;
-            const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
-                const now = Date.now();
-                if (recoveringAudioRef.current) return;
-                if (now - lastAudioRecoverAtRef.current < 3000) return;
-                recoveringAudioRef.current = true;
-                lastAudioRecoverAtRef.current = now;
-                try {
-                    const settings = await engineApi.getSettings();
-                    const fallback = settings.fallbackOutputDevice || 'Default Output';
-                    const resolved = await engineApi.restartAudioEngine(fallback);
-                    if (settings.outputDevice !== resolved) {
-                        await engineApi.updateSettings({ ...settings, outputDevice: resolved });
+            try {
+                const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
+                    const now = Date.now();
+                    if (recoveringAudioRef.current) return;
+                    if (now - lastAudioRecoverAtRef.current < 3000) return;
+                    recoveringAudioRef.current = true;
+                    lastAudioRecoverAtRef.current = now;
+                    try {
+                        const settings = await engineApi.getSettings();
+                        const fallback = settings.fallbackOutputDevice || 'Default Output';
+                        const resolved = await engineApi.restartAudioEngine(fallback);
+                        if (settings.outputDevice !== resolved) {
+                            await engineApi.updateSettings({ ...settings, outputDevice: resolved });
+                        }
+                        console.warn('[Dream] Audio stream recovered via fallback:', {
+                            streamError: event.payload?.error,
+                            requestedFallback: fallback,
+                            resolved,
+                        });
+                    } catch (err) {
+                        console.error('[Dream] Audio fallback recovery failed:', err);
+                    } finally {
+                        recoveringAudioRef.current = false;
                     }
-                    console.warn('[Dream] Audio stream recovered via fallback:', {
-                        streamError: event.payload?.error,
-                        requestedFallback: fallback,
-                        resolved,
-                    });
-                } catch (err) {
-                    console.error('[Dream] Audio fallback recovery failed:', err);
-                } finally {
-                    recoveringAudioRef.current = false;
+                });
+                if (cancelled) {
+                    fn();
+                } else {
+                    unlisten = fn;
                 }
-            });
-            if (cancelled) fn(); else unlisten = fn;
+            } catch (e) {
+                console.warn('[Dream] Failed to bind audio-stream-error:', e);
+            }
         };
         void setup();
         return () => {
@@ -275,24 +283,32 @@ export function useAlsImportSummaryStatus(): void {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
             if (!window.__TAURI_INTERNALS__) return;
-            const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
-                const p = event.payload;
-                const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;
-                const unresolvedCount = Math.max(0, p.missing_slots_after);
-                const status = useStatusStore.getState();
-                const baseMsg =
-                    `ALS: ${p.project_name} | tracks ${p.track_count} | missing ${p.missing_slots_before}→${p.missing_slots_after} | auto ${autoResolved} | warp ${p.warped_clip_count} clips/${p.warp_marker_count} markers | source-frames ${p.warped_with_source_frames}`;
-                if (unresolvedCount > 0) {
-                    const labels = (p.unresolved_missing_labels ?? []).slice(0, 3);
-                    const details = labels.length > 0
-                        ? ` | unresolved ${unresolvedCount}: ${labels.join(', ')}${unresolvedCount > labels.length ? ', …' : ''}`
-                        : ` | unresolved ${unresolvedCount}`;
-                    status.setError(`${baseMsg}${details}`);
-                    return;
+            try {
+                const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
+                    const p = event.payload;
+                    const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;
+                    const unresolvedCount = Math.max(0, p.missing_slots_after);
+                    const status = useStatusStore.getState();
+                    const baseMsg =
+                        `ALS: ${p.project_name} | tracks ${p.track_count} | missing ${p.missing_slots_before}→${p.missing_slots_after} | auto ${autoResolved} | warp ${p.warped_clip_count} clips/${p.warp_marker_count} markers | source-frames ${p.warped_with_source_frames}`;
+                    if (unresolvedCount > 0) {
+                        const labels = (p.unresolved_missing_labels ?? []).slice(0, 3);
+                        const details = labels.length > 0
+                            ? ` | unresolved ${unresolvedCount}: ${labels.join(', ')}${unresolvedCount > labels.length ? ', …' : ''}`
+                            : ` | unresolved ${unresolvedCount}`;
+                        status.setError(`${baseMsg}${details}`);
+                        return;
+                    }
+                    status.setInfo(baseMsg);
+                });
+                if (cancelled) {
+                    fn();
+                } else {
+                    unlisten = fn;
                 }
-                status.setInfo(baseMsg);
-            });
-            if (cancelled) fn(); else unlisten = fn;
+            } catch (e) {
+                console.warn('[Dream] Failed to bind als_import_summary:', e);
+            }
         };
         void setup();
         return () => {

@@ -513,17 +513,25 @@ pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<
                 log::info!("[Splash] Splash window already gone");
             }
 
-            // Show main window — keep it simple to avoid main-thread dispatch deadlocks.
-            // Decorations, resizable, min-size are already set in tauri.conf.json.
-            if let Some(main_window) = splash_app.get_webview_window("main") {
-                log::info!("[Splash] Showing main window...");
-                let _ = main_window.show();
-                let _ = main_window.set_focus();
-                let _ = main_window.maximize();
-                log::info!("[Splash] Auto-closed splash, showed main window");
-            } else {
-                log::error!("[Splash] Main window not found during auto-close");
-            }
+            // Show main window and trigger page load on the main thread.
+            // macOS requires all WebView operations on the main thread.
+            let main_thread_app = splash_app.clone();
+            let _ = splash_app.run_on_main_thread(move || {
+                if let Some(main_window) = main_thread_app.get_webview_window("main") {
+                    log::info!("[Splash] [MainThread] Showing main window...");
+                    let _ = main_window.show();
+                    let _ = main_window.set_focus();
+                    let _ = main_window.maximize();
+                    // Force-navigate: WKWebView with visible:false never loaded the page.
+                    if let Ok(url) = tauri::Url::parse("http://localhost:5179/") {
+                        log::info!("[Splash] [MainThread] Force-navigating to app URL");
+                        let _ = main_window.navigate(url);
+                    }
+                    log::info!("[Splash] [MainThread] Auto-closed splash, showed main window");
+                } else {
+                    log::error!("[Splash] Main window not found during auto-close");
+                }
+            });
         })
     {
         log::warn!("[Splash] Failed to spawn auto-close thread: {}", err);

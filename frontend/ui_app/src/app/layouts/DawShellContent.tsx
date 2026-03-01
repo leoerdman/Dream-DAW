@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
@@ -54,7 +55,7 @@ interface DawShellContentProps {
     panelInfo: string;
 }
 
-export function DawShellContent(props: DawShellContentProps) {
+export const DawShellContent = memo(function DawShellContent(props: DawShellContentProps) {
     return (
         <div className="absolute inset-0 z-10 flex flex-col theme-ornament-shell">
             <ProjectTabBar />
@@ -126,4 +127,4 @@ export function DawShellContent(props: DawShellContentProps) {
             />
         </div>
     );
-}
+});

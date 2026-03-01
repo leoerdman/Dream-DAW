@@ -197,8 +197,9 @@ export class WaveformCache {
     }
 
     private _releaseBufferToPool(arr: Float32Array): void {
-        // BUG-024 FIX: Use arr.buffer.byteLength / 4 for correct pool bucket routing.
-        const size = arr.buffer.byteLength / 4;
+        // BUG-012 FIX: Use arr.length (typed array element count) not
+        // arr.buffer.byteLength / 4 (underlying buffer size after slice).
+        const size = arr.length;
         let pool: Float32Array[] | null = null;
         if (size === 64) pool = WaveformCache._pool64;
         else if (size === 128) pool = WaveformCache._pool128;

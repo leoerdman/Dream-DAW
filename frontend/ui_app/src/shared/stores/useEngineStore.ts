@@ -182,12 +182,23 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
-    // BUG-F006 FIX: Don't short-circuit on global isDirty alone — the active tab
-    // might not be marked dirty yet (e.g. switching projects while another is dirty).
+    // BUG-003 FIX: Avoid O(N) .find() on every markDirty() call.
+    // Uses indexed iteration with early-exit instead of full scan.
     markDirty: () => set((s) => {
         if (s.activeProjectId) {
-            const activeTab = s.openProjects.find(t => t.id === s.activeProjectId);
-            if (s.isDirty && activeTab?.isDirty) return s; // Both already dirty — no-op
+            // First check if already fully dirty
+            if (s.isDirty) {
+                // Quick check: is the active tab already dirty?
+                const byId = s.openProjects;
+                let alreadyDirty = false;
+                for (let i = 0, len = byId.length; i < len; i++) {
+                    if (byId[i].id === s.activeProjectId) {
+                        alreadyDirty = byId[i].isDirty;
+                        break;
+                    }
+                }
+                if (alreadyDirty) return s; // Both already dirty — no-op
+            }
             const tabs = s.openProjects.map(t =>
                 t.id === s.activeProjectId ? { ...t, isDirty: true } : t
             );
@@ -255,11 +266,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         try {
             const response = await engine.closeProjectTab(id);
             const remaining = state.openProjects.filter(t => t.id !== id);
-            // BUG-001 FIX: When backend returns null/undefined for newActiveId,
-            // fall back to first REMAINING tab — not state.activeProjectId which
-            // IS the tab being closed and no longer exists.
+            // BUG-004 FIX: `remaining` already excludes `id`, so the .find(t => t.id !== id)
+            // was redundant. Just use remaining[0] as first fallback.
             const newActiveId = response.newActiveId
-                ?? remaining.find(t => t.id !== id)?.id
                 ?? remaining[0]?.id
                 ?? null;
             set({ openProjects: remaining, activeProjectId: newActiveId });

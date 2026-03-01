@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { VolumeFader } from '@/widgets/TrackInspector/ui/VolumeFader';
 import { PanFader } from '@/widgets/TrackInspector/ui/PanFader';
 import { TriColorVU, VerticalMixerStrip } from '@/widgets/TrackInspector/ui/MixerWidgets';
@@ -23,7 +24,7 @@ interface TrackRowMixerProps {
     onPanContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
-export function TrackRowMixer({
+export const TrackRowMixer = memo(({
     track,
     trackHeight,
     heightLevel,
@@ -41,7 +42,7 @@ export function TrackRowMixer({
     onPanChange,
     onVolumeContextMenu,
     onPanContextMenu,
-}: TrackRowMixerProps) {
+}: TrackRowMixerProps) => {
     const isMeterActive = !track.isDisabled && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = 18;  // Fixed control height for consistency
     const showFaders = heightLevel >= 2;
@@ -203,4 +204,4 @@ export function TrackRowMixer({
             />
         </div>
     );
-}
+});

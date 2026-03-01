@@ -33,6 +33,8 @@ export class TimelineEngine {
     private _resizeRafId = 0;
 
     private _clips: TimelineClipData[] = [];
+    /** PERF-OPT-1: O(1) clip lookup by ID — built in setClips(). */
+    private _clipById = new Map<string, TimelineClipData>();
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
@@ -83,6 +85,8 @@ export class TimelineEngine {
 
     /** Deferred prefetch redraw handle (idle callback or fallback timeout). */
     private _prefetchDeferredId: IdleHandle | null = null;
+    /** Debounce timer for _prefetchVisibleWaveforms during rapid zoom/scroll. */
+    private _prefetchDebounceId: ReturnType<typeof setTimeout> | null = null;
 
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
@@ -216,6 +220,10 @@ export class TimelineEngine {
 
         cancelIdle(this._prefetchDeferredId);
         this._prefetchDeferredId = null;
+        if (this._prefetchDebounceId !== null) {
+            clearTimeout(this._prefetchDebounceId);
+            this._prefetchDebounceId = null;
+        }
 
         this._canvas = null;
         this._ctx = null;
@@ -231,17 +239,37 @@ export class TimelineEngine {
     setClips(clips: TimelineClipData[]): void {
         const prevClips = this._clips;
         const normalizedInput = normalizeTimelineClips(clips);
-        this._clips = normalizedInput.map((clip) => {
-            const flags = this._fadeCurvePoints[clip.id];
-            return {
-                ...clip,
-                hovered: this._hoverClipId === clip.id,
-                showFadeInCurvePoint: Boolean(flags?.in),
-                showFadeOutCurvePoint: Boolean(flags?.out),
-            };
-        });
 
-        const currentIds = new Set(normalizedInput.map((c) => c.id));
+        // PERF FIX: Only spread-copy clips whose hovered/fade flags actually differ.
+        // Previously .map() spread-copied EVERY clip on EVERY setClips() call.
+        const nextClips: TimelineClipData[] = new Array(normalizedInput.length);
+        for (let i = 0; i < normalizedInput.length; i++) {
+            const clip = normalizedInput[i];
+            const hovered = this._hoverClipId === clip.id;
+            const flags = this._fadeCurvePoints[clip.id];
+            const showIn = Boolean(flags?.in);
+            const showOut = Boolean(flags?.out);
+            // Fast path: if flags match existing clip object, reuse it
+            if (
+                clip.hovered === hovered &&
+                clip.showFadeInCurvePoint === showIn &&
+                clip.showFadeOutCurvePoint === showOut
+            ) {
+                nextClips[i] = clip;
+            } else {
+                nextClips[i] = { ...clip, hovered, showFadeInCurvePoint: showIn, showFadeOutCurvePoint: showOut };
+            }
+        }
+        this._clips = nextClips;
+
+        // PERF-OPT-1: Build O(1) lookup map after clip array update.
+        this._clipById.clear();
+        for (const c of this._clips) this._clipById.set(c.id, c);
+
+        // PERF FIX: Build ID Set directly via for-loop — avoids .map() intermediate array.
+        const currentIds = new Set<string>();
+        for (let i = 0; i < normalizedInput.length; i++) currentIds.add(normalizedInput[i].id);
+
         for (const id of Object.keys(this._fadeCurvePoints)) {
             if (!currentIds.has(id)) delete this._fadeCurvePoints[id];
         }
@@ -279,13 +307,21 @@ export class TimelineEngine {
         const primarySelectedId = selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null;
         let changed = false;
 
-        this._clips = this._clips.map((clip) => {
+        // PERF FIX: Mutate in-place instead of .map() to avoid O(N) object allocation.
+        // Only create new objects for clips whose selection state actually changed.
+        for (let i = 0, len = this._clips.length; i < len; i++) {
+            const clip = this._clips[i];
             const nextSelected = selected.has(clip.id);
             const nextPrimarySelected = primarySelectedId === clip.id;
-            if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected) return clip;
+            if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected) continue;
             changed = true;
-            return { ...clip, selected: nextSelected, primarySelected: nextPrimarySelected };
-        });
+            const updated = { ...clip, selected: nextSelected, primarySelected: nextPrimarySelected };
+            this._clips[i] = updated;
+            // CRITICAL FIX: Keep _clipById in sync — stale Map entries caused
+            // all 27 _clipById.get() lookups (move, fade, resize, duplicate) to
+            // return outdated clip data with wrong selection state.
+            this._clipById.set(updated.id, updated);
+        }
 
         if (!changed) return;
         this._requestRedraw();
@@ -547,9 +583,6 @@ export class TimelineEngine {
             });
         }
 
-        // Force canvas redraw when clip set changes (e.g. after delete).
-        this._requestRedraw();
-
         // ENTERPRISE: Append Cmd+Drag ghost clips to the draw list
         if (hasGhosts) {
             return [...base, ...this._cmdDragGhosts];
@@ -644,7 +677,12 @@ export class TimelineEngine {
             this._viewport.scrollBy(e.deltaX, e.deltaY);
         }
 
-        this._prefetchVisibleWaveforms();
+        // Debounce waveform prefetch so it doesn't run on every scroll tick
+        if (this._prefetchDebounceId !== null) clearTimeout(this._prefetchDebounceId);
+        this._prefetchDebounceId = setTimeout(() => {
+            this._prefetchDebounceId = null;
+            this._prefetchVisibleWaveforms();
+        }, 100);
     }
 
     hitTest(clientX: number, clientY: number): HitTestResult {
@@ -873,12 +911,22 @@ export class TimelineEngine {
 
     private _syncHoveredClip(clipId: string | null): void {
         if (this._hoverClipId === clipId) return;
-        this._hoverClipId = clipId;
         const activeFadeClipId = this._isFadeDragMode(this._drag.mode) ? this._drag.clipId : null;
 
-        for (const clip of this._clips) {
-            const next = clip.id === this._hoverClipId || (Boolean(activeFadeClipId) && clip.id === activeFadeClipId);
-            clip.hovered = next; // This flag is only used for rendering — not for React state.
+        // PERF-OPT-2: Toggle only old+new hovered clips via Map (O(1)),
+        // instead of iterating ALL clips on every mouse move (O(N)).
+        if (this._hoverClipId) {
+            const old = this._clipById.get(this._hoverClipId);
+            if (old && old.id !== activeFadeClipId) old.hovered = false;
+        }
+        this._hoverClipId = clipId;
+        if (clipId) {
+            const cur = this._clipById.get(clipId);
+            if (cur) cur.hovered = true;
+        }
+        if (activeFadeClipId) {
+            const fade = this._clipById.get(activeFadeClipId);
+            if (fade) fade.hovered = true;
         }
         this._requestRedraw();
     }
@@ -939,7 +987,9 @@ export class TimelineEngine {
                 if (this._marquee) this._setMarquee(null);
                 if (!hit.clipId) break;
 
-                const clip = this._clips.find(c => c.id === hit.clipId);
+                // BUG-AUDIT-CRITICAL: Must use hit.clipId (current click target),
+                // NOT this._drag.clipId (stale from previous drag — typically null).
+                const clip = this._clipById.get(hit.clipId);
                 if (!clip) break;
 
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
@@ -1045,7 +1095,12 @@ export class TimelineEngine {
                 }
 
                 const isAlreadySelected = clip.selected === true;
-                const multipleSelected = this._clips.filter(c => c.selected).length > 1;
+                // BUG-AUDIT-PERF: Replaced O(N) .filter().length with manual count (avoids GC array).
+                let selectedCount = 0;
+                for (let i = 0, len = this._clips.length; i < len && selectedCount < 2; i++) {
+                    if (this._clips[i].selected) selectedCount++;
+                }
+                const multipleSelected = selectedCount > 1;
                 const preserveMultiSelect = isAlreadySelected && multipleSelected && !isAdditive;
 
                 if (!preserveMultiSelect) {
@@ -1079,7 +1134,11 @@ export class TimelineEngine {
 
             case 'track': {
                 const snappedBeat = this._snapBeat(hit.beat);
-                const hasSelectedClips = this._clips.some((c) => c.selected);
+                // PERF FIX: Break-early loop instead of O(N) .some() — most tracks have few selected clips.
+                let hasSelectedClips = false;
+                for (let i = 0, len = this._clips.length; i < len; i++) {
+                    if (this._clips[i].selected) { hasSelectedClips = true; break; }
+                }
 
                 if (e.shiftKey && hasSelectedClips) {
                     // Shift+click on empty timeline should not replace clip selection with marquee.
@@ -1096,11 +1155,15 @@ export class TimelineEngine {
                         anchorTrack = this._editCursorTrack >= 0 ? this._editCursorTrack : hit.trackIndex;
                         hasAnchor = true;
                     } else {
-                        const selectedClips = this._clips.filter((c) => c.selected);
-                        if (selectedClips.length > 0) {
-                            anchorBeat = selectedClips[0].startBeat;
-                            anchorTrack = selectedClips[0].trackIndex;
-                            hasAnchor = true;
+                        // PERF FIX: First-found loop instead of O(N) .filter() allocation.
+                        for (let i = 0, len = this._clips.length; i < len; i++) {
+                            const sc = this._clips[i];
+                            if (sc.selected) {
+                                anchorBeat = sc.startBeat;
+                                anchorTrack = sc.trackIndex;
+                                hasAnchor = true;
+                                break;
+                            }
                         }
                     }
 
@@ -1224,13 +1287,13 @@ export class TimelineEngine {
                     0,
                     Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
                 );
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                 if (clip) {
                     clip.startBeat = newBeat;
                     clip.trackIndex = newTrack;
                 }
                 for (const [id, origin] of coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipById.get(id);
                     if (co) {
                         co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
                         co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
@@ -1253,7 +1316,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeLeft: {
-                canvas.style.cursor = 'default';
+                canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
@@ -1287,7 +1350,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeRight: {
-                canvas.style.cursor = 'default';
+                canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
 
@@ -1320,7 +1383,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeIn: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
@@ -1332,7 +1395,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeOut: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                const clip = this._clipById.get(this._drag.clipId);
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
@@ -1345,7 +1408,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeOutCurve: {
                 canvas.style.cursor = 'pointer';
                 if (!this._drag.clipId || !canvas) break;
-                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                const clip = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                 if (!clip) break;
                 const rect = canvas.getBoundingClientRect();
                 const localX = e.clientX - rect.left;
@@ -1461,14 +1524,14 @@ export class TimelineEngine {
             case DragMode.ClipMove: {
                 if (this._drag.clipId) {
                     if (!canvas) {
-                        const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
+                        const clipToRestore = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
                         }
                         if (this._drag.coMoverOrigins) {
                             for (const [id, origin] of this._drag.coMoverOrigins) {
-                                const co = this._clips.find(c => c.id === id);
+                                const co = this._clipById.get(id);
                                 if (co) {
                                     co.startBeat = origin.beat;
                                     co.trackIndex = origin.track;
@@ -1491,14 +1554,14 @@ export class TimelineEngine {
                     const isTinyMove =
                         Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
                     if (isTinyMove) {
-                        const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
+                        const clipToRestore = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
                         }
                         if (this._drag.coMoverOrigins) {
                             for (const [id, origin] of this._drag.coMoverOrigins) {
-                                const co = this._clips.find(c => c.id === id);
+                                const co = this._clipById.get(id);
                                 if (co) {
                                     co.startBeat = origin.beat;
                                     co.trackIndex = origin.track;
@@ -1563,7 +1626,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeIn:
             case DragMode.ClipFadeOut: {
                 if (this._drag.clipId) {
-                    const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                    const clip = this._clipById.get(this._drag.clipId);
                     if (!clip) break;
                     const durationFrames = Math.max(1, this._clipDurationFrames(clip));
                     const maxFadeFrames = Math.round(durationFrames * 0.5);
@@ -1582,7 +1645,7 @@ export class TimelineEngine {
             case DragMode.ClipFadeInCurve:
             case DragMode.ClipFadeOutCurve: {
                 if (this._drag.clipId) {
-                    const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                    const clip = this._clipById.get(this._drag.clipId);
                     if (clip) {
                         const nextIn = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
                         const nextOut = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
@@ -1689,7 +1752,7 @@ export class TimelineEngine {
             case 'clip':
                 if (hit.clipId) {
                     if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
-                        const clip = this._clips.find((c) => c.id === hit.clipId);
+                        const clip = this._clipById.get(hit.clipId);
                         if (clip) {
                             if (hit.fadeHandle === 'in') clip.fadeIn = 0;
                             else clip.fadeOut = 0;
@@ -1703,7 +1766,7 @@ export class TimelineEngine {
                         }
                     }
                     if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
-                        const clip = this._clips.find((c) => c.id === hit.clipId);
+                        const clip = this._clipById.get(hit.clipId);
                         if (clip) {
                             const flags = this._fadeCurvePoints[clip.id] ?? { in: false, out: false };
                             if (hit.fadeCurveHandle === 'in') {
@@ -1726,7 +1789,7 @@ export class TimelineEngine {
                         }
                     }
                     if (hit.fadeZone === 'in' || hit.fadeZone === 'out') {
-                        const clip = this._clips.find((c) => c.id === hit.clipId);
+                        const clip = this._clipById.get(hit.clipId);
                         if (clip) {
                             const flags = this._fadeCurvePoints[clip.id] ?? { in: false, out: false };
                             if (hit.fadeZone === 'in') flags.in = true;
@@ -1766,7 +1829,7 @@ export class TimelineEngine {
         }
 
         e.preventDefault();
-        const clip = this._clips.find((c) => c.id === hit.clipId);
+        const clip = this._clipById.get(hit.clipId);
         if (!clip) return;
 
         const flags = this._fadeCurvePoints[clip.id] ?? { in: false, out: false };
@@ -1863,7 +1926,7 @@ export class TimelineEngine {
             track: Math.max(0, Math.min(trackCount - 1, origTrack + deltaTrack)),
         });
 
-        const primaryClip = this._clips.find(c => c.id === this._drag.clipId);
+        const primaryClip = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
         if (!primaryClip) return;
 
         const primaryTarget = computeTarget(this._drag.clipOriginalBeat, this._drag.clipOriginalTrack);
@@ -1891,7 +1954,7 @@ export class TimelineEngine {
             // Co-movers: restore + ghost
             if (this._drag.coMoverOrigins) {
                 for (const [id, origin] of this._drag.coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipById.get(id);
                     if (co) {
                         co.startBeat = origin.beat;
                         co.trackIndex = origin.track;
@@ -1918,7 +1981,7 @@ export class TimelineEngine {
 
             if (this._drag.coMoverOrigins) {
                 for (const [id, origin] of this._drag.coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
+                    const co = this._clipById.get(id);
                     if (co) {
                         const target = computeTarget(origin.beat, origin.track);
                         co.startBeat = target.beat;
@@ -1945,7 +2008,7 @@ export class TimelineEngine {
         if (e.key === 'Escape') {
             if (this._drag.mode !== DragMode.None) {
                 if (this._drag.clipId) {
-                    const c = this._clips.find(cl => cl.id === this._drag.clipId);
+                    const c = this._clipById.get(this._drag.clipId);
                     if (c) {
                         c.startBeat = this._drag.clipOriginalBeat;
                         c.trackIndex = this._drag.clipOriginalTrack;
@@ -1958,7 +2021,7 @@ export class TimelineEngine {
                     }
                     if (this._drag.coMoverOrigins) {
                         for (const [id, origin] of this._drag.coMoverOrigins) {
-                            const co = this._clips.find(cl => cl.id === id);
+                            const co = this._clipById.get(id);
                             if (co) {
                                 co.startBeat = origin.beat;
                                 co.trackIndex = origin.track;

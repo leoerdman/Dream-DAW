@@ -50,6 +50,10 @@ export class ViewportMatrix {
 
     setTrackHeights(heights: number[] | null): void {
         if (heights && heights.length !== this._trackCount) {
+            // BUG-060 FIX: Warn instead of silently dropping — helps debug layout issues.
+            if (typeof console !== 'undefined') {
+                console.warn(`[ViewportMatrix] setTrackHeights: expected ${this._trackCount} entries, got ${heights.length} — ignored.`);
+            }
             return;
         }
         this._trackHeights = heights ? heights.map((h) => Math.max(0, Math.round(h))) : null;
@@ -286,8 +290,11 @@ export class ViewportMatrix {
         const maxScrollX = Math.max(0, this.canvasContentWidth - this._viewportW);
         const scrollableContentHeight = this.canvasContentHeight + this._bottomPaddingPx;
         const maxScrollY = Math.max(0, scrollableContentHeight - (this._viewportH - this._rulerHeight));
-        this._scrollX = snapPhysical(Math.max(0, Math.min(maxScrollX, this._scrollX)));
-        this._scrollY = snapPhysical(Math.max(0, Math.min(maxScrollY, this._scrollY)));
+        // BUG-050 FIX: Cache DPR once instead of querying window.devicePixelRatio twice per clamp.
+        const dpr = window.devicePixelRatio || 1;
+        const snap = (v: number) => Math.round(v * dpr) / dpr;
+        this._scrollX = snap(Math.max(0, Math.min(maxScrollX, this._scrollX)));
+        this._scrollY = snap(Math.max(0, Math.min(maxScrollY, this._scrollY)));
         if (Math.abs(this._scrollY - this._lastNotifiedScrollY) > 0.25) {
             this._lastNotifiedScrollY = this._scrollY;
             this._onScrollYChange?.(this._scrollY);

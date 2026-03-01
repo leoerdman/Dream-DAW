@@ -80,10 +80,14 @@ export function toEntityState<T extends { id: string }>(items: T[]): EntityState
     return { byId, allIds };
 }
 
+// BUG-091 FIX: Single-pass loop avoids creating two intermediate arrays from .map().filter().
 export function materializeByIds<T>(allIds: string[], byId: Record<string, T>): T[] {
-    return allIds
-        .map((id) => byId[id])
-        .filter((item): item is T => Boolean(item));
+    const result: T[] = [];
+    for (let i = 0, len = allIds.length; i < len; i++) {
+        const item = byId[allIds[i]];
+        if (item) result.push(item);
+    }
+    return result;
 }
 
 export function buildTrackStatePatch<T>(

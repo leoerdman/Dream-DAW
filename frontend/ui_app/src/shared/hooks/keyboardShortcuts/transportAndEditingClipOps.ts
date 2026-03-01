@@ -45,11 +45,11 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
         clipsAtPlayhead = timelineClips.filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack).filter(containsSplit);
     }
     if (clipsAtPlayhead.length === 0) return null;
-    const batchedDeltas: engine.ProjectDelta[] = [];
-    for (const clip of clipsAtPlayhead) {
-        const response = await engine.splitClipWithDeltas(clip.id, splitFrame);
-        batchedDeltas.push(...response.deltas);
-    }
+    // BUG-002 FIX: Parallel IPC calls — O(1) round-trips instead of O(N) sequential.
+    const responses = await Promise.all(
+        clipsAtPlayhead.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)),
+    );
+    const batchedDeltas = responses.flatMap((r) => r.deltas);
     await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
     return clipsAtPlayhead.map((clip) => clip.id);
 }
@@ -101,6 +101,9 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
         return nextSelection;
     } finally {
         _duplicateInFlight = false;
+        // BUG-001 FIX: Clear safety timer in finally — prevents stale timer from
+        // prematurely resetting `_duplicateInFlight` during a subsequent duplicate.
+        if (_duplicateInFlightTimer) { clearTimeout(_duplicateInFlightTimer); _duplicateInFlightTimer = null; }
     }
 }
 

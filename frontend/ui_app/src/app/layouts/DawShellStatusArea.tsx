@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 
 interface DawShellStatusAreaProps {
@@ -10,7 +11,7 @@ interface DawShellStatusAreaProps {
     mainViewMode: 'arrangement' | 'session';
 }
 
-export function DawShellStatusArea({
+export const DawShellStatusArea = memo(({
     missingAssetsOpen,
     missingMediaSummary,
     onToggleMissingAssets,
@@ -18,7 +19,7 @@ export function DawShellStatusArea({
     onPanelModeChange,
     panelInfo,
     mainViewMode,
-}: DawShellStatusAreaProps) {
+}: DawShellStatusAreaProps) => {
     return (
         <>
             {missingMediaSummary.total > 0 && (
@@ -63,4 +64,4 @@ export function DawShellStatusArea({
             </div>
         </>
     );
-}
+});

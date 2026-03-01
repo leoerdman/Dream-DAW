@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { memo, lazy, Suspense, useMemo } from 'react';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { Timeline } from '@/widgets/Timeline/Timeline';
@@ -27,7 +27,7 @@ interface DawShellMainViewProps {
     timelineProps: React.ComponentProps<typeof Timeline>;
 }
 
-export function DawShellMainView({
+export const DawShellMainView = memo(({
     mainSplitRef,
     timelineRef,
     browserWidth,
@@ -42,7 +42,7 @@ export function DawShellMainView({
     collapsedGroups,
     onToggleGroupCollapse,
     timelineProps,
-}: DawShellMainViewProps) {
+}: DawShellMainViewProps) => {
     const sessionTracks = useMemo(
         () => tracksEntity.allIds.map((trackId) => tracksEntity.byId[trackId]).filter(Boolean),
         [tracksEntity],
@@ -108,4 +108,4 @@ export function DawShellMainView({
             )}
         </main>
     );
-}
+});

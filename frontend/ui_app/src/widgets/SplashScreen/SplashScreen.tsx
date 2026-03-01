@@ -19,6 +19,13 @@ import * as engineApi from '@/shared/api/engine'
 import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync'
 import { withProjectLoad } from '@/shared/lib/projectLoadGuard'
 
+// CRITICAL FIX: Module-level guard prevents triple initialization.
+// React StrictMode double-invokes effects in dev mode, and unstable useCallback
+// deps caused the init callback to re-create on each render. Without this guard,
+// 3 parallel init sequences would fire, each calling openProject — corrupting
+// VST plugin state loading (Serum "DAW suspended processing").
+let _initStarted = false;
+
 interface AppStartupManagerProps {
     /** Minimum display duration in ms (still useful so splash text has time to be read) */
     minDuration?: number
@@ -45,6 +52,10 @@ export function SplashScreen({ minDuration = 2600, onComplete }: AppStartupManag
     }, [onComplete, isDev])
 
     const startInitialization = useCallback(() => {
+        // Module-level guard: only the first call ever runs.
+        // Prevents triple-init from React StrictMode + unstable deps.
+        if (_initStarted) return;
+        _initStarted = true;
         if (isDev) console.debug('[Dream] initialization START')
 
         // BUG-001 FIX: Per-step timeout to prevent hanging on unresponsive backend

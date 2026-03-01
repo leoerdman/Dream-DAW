@@ -314,6 +314,10 @@ pub(crate) fn process_track_graph_node(
                         } else {
                             static LOCK_MISS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                             LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            // RT-SAFETY: Lock miss — skip this plugin entirely.
+                            // Do NOT fall through to the copy-back below, or we'd
+                            // overwrite the working signal with stale pre-plugin input.
+                            continue;
                         }
 
                         left[..c].copy_from_slice(&ctx.external_left[..c]);

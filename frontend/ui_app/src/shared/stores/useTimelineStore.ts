@@ -63,8 +63,15 @@ export const useTimelineStore = create<TimelineState>((set) => ({
         if (values.trackHeight !== undefined && values.trackHeight !== state.trackHeight) {
             partial.trackHeight = values.trackHeight; changed = true;
         }
-        if (values.canvasRect !== undefined && values.canvasRect !== state.canvasRect) {
-            partial.canvasRect = values.canvasRect; changed = true;
+        // BUG-014 FIX: Compare DOMRect values, not references — getBoundingClientRect()
+        // always returns a new object, causing 60 unnecessary state writes/sec.
+        if (values.canvasRect !== undefined) {
+            const a = values.canvasRect;
+            const b = state.canvasRect;
+            const same = a && b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+            if (!same) {
+                partial.canvasRect = a; changed = true;
+            }
         }
         if (values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft) {
             partial.scrollLeft = values.scrollLeft; changed = true;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { clamp01 } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
@@ -12,7 +12,7 @@ export type VolumeFaderProps = {
     onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 };
 
-export const VolumeFader = ({
+export const VolumeFader = memo(({
     volumeLinear,
     onVolumeChange,
     compact = false,
@@ -156,4 +156,4 @@ export const VolumeFader = ({
             </div>
         </div>
     );
-};
+});

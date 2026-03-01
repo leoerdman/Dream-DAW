@@ -1,4 +1,4 @@
-import type React from 'react';
+import React, { memo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getTrackHeightLevel } from '@/shared/config/trackHeightLevels';
@@ -48,7 +48,7 @@ interface TrackRowProps {
     isActive?: boolean;
 }
 
-export const TrackRow = ({
+export const TrackRow = memo(({
     trackId,
     trackSnapshot,
     routingTargets,
@@ -240,4 +240,4 @@ export const TrackRow = ({
             <TrackRowResizeHandle isResizing={isResizing} onResizeStart={onResizeStart} />
         </div>
     );
-};
+});

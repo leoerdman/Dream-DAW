@@ -103,13 +103,13 @@ export function usePianoRollCanvasEngine({
             const isSelected = selectedNotes.has(note.id);
             ctx.globalAlpha = isSelected ? 0.98 : 0.72;
             ctx.strokeStyle = isSelected ? noteStrokeSelectedColor : noteStrokeDefaultColor;
-            ctx.lineWidth = selectedNotes.has(note.id) ? 1.6 : 1.0;
+            ctx.lineWidth = isSelected ? 1.6 : 1.0;
             ctx.beginPath();
             ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
             ctx.stroke();
 
             // Selection outline
-            if (selectedNotes.has(note.id)) {
+            if (isSelected) {
                 ctx.globalAlpha = 1;
                 ctx.strokeStyle = noteStrokeSelectedColor;
                 ctx.lineWidth = 1.5;

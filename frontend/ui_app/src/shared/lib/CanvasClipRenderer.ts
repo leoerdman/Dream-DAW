@@ -156,14 +156,16 @@ export class CanvasClipRenderer {
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
 
+        // FIX-3: Hide edit cursor when marquee is active OR clips are selected.
+        // PERF FIX: Compute once, pass to _drawRuler to avoid duplicate O(N) scan per frame.
         const hasClipSelection = clips.some(c => c.selected);
-        if (!hasClipSelection) {
+        if (!hasClipSelection && !marquee) {
             this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
         }
 
         ctx.restore();
 
-        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme, clips);
+        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme, hasClipSelection);
 
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
     }
@@ -224,29 +226,27 @@ export class CanvasClipRenderer {
         const startBeat = Math.floor(range.startBeat / gridStep) * gridStep;
         const endBeat = Math.ceil(range.endBeat / gridStep) * gridStep;
 
-        // ── P1: Batch subdivision lines into one path ──
-        ctx.fillStyle = theme.gridLine;
+        // ── BUG-034 FIX: Single pass for both subdivisions and bar lines ──
+        const gridLineColor = theme.gridLine;
+        const gridBarColor = theme.gridBar;
         ctx.beginPath();
+        const subPath = new Path2D();
+        const barPath = new Path2D();
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
-            if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
+            const isBar = Math.abs(barPhase - Math.round(barPhase)) < 1e-6;
             const x = snapPhysical(beat * ppb - vp.scrollX);
             if (x < -1 || x > vpW + 1) continue;
-            ctx.rect(x, rulerH, 1, vpH - rulerH);
+            if (isBar) {
+                barPath.rect(x, rulerH, 1, vpH - rulerH);
+            } else {
+                subPath.rect(x, rulerH, 1, vpH - rulerH);
+            }
         }
-        ctx.fill();
-
-        // ── P1: Batch bar lines into one path ──
-        ctx.fillStyle = theme.gridBar;
-        ctx.beginPath();
-        for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
-            const barPhase = beat / beatsPerBar;
-            if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
-            const x = snapPhysical(beat * ppb - vp.scrollX);
-            if (x < -1 || x > vpW + 1) continue;
-            ctx.rect(x, rulerH, 1, vpH - rulerH);
-        }
-        ctx.fill();
+        ctx.fillStyle = gridLineColor;
+        ctx.fill(subPath);
+        ctx.fillStyle = gridBarColor;
+        ctx.fill(barPath);
 
         // ── P2: Batch track dividers into one path ──
         ctx.fillStyle = theme.trackDivider;
@@ -270,7 +270,7 @@ export class CanvasClipRenderer {
         editCursorBeat: number,
         loop: LoopRegion | null,
         theme: TimelineTheme,
-        clips: TimelineClipData[],
+        hasClipSelection: boolean,
     ): void {
         ctx.save();
         const rulerH = vp.rulerHeight;
@@ -346,7 +346,7 @@ export class CanvasClipRenderer {
             ctx.fill();
         }
 
-        const hasClipSelection = clips.some(c => c.selected);
+        // PERF FIX: hasClipSelection is now pre-computed in drawFrame (avoids second O(N) scan).
         if (!hasClipSelection) {
             const ecX = snapPhysical(vp.beatsToScreenX(editCursorBeat));
             if (ecX >= -5 && ecX <= vp.viewportWidth + 5) {
@@ -764,6 +764,10 @@ export class CanvasClipRenderer {
         const pixelsPerPeak = clipW / peakCount;
 
         if (pixelsPerPeak >= 1) {
+            // AUDIT FIX: Apply consistent globalAlpha in bar mode (matches path mode below).
+            // Previously bar mode had no alpha adjustment, causing opacity jump during zoom.
+            ctx.save();
+            ctx.globalAlpha = muted ? 0.25 : 1.0;
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 const barW = Math.max(1, pixelsPerPeak);
@@ -774,6 +778,7 @@ export class CanvasClipRenderer {
                 const barH = Math.max(1, bottom - top);
                 ctx.fillRect(px, top, barW, barH);
             }
+            ctx.restore();
         } else {
             ctx.beginPath();
             ctx.moveTo(clipX, centerY);
@@ -789,11 +794,11 @@ export class CanvasClipRenderer {
             }
 
             ctx.closePath();
-            // BUG-G06 FIX: Respect track-mute dimming in path-based rendering.
-            // Previously hardcoded to 0.6, overriding the track-mute alpha (0.25).
-            ctx.globalAlpha = muted ? 0.15 : 0.6;
+            // FIX-4: Use same opacity as bar branch — prevents visual flash when
+            // crossing the pixelsPerPeak threshold during zoom. Previously the path
+            // branch set 0.6 while bars used inherit (1.0), causing waveforms to
+            // look different at different zoom levels.
             ctx.fill();
-            ctx.globalAlpha = muted ? 0.25 : 1.0;
         }
 
         if (this._waveformStyle === 'classic') {

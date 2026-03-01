@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { clamp01 } from '@/shared/lib/audioMath';
 
@@ -10,7 +10,7 @@ export type PanFaderProps = {
     onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
 };
 
-export const PanFader = ({
+export const PanFader = memo(({
     pan,
     onPanChange,
     compact = false,
@@ -138,4 +138,4 @@ export const PanFader = ({
             </div>
         </div>
     );
-};
+});

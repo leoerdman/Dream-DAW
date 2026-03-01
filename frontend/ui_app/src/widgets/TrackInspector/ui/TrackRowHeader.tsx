@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import type React from 'react';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
@@ -26,7 +26,7 @@ interface TrackRowHeaderProps {
     onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
-export function TrackRowHeader({
+export const TrackRowHeader = memo(({
     track,
     isMaster,
     isGroup,
@@ -46,7 +46,7 @@ export function TrackRowHeader({
     onToggleCollapse,
     onHeaderPointerDown,
     onHeaderClick,
-}: TrackRowHeaderProps) {
+}: TrackRowHeaderProps) => {
     const renameInputRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
         if (isRenaming && renameInputRef.current) {
@@ -225,4 +225,4 @@ export function TrackRowHeader({
             </div>
         </div>
     );
-}
+});

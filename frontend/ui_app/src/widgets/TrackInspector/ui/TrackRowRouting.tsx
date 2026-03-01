@@ -1,4 +1,4 @@
-import type React from 'react';
+import React, { memo } from 'react';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 
 type RoutingTarget = {
@@ -16,7 +16,7 @@ interface TrackRowRoutingProps {
     onInputChange?: (inputId: string) => void;
 }
 
-export function TrackRowRouting({
+export const TrackRowRouting = memo(({
     track,
     routingTargets,
     isMasterFixed,
@@ -24,7 +24,7 @@ export function TrackRowRouting({
     heightLevel,
     onOutputChange,
     onInputChange,
-}: TrackRowRoutingProps) {
+}: TrackRowRoutingProps) => {
     const availableRoutingTargets = routingTargets.filter((t) => t.id !== track.id);
     const outputValue =
         track.output &&
@@ -160,7 +160,7 @@ export function TrackRowRouting({
             />
         </div>
     );
-}
+});
 
 interface RoutingSelectProps {
     arrow: string;

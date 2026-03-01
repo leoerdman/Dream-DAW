@@ -1,11 +1,9 @@
 import type { ProjectDelta } from '@/shared/api/engine';
-import type { FlatPluginSlot, ProjectTrack } from '@/shared/lib/trackAdapter';
+import type { FlatPluginSlot } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { patchTrackById } from './trackStateOps';
 
-function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
-    patchTrackById(state, id, patch);
-}
+// BUG-020 FIX: Removed dead `patchTrack` wrapper — callers now use `patchTrackById` directly.
 
 export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
     void env;
@@ -14,7 +12,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         if (!track) return true;
 
         if (track.instrument?.id === delta.data.slot_id) {
-            patchTrack(state, track.id, {
+            patchTrackById(state, track.id, {
                 instrument: { ...track.instrument, is_bypassed: delta.data.bypassed },
             });
             return true;
@@ -23,7 +21,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         const effects = track.effects.map((fx) => (
             fx.id === delta.data.slot_id ? { ...fx, is_bypassed: delta.data.bypassed } : fx
         ));
-        patchTrack(state, track.id, { effects });
+        patchTrackById(state, track.id, { effects });
         return true;
     }
 
@@ -43,7 +41,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         if (track.instrument?.id === delta.data.slot_id) {
-            patchTrack(state, track.id, {
+            patchTrackById(state, track.id, {
                 instrument: {
                     ...track.instrument,
                     sidechain_source_track_id: delta.data.source_track_id,
@@ -56,7 +54,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
                 ? { ...fx, sidechain_source_track_id: delta.data.source_track_id }
                 : fx
         ));
-        patchTrack(state, track.id, { effects });
+        patchTrackById(state, track.id, { effects });
         return true;
     }
 
@@ -77,7 +75,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
 
         const [moved] = effects.splice(oldIndex, 1);
         effects.splice(newIndex, 0, moved);
-        patchTrack(state, track.id, { effects });
+        patchTrackById(state, track.id, { effects });
         return true;
     }
 
@@ -85,10 +83,10 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         if (track.instrument?.id === delta.data.slot_id) {
-            patchTrack(state, track.id, { instrument: null });
+            patchTrackById(state, track.id, { instrument: null });
             return true;
         }
-        patchTrack(state, track.id, { effects: track.effects.filter((fx) => fx.id !== delta.data.slot_id) });
+        patchTrackById(state, track.id, { effects: track.effects.filter((fx) => fx.id !== delta.data.slot_id) });
         return true;
     }
 
@@ -110,7 +108,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
             sidechain_source_track_id: deltaData.sidechain_source_track_id ?? null,
         };
         if (delta.data.is_instrument) {
-            patchTrack(state, track.id, { instrument: added });
+            patchTrackById(state, track.id, { instrument: added });
             return true;
         }
         const effects = track.effects.slice();
@@ -127,7 +125,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
             const insert = Math.max(0, Math.min(delta.data.slot_index, effects.length));
             effects.splice(insert, 0, added);
         }
-        patchTrack(state, track.id, { effects });
+        patchTrackById(state, track.id, { effects });
         return true;
     }
 

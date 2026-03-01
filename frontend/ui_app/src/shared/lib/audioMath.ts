@@ -243,6 +243,8 @@ export function vuNorm(peakDb: number): number {
  * Sixteenths = 4 per beat (each beat is divided into 4).
  */
 export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR): string {
+    // BUG-066 FIX: Guard against negative input (pre-count, before timeline start).
+    if (!Number.isFinite(totalBeats) || totalBeats < 0) return '1.1.1';
     const safeBeatsPerBar = Math.max(1, beatsPerBar);
     let bars = Math.floor(totalBeats / safeBeatsPerBar);
     const remainingBeats = totalBeats - bars * safeBeatsPerBar;

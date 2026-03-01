@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { memo, lazy, Suspense } from 'react';
 import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
 import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentActionIndicator';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
@@ -39,7 +39,7 @@ interface DawShellOverlaysProps {
     marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
 }
 
-export function DawShellOverlays({
+export const DawShellOverlays = memo(({
     settingsOpen,
     onCloseSettings,
     assistantOpen,
@@ -59,7 +59,7 @@ export function DawShellOverlays({
     loopStartBeat,
     loopEndBeat,
     marqueeSelection,
-}: DawShellOverlaysProps) {
+}: DawShellOverlaysProps) => {
     return (
         <>
             <ErrorBoundary module="Settings">
@@ -109,4 +109,4 @@ export function DawShellOverlays({
             </ErrorBoundary>
         </>
     );
-}
+});

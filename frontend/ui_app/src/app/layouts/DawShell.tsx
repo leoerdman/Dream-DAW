@@ -212,7 +212,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
     const projectBpm = useEngineStore(s => s.projectBpm);
-    const timelineClips = useEngineStore(s => s.timelineClips);
+    const timelineClips = timelineClipsSnapshot;
     const {
         midiNotesByClip,
         clipFadeCurves,
@@ -521,6 +521,40 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         automationVisible,
         fitHorizontalToken: fitTimelineToken,
     });
+    // PERF FIX: Stable references for DawShellOverlays callbacks to prevent
+    // re-render cascade. Without these, every DawShell render creates new closures.
+    const handleCloseSettings = useCallback(() => setSettingsOpen(false), []);
+    const handleAssistantClose = useCallback(() => {
+        setAssistantOpen(false);
+        writeAssistantOpenPref(false);
+    }, []);
+    const handleAssistantOpen = useCallback(() => {
+        setAssistantOpen(true);
+        writeAssistantOpenPref(true);
+    }, []);
+    const handleCloseMissingAssets = useCallback(() => setMissingAssetsOpen(false), []);
+    const handleCloseExport = useCallback(() => setExportOpen(false), []);
+
+    // PERF FIX: Memoize computed props that were previously inline expressions,
+    // creating new values every render and defeating React.memo downstream.
+    const clipColor = useMemo(
+        () => selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)',
+        [selectedTimelineClip?.color, tracksEntity.byId, selectedTrackId],
+    );
+    const midiNotes = useMemo(
+        () => selectedTimelineClip?.type === 'midi'
+            ? (midiNotesByClip[selectedTimelineClip.id] ?? selectedTimelineClip.midiNotes ?? [])
+            : [],
+        [selectedTimelineClip, midiNotesByClip],
+    );
+    const projectName = useMemo(
+        () => projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled',
+        [projectFilePath],
+    );
+    const overlayBpm = useMemo(
+        () => resolveBpm(projectBpm, transportBpm),
+        [projectBpm, transportBpm],
+    );
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
             <DawShellContent
@@ -555,8 +589,8 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 setBottomPanelHeightPx={setBottomPanelHeightPx}
                 beginBottomPanelResize={beginBottomPanelResize}
                 selectedTimelineClip={selectedTimelineClip ?? undefined}
-                clipColor={selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)'}
-                midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? selectedTimelineClip.midiNotes ?? []) : []}
+                clipColor={clipColor}
+                midiNotes={midiNotes}
                 aiVariationBusy={aiVariationBusy}
                 selectedMidiTotalBars={selectedMidiTotalBars}
                 dropPluginOnTrack={dropPluginOnTrack}
@@ -571,26 +605,20 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
             />
             <DawShellOverlays
                 settingsOpen={settingsOpen}
-                onCloseSettings={() => setSettingsOpen(false)}
+                onCloseSettings={handleCloseSettings}
                 assistantOpen={assistantOpen}
-                onAssistantClose={() => {
-                    setAssistantOpen(false);
-                    writeAssistantOpenPref(false);
-                }}
-                onAssistantOpen={() => {
-                    setAssistantOpen(true);
-                    writeAssistantOpenPref(true);
-                }}
+                onAssistantClose={handleAssistantClose}
+                onAssistantOpen={handleAssistantOpen}
                 onSelectClips={setSelectedClipIds}
                 missingAssetsOpen={missingAssetsOpen}
                 missingTotal={missingMediaSummary.total}
-                onCloseMissingAssets={() => setMissingAssetsOpen(false)}
+                onCloseMissingAssets={handleCloseMissingAssets}
                 exportOpen={exportOpen}
-                onCloseExport={() => setExportOpen(false)}
-                projectName={projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
+                onCloseExport={handleCloseExport}
+                projectName={projectName}
                 selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
-                bpm={resolveBpm(projectBpm, transportBpm)}
+                bpm={overlayBpm}
                 sampleRate={projectSampleRate}
                 loopStartBeat={loopStartBeat}
                 loopEndBeat={loopEndBeat}

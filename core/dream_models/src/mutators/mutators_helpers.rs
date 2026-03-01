@@ -92,13 +92,21 @@ fn clamp_audio_fades(clip: &mut AudioClip) {
     }
 }
 
-pub fn handle_overlaps(track: &mut Track, target: &AudioClip) {
+pub fn handle_overlaps(track: &mut Track, target: &AudioClip, protected_ids: &[Uuid]) {
     let target_start = target.position.sample_frame;
     let target_end = target.end_position().sample_frame;
 
     let mut i = 0;
     while i < track.clips.len() {
         if track.clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        // ENTERPRISE FIX: Skip clips that are part of the same batch operation.
+        // During multi-clip moves, other clips in the batch must not be deleted/trimmed
+        // by overlap resolution — they will be moved to their own new positions.
+        if protected_ids.contains(&track.clips[i].id) {
             i += 1;
             continue;
         }
@@ -155,13 +163,19 @@ pub fn handle_overlaps(track: &mut Track, target: &AudioClip) {
     }
 }
 
-pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip) {
+pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip, protected_ids: &[Uuid]) {
     let target_start = target.position.sample_frame;
     let target_end = target.end_position().sample_frame;
 
     let mut i = 0;
     while i < track.midi_clips.len() {
         if track.midi_clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        // ENTERPRISE FIX: Skip clips that are part of the same batch operation.
+        if protected_ids.contains(&track.midi_clips[i].id) {
             i += 1;
             continue;
         }

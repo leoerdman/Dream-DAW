@@ -116,6 +116,10 @@ impl Command for MoveMultipleClipsCommand {
         let mut project = ctx.lock_project()?;
         let mut results = Vec::with_capacity(self.clips.len());
 
+        // ENTERPRISE FIX: Collect ALL clip IDs in this batch so overlap resolution
+        // knows not to delete/trim them — they are all being moved together.
+        let batch_ids: Vec<Uuid> = self.clips.iter().map(|(id, _, _)| *id).collect();
+
         for (clip_id, new_track_index, new_position_frames) in &self.clips {
             if *new_track_index >= project.tracks.len() {
                 continue; // Skip invalid moves instead of failing entire transaction
@@ -142,19 +146,21 @@ impl Command for MoveMultipleClipsCommand {
                 None => continue,
             };
 
-            let audio_err = mutators::move_clip(
+            let audio_err = mutators::move_clip_protected(
                 &mut project,
                 *clip_id,
                 *new_track_index,
                 new_position,
+                &batch_ids,
             );
 
             if audio_err.is_err()
-                && mutators::move_midi_clip(
+                && mutators::move_midi_clip_protected(
                     &mut project,
                     *clip_id,
                     *new_track_index,
                     new_position,
+                    &batch_ids,
                 )
                 .is_err()
             {

@@ -112,7 +112,41 @@ pub fn move_clip(
     // Insert into target track (sorted by position for efficient scheduling)
     let target_track = &mut project.tracks[new_track_index];
     // Handle overlaps before final insertion
-    handle_overlaps(target_track, &clip);
+    handle_overlaps(target_track, &clip, &[]);
+    let insert_pos = target_track
+        .clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    target_track.clips.insert(insert_pos, clip);
+    Ok(())
+}
+
+/// Same as `move_clip`, but with a `protected_ids` set for batch operations.
+/// Clips whose IDs are in `protected_ids` will NOT be deleted/trimmed by
+/// overlap resolution — they are being moved in the same batch.
+pub fn move_clip_protected(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_track_index: usize,
+    new_position: AbsoluteTime,
+    protected_ids: &[Uuid],
+) -> Result<(), MutatorError> {
+    if new_track_index >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange {
+            requested: new_track_index,
+            available: project.tracks.len(),
+        });
+    }
+    if new_position.sample_frame < 0 {
+        return Err(MutatorError::TrackOutOfRange {
+            requested: new_track_index,
+            available: project.tracks.len(),
+        });
+    }
+    let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+    clip.position = new_position;
+    let target_track = &mut project.tracks[new_track_index];
+    handle_overlaps(target_track, &clip, protected_ids);
     let insert_pos = target_track
         .clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -235,7 +269,7 @@ pub fn resize_clip(
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];
     // Handle overlaps before final insertion
-    handle_overlaps(track, &clip);
+    handle_overlaps(track, &clip, &[]);
     let insert_pos = track
         .clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -469,7 +503,7 @@ pub fn duplicate_clip(
     }
     let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
-    handle_overlaps(track, &dup);
+    handle_overlaps(track, &dup, &[]);
     let insert_pos = track
         .clips
         .binary_search_by(|c| c.position.cmp(&dup.position))
@@ -504,7 +538,7 @@ pub fn duplicate_midi_clip(
     }
     let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
-    handle_midi_overlaps(track, &dup);
+    handle_midi_overlaps(track, &dup, &[]);
     let insert_pos = track
         .midi_clips
         .binary_search_by(|c| c.position.cmp(&dup.position))
@@ -544,7 +578,41 @@ pub fn move_midi_clip(
     let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
     let target = &mut project.tracks[new_track_index];
     // Handle overlaps before insertion
-    handle_midi_overlaps(target, &clip);
+    handle_midi_overlaps(target, &clip, &[]);
+    let insert_pos = target
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    target.midi_clips.insert(insert_pos, clip);
+    Ok(())
+}
+
+/// Same as `move_midi_clip`, but with `protected_ids` for batch operations.
+pub fn move_midi_clip_protected(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_track_index: usize,
+    new_position: AbsoluteTime,
+    protected_ids: &[Uuid],
+) -> Result<(), MutatorError> {
+    if new_track_index >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange {
+            requested: new_track_index,
+            available: project.tracks.len(),
+        });
+    }
+    let mut extracted = None;
+    for track in &mut project.tracks {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            let mut clip = track.midi_clips.remove(idx);
+            clip.position = new_position;
+            extracted = Some(clip);
+            break;
+        }
+    }
+    let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    let target = &mut project.tracks[new_track_index];
+    handle_midi_overlaps(target, &clip, protected_ids);
     let insert_pos = target
         .midi_clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -649,7 +717,7 @@ pub fn resize_midi_clip(
     let track_idx = source_track_idx.ok_or(MutatorError::ClipNotFound(clip_id))?;
     let target = &mut project.tracks[track_idx];
     // Handle overlaps before re-insertion
-    handle_midi_overlaps(target, &clip);
+    handle_midi_overlaps(target, &clip, &[]);
     let insert_pos = target
         .midi_clips
         .binary_search_by(|c| c.position.cmp(&clip.position))

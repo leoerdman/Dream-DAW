@@ -195,7 +195,7 @@ async fn import_audio_file(
         // BUG-C5 FIX: Handle overlaps and maintain sorted order when importing.
         // Dropping a clip from the browser must wipe underlying overlapping clips
         // and strictly maintain positional sorting, just like `move_clip`.
-        dream_models::mutators::handle_overlaps(target_track, &clip);
+        dream_models::mutators::handle_overlaps(target_track, &clip, &[]);
         let insert_pos = target_track
             .clips
             .binary_search_by(|c| c.position.cmp(&clip.position))

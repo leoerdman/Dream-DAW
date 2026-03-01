@@ -1322,4 +1322,53 @@ mod tests {
         assert_eq!(clip.notes[1].start_frame, 22050, "Note 3 should be at frame 22050");
         assert_eq!(clip.notes[1].pitch, 67, "Note 3 is pitch 67");
     }
+
+    // ── Regression: Negative Position Clamping ───────────────────────
+    #[test]
+    fn move_clip_protected_negative_position_clamps_to_zero() {
+        let mut project = make_test_project();
+        let clip_id = project.tracks[0].clips[0].id;
+        let total_clips_before = project.tracks[0].clips.len()
+            + project.tracks[1].clips.len();
+
+        // Move to negative position — should clamp to 0, NOT lose the clip
+        let result = move_clip_protected(
+            &mut project,
+            clip_id,
+            0,
+            AbsoluteTime::new(-10000),
+            &[],
+        );
+        assert!(result.is_ok(), "negative position should clamp, not error");
+
+        let total_clips_after = project.tracks[0].clips.len()
+            + project.tracks[1].clips.len();
+        assert_eq!(total_clips_before, total_clips_after, "no clips should be lost");
+
+        let clip = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_id)
+            .expect("clip must still exist after move to negative position");
+        assert_eq!(clip.position.sample_frame, 0, "position should be clamped to 0");
+    }
+
+    #[test]
+    fn move_clip_protected_roundtrip_preserves_clip() {
+        let mut project = make_test_project();
+        let clip_id = project.tracks[0].clips[0].id;
+
+        // Move to track 1
+        move_clip_protected(&mut project, clip_id, 1, AbsoluteTime::new(44100), &[]).unwrap();
+        assert_eq!(project.tracks[1].clips.len(), 1);
+
+        // Move back to track 0
+        move_clip_protected(&mut project, clip_id, 0, AbsoluteTime::new(0), &[]).unwrap();
+        let clip = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_id)
+            .expect("clip must survive round-trip move");
+        assert_eq!(clip.position.sample_frame, 0);
+    }
 }

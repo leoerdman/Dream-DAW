@@ -311,6 +311,13 @@ async fn resize_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
+    // SSOT FIX: Append full snapshot so frontend state is always replaced by
+    // the authoritative backend state — eliminates beat↔frame conversion drift.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
+
     Ok(DeltaMutationResponse { deltas })
 }
 
@@ -371,7 +378,7 @@ async fn split_clip_with_deltas_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipSplit {
+    let mut deltas = vec![dream_models::delta::ProjectDelta::ClipSplit {
         original_clip_id: clip_uuid,
         left_id: result.left_id,
         right_id: result.right_id,
@@ -385,6 +392,13 @@ async fn split_clip_with_deltas_cmd(
         &app,
         ClipRebuildMode::ClipsOnly,
     )?;
+
+    // SSOT FIX: Append full snapshot so frontend receives authoritative split
+    // results — eliminates independent duration/sourceOffset recalculation.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
 
     Ok(SplitClipWithDeltasResponse {
         left_id: result.left_id.to_string(),
@@ -446,7 +460,7 @@ async fn delete_clip_with_deltas_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipDeleted {
+    let mut deltas = vec![dream_models::delta::ProjectDelta::ClipDeleted {
         clip_id: clip_uuid,
         track_index: result.track_index,
     }];
@@ -459,6 +473,13 @@ async fn delete_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
     clip_pool_state.evict_unused_clips(&project_state);
+
+    // SSOT FIX: Append full snapshot so frontend sees collateral overlap
+    // effects (clips trimmed/removed by overlap resolution during delete).
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -679,7 +700,7 @@ async fn merge_clips_with_deltas_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipsMerged {
+    let mut deltas = vec![dream_models::delta::ProjectDelta::ClipsMerged {
         source_clip_ids: source_ids,
         new_clip_id: result.new_id,
     }];
@@ -691,6 +712,13 @@ async fn merge_clips_with_deltas_cmd(
         &app,
         ClipRebuildMode::FullSnapshot,
     )?;
+
+    // SSOT FIX: Append full snapshot so frontend receives authoritative
+    // merged clip state — eliminates independent MIDI note recalculation.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
 
     Ok(MergeClipsWithDeltasResponse {
         new_id: result.new_id.to_string(),

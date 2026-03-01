@@ -107,9 +107,32 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const sampleRate = resolveSampleRate(store.projectSampleRate);
         const cursorBeat = (ctx.editCursorBeat ?? -1) >= 0 ? (ctx.editCursorBeat as number) : frameToBeat(playheadFrames, bpm, sampleRate);
         const firstBeat = clipboardRef.current[0].startBeat;
+
+        // ENTERPRISE FIX: Calculate the end of the last clipboard clip.
+        // Used for smart paste when cursor is at the same position as source.
+        let lastClipEndBeat = 0;
+        for (const c of clipboardRef.current) {
+            const end = c.startBeat + c.durationBeats;
+            if (end > lastClipEndBeat) lastClipEndBeat = end;
+        }
+        const clipboardDurationBeats = lastClipEndBeat - firstBeat;
+
         let minRelative = Infinity;
         for (const c of clipboardRef.current) minRelative = Math.min(minRelative, c.startBeat - firstBeat);
         const groupOffset = Math.max(0, cursorBeat + minRelative) - (cursorBeat + minRelative);
+
+        // ENTERPRISE FIX: Detect same-position paste — if the paste cursor
+        // equals the clipboard's original start position, the duplicate would
+        // land exactly on top of the original clip. Overlap resolution would
+        // then trim/delete the original, making it look like paste did nothing.
+        // In this case, shift paste position to right after the clipboard clips
+        // (Ableton/Logic-style smart paste behavior).
+        let effectiveCursorBeat = cursorBeat;
+        const pasteAtExactOriginal = Math.abs(effectiveCursorBeat - firstBeat) < 1e-6;
+        if (pasteAtExactOriginal && clipboardDurationBeats > 0) {
+            effectiveCursorBeat = lastClipEndBeat;
+        }
+
         const anchorTrackIndex = clipboardRef.current[0].trackIndex;
         const selectedTrackIdx = selectedTrackIndex;
         const trackDelta = selectedTrackIdx >= 0 ? selectedTrackIdx - anchorTrackIndex : 0;
@@ -123,34 +146,28 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             if (isCrossProject) {
                 // Cross-project paste: use the global backend clipboard.
                 const targetTrack = Math.max(0, Math.min(trackIds.length - 1, anchorTrackIndex + trackDelta));
-                const posFrames = Math.max(0, beatToFrame(cursorBeat + groupOffset, bpm, sampleRate));
+                const posFrames = Math.max(0, beatToFrame(effectiveCursorBeat + groupOffset, bpm, sampleRate));
                 const response = await engine.pasteClipsFromGlobalClipboard(targetTrack, posFrames);
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-cross-project');
                 // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
                 const nextSelection = extractNewClipIdsFromDeltas(response.deltas);
                 if (nextSelection.length > 0) onClipSelectionChanged(nextSelection);
-            } else if (trackDelta === 0) {
-                const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => ({
-                    id: clip.id,
-                    newPositionFrames: Math.max(0, beatToFrame(cursorBeat + (clip.startBeat - firstBeat) + groupOffset, bpm, sampleRate)),
-                    targetTrackIndex: undefined
-                })));
-                await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-same-track');
-                // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
-                const nextSelection = extractNewClipIdsFromDeltas(results.deltas, results.new_id);
-                onClipSelectionChanged(nextSelection);
             } else {
+                // ENTERPRISE FIX: Always pass the target track index explicitly.
+                // Previously, same-track paste (trackDelta === 0) passed undefined
+                // for targetTrackIndex, which used the source clip's track. This
+                // failed when the user selected a different track to paste into.
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => {
-                    const destBeat = Math.max(0, cursorBeat + (clip.startBeat - firstBeat) + groupOffset);
+                    const destBeat = Math.max(0, effectiveCursorBeat + (clip.startBeat - firstBeat) + groupOffset);
                     const destPositionFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                     const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
                     return {
                         id: clip.id,
                         newPositionFrames: destPositionFrames,
-                        targetTrackIndex: targetTrack
+                        targetTrackIndex: targetTrack,
                     };
                 }));
-                await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste-cross-track');
+                await useEngineStore.getState().applyProjectDeltas(results.deltas, 'shortcut-paste');
                 // BUG-018 FIX: Use SSOT helper instead of inline `(d: any)` casts.
                 const nextSelection = extractNewClipIdsFromDeltas(results.deltas, results.new_id);
                 onClipSelectionChanged(nextSelection);

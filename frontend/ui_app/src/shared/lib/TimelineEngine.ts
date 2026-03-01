@@ -1603,6 +1603,32 @@ export class TimelineEngine {
                             this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
                         } else {
                             this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
+
+                            // ENTERPRISE FIX: Patch _pendingClips with committed move positions.
+                            // During drag, setClips() defers updates into _pendingClips, which
+                            // still contain PRE-DRAG positions. Without this patch, flushing
+                            // pending clips would revert the visual state, making clips appear
+                            // 'deleted' from their new position until the async IPC response
+                            // arrives with ProjectSnapshotReplaced.
+                            if (this._pendingClips) {
+                                const clipDeltaBeat = finalBeat - this._drag.clipOriginalBeat;
+                                const clipDeltaTrack = finalTrack - this._drag.clipOriginalTrack;
+                                const movedIds = new Set<string>();
+                                movedIds.add(this._drag.clipId);
+                                if (this._drag.coMoverOrigins) {
+                                    for (const [id] of this._drag.coMoverOrigins) movedIds.add(id);
+                                }
+                                for (let pi = 0; pi < this._pendingClips.length; pi++) {
+                                    const pc = this._pendingClips[pi];
+                                    if (movedIds.has(pc.id)) {
+                                        this._pendingClips[pi] = {
+                                            ...pc,
+                                            startBeat: Math.max(0, pc.startBeat + clipDeltaBeat),
+                                            trackIndex: Math.max(0, pc.trackIndex + clipDeltaTrack),
+                                        };
+                                    }
+                                }
+                            }
                         }
                     }
                     // Always clear Cmd+Drag ghosts on commit

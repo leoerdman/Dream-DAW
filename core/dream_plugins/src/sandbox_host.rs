@@ -548,9 +548,17 @@ impl PluginSandboxSupervisor {
                         } else {
                             now.duration_since(instance.spawned_at).ok()
                         };
+                        // ENTERPRISE FIX: Plugins in Spawning status need much longer
+                        // to initialize (loading VST3 binary, COM objects, UI resources).
+                        // Give them 3x the normal heartbeat timeout as a grace period.
+                        let effective_timeout = if matches!(instance.status, PluginSandboxStatus::Spawning) {
+                            timeout * 3
+                        } else {
+                            timeout
+                        };
 
                         if let Some(age) = heartbeat_age
-                            && age <= timeout
+                            && age <= effective_timeout
                         {
                             continue;
                         }

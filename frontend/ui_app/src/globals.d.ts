@@ -14,6 +14,8 @@ interface Window {
     __dreamSaveAsProject?: () => Promise<void>;
     // BUG-056 FIX: Declared here so Tauri guards don't need `as any` casts.
     __TAURI_INTERNALS__?: unknown;
+    /** Set to true after the splash screen has been successfully closed. */
+    __DREAM_SPLASH_CLOSED?: boolean;
 }
 
 declare module 'lodash.throttle' {

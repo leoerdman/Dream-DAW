@@ -51,6 +51,8 @@ function selectionInEditable(): boolean {
         const parent = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement | null;
         return isEditableTag(parent);
     } catch {
+        // window.getSelection() may throw in detached iframes or restricted
+        // security contexts (Tauri WKWebView sandboxing). Safe to return false.
         return false;
     }
 }

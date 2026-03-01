@@ -21,7 +21,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "1.0.525"
+version = "1.0.532"
 edition = "2024"
 license = "Proprietary"
 

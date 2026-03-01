@@ -54,7 +54,8 @@ export function resolveTrackColor(color: unknown): string {
         return TRACK_COLORS[color as NamedTrackColor] ?? DEFAULT_TRACK_COLOR;
     }
     if (color && typeof color === 'object' && 'Custom' in color) {
-        const customColor = (color as any).Custom;
+        const record = color as Record<string, unknown>;
+        const customColor = record.Custom;
         if (typeof customColor === 'string' && customColor.startsWith('#')) {
             return customColor;
         }

@@ -286,6 +286,21 @@
                 progressFill.style.width = `${pct}%`;
             }, delay);
         });
+
+        // ENTERPRISE SAFETY NET: If the main window's React app never calls
+        // close_splashscreen (because the WebView didn't load, JS errored, etc.),
+        // this fallback fires from the SPLASH window after 10 seconds.
+        // Unlike the main window fallback, this one ALWAYS works because
+        // splash.html is loaded in a visible window with active JavaScript.
+        setTimeout(function () {
+            var ti = window.__TAURI_INTERNALS__;
+            if (ti && ti.invoke) {
+                console.warn('[Splash] 10s fallback: forcing close_splashscreen from splash.html');
+                ti.invoke('close_splashscreen').catch(function (e) {
+                    console.error('[Splash] close_splashscreen failed:', e);
+                });
+            }
+        }, 10000);
     </script>
 </body>
 

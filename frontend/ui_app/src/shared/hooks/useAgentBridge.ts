@@ -83,7 +83,10 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
             // Vite exposes .off() on the HMR client since v5
             try {
                 hmr.off?.('agent-bridge:message', _activeHandler);
-            } catch { /* older Vite — no .off(), we rely on dedup lock */ }
+            } catch {
+                // Vite HMR API: `.off()` is optional (added in Vite 5+).
+                // If unavailable, the module-level dedup lock prevents duplicate handlers.
+            }
             _activeHandler = null;
         }
 
@@ -119,7 +122,10 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
             if (_activeHandler === handler) {
                 try {
                     hmr.off?.('agent-bridge:message', handler);
-                } catch { /* fallback: dedup lock handles it */ }
+                } catch {
+                    // Vite HMR API: `.off()` is optional (added in Vite 5+).
+                    // Module-level dedup lock guarantees single-handler invariant.
+                }
                 _activeHandler = null;
             }
         };

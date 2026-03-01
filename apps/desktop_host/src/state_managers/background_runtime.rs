@@ -474,64 +474,60 @@ pub(crate) fn spawn_background_runtime_threads(
 }
 
 pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<String>) {
-    let raise_splash = |window: &tauri::WebviewWindow| {
-        if let Err(err) = window.set_always_on_top(true) {
-            log::warn!("[Splash] set_always_on_top(true) failed: {}", err);
-        }
-        if let Err(err) = window.show() {
-            log::warn!("[Splash] show() failed: {}", err);
-        }
-        if let Err(err) = window.set_focus() {
-            log::warn!("[Splash] set_focus() failed: {}", err);
-        }
-    };
-
+    // Show splash and give it initial focus (but NOT always-on-top —
+    // user must be able to switch to other apps without the splash blocking).
     if let Some(splash_window) = app.get_webview_window("splashscreen") {
-        // Startup race fix: explicitly lift splash above other windows/apps.
-        raise_splash(&splash_window);
-
-        // Some window managers briefly override Z-order during app bootstrap.
-        // Re-assert splash foreground status shortly after startup.
-        let app_handle = app.handle().clone();
-        if let Err(err) = std::thread::Builder::new()
-            .name("splash-foreground-retry".into())
-            .spawn(move || {
-                for delay_ms in [120_u64, 350_u64] {
-                    std::thread::sleep(Duration::from_millis(delay_ms));
-                    if let Some(window) = app_handle.get_webview_window("splashscreen") {
-                        if let Err(err) = window.set_always_on_top(true) {
-                            log::warn!(
-                                "[Splash] delayed({}ms) set_always_on_top(true) failed: {}",
-                                delay_ms, err
-                            );
-                        }
-                        if let Err(err) = window.show() {
-                            log::warn!("[Splash] delayed({}ms) show() failed: {}", delay_ms, err);
-                        }
-                        if let Err(err) = window.set_focus() {
-                            log::warn!(
-                                "[Splash] delayed({}ms) set_focus() failed: {}",
-                                delay_ms, err
-                            );
-                        }
-                    }
-                }
-            })
-        {
-            log::warn!("[Splash] failed to spawn foreground retry thread: {}", err);
-        }
+        let _ = splash_window.show();
+        let _ = splash_window.set_focus();
     }
 
     spawn_background_runtime_threads(&app.handle(), stream_error_rx);
     install_macos_transport_monitor(&app.handle());
-    
 
-    
     log::info!(
         "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
         app.package_info().version,
         33
     );
+
+    // ENTERPRISE: Close splash from Rust after a short delay.
+    // macOS WKWebView defers JavaScript in windows with `visible: false`,
+    // so the React app in the main window cannot reliably call close_splashscreen.
+    // This Rust-side timer guarantees the splash closes regardless of frontend state.
+    let splash_app = app.handle().clone();
+    if let Err(err) = std::thread::Builder::new()
+        .name("splash-auto-close".into())
+        .spawn(move || {
+            log::info!("[Splash] Auto-close thread started, sleeping 3s...");
+            std::thread::sleep(Duration::from_millis(3000));
+            log::info!("[Splash] Auto-close timer fired, closing splash...");
+
+            // Close splash window
+            if let Some(splash_window) = splash_app.get_webview_window("splashscreen") {
+                log::info!("[Splash] Found splash window, calling close()...");
+                if let Err(err) = splash_window.close() {
+                    log::warn!("[Splash] auto-close failed: {}", err);
+                }
+                log::info!("[Splash] splash_window.close() completed");
+            } else {
+                log::info!("[Splash] Splash window already gone");
+            }
+
+            // Show main window — keep it simple to avoid main-thread dispatch deadlocks.
+            // Decorations, resizable, min-size are already set in tauri.conf.json.
+            if let Some(main_window) = splash_app.get_webview_window("main") {
+                log::info!("[Splash] Showing main window...");
+                let _ = main_window.show();
+                let _ = main_window.set_focus();
+                let _ = main_window.maximize();
+                log::info!("[Splash] Auto-closed splash, showed main window");
+            } else {
+                log::error!("[Splash] Main window not found during auto-close");
+            }
+        })
+    {
+        log::warn!("[Splash] Failed to spawn auto-close thread: {}", err);
+    }
 }
 
 pub(crate) fn shutdown_plugins_on_exit(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {

@@ -1292,9 +1292,12 @@ impl OfflineRenderer {
                             // BOUNCE-AUTOMATION-FIX: Apply master bus external plugin
                             // parameter automation during export — mirrors per-track.
                             // Master bus slots use master_fx_idx as the automation index.
-                            // Since master automation is not yet stored per-slot,
-                            // we skip this for now (master rarely has param automation).
-                            // TODO: When master automation lanes are added, wire them here.
+                            // NOTE: Master bus parameter automation is intentionally skipped during
+                            // export. Master-level automation lanes are not yet modeled in the
+                            // project schema (AutomationBankSnapshot only indexes by track_idx).
+                            // When master automation support is added to the project model,
+                            // wire `apply_automation_to_external_plugin()` here using the
+                            // master track index (`master_fx_idx`).
 
                             // ENTERPRISE FIX: Use pre-allocated scratch buffers instead of
                             // per-chunk Vec allocation. Eliminates heap thrashing.

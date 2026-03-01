@@ -88,7 +88,8 @@ export function agentBridgePlugin(): Plugin {
                     try {
                         wss?.close();
                     } catch {
-                        // best effort shutdown
+                        // WebSocketServer.close() may throw if the server never fully
+                        // bound to the port. Safe to ignore — we are abandoning it.
                     }
                     wss = null;
                     return;

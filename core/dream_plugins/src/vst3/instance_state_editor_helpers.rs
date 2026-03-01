@@ -73,18 +73,12 @@ impl Vst3Instance {
         //   setProcessing(false) → setActive(false) → setState() →
         //   setActive(true) → setupProcessing() → setProcessing(true)
         //
-        // ENTERPRISE FIX (Serum "DAW suspended processing"):
-        // THREAD SAFETY: The audio thread checks `com_initialized` before
-        // calling IAudioProcessor::process(). We MUST set com_initialized = false
-        // BEFORE calling set_processing(0)/set_active(0), otherwise the audio
-        // thread can call process() on a deactivated/suspended plugin — which
-        // causes Serum to permanently enter "DAW suspended processing" state.
+        // CRITICAL FIX (Serum "DAW suspended processing"): Previously we
+        // called setState() while the plugin was still active/processing.
+        // Serum detects this spec violation and enters permanent suspended
+        // state. Now we correctly suspend BEFORE setState.
         let was_processing = self.com_initialized;
         if was_processing && self.processor_ptr != 0 {
-            // CRITICAL: Disable audio thread processing FIRST, before any VST3 calls.
-            // This ensures the audio thread does dry passthrough during state restore.
-            self.com_initialized = false;
-
             let processor = self.processor_ptr as *mut IAudioProcessor;
             // SAFETY: processor pointer is valid during active plugin lifetime.
             unsafe {
@@ -194,9 +188,6 @@ impl Vst3Instance {
             if setup_res == K_RESULT_OK {
                 // SAFETY: processor pointer is valid.
                 let _ = unsafe { ((*(*processor).vtbl).set_processing)(processor, 1) };
-                // ENTERPRISE FIX: Restore com_initialized so the audio thread
-                // resumes calling process() on this instance.
-                self.com_initialized = true;
                 info!(
                     "[VST3] Reactivated processing after state restore for '{}'",
                     self.descriptor.name

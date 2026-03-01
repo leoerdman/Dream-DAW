@@ -94,15 +94,10 @@ impl PluginSandboxConfig {
             .map(PathBuf::from)
             .filter(|p| p.exists())
             .or_else(Self::discover_default_host_binary)?;
-        // ENTERPRISE FIX: Default was 100ms — far too aggressive.
-        // Plugins like Serum/FabFilter need 2-5 seconds to initialize their
-        // VST3 COM objects. 100ms timeout caused ALL sandboxed plugins to be
-        // marked 'timed out' and auto-bypassed on every startup.
-        // 5000ms is the standard for professional DAW plugin hosts.
         let heartbeat_timeout_ms = std::env::var("DREAM_DAW_PLUGIN_HEARTBEAT_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(5000);
+            .unwrap_or(100);
         Some(Self {
             host_binary,
             heartbeat_timeout: Duration::from_millis(heartbeat_timeout_ms),

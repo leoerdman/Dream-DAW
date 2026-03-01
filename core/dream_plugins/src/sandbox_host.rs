@@ -548,17 +548,9 @@ impl PluginSandboxSupervisor {
                         } else {
                             now.duration_since(instance.spawned_at).ok()
                         };
-                        // ENTERPRISE FIX: Plugins in Spawning status need much longer
-                        // to initialize (loading VST3 binary, COM objects, UI resources).
-                        // Give them 3x the normal heartbeat timeout as a grace period.
-                        let effective_timeout = if matches!(instance.status, PluginSandboxStatus::Spawning) {
-                            timeout * 3
-                        } else {
-                            timeout
-                        };
 
                         if let Some(age) = heartbeat_age
-                            && age <= effective_timeout
+                            && age <= timeout
                         {
                             continue;
                         }
@@ -862,43 +854,6 @@ impl PluginSandboxSupervisor {
         self.instances
             .get(&instance_id)
             .map(|i| i.shared_region.clone())
-    }
-
-    /// Returns the current sandbox status of a specific instance.
-    pub fn instance_status(&self, instance_id: Uuid) -> Option<PluginSandboxStatus> {
-        self.instances.get(&instance_id).map(|i| i.status)
-    }
-
-    /// Blocks until the sandbox instance reaches `Running` status or the
-    /// timeout expires. Polls `tick_watchdog()` at 100ms intervals.
-    ///
-    /// Returns `true` if the instance is running, `false` on timeout/crash.
-    ///
-    /// **ENTERPRISE FIX**: This method provides a synchronous readiness gate
-    /// so the caller can detect daemon startup failures and fallback to
-    /// in-process plugin loading before returning to the UI layer.
-    pub fn wait_for_ready(&mut self, instance_id: Uuid, timeout: Duration) -> bool {
-        let start = std::time::Instant::now();
-        let poll_interval = Duration::from_millis(100);
-        loop {
-            let _ = self.tick_watchdog();
-            match self.instance_status(instance_id) {
-                Some(PluginSandboxStatus::Running) => return true,
-                Some(PluginSandboxStatus::Crashed | PluginSandboxStatus::Stopped) => {
-                    return false;
-                }
-                _ => {}
-            }
-            if start.elapsed() >= timeout {
-                log::warn!(
-                    "[PluginSandbox] wait_for_ready timed out for instance {} after {}ms",
-                    instance_id,
-                    timeout.as_millis()
-                );
-                return false;
-            }
-            std::thread::sleep(poll_interval);
-        }
     }
 
     pub fn send_set_parameter(

@@ -1,5 +1,4 @@
 use arc_swap::ArcSwap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     PluginCrashEvent, PluginDescriptor, PluginHost, PluginRecoveryEvent, PluginSandboxConfig,
@@ -18,9 +17,6 @@ pub(crate) struct PluginHostState {
     pub(crate) sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
     pub(crate) cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
     pub(crate) plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
-    /// Once the sandbox daemon fails its readiness gate, skip sandbox for all
-    /// remaining plugins in this session to avoid blocking startup.
-    sandbox_disabled_for_session: AtomicBool,
 }
 impl PluginHostState {
     const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
@@ -182,7 +178,6 @@ impl PluginHostState {
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
             cached_scan: Mutex::new(None),
             plugin_registry: None,
-            sandbox_disabled_for_session: AtomicBool::new(false),
         }
     }
     pub(crate) fn set_plugin_registry(
@@ -554,64 +549,16 @@ impl PluginHostState {
                 descriptor.format
             ));
         }
-        let sandbox_usable = descriptor.format == PluginFormat::VST3
-            && self.sandbox_enabled().unwrap_or(false)
-            && !self.sandbox_disabled_for_session.load(Ordering::Relaxed);
-        if sandbox_usable {
+        if descriptor.format == PluginFormat::VST3 && self.sandbox_enabled().unwrap_or(false) {
             match self.open_in_sandbox(plugin_id, descriptor.clone()) {
                 Ok(instance_id) => {
-                    // ENTERPRISE FIX: Synchronous readiness gate.
-                    // Wait for the sandbox daemon to actually reach Running state
-                    // before returning success. If the daemon fails to initialize
-                    // (stale binary, crash, timeout), tear it down and fall through
-                    // to in-process loading. This prevents plugins from being
-                    // permanently stuck as dead sandboxed instances.
-                    let ready = {
-                        let mut supervisor = self.sandbox_supervisor.lock();
-                        supervisor.wait_for_ready(
-                            instance_id,
-                            std::time::Duration::from_secs(2),
-                        )
-                    };
-                    if ready {
-                        self.bind_slot_instance(slot_id, instance_id);
-                        self.loaded_by_key
-                            .lock()
-                            .entry(plugin_id.to_string())
-                            .or_insert(instance_id);
-                        self.publish_registry();
-                        return Ok(instance_id);
-                    }
-                    // Daemon did not reach Running — tear down and fallback.
-                    // Disable sandbox for remaining plugins this session to avoid
-                    // blocking startup with repeated 2s timeouts.
-                    self.sandbox_disabled_for_session.store(true, Ordering::Relaxed);
-                    log::warn!(
-                        "[PluginSandbox] Daemon failed readiness gate for '{}' (instance {}), falling back to in-process. Sandbox disabled for this session.",
-                        descriptor.name,
-                        instance_id
-                    );
-                    // Clean up the failed sandbox instance.
-                    {
-                        let mut host = self.host.lock();
-                        let _ = host.remove(instance_id);
-                    }
-                    {
-                        let mut supervisor = self.sandbox_supervisor.lock();
-                        supervisor.remove_instance(instance_id);
-                    }
-                    {
-                        let mut sandbox_map = self.loaded_sandbox_by_key.lock();
-                        sandbox_map.retain(|_, id| *id != instance_id);
-                    }
+                    self.bind_slot_instance(slot_id, instance_id);
+                    self.loaded_by_key
+                        .lock()
+                        .entry(plugin_id.to_string())
+                        .or_insert(instance_id);
                     self.publish_registry();
-                    if !Self::allow_unsandboxed_vst3() {
-                        return Err(format!(
-                            "Plugin sandbox daemon failed for '{}' and in-process VST3 loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY).",
-                            descriptor.name
-                        ));
-                    }
-                    // Fall through to in-process loading below.
+                    return Ok(instance_id);
                 }
                 Err(err) => {
                     if !Self::allow_unsandboxed_vst3() {

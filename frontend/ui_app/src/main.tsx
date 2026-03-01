@@ -229,16 +229,30 @@ function App() {
   const engineConnected = useEngineStore((s) => s.connected)
 
   useEffect(() => {
-    if (workspaceMounted) {
-      // ENTERPRISE FIX: Close splash immediately when workspace mounts.
-      // Previously required engineConnected (telemetry_tick listener) which
-      // could fail if __TAURI_INTERNALS__ wasn't ready for listen() calls.
-      // The workspace is fully painted — no need to wait for telemetry.
+    if (workspaceMounted && engineConnected) {
+      // Instantly try to close splash and reveal window the moment the 
+      // Main DAW interface has been fully mounted and painted to the DOM AND
+      // the initial backend sync has populated the store (avoids "grey flash no tracks").
+      // Uses setTimeout to break the synchronous React batch and prevent cascading renders.
       setTimeout(() => {
         attemptCloseSplashscreen().catch(console.error);
       }, 0);
     }
-  }, [workspaceMounted, attemptCloseSplashscreen])
+  }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
+
+  // CRITICAL FIX: Fallback to force-close splash if engineConnected never arrives.
+  // This handles the case where Tauri event listeners fail to register
+  // (e.g., IPC race during dev mode startup), which leaves `connected` as false
+  // and the native splash window stuck showing "Ready" forever.
+  useEffect(() => {
+    if (!workspaceMounted) return
+    if (engineConnected) return // Already handled by the effect above
+    const fallbackTimer = window.setTimeout(() => {
+      console.warn('[App] Forced splash close: engine did not connect within 4s after workspace mount')
+      attemptCloseSplashscreen().catch(console.error)
+    }, 4000)
+    return () => window.clearTimeout(fallbackTimer)
+  }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
 
   return (
     <>

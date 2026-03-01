@@ -5,26 +5,26 @@
 /// Called from React when the headless initialization (AppStartupManager) is complete.
 #[tauri::command]
 fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
-    let splash_window = app.get_webview_window("splashscreen");
+    // 1. Close the splash screen window if it exists.
+    if let Some(splash_window) = app.get_webview_window("splashscreen") {
+        let _ = splash_window.close();
+    }
 
+    // 2. Setup the main window to be instantly ready
     let main_window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
 
-    // Enable resizing & decorations
-    if let Err(e) = main_window.set_decorations(true) {
-        log::warn!("[Splash] set_decorations failed: {e}");
-    }
-    if let Err(e) = main_window.set_resizable(true) {
-        log::warn!("[Splash] set_resizable failed: {e}");
-    }
+    // Enable resizing & decorations (they should be true in tauri.conf but we can ensure it here if you like)
+    let _ = main_window.set_decorations(true);
+    let _ = main_window.set_resizable(true);
 
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
-    if let Err(e) = main_window.set_min_size(Some(min_size)) {
-        log::warn!("[Splash] set_min_size failed: {e}");
-    }
+    let _ = main_window.set_min_size(Some(min_size));
 
-    // Snap window bounds to primary monitor to avoid macOS zoom animation.
+    // 3. To completely bypass the macOS native "zoom" animation from offscreen/hidden state,
+    // we manually snap the window bounds to match the primary monitor's available work area
+    // *before* making the window visible.
     if let Ok(Some(monitor)) = main_window.primary_monitor() {
         let size = monitor.size();
         let pos = monitor.position();
@@ -32,24 +32,14 @@ fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
         let _ = main_window.set_position(*pos);
     }
 
-    // Show, focus, and maximize — all non-fatal.
-    if let Err(e) = main_window.show() {
-        log::warn!("[Splash] show failed: {e}");
-    }
-    if let Err(e) = main_window.set_focus() {
-        log::warn!("[Splash] set_focus failed: {e}");
-    }
-    if let Err(e) = main_window.maximize() {
-        log::warn!("[Splash] maximize failed: {e}");
-    }
-
-    // Close splash ALWAYS — never skip this.
-    if let Some(splash_window) = splash_window {
-        if let Err(err) = splash_window.close() {
-            log::warn!("[Splash] failed to close splash window: {}", err);
-        }
-    }
+    // Now showing the window will be an instant painted reveal of the pre-stretched bounds.
+    let _ = main_window.show();
+    let _ = main_window.set_focus();
+    
+    // Register the OS maximized state so native window controls (green button) sync up
+    let _ = main_window.maximize();
 
     log::info!("[Splash] Closed splash screen, showed DAW main window");
     Ok(())
 }
+

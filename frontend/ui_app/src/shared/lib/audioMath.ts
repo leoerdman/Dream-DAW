@@ -137,7 +137,10 @@ export function clampTimeSigNumerator(n: number): number {
  */
 export function clampTimeSigDenominator(d: number): number {
     const raw = Math.max(1, Math.min(MAX_TIME_SIG_DENOMINATOR, Math.round(d)));
-    return Math.pow(2, Math.round(Math.log2(raw)));
+    // BUG-068 FIX: Final clamp to enforce range after power-of-2 rounding,
+    // since Math.pow(2, round(log2(raw))) can exceed MAX_TIME_SIG_DENOMINATOR.
+    const powOf2 = Math.pow(2, Math.round(Math.log2(raw)));
+    return Math.max(1, Math.min(MAX_TIME_SIG_DENOMINATOR, powOf2));
 }
 
 // ── SSOT Round 2 Constants ──────────────────────────────────────────────

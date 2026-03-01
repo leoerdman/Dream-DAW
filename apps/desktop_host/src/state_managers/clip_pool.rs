@@ -49,6 +49,11 @@ pub struct ClipPoolState {
     /// Optional reference to the shared plugin registry for querying
     /// per-track plugin latencies (PDC compensation).
     plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
+
+    /// PDC-002 FIX: Cached per-track external plugin latencies.
+    /// When `try_lock()` fails due to UI contention, the last known
+    /// latency is preserved instead of silently dropping to 0.
+    external_latency_cache: std::sync::Mutex<Vec<u32>>,
 }
 
 impl ClipPoolState {
@@ -62,6 +67,7 @@ impl ClipPoolState {
             sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
             external_fx_snapshot: Arc::new(SharedExternalPluginSnapshot::new()),
             plugin_registry: None,
+            external_latency_cache: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -71,37 +77,72 @@ impl ClipPoolState {
         self.plugin_registry = Some(registry);
     }
 
-    /// Collects the total plugin latency (in samples) for each track.
+    /// PDC-001 + PDC-002 FIX: Collects total latency per track combining:
+    ///   1. Internal effects latency (compressor/limiter lookahead) from project model
+    ///   2. External plugin latency (VST3/VST2) from live plugin registry
     ///
-    /// Iterates over the current external FX snapshot and queries each
-    /// loaded, non-bypassed plugin instance for its reported latency.
-    /// Returns a `Vec<u32>` indexed by track index.
-    fn collect_per_track_latencies(&self, track_count: usize) -> Vec<u32> {
+    /// On try_lock contention (PDC-002), falls back to cached external latency.
+    fn collect_per_track_latencies(&self, project: &Project, track_count: usize) -> Vec<u32> {
+        // ── Internal effects latency (from model — compressor/limiter lookahead) ──
+        let mut latencies = Vec::with_capacity(track_count);
+        for track_idx in 0..track_count {
+            let internal_latency = project
+                .tracks
+                .get(track_idx)
+                .map(|t| t.total_latency_frames())
+                .unwrap_or(0);
+            latencies.push(internal_latency);
+        }
+
+        // ── External plugin latency (from live registry) ──
         let Some(registry) = &self.plugin_registry else {
-            return vec![0u32; track_count];
+            return latencies;
         };
         let fx_snapshot = self.external_fx_snapshot.load();
         let registry_map = registry.load();
-        let mut latencies = Vec::with_capacity(track_count);
+
+        // PDC-002: Load cached values for contention fallback
+        let cached = self.external_latency_cache.lock().ok();
+        let mut new_cache = Vec::with_capacity(track_count);
+
         for track_idx in 0..track_count {
-            let track_latency = if let Some(slots) = fx_snapshot.get(track_idx) {
-                slots
-                    .iter()
-                    .filter(|slot| !slot.is_bypassed)
-                    .filter_map(|slot| slot.instance_id)
-                    .map(|instance_id| {
-                        registry_map
-                            .get(&instance_id)
-                            .and_then(|arc| arc.try_lock())
-                            .map(|p| p.latency_samples())
-                            .unwrap_or(0)
-                    })
-                    .sum::<u32>()
+            let ext_latency = if let Some(slots) = fx_snapshot.get(track_idx) {
+                let mut track_ext = 0u32;
+                let mut any_contended = false;
+                for slot in slots.iter().filter(|s| !s.is_bypassed) {
+                    if let Some(instance_id) = slot.instance_id {
+                        if let Some(arc) = registry_map.get(&instance_id) {
+                            if let Some(plugin) = arc.try_lock() {
+                                track_ext += plugin.latency_samples();
+                            } else {
+                                // PDC-002: try_lock failed — plugin UI is active.
+                                // Use cached value instead of 0.
+                                any_contended = true;
+                            }
+                        }
+                    }
+                }
+                if any_contended {
+                    // Fall back to cached value for this track
+                    cached
+                        .as_ref()
+                        .and_then(|c| c.get(track_idx).copied())
+                        .unwrap_or(track_ext)
+                } else {
+                    track_ext
+                }
             } else {
                 0
             };
-            latencies.push(track_latency);
+            new_cache.push(ext_latency);
+            latencies[track_idx] += ext_latency;
         }
+
+        // Update cache for next call
+        if let Ok(mut cache) = self.external_latency_cache.lock() {
+            *cache = new_cache;
+        }
+
         latencies
     }
 
@@ -202,11 +243,11 @@ impl ClipPoolState {
             })
             .collect();
 
-        // ── ENTERPRISE PDC: Collect per-track plugin latency ──────────────────
-        // Each track's total latency is the sum of latencies reported by all
-        // non-bypassed external plugins on that track. This feeds into the
-        // audio graph so PDC delay compensation lines are correctly sized.
+        // ── ENTERPRISE PDC: Collect per-track combined latency ─────────────────
+        // Internal effects (compressor/limiter lookahead) + external plugin
+        // latencies feed into the audio graph for PDC delay compensation.
         let per_track_latencies = self.collect_per_track_latencies(
+            project,
             project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
         );
 
@@ -279,8 +320,9 @@ impl ClipPoolState {
             })
             .collect();
 
-        // ── ENTERPRISE PDC: Collect per-track plugin latency ──
+        // ── ENTERPRISE PDC: Collect per-track combined latency ──
         let per_track_latencies = self.collect_per_track_latencies(
+            project,
             project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
         );
 
@@ -520,6 +562,12 @@ impl ClipPoolState {
         }
 
         self.external_fx_snapshot.swap(external_fx);
+
+        // PDC-004 FIX: Trigger graph rebuild after FX snapshot swap.
+        // Plugin loading, bypass toggles, and preset changes alter per-track
+        // latency. Without rebuilding the graph here, PDC delay compensation
+        // lines use stale values until the next explicit project mutation.
+        self.rebuild_routing_only(project);
     }
 
     /// Propagates the Mutex-guarded pool to the lock-free ArcSwap.

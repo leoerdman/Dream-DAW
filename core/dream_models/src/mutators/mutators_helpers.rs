@@ -92,13 +92,28 @@ fn clamp_audio_fades(clip: &mut AudioClip) {
     }
 }
 
-pub fn handle_overlaps(track: &mut Track, target: &AudioClip) {
+/// Resolve overlaps between `target` and all existing clips on `track`.
+///
+/// Clips whose IDs are in `protected_ids` are **skipped** — they will not be
+/// trimmed, deleted, or split. This is essential for multi-clip move/duplicate
+/// operations where co-moving clips must survive each other's overlap
+/// resolution passes.
+pub fn handle_overlaps(track: &mut Track, target: &AudioClip, protected_ids: &[Uuid]) {
     let target_start = target.position.sample_frame;
     let target_end = target.end_position().sample_frame;
 
     let mut i = 0;
     while i < track.clips.len() {
+        // Skip the target clip itself
         if track.clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        // ENTERPRISE FIX: Skip clips that are part of the same batch operation
+        // (co-movers in multi-clip move/duplicate). Without this, sequential
+        // handle_overlaps calls delete previously-placed group members.
+        if protected_ids.contains(&track.clips[i].id) {
             i += 1;
             continue;
         }
@@ -155,13 +170,26 @@ pub fn handle_overlaps(track: &mut Track, target: &AudioClip) {
     }
 }
 
-pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip) {
+/// Resolve overlaps between `target` and all existing MIDI clips on `track`.
+///
+/// Clips whose IDs are in `protected_ids` are **skipped** — they will not be
+/// trimmed, deleted, or split. This is essential for multi-clip move/duplicate
+/// operations where co-moving clips must survive each other's overlap
+/// resolution passes.
+pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip, protected_ids: &[Uuid]) {
     let target_start = target.position.sample_frame;
     let target_end = target.end_position().sample_frame;
 
     let mut i = 0;
     while i < track.midi_clips.len() {
+        // Skip the target clip itself
         if track.midi_clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        // ENTERPRISE FIX: Skip clips that are part of the same batch operation
+        if protected_ids.contains(&track.midi_clips[i].id) {
             i += 1;
             continue;
         }

@@ -240,7 +240,17 @@ impl PluginSandboxSupervisor {
         self.config
             .as_ref()
             .map(|c| c.heartbeat_timeout)
-            .unwrap_or_else(|| Duration::from_millis(100))
+            .unwrap_or_else(|| Duration::from_millis(2000))
+    }
+
+    /// Grace period for instances in Spawning status (initial plugin load).
+    /// Plugin initialization involves VST3 factory creation, component scanning,
+    /// and UI setup — heavy plugins (Serum, Kontakt) can take 5-15 seconds.
+    pub fn initial_grace_period(&self) -> Duration {
+        self.config
+            .as_ref()
+            .map(|c| c.initial_grace_period)
+            .unwrap_or_else(|| Duration::from_millis(15_000))
     }
 
     pub fn attach_plugin_process(
@@ -344,12 +354,26 @@ impl PluginSandboxSupervisor {
     /// Poll running processes and timeouts. Returns instance IDs that should be bypassed.
     pub fn tick_watchdog(&mut self) -> Vec<Uuid> {
         let mut bypass = Vec::new();
-        let timeout = self.heartbeat_timeout();
+        let running_timeout = self.heartbeat_timeout();
+        let spawn_grace = self.initial_grace_period();
         let now = SystemTime::now();
         let max_auto_restarts: u32 = 3;
         let crash_flags = self.crash_flags.clone();
 
         for (id, instance) in &mut self.instances {
+            // ENTERPRISE FIX: Skip instances already in terminal state (Crashed/TimedOut with
+            // bypass active and restart budget exhausted). Re-reporting these every 75ms tick
+            // was the root cause of the "Host unhealthy" log storm and wasted CPU.
+            // Manual restart is still possible — it resets the status to Spawning.
+            if instance.bypass_requested
+                && matches!(
+                    instance.status,
+                    PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut
+                )
+                && instance.restart_count >= max_auto_restarts
+            {
+                continue;
+            }
             if let Some(stdin) = instance.control_stdin.as_mut() {
                 instance.heartbeat_seq = instance.heartbeat_seq.wrapping_add(1);
                 let _ = Self::send_control_message(
@@ -539,6 +563,16 @@ impl PluginSandboxSupervisor {
                         bypass.push(*id);
                     }
                     Ok(None) => {
+                        // ENTERPRISE: Two-tier timeout — Spawning instances get the
+                        // generous initial_grace_period (15s default) so plugins have
+                        // time to load. Running instances use the tighter heartbeat_timeout
+                        // (2s default) for crash detection. This mirrors Bitwig's approach.
+                        let effective_timeout = if matches!(instance.status, PluginSandboxStatus::Spawning) {
+                            spawn_grace
+                        } else {
+                            running_timeout
+                        };
+
                         let heartbeat_age = if instance.heartbeat_seen {
                             fs::metadata(&instance.heartbeat_file)
                                 .ok()
@@ -550,7 +584,7 @@ impl PluginSandboxSupervisor {
                         };
 
                         if let Some(age) = heartbeat_age
-                            && age <= timeout
+                            && age <= effective_timeout
                         {
                             continue;
                         }
@@ -593,7 +627,7 @@ impl PluginSandboxSupervisor {
                                     instance.bypass_requested = true;
                                     instance.last_error = Some(format!(
                                         "Recovered after heartbeat timeout ({}ms)",
-                                        timeout.as_millis()
+                                        effective_timeout.as_millis()
                                     ));
                                     let _ = Self::prime_instance_protocol(*id, instance);
                                     // LAZARUS: Restore cached state after timeout restart
@@ -643,7 +677,7 @@ impl PluginSandboxSupervisor {
                         if instance.last_error.is_none() {
                             instance.last_error = Some(format!(
                                 "Plugin host heartbeat timeout: {}ms",
-                                timeout.as_millis()
+                                effective_timeout.as_millis()
                             ));
                         }
                         self.crash_events.push(PluginCrashEvent {

@@ -158,17 +158,33 @@ pub(crate) fn spawn_background_runtime_threads(
                 // Keep external FX runtime snapshot eventually consistent even when
                 // individual command paths rebuild only clip/routing snapshots.
                 // This prevents stale master/track VST chains in the audio thread.
+                //
+                // PDC-003 FIX: Also poll for VST3 kLatencyChanged flag.
+                // When a plugin changes its latency (e.g., FabFilter Pro-L lookahead),
+                // it signals via restartComponent(kLatencyChanged). This polling detects
+                // the flag and triggers a full graph rebuild with fresh PDC delays.
                 if telemetry_tick_count.is_multiple_of(15) {
                     let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
                     let plugin_host_state: tauri::State<'_, PluginHostState> =
                         telemetry_app.state();
                     let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
                     plugin_host_state.publish_registry();
+
+                    // PDC-003: Check if any VST3 plugin signaled latency change
+                    let vst3_latency_changed = dream_plugins::vst3_host::take_latency_changed();
+
                     if let Some(pstate) = registry.get_active_project() {
                         if let Ok(project) = pstate.project.lock() {
                             let slot_instance_map = plugin_host_state.slot_instance_snapshot();
                             clip_pool_state
                                 .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+
+                            // PDC-003: If latency changed, force an explicit log
+                            if vst3_latency_changed {
+                                log::info!(
+                                    "[PDC-003] VST3 plugin signaled kLatencyChanged — graph PDC rebuilt"
+                                );
+                            }
                         }
                     }
                 }
@@ -276,6 +292,57 @@ pub(crate) fn spawn_background_runtime_threads(
             }
             for recovery in recoveries {
                 let _ = sandbox_app.emit("plugin_sandbox_recovered", &recovery);
+            }
+
+            // ── ENTERPRISE CIRCUIT BREAKER ────────────────────────────────
+            // When ALL sandbox instances are dead, transparently migrate to
+            // in-process loading so plugins produce audio again.
+            if plugin_host_state.check_sandbox_circuit_breaker() {
+                log::warn!("[Watchdog] Circuit Breaker TRIPPED — all sandbox instances dead, migrating to in-process");
+                match plugin_host_state.migrate_sandbox_to_inprocess() {
+                    Ok((migrated, reloaded_slots)) if migrated > 0 => {
+                        // Un-bypass the slots we just reloaded in-process.
+                        let clip_pool_state: tauri::State<'_, ClipPoolState> = sandbox_app.state();
+                        let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = sandbox_app.state();
+                        if let Some(project_state) = registry.get_active_project() {
+                            if let Ok(mut project) = project_state.project.lock() {
+                                let changed = set_plugin_slots_bypass_in_project(
+                                    &mut project,
+                                    &reloaded_slots,
+                                    false,
+                                );
+                                if changed > 0 {
+                                    clip_pool_state.rebuild_routing_only(&project);
+                                    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                                    clip_pool_state.rebuild_external_fx_snapshot(
+                                        &project,
+                                        slot_instance_map.as_ref(),
+                                    );
+                                    plugin_host_state.publish_registry();
+                                    let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
+                                }
+                            }
+                        }
+                        let _ = sandbox_app.emit(
+                            "plugin_sandbox_circuit_breaker",
+                            serde_json::json!({
+                                "action": "migrated_to_inprocess",
+                                "migratedCount": migrated,
+                                "slotIds": reloaded_slots.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                            }),
+                        );
+                        log::info!(
+                            "[Watchdog] Circuit Breaker complete: {} plugins migrated to in-process",
+                            migrated
+                        );
+                    }
+                    Ok(_) => {
+                        log::info!("[Watchdog] Circuit Breaker: no plugins needed migration");
+                    }
+                    Err(err) => {
+                        log::error!("[Watchdog] Circuit Breaker migration failed: {}", err);
+                    }
+                }
             }
         })
     {

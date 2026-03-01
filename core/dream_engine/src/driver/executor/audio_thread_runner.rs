@@ -553,6 +553,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         // Graph pass: route pre-rendered tracks through DAG.
                         // This UNIFIED block handles both playing (clips) and stopped (tails/real-time MIDI) states.
+                        // PDC-005 FIX: On seek or loop wrap, flush PDC delay line ring buffers
+                        // so stale audio from the previous playhead position doesn't leak out.
+                        if midi_chase_needed {
+                            graph_renderer.reset_pdc_delays();
+                        }
                         // MIDI-CHASE: Clear the chase flag after all tracks have been processed.
                         // It only needs to be active for the first buffer after a seek.
                         midi_chase_needed = false;

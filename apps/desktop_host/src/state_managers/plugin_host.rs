@@ -2,11 +2,14 @@ use arc_swap::ArcSwap;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     PluginCrashEvent, PluginDescriptor, PluginHost, PluginRecoveryEvent, PluginSandboxConfig,
+
     PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use parking_lot::Mutex;
 use uuid::Uuid;
 pub(crate) struct PluginHostState {
@@ -17,6 +20,14 @@ pub(crate) struct PluginHostState {
     pub(crate) sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
     pub(crate) cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
     pub(crate) plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
+    /// Per-instance cooldown for "Host unhealthy" log messages.
+    /// Prevents log spam when plugins are persistently unhealthy (at most 1 log per 10s per instance).
+    watchdog_log_cooldown: Mutex<HashMap<Uuid, Instant>>,
+    /// ENTERPRISE CIRCUIT BREAKER: When set to true, the sandbox is permanently
+    /// disabled for the remainder of this session. Only a manual `reset_circuit_breaker()`
+    /// call can re-enable it. Prevents `try_enable_sandbox_if_available()` from
+    /// re-enabling a fundamentally broken sandbox on every plugin load.
+    circuit_breaker_active: AtomicBool,
 }
 impl PluginHostState {
     const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
@@ -149,6 +160,11 @@ impl PluginHostState {
         !force_sandbox
     }
     pub(crate) fn try_enable_sandbox_if_available(&self) {
+        // ENTERPRISE: Respect circuit breaker — once tripped, sandbox stays
+        // disabled for the remainder of this session. Manual reset required.
+        if self.circuit_breaker_active.load(Ordering::Relaxed) {
+            return;
+        }
         {
             let mut sup = self.sandbox_supervisor.lock();
             sup.set_enabled(true);
@@ -178,6 +194,8 @@ impl PluginHostState {
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
             cached_scan: Mutex::new(None),
             plugin_registry: None,
+            watchdog_log_cooldown: Mutex::new(HashMap::new()),
+            circuit_breaker_active: AtomicBool::new(false),
         }
     }
     pub(crate) fn set_plugin_registry(
@@ -880,6 +898,12 @@ impl PluginHostState {
         let mut supervisor = self.sandbox_supervisor.lock();
         let timed_out = supervisor.tick_watchdog();
         if !timed_out.is_empty() {
+            // ENTERPRISE FIX: Throttle "Host unhealthy" logs to at most once per 10s per instance.
+            // Without this, 10+ unhealthy plugins × 75ms poll = 130+ error logs/second,
+            // which itself causes performance degradation from lock contention in the log backend.
+            const LOG_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
+            let now = Instant::now();
+            let mut cooldown = self.watchdog_log_cooldown.lock();
             let mut reverse = HashMap::<Uuid, String>::new();
             {
                 let map = self.loaded_sandbox_by_key.lock();
@@ -887,20 +911,39 @@ impl PluginHostState {
                     reverse.insert(*v, k.clone());
                 }
             }
+            let mut suppressed_count = 0usize;
             for id in timed_out {
-                if let Some(key) = reverse.get(&id) {
-                    log::error!(
-                        "[PluginSandbox] Host unhealthy for key='{}' (instance={}) -> bypass requested",
-                        key,
-                        id
-                    );
+                let should_log = cooldown
+                    .get(&id)
+                    .map(|last| now.duration_since(*last) >= LOG_COOLDOWN)
+                    .unwrap_or(true);
+                if should_log {
+                    cooldown.insert(id, now);
+                    if let Some(key) = reverse.get(&id) {
+                        log::error!(
+                            "[PluginSandbox] Host unhealthy for key='{}' (instance={}) -> bypass requested",
+                            key,
+                            id
+                        );
+                    } else {
+                        log::error!(
+                            "[PluginSandbox] Host unhealthy for instance={} -> bypass requested",
+                            id
+                        );
+                    }
                 } else {
-                    log::error!(
-                        "[PluginSandbox] Host unhealthy for instance={} -> bypass requested",
-                        id
-                    );
+                    suppressed_count += 1;
                 }
             }
+            if suppressed_count > 0 {
+                log::debug!(
+                    "[PluginSandbox] Suppressed {} repeated unhealthy log(s) (cooldown={}s)",
+                    suppressed_count,
+                    LOG_COOLDOWN.as_secs()
+                );
+            }
+            // Evict stale cooldown entries for instances that have recovered.
+            cooldown.retain(|_, last| now.duration_since(*last) < LOG_COOLDOWN * 3);
         }
         let crashes = supervisor.drain_crash_events();
         let recoveries = supervisor.drain_recovery_events();
@@ -977,5 +1020,155 @@ impl PluginHostState {
             .send_set_parameter(id, param_index, value)
             .map_err(|e| format!("Sandbox set parameter failed: {e}"))?;
         Ok(true)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ENTERPRISE CIRCUIT BREAKER: Sandbox → In-Process Migration
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // When the out-of-process sandbox is systemically broken (daemon binary
+    // missing, macOS Gatekeeper blocking it, shared memory failures, etc.),
+    // ALL sandboxed plugin instances will exhaust their restart budget and
+    // be bypassed — resulting in no audio from any plugin.
+    //
+    // The Circuit Breaker detects this global failure pattern and
+    // transparently migrates all plugins to in-process loading so they
+    // start producing audio again without user intervention.
+    //
+    // Flow:
+    //   1. check_sandbox_circuit_breaker() → returns true when ALL sandbox
+    //      instances are dead (bypass_requested + restart budget exhausted).
+    //   2. migrate_sandbox_to_inprocess() → disables sandbox, cleans up
+    //      dead instances, and reloads each plugin in-process.
+    //   3. The watchdog thread calls this automatically when breaker trips.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Returns true if the circuit breaker should trip: ALL sandbox instances
+    /// are in a terminal state (bypassed with exhausted restarts).
+    /// Returns false if there are no sandbox instances or if any are still healthy.
+    pub(crate) fn check_sandbox_circuit_breaker(&self) -> bool {
+        let supervisor = self.sandbox_supervisor.lock();
+        if !supervisor.enabled() {
+            return false;
+        }
+        let snapshot = supervisor.snapshot();
+        if snapshot.instances.is_empty() {
+            return false;
+        }
+        // Circuit breaker trips only when EVERY instance is dead.
+        snapshot.instances.iter().all(|inst| inst.bypass_requested)
+    }
+
+    /// Enterprise circuit breaker: migrate all dead sandbox plugins to in-process loading.
+    ///
+    /// Returns the number of plugins successfully migrated, and a list of slot IDs
+    /// that were re-loaded so the caller can un-bypass them in the project model.
+    pub(crate) fn migrate_sandbox_to_inprocess(&self) -> Result<(usize, HashSet<Uuid>), String> {
+        log::warn!(
+            "[CircuitBreaker] Sandbox globally unhealthy — migrating all plugins to in-process loading"
+        );
+
+        // Step 1: Collect all sandbox-loaded plugins and their slot bindings.
+        let sandbox_entries: Vec<(String, Uuid)> = {
+            let map = self.loaded_sandbox_by_key.lock();
+            map.iter().map(|(k, v)| (k.clone(), *v)).collect()
+        };
+
+        if sandbox_entries.is_empty() {
+            log::info!("[CircuitBreaker] No sandbox instances to migrate");
+            return Ok((0, HashSet::new()));
+        }
+
+        // Step 2: Map instance_id → slot_ids for re-binding.
+        let slot_map = self.slot_instance_snapshot();
+        let mut instance_to_slots: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+        for (slot_id, instance_id) in slot_map.iter() {
+            instance_to_slots
+                .entry(*instance_id)
+                .or_default()
+                .push(*slot_id);
+        }
+
+        // Step 3: Disable sandbox and activate circuit breaker to prevent re-enabling.
+        {
+            let mut supervisor = self.sandbox_supervisor.lock();
+            supervisor.set_enabled(false);
+        }
+        self.circuit_breaker_active.store(true, Ordering::Release);
+        log::info!("[CircuitBreaker] Circuit breaker flag activated — sandbox will not re-enable until manual reset");
+
+        // Step 4: Unload each dead sandbox instance.
+        for (_, instance_id) in &sandbox_entries {
+            let _ = self.unload_instance(*instance_id);
+        }
+
+        // Step 5: Reload each plugin in-process for all its slots.
+        let mut migrated_count = 0usize;
+        let mut reloaded_slots = HashSet::new();
+
+        for (plugin_key, old_instance_id) in &sandbox_entries {
+            let slot_ids = instance_to_slots
+                .get(old_instance_id)
+                .cloned()
+                .unwrap_or_default();
+
+            if slot_ids.is_empty() {
+                log::warn!(
+                    "[CircuitBreaker] Plugin '{}' (instance {}) had no slot bindings — skipping",
+                    plugin_key,
+                    old_instance_id
+                );
+                continue;
+            }
+
+            for slot_id in slot_ids {
+                match self.ensure_loaded_instance_for_slot(slot_id, plugin_key) {
+                    Ok(new_instance_id) => {
+                        migrated_count += 1;
+                        reloaded_slots.insert(slot_id);
+                        log::info!(
+                            "[CircuitBreaker] Migrated slot {} plugin '{}': sandbox {} → in-process {}",
+                            slot_id,
+                            plugin_key,
+                            old_instance_id,
+                            new_instance_id,
+                        );
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "[CircuitBreaker] Failed to migrate slot {} plugin '{}' to in-process: {}",
+                            slot_id,
+                            plugin_key,
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
+        // Step 6: Clear stale cooldown entries since we've reset the situation.
+        self.watchdog_log_cooldown.lock().clear();
+
+        log::info!(
+            "[CircuitBreaker] Migration complete: {}/{} slots reloaded in-process",
+            migrated_count,
+            reloaded_slots.len(),
+        );
+
+        Ok((migrated_count, reloaded_slots))
+    }
+
+    /// Manually reset the circuit breaker, allowing the sandbox to be re-enabled.
+    /// Called by the user via a UI action (e.g., "Retry Plugin Sandbox" button).
+    pub(crate) fn reset_circuit_breaker(&self) {
+        let was_active = self.circuit_breaker_active.swap(false, Ordering::Release);
+        if was_active {
+            log::info!("[CircuitBreaker] Circuit breaker reset — sandbox may be re-enabled on next plugin load");
+        }
+    }
+
+    /// Returns whether the circuit breaker is currently active.
+    pub(crate) fn is_circuit_breaker_active(&self) -> bool {
+        self.circuit_breaker_active.load(Ordering::Relaxed)
     }
 }

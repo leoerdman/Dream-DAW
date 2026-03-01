@@ -337,7 +337,7 @@ function SessionStripFaderInner({
                             style={{
                                 flex: 1,
                                 background: trackSolo ? 'var(--color-status-solo)' : 'var(--surface-elevated)',
-                                color: trackSolo ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
+                                color: trackSolo ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
                                 border: trackSolo ? 'none' : '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                                 borderRadius: 'var(--radius-xs)',
                                 fontSize: '10px',

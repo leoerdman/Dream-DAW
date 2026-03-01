@@ -84,7 +84,16 @@ pub struct PluginRecoveryEvent {
 #[derive(Debug, Clone)]
 pub struct PluginSandboxConfig {
     pub host_binary: PathBuf,
+    /// Ongoing heartbeat timeout for Running instances.
+    /// If no HeartbeatAck is received within this window, the instance is
+    /// considered unhealthy. Default: 2000ms (enterprise-grade, avoids false
+    /// positives during heavy DSP or UI redraws).
     pub heartbeat_timeout: Duration,
+    /// Grace period for Spawning instances (initial load).
+    /// Plugin initialization involves disk I/O, VST3 factory creation,
+    /// component scanning, and UI setup — can take 1-15 seconds for complex
+    /// plugins (Serum, Kontakt, etc.). Default: 15000ms.
+    pub initial_grace_period: Duration,
 }
 
 impl PluginSandboxConfig {
@@ -97,10 +106,15 @@ impl PluginSandboxConfig {
         let heartbeat_timeout_ms = std::env::var("DREAM_DAW_PLUGIN_HEARTBEAT_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(100);
+            .unwrap_or(2000);
+        let initial_grace_ms = std::env::var("DREAM_DAW_PLUGIN_INITIAL_GRACE_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(15_000);
         Some(Self {
             host_binary,
             heartbeat_timeout: Duration::from_millis(heartbeat_timeout_ms),
+            initial_grace_period: Duration::from_millis(initial_grace_ms),
         })
     }
 
@@ -129,3 +143,4 @@ impl PluginSandboxConfig {
             .find(|candidate| candidate.exists())
     }
 }
+

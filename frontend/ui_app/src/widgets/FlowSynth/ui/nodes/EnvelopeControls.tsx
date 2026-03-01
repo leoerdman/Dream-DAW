@@ -9,10 +9,10 @@ interface Props {
 
 export function EnvelopeControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
-    const a = node.data?.attack ?? 0.01;
-    const d = node.data?.decay ?? 0.1;
-    const s = node.data?.sustain ?? 0.7;
-    const r = node.data?.release ?? 0.3;
+    const a = Number(node.data?.attack ?? 0.01);
+    const d = Number(node.data?.decay ?? 0.1);
+    const s = Number(node.data?.sustain ?? 0.7);
+    const r = Number(node.data?.release ?? 0.3);
     const setEnv = useCallback((patch: Record<string, unknown>) => {
         updateNodeData(node.id, patch);
     }, [node.id, updateNodeData]);

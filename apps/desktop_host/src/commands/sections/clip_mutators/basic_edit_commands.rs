@@ -288,6 +288,16 @@ async fn resize_clip_with_deltas_cmd(
         }
     }
 
+    // OVERLAP FIX: Include full project snapshot so frontend sees
+    // clips that were trimmed/split/deleted by handle_overlaps().
+    // Same pattern as move_clip_with_deltas_cmd and duplicate_clip_with_deltas_cmd.
+    {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        });
+    }
+
     rebuild_clip_views_and_mark_dirty(
         &project_state,
         &clip_pool_state,

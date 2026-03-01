@@ -11,11 +11,6 @@ import {
 import { buildTrackOffsets, trackIndexAtOffsetY } from './viewportTrackMath';
 export { DEFAULT_PPB, MAX_PPB, MIN_PPB, type ViewportConfig, type ViewportSnapshot, type VisibleRange } from './viewportTypes';
 
-function snapPhysical(value: number): number {
-    const dpr = window.devicePixelRatio || 1;
-    return Math.round(value * dpr) / dpr;
-}
-
 const FOLLOW_MARGIN_RATIO = 0.15;
 
 export class ViewportMatrix {

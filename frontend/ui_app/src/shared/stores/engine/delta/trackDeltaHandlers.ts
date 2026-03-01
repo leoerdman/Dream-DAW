@@ -15,9 +15,7 @@ import {
     removeTrackById,
 } from './trackStateOps';
 
-function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
-    patchTrackById(state, id, patch);
-}
+// BUG-020 FIX: Removed dead `patchTrack` wrapper — callers now use `patchTrackById` directly.
 
 function patchSampleRackPad(
     state: DeltaWorkingState,
@@ -30,7 +28,7 @@ function patchSampleRackPad(
     if (padIndex < 0 || padIndex >= track.sample_rack.pads.length) return false;
     const nextPads = track.sample_rack.pads.slice();
     nextPads[padIndex] = { ...nextPads[padIndex], ...patch };
-    patchTrack(state, trackId, {
+    patchTrackById(state, trackId, {
         sample_rack: {
             ...track.sample_rack,
             pads: nextPads,
@@ -39,14 +37,13 @@ function patchSampleRackPad(
     return true;
 }
 
-export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
-    void env;
+export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
     if (delta.kind === 'TrackVolumeChanged') {
-        patchTrack(state, delta.data.track_id, { volume: delta.data.volume });
+        patchTrackById(state, delta.data.track_id, { volume: delta.data.volume });
         return true;
     }
     if (delta.kind === 'TrackPanChanged') {
-        patchTrack(state, delta.data.track_id, { pan: delta.data.pan });
+        patchTrackById(state, delta.data.track_id, { pan: delta.data.pan });
         return true;
     }
     if (delta.kind === 'TrackDisabledChanged') {
@@ -65,31 +62,31 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             console.warn('[TrackDelta] TrackDisabledChanged: neither `disabled` nor `muted` field found — skipping.');
             return true;
         }
-        patchTrack(state, delta.data.track_id, { is_disabled: nextDisabled });
+        patchTrackById(state, delta.data.track_id, { is_disabled: nextDisabled });
         return true;
     }
     if (delta.kind === 'TrackSoloChanged') {
-        patchTrack(state, delta.data.track_id, { is_solo: delta.data.soloed });
+        patchTrackById(state, delta.data.track_id, { is_solo: delta.data.soloed });
         return true;
     }
     if (delta.kind === 'TrackArmChanged') {
         const track = getTrackByIndex(state, delta.data.track_index);
         if (!track) return true;
-        patchTrack(state, track.id, { is_armed: delta.data.armed });
+        patchTrackById(state, track.id, { is_armed: delta.data.armed });
         return true;
     }
     if (delta.kind === 'TrackRoutingChanged') {
-        patchTrack(state, delta.data.track_id, { output: delta.data.output_destination_id ?? 'master' });
+        patchTrackById(state, delta.data.track_id, { output: delta.data.output_destination_id ?? 'master' });
         return true;
     }
     if (delta.kind === 'TrackInputChanged') {
-        patchTrack(state, delta.data.track_id, { input: delta.data.input_source_id ?? 'none' });
+        patchTrackById(state, delta.data.track_id, { input: delta.data.input_source_id ?? 'none' });
         return true;
     }
     if (delta.kind === 'TrackSamplerSampleChanged') {
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
-        patchTrack(state, delta.data.track_id, {
+        patchTrackById(state, delta.data.track_id, {
             sampler: {
                 sample_path: delta.data.sample_path,
                 root_note: track.sampler?.root_note ?? 60,
@@ -146,19 +143,19 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackRenamed') {
-        patchTrack(state, delta.data.track_id, { name: delta.data.new_name });
+        patchTrackById(state, delta.data.track_id, { name: delta.data.new_name });
         return true;
     }
     if (delta.kind === 'TrackColorChanged') {
-        patchTrack(state, delta.data.track_id, { color: delta.data.color });
+        patchTrackById(state, delta.data.track_id, { color: delta.data.color });
         return true;
     }
     if (delta.kind === 'TrackHeightChanged') {
-        patchTrack(state, delta.data.track_id, { height: delta.data.height });
+        patchTrackById(state, delta.data.track_id, { height: delta.data.height });
         return true;
     }
     if (delta.kind === 'TrackGroupExpandedChanged') {
-        patchTrack(state, delta.data.track_id, { is_expanded: delta.data.expanded });
+        patchTrackById(state, delta.data.track_id, { is_expanded: delta.data.expanded });
         return true;
     }
     if (delta.kind === 'AutomationPointsChanged') {
@@ -186,7 +183,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         } else if (param === 'send.b') {
             nextPatch.send_b = clamp01(delta.data.points.at(-1)?.value ?? 0);
         }
-        patchTrack(state, delta.data.track_id, nextPatch);
+        patchTrackById(state, delta.data.track_id, nextPatch);
         return true;
     }
 
@@ -295,7 +292,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     if (delta.kind === 'TrackParentChanged') {
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
-        patchTrack(state, delta.data.track_id, {
+        patchTrackById(state, delta.data.track_id, {
             parent_track_id: delta.data.parent_track_id,
             output: delta.data.parent_track_id ?? 'master',
         });

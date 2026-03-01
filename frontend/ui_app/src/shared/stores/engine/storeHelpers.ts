@@ -32,11 +32,17 @@ export function mergeProjectHistory(
     if (current.length === 0) {
         merged = delta;
     } else if (firstSeq <= currentCursor) {
-        // BUG-009 FIX: Splice at the correct position instead of full replacement.
-        // Find the index where delta should start replacing, preserving history before it.
-        const spliceIdx = current.findIndex((e) => e.seq >= firstSeq);
-        if (spliceIdx >= 0) {
-            merged = [...current.slice(0, spliceIdx), ...delta];
+        // BUG-090 FIX: Binary search O(log N) instead of .findIndex() O(N).
+        // History is sorted by seq, so binary search is valid and faster for 1024-entry windows.
+        let lo = 0;
+        let hi = current.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (current[mid].seq < firstSeq) lo = mid + 1;
+            else hi = mid;
+        }
+        if (lo < current.length) {
+            merged = [...current.slice(0, lo), ...delta];
         } else {
             merged = [...current, ...delta];
         }

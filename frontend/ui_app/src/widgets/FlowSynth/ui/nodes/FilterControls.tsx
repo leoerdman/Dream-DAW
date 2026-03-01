@@ -17,9 +17,9 @@ interface Props {
 export function FilterControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
-    const filterType = node.data?.filterType || 'lowpass';
-    const cutoff = node.data?.cutoff ?? 1000;
-    const resonance = node.data?.resonance ?? 0.5;
+    const filterType = String(node.data?.filterType || 'lowpass');
+    const cutoff = Number(node.data?.cutoff ?? 1000);
+    const resonance = Number(node.data?.resonance ?? 0.5);
 
     const updateData = useCallback((patch: Record<string, unknown>) => {
         updateNodeData(node.id, patch);

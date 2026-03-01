@@ -851,6 +851,20 @@ impl GraphRenderer {
         }
     }
 
+    /// PDC-005 FIX: Resets ONLY the PDC delay line ring buffers.
+    ///
+    /// Called on seek or loop boundary to prevent stale delayed audio
+    /// from the previous playhead position from leaking into the output
+    /// at the new position. Unlike `reset()`, this preserves node buffers
+    /// which may contain valid in-progress summing data.
+    pub fn reset_pdc_delays(&mut self) {
+        for i in 0..self.active_edge_pdc_count {
+            if i < self.edge_pdc_delays.len() {
+                self.edge_pdc_delays[i].delay.reset();
+            }
+        }
+    }
+
     pub fn reset(&mut self) {
         for buf in &mut self.node_buffers {
             buf.clear(self.max_frames);

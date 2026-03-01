@@ -18,7 +18,7 @@ interface Props {
 export function MidiInControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
-    const channel = node.data?.channel || 'omni';
+    const channel = String(node.data?.channel || 'omni');
     const transpose = Number(node.data?.transpose ?? 0);
 
     const updateData = useCallback((patch: Record<string, unknown>) => {

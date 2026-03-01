@@ -101,6 +101,14 @@ impl Command for DuplicateMultipleClipsCommand {
         let mut project = ctx.lock_project()?;
         let mut results = Vec::with_capacity(self.clips.len());
 
+        // ENTERPRISE FIX: Progressive protected_ids — as each clip is
+        // duplicated, its new ID is added to the protected set. This
+        // prevents clip N+1's overlap resolution from deleting clip N's
+        // newly-created duplicate. Source clip IDs are also protected
+        // since they should never be affected by sibling duplicates.
+        let source_ids: Vec<Uuid> = self.clips.iter().map(|(id, _, _)| *id).collect();
+        let mut protected_ids: Vec<Uuid> = source_ids.clone();
+
         for (clip_id, dest_pos, dest_track) in &self.clips {
             let target_pos = dest_pos.map(AbsoluteTime::new);
             
@@ -117,9 +125,12 @@ impl Command for DuplicateMultipleClipsCommand {
                 .iter()
                 .any(|c| c.id == *clip_id);
 
-            // Using the mutators internally pushes the updates into the active project snapshot.
             if is_audio_clip {
-                if let Ok(dup) = mutators::duplicate_clip(&mut project, *clip_id, target_pos, *dest_track) {
+                if let Ok(dup) = mutators::duplicate_clip_with_protected(
+                    &mut project, *clip_id, target_pos, *dest_track, &protected_ids,
+                ) {
+                    // Add the new ID to protected set for subsequent iterations
+                    protected_ids.push(dup.id);
                     results.push(DuplicateClipResult {
                         new_id: dup.id,
                         new_position_frames: dup.position.sample_frame,
@@ -127,7 +138,11 @@ impl Command for DuplicateMultipleClipsCommand {
                         new_duration_frames: dup.duration.sample_frame,
                     });
                 }
-            } else if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
+            } else if let Ok(dup) = mutators::duplicate_midi_clip_with_protected(
+                &mut project, *clip_id, target_pos, *dest_track, &protected_ids,
+            ) {
+                // Add the new ID to protected set for subsequent iterations
+                protected_ids.push(dup.id);
                 results.push(DuplicateClipResult {
                     new_id: dup.id,
                     new_position_frames: dup.position.sample_frame,

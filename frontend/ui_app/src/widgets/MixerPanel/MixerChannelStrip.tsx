@@ -236,8 +236,8 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                         width: 24, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
                         background: isSoloed ? 'var(--color-status-solo)' : 'var(--surface-elevated)',
-                        color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
-                        boxShadow: isSoloed ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 4px color-mix(in srgb, var(--color-primary) 40%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
+                        color: isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
+                        boxShadow: isSoloed ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 6px color-mix(in srgb, var(--color-status-solo) 60%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
                     }}>
                     S
                 </button>

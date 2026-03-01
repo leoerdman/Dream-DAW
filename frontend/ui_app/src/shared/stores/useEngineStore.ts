@@ -136,8 +136,8 @@ export function getMetersRef(): MeteringSnapshot {
 function shouldApplyViewportRestore(reason: string): boolean {
     if (!reason) return false;
 
-    // Allow-list: ONLY restore viewport when actively loading or initializing a project.
-    // Normal actions like edit, drag, copy/paste, undo, duplicate should NEVER jump the viewport.
+    // BUG-011 FIX: ONLY restore viewport when actively loading or initializing a project.
+    // Undo/redo removed — they caused disorienting viewport jumps on simple BPM/track changes.
     const loadPrefixes = [
         'native-menu:new',
         'native-menu:open',
@@ -146,10 +146,6 @@ function shouldApplyViewportRestore(reason: string): boolean {
         'project-manager:open',
         'engine:init',
         'engine:open',
-        'keyboard-undo',
-        'keyboard-redo',
-        'undo',
-        'redo',
         'auto-recovery:apply',
         'auto-recovery:resync'
     ];

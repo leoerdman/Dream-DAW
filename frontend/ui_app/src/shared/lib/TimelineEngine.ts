@@ -1141,7 +1141,56 @@ export class TimelineEngine {
                 }
 
                 if (e.shiftKey && hasSelectedClips) {
-                    // Shift+click on empty timeline should not replace clip selection with marquee.
+                    // BUG-OVERLAP-FIX: Shift+click on empty area with clips selected →
+                    // create a marquee selection from the anchor (last selected clip or
+                    // edit cursor) to the clicked point, selecting all clips in between.
+                    // Previously this just `break`'d (did nothing), breaking the user's
+                    // expectation of "click clip → Shift+click empty → selection box".
+                    let anchorBeat: number | undefined;
+                    let anchorTrack: number | undefined;
+
+                    // Use edit cursor as anchor if available
+                    if (this._editCursorBeat >= 0) {
+                        anchorBeat = this._editCursorBeat;
+                        anchorTrack = this._editCursorTrack >= 0 ? this._editCursorTrack : hit.trackIndex;
+                    } else {
+                        // Fall back to first selected clip as anchor
+                        for (let i = 0, len = this._clips.length; i < len; i++) {
+                            const sc = this._clips[i];
+                            if (sc.selected) {
+                                anchorBeat = sc.startBeat;
+                                anchorTrack = sc.trackIndex;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (anchorBeat !== undefined && anchorTrack !== undefined) {
+                        this.onMarqueeSelectionStart?.();
+                        this._drag = {
+                            mode: DragMode.MarqueeSelect,
+                            clipId: null,
+                            startBeat: anchorBeat,
+                            startTrack: anchorTrack,
+                            currentBeat: snappedBeat,
+                            currentTrack: hit.trackIndex,
+                            clipOriginalBeat: 0,
+                            clipOriginalTrack: 0,
+                            clipOriginalDuration: 0,
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                            startContentY: this._viewport.trackOffsetY(anchorTrack),
+                        };
+
+                        const minBeat = Math.min(anchorBeat, snappedBeat);
+                        const maxBeat = Math.max(anchorBeat, snappedBeat);
+                        const minTrack = Math.min(anchorTrack, hit.trackIndex);
+                        const maxTrack = Math.max(anchorTrack, hit.trackIndex);
+                        this._setMarquee({ startBeat: minBeat, endBeat: maxBeat, startTrack: minTrack, endTrack: maxTrack }, false);
+                        this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
+
+                        this.onEditCursorChange?.(anchorBeat, anchorTrack, hit.trackIndex);
+                    }
                     break;
                 }
 

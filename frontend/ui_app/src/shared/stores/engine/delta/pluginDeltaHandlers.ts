@@ -5,8 +5,7 @@ import { patchTrackById } from './trackStateOps';
 
 // BUG-020 FIX: Removed dead `patchTrack` wrapper — callers now use `patchTrackById` directly.
 
-export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
-    void env;
+export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
     if (delta.kind === 'PluginBypassChanged') {
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;

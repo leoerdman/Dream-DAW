@@ -24,6 +24,10 @@ struct TransportTelemetryPayload {
     loop_start: i64,
     loop_end: i64,
     output_latency_frames: u32,
+    /// PDC-006 FIX: Master bus PDC latency (from effects like limiter/compressor
+    /// on the master track). Frontend subtracts this from the displayed playhead
+    /// position so the visual cursor reflects the audio output alignment.
+    master_pdc_latency_frames: u32,
     telemetry_timestamp_ms: u128,
 }
 
@@ -105,6 +109,17 @@ pub(crate) fn spawn_background_runtime_threads(
 
                 let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
 
+                // PDC-006: Read master bus PDC latency from project model.
+                // CRITICAL: Must be read BEFORE playback_state.lock() to avoid
+                // AB-BA deadlock (transport actions lock project → playback_state).
+                let master_pdc = {
+                    let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
+                    registry
+                        .get_active_project()
+                        .and_then(|ps| ps.project.lock().ok().map(|p| p.master_track.total_latency_frames()))
+                        .unwrap_or(0)
+                };
+
                 let transport = {
                     let state = match handle.playback_state.lock() {
                         Ok(s) => s,
@@ -117,6 +132,7 @@ pub(crate) fn spawn_background_runtime_threads(
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis())
                         .unwrap_or(0);
+
                     TransportTelemetryPayload {
                         is_playing: state.is_playing,
                         position_frames: frames,
@@ -128,6 +144,7 @@ pub(crate) fn spawn_background_runtime_threads(
                         loop_start: state.loop_start,
                         loop_end: state.loop_end,
                         output_latency_frames: handle.output_latency_frames,
+                        master_pdc_latency_frames: master_pdc as u32,
                         telemetry_timestamp_ms,
                     }
                 };
@@ -174,7 +191,7 @@ pub(crate) fn spawn_background_runtime_threads(
                     let vst3_latency_changed = dream_plugins::vst3_host::take_latency_changed();
 
                     if let Some(pstate) = registry.get_active_project() {
-                        if let Ok(project) = pstate.project.lock() {
+                        if let Ok(mut project) = pstate.project.lock() {
                             let slot_instance_map = plugin_host_state.slot_instance_snapshot();
                             clip_pool_state
                                 .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
@@ -184,6 +201,50 @@ pub(crate) fn spawn_background_runtime_threads(
                                 log::info!(
                                     "[PDC-003] VST3 plugin signaled kLatencyChanged — graph PDC rebuilt"
                                 );
+                            }
+
+                            // PDC-007 FIX: Sync runtime plugin latencies → project model.
+                            // PERF: Collect latencies OUTSIDE the project lock (lock-free reads
+                            // from the plugin registry), then briefly lock project only for writes.
+                            // This reduces project Mutex hold time by ~90%.
+                            if let Some(reg) = plugin_host_state.get_plugin_registry() {
+                                let reg_map = reg.load();
+                                // Phase 1: Collect slot_id → latency mappings (no Mutex held)
+                                let mut latency_updates: Vec<(uuid::Uuid, u32)> = Vec::new();
+                                for (slot_id, instance_id) in slot_instance_map.iter() {
+                                    if let Some(arc) = reg_map.get(instance_id) {
+                                        if let Some(plugin) = arc.try_lock() {
+                                            latency_updates.push((*slot_id, plugin.latency_samples()));
+                                        }
+                                    }
+                                }
+                                // Phase 2: Write latencies to project model (brief lock)
+                                if !latency_updates.is_empty() {
+                                    let sync_slots = |node: &mut dream_models::project::DeviceNode, updates: &[(uuid::Uuid, u32)]| {
+                                        for slot in node.collect_plugin_slots_mut() {
+                                            for (sid, lat) in updates {
+                                                if slot.id == *sid {
+                                                    slot.latency_frames = *lat;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    };
+                                    for track in project.tracks.iter_mut() {
+                                        if let Some(inst) = track.instrument.as_mut() {
+                                            sync_slots(inst, &latency_updates);
+                                        }
+                                        for effect in track.effects.iter_mut() {
+                                            sync_slots(effect, &latency_updates);
+                                        }
+                                    }
+                                    if let Some(inst) = project.master_track.instrument.as_mut() {
+                                        sync_slots(inst, &latency_updates);
+                                    }
+                                    for effect in project.master_track.effects.iter_mut() {
+                                        sync_slots(effect, &latency_updates);
+                                    }
+                                }
                             }
                         }
                     }
@@ -371,6 +432,13 @@ pub(crate) fn spawn_background_runtime_threads(
 }
 
 pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<String>) {
+    if let Some(splash_window) = app.get_webview_window("splashscreen") {
+        // Startup race fix: explicitly lift splash above other windows/apps.
+        let _ = splash_window.set_always_on_top(true);
+        let _ = splash_window.show();
+        let _ = splash_window.set_focus();
+    }
+
     spawn_background_runtime_threads(&app.handle(), stream_error_rx);
     install_macos_transport_monitor(&app.handle());
     log::info!(

@@ -204,6 +204,12 @@ impl PluginHostState {
     ) {
         self.plugin_registry = Some(registry);
     }
+
+    /// PDC-007: Returns a reference to the shared plugin registry for
+    /// reading live plugin latencies from the audio thread's perspective.
+    pub(crate) fn get_plugin_registry(&self) -> Option<&Arc<dream_engine::driver::SharedPluginRegistry>> {
+        self.plugin_registry.as_ref()
+    }
     pub(crate) fn publish_registry(&self) {
         let Some(registry) = &self.plugin_registry else {
             log::warn!("[publish_registry] plugin_registry not attached — skipping");

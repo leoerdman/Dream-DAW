@@ -32,17 +32,20 @@ fn get_transport(
     // If an ALS project starts with tempo automation at beat 0, pulse_map may still
     // carry the legacy/default BPM while transport actually runs at the automated BPM.
     // Using the same resolver avoids UI playhead-beat drift.
-    let (bpm, position_beats, time_sig_numerator, time_sig_denominator) = if let Ok(project) = project_state.project.lock() {
+    let (bpm, position_beats, time_sig_numerator, time_sig_denominator, master_pdc) = if let Ok(project) = project_state.project.lock() {
         let bpm = project_initial_transport_bpm(&project);
         let beats = seconds * bpm / 60.0;
+        // PDC-006: Read master bus PDC latency for frontend playhead compensation
+        let master_pdc_latency = project.master_track.total_latency_frames();
         (
             bpm,
             beats,
             u32::from(project.time_signature.numerator.max(1)),
             u32::from(project.time_signature.denominator.max(1)),
+            master_pdc_latency,
         )
     } else {
-        (fallback_bpm, seconds * fallback_bpm / 60.0, 4, 4)
+        (fallback_bpm, seconds * fallback_bpm / 60.0, 4, 4, 0)
     };
 
     // Monotonic timestamp for frontend playhead interpolation.
@@ -64,6 +67,7 @@ fn get_transport(
         loop_start,
         loop_end,
         output_latency_frames: handle.output_latency_frames,
+        master_pdc_latency_frames: master_pdc,
         telemetry_timestamp_ms,
         time_sig_numerator,
         time_sig_denominator,

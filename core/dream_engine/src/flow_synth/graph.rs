@@ -257,6 +257,24 @@ impl FlowGraph {
             return;
         }
 
+        if let Some(out) = node.as_any_mut().downcast_mut::<AudioOutNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "gain" => {
+                        if let Ok(gain) = v.parse::<f32>() {
+                            out.set_gain(gain);
+                        }
+                    }
+                    "muted" => {
+                        let enabled = matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
+                        out.set_muted(enabled);
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
         if let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>() {
             for (k, v) in params {
                 match k.as_str() {
@@ -525,6 +543,36 @@ mod tests {
         let out = render(&mut g, 44_100.0, 4096);
         let tail = &out[1024..];
         assert!(rms(tail) > 0.005, "expected wet reverse tail to be audible");
+    }
+
+    #[test]
+    fn output_gain_scales_signal_level() {
+        let mut unity = FlowGraph::new();
+        unity.add_node(1, "oscillator");
+        unity.add_node(2, "output");
+        unity.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let mut attenuated = FlowGraph::new();
+        attenuated.add_node(1, "oscillator");
+        attenuated.add_node(2, "output");
+        attenuated.set_node_params(2, &[("gain".to_string(), "0.2".to_string())]);
+        attenuated.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let a = render(&mut unity, 44_100.0, 1024);
+        let b = render(&mut attenuated, 44_100.0, 1024);
+        assert!(rms(&b) < rms(&a) * 0.35, "expected output gain to attenuate RMS");
+    }
+
+    #[test]
+    fn output_mute_silences_signal() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "output");
+        g.set_node_params(2, &[("muted".to_string(), "true".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        assert!(rms(&out) < 1e-6, "expected muted output to be silent");
     }
 
     #[test]

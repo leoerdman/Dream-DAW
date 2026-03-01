@@ -116,6 +116,7 @@ const DEFAULT_TRANSPORT: TransportState = {
     loop_start: 0,
     loop_end: 0,
     output_latency_frames: 0,
+    master_pdc_latency_frames: 0,
     telemetry_timestamp_ms: 0,
     time_sig_numerator: 4,
     time_sig_denominator: 4,

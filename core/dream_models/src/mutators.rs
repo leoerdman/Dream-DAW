@@ -339,7 +339,11 @@ pub fn split_clip(
         fade_in_frames: 0,
         // BUG-H7 FIX: Clamp inherited fade_out to not exceed new right duration
         fade_out_frames: original.fade_out_frames.min(right_duration / 2),
-        is_selected: false,
+        // ENTERPRISE FIX: Inherit selection state from original clip.
+        // When a selected clip is split, both halves should remain selected
+        // (Ableton behavior). Previous `is_selected: false` broke post-split
+        // selection — left half stayed selected, right half became deselected.
+        is_selected: original.is_selected,
         // WARP-003 FIX: Both split halves keep the FULL original source length.
         warp_source_duration_frames: original.warp_source_duration_frames,
         ..original.clone()
@@ -430,7 +434,8 @@ pub fn split_midi_clip(
         position: AbsoluteTime::new(split_frame),
         duration: AbsoluteTime::new(right_duration),
         fade_in_frames: 0,
-        is_selected: false,
+        // ENTERPRISE FIX: Inherit selection state from original clip.
+        is_selected: original.is_selected,
         notes: right_notes,
         ..original.clone()
     };

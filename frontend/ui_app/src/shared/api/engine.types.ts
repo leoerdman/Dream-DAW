@@ -19,6 +19,8 @@ export interface TransportState {
     loop_start: number;
     loop_end: number;
     output_latency_frames: number;
+    /** PDC-006: Master bus PDC latency in frames for playhead compensation. */
+    master_pdc_latency_frames: number;
     telemetry_timestamp_ms: number;
     time_sig_numerator: number;
     time_sig_denominator: number;

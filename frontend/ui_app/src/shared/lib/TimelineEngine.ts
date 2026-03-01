@@ -1372,18 +1372,13 @@ export class TimelineEngine {
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 const maxNewStart = clipEnd - 0.25;
 
-                const clipTrack = this._drag.clipOriginalTrack;
-                let leftBound = 0;
-                for (const c of this._clips) {
-                    if (c.id === this._drag.clipId || c.trackIndex !== clipTrack) continue;
-                    const cEnd = c.startBeat + c.durationBeats;
-                    if (cEnd <= this._drag.clipOriginalBeat + 0.001 && cEnd > leftBound) {
-                        leftBound = cEnd;
-                    }
-                }
-                const clampedStart = Math.max(leftBound, Math.min(maxNewStart, rawNewStart));
+                // ENTERPRISE FIX: Removed leftBound clamping that prevented
+                // resize-over-adjacent-clips. The backend's handle_overlaps
+                // correctly trims/deletes overlapping clips after commit.
+                // Frontend clamping broke the overlap resolution pipeline.
+                const clampedStart = Math.max(0, Math.min(maxNewStart, rawNewStart));
                 const newStart = this._snapBeat(clampedStart);
-                const safeStart = Math.max(leftBound, newStart);
+                const safeStart = Math.max(0, newStart);
                 const newDuration = Math.max(0.25, clipEnd - safeStart);
                 this._trimPreview = {
                     clipId: this._drag.clipId,
@@ -1403,19 +1398,11 @@ export class TimelineEngine {
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
 
-                const rClipTrack = this._drag.clipOriginalTrack;
-                const originalEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
-                let rightBound = Infinity;
-                for (const c of this._clips) {
-                    if (c.id === this._drag.clipId || c.trackIndex !== rClipTrack) continue;
-                    if (c.startBeat >= originalEnd - 0.001 && c.startBeat < rightBound) {
-                        rightBound = c.startBeat;
-                    }
-                }
-                const clampedEnd = Math.min(rightBound, rawNewEnd);
-                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, clampedEnd));
-                const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
-                const newDuration = Math.max(0.25, finalEnd - this._drag.clipOriginalBeat);
+                // ENTERPRISE FIX: Removed rightBound clamping that prevented
+                // resize-over-adjacent-clips. The backend's handle_overlaps
+                // correctly trims/deletes overlapping clips after commit.
+                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, rawNewEnd));
+                const newDuration = Math.max(0.25, snappedEnd - this._drag.clipOriginalBeat);
                 this._trimPreview = {
                     clipId: this._drag.clipId,
                     startBeat: this._drag.clipOriginalBeat,

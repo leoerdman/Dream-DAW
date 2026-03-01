@@ -3,6 +3,7 @@ use crate::state_managers::sync_engine::runtime_device_import_params::{
     first_lane_value, try_apply_primary_imported_params,
 };
 use dream_models::project::DeviceNode;
+use serde::Deserialize;
 
 pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     dream_models::project::builtin_effect_type_from_plugin_id(plugin_id)
@@ -12,6 +13,50 @@ pub fn rebuild_runtime_device_chains_from_project(
     project: &Project,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
+    const FLOW_PLUGIN_ID: &str = "internal://instrument/flow";
+    const FLOW_GRAPH_BLOB_KIND: &str = "flow_graph_v1";
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct PersistedFlowGraph {
+        nodes: Vec<(u64, String, Vec<(String, String)>)>,
+        connections: Vec<(u64, usize, u64, usize)>,
+    }
+
+    fn default_flow_graph() -> PersistedFlowGraph {
+        PersistedFlowGraph {
+            nodes: vec![
+                (1, "midiIn".to_string(), vec![("label".to_string(), "Track MIDI In".to_string())]),
+                (2, "oscillator".to_string(), vec![("label".to_string(), "Oscillator".to_string())]),
+                (3, "output".to_string(), vec![("label".to_string(), "Audio Out".to_string())]),
+            ],
+            connections: vec![(1, 0, 2, 0), (2, 0, 3, 0)],
+        }
+    }
+
+    fn parse_persisted_flow_graph(blob: &str, kind: Option<&str>) -> Option<PersistedFlowGraph> {
+        if kind != Some(FLOW_GRAPH_BLOB_KIND) {
+            return None;
+        }
+        match serde_json::from_str::<PersistedFlowGraph>(blob) {
+            Ok(graph) => {
+                if graph.nodes.len() > 256 || graph.connections.len() > 1024 {
+                    log::warn!(
+                        "[FlowSynth] persisted graph ignored: nodes={}, connections={} exceed limits",
+                        graph.nodes.len(),
+                        graph.connections.len()
+                    );
+                    None
+                } else {
+                    Some(graph)
+                }
+            }
+            Err(err) => {
+                log::warn!("[FlowSynth] failed to parse persisted graph JSON: {err}");
+                None
+            }
+        }
+    }
+
     // MAX_DEVICE_SLOTS is no longer used for truncation — chains grow dynamically.
     fn apply_static_imported_params_for_slot(
         handle: &AudioEngineHandle,
@@ -676,6 +721,46 @@ pub fn rebuild_runtime_device_chains_from_project(
         }
     }
 
+    fn find_flow_in_node(
+        node: &DeviceNode,
+        parent_bypassed: bool,
+    ) -> Option<(bool, Option<PersistedFlowGraph>)> {
+        match node {
+            DeviceNode::Single(slot) => {
+                if slot.plugin_id != FLOW_PLUGIN_ID {
+                    return None;
+                }
+                let enabled = !(parent_bypassed || slot.is_bypassed);
+                let persisted = slot
+                    .external_state_blob
+                    .as_deref()
+                    .and_then(|blob| parse_persisted_flow_graph(blob, slot.external_state_blob_kind.as_deref()));
+                Some((enabled, persisted))
+            }
+            DeviceNode::Rack(rack) => {
+                let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                selected_runtime_chain(rack).and_then(|chain| {
+                    chain
+                        .devices
+                        .iter()
+                        .find_map(|child| find_flow_in_node(child, rack_bypassed))
+                })
+            }
+        }
+    }
+
+    fn find_flow_for_track(track: &Track) -> Option<(bool, Option<PersistedFlowGraph>)> {
+        if let Some(instrument) = &track.instrument
+            && let Some(found) = find_flow_in_node(instrument, false)
+        {
+            return Some(found);
+        }
+        track
+            .effects
+            .iter()
+            .find_map(|effect| find_flow_in_node(effect, false))
+    }
+
     // ENTERPRISE FIX: Replace 16×N individual RemoveDevice commands with a single
     // ClearAllDeviceChains command. This reduces command queue pressure from 256+
     // commands to 1, preventing deferred_topology overflow and drain_commands
@@ -683,6 +768,32 @@ pub fn rebuild_runtime_device_chains_from_project(
     push_command(handle, EngineCommand::ClearAllDeviceChains)?;
 
     for (track_index, track) in project.tracks.iter().enumerate() {
+        let track_flow = find_flow_for_track(track);
+        let flow_enabled = track_flow
+            .as_ref()
+            .map(|(enabled, _)| *enabled)
+            .unwrap_or(false);
+        push_command(
+            handle,
+            EngineCommand::SetFlowEnabled {
+                track_index: track_index as u16,
+                enabled: flow_enabled,
+            },
+        )?;
+        if flow_enabled {
+            let graph = track_flow
+                .and_then(|(_, persisted)| persisted)
+                .unwrap_or_else(default_flow_graph);
+            push_command(
+                handle,
+                EngineCommand::SyncFlowGraph {
+                    track_index: track_index as u16,
+                    nodes: graph.nodes,
+                    connections: graph.connections,
+                },
+            )?;
+        }
+
         let mut internal_effects: Vec<TrackFxEntry> = Vec::new();
         collect_runtime_internal_effects(&track.effects, false, &mut internal_effects);
         let runtime_effects: Vec<(u8, TrackFxEntry)> = internal_effects

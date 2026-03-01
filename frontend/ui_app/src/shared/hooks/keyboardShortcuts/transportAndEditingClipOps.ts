@@ -45,12 +45,24 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
         clipsAtPlayhead = timelineClips.filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack).filter(containsSplit);
     }
     if (clipsAtPlayhead.length === 0) return null;
-    // BUG-002 FIX: Parallel IPC calls — O(1) round-trips instead of O(N) sequential.
-    const responses = await Promise.all(
-        clipsAtPlayhead.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)),
-    );
-    const batchedDeltas = responses.flatMap((r) => r.deltas);
-    await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
+    // ENTERPRISE FIX: Sequential splits instead of parallel Promise.all.
+    // When 2+ clips on the same track are split simultaneously, the first
+    // split's ProjectSnapshotReplaced delta changes clip positions/IDs,
+    // causing the second split to fail (stale clip reference). Sequential
+    // execution ensures each split operates on a consistent project state.
+    const batchedDeltas: engine.ProjectDelta[] = [];
+    for (const clip of clipsAtPlayhead) {
+        try {
+            const response = await engine.splitClipWithDeltas(clip.id, splitFrame);
+            batchedDeltas.push(...response.deltas);
+        } catch (err) {
+            // Individual split failures shouldn't block the rest
+            console.warn(`[Dream] Split clip ${clip.id} failed:`, err);
+        }
+    }
+    if (batchedDeltas.length > 0) {
+        await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
+    }
     return clipsAtPlayhead.map((clip) => clip.id);
 }
 

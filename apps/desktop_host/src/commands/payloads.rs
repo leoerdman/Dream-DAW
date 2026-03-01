@@ -46,6 +46,9 @@ pub struct TransportState {
     pub loop_start: i64,
     pub loop_end: i64,
     pub output_latency_frames: u32,
+    /// PDC-006: Master bus PDC latency in frames. Frontend should subtract
+    /// this from the displayed playhead position for accurate visual alignment.
+    pub master_pdc_latency_frames: u32,
     pub telemetry_timestamp_ms: f64,
     pub time_sig_numerator: u32,
     pub time_sig_denominator: u32,

@@ -1,3 +1,47 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedFlowGraph {
+    nodes: Vec<(u64, String, Vec<(String, String)>)>,
+    connections: Vec<(u64, usize, u64, usize)>,
+}
+
+fn persist_flow_graph_on_node(node: &mut dream_models::project::DeviceNode, payload: &str) -> bool {
+    match node {
+        dream_models::project::DeviceNode::Single(slot) => {
+            if slot.plugin_id == "internal://instrument/flow" {
+                slot.external_state_blob = Some(payload.to_string());
+                slot.external_state_blob_kind = Some("flow_graph_v1".to_string());
+                return true;
+            }
+            false
+        }
+        dream_models::project::DeviceNode::Rack(rack) => {
+            for chain in &mut rack.chains {
+                for child in &mut chain.devices {
+                    if persist_flow_graph_on_node(child, payload) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+    }
+}
+
+fn persist_flow_graph_on_track(track: &mut dream_models::project::Track, payload: &str) -> bool {
+    if let Some(instrument) = &mut track.instrument
+        && persist_flow_graph_on_node(instrument, payload) {
+            return true;
+        }
+    for effect in &mut track.effects {
+        if persist_flow_graph_on_node(effect, payload) {
+            return true;
+        }
+    }
+    false
+}
+
 fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> u16 {
     let track_count = project.tracks.len();
     if track_count == 0 {
@@ -59,6 +103,11 @@ fn sync_flow_graph_cmd(
         resolve_flow_track_index(&project, track_index)
     };
 
+    // Persist Flow graph into the project model so save/load restores it.
+    let payload = PersistedFlowGraph {
+        nodes: nodes.clone(),
+        connections: connections.clone(),
+    };
     push_command(
         &handle,
         EngineCommand::SyncFlowGraph {
@@ -67,5 +116,22 @@ fn sync_flow_graph_cmd(
             connections,
         },
     )?;
+    let payload_json = serde_json::to_string(&payload)
+        .map_err(|e| format!("Failed to serialize Flow graph: {e}"))?;
+    {
+        let mut project = project_state
+            .project
+            .lock()
+            .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        if let Some(track) = project.tracks.get_mut(resolved_track_index as usize) {
+            let persisted = persist_flow_graph_on_track(track, &payload_json);
+            if !persisted {
+                log::warn!(
+                    "[FlowSynth] sync_flow_graph_cmd: no Flow slot found on track index={} for persistence",
+                    resolved_track_index
+                );
+            }
+        }
+    }
     Ok(())
 }

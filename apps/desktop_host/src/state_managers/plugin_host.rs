@@ -1,4 +1,5 @@
 use arc_swap::ArcSwap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     PluginCrashEvent, PluginDescriptor, PluginHost, PluginRecoveryEvent, PluginSandboxConfig,
@@ -17,6 +18,9 @@ pub(crate) struct PluginHostState {
     pub(crate) sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
     pub(crate) cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
     pub(crate) plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
+    /// Once the sandbox daemon fails its readiness gate, skip sandbox for all
+    /// remaining plugins in this session to avoid blocking startup.
+    sandbox_disabled_for_session: AtomicBool,
 }
 impl PluginHostState {
     const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
@@ -178,6 +182,7 @@ impl PluginHostState {
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
             cached_scan: Mutex::new(None),
             plugin_registry: None,
+            sandbox_disabled_for_session: AtomicBool::new(false),
         }
     }
     pub(crate) fn set_plugin_registry(
@@ -549,7 +554,10 @@ impl PluginHostState {
                 descriptor.format
             ));
         }
-        if descriptor.format == PluginFormat::VST3 && self.sandbox_enabled().unwrap_or(false) {
+        let sandbox_usable = descriptor.format == PluginFormat::VST3
+            && self.sandbox_enabled().unwrap_or(false)
+            && !self.sandbox_disabled_for_session.load(Ordering::Relaxed);
+        if sandbox_usable {
             match self.open_in_sandbox(plugin_id, descriptor.clone()) {
                 Ok(instance_id) => {
                     // ENTERPRISE FIX: Synchronous readiness gate.
@@ -562,7 +570,7 @@ impl PluginHostState {
                         let mut supervisor = self.sandbox_supervisor.lock();
                         supervisor.wait_for_ready(
                             instance_id,
-                            std::time::Duration::from_secs(5),
+                            std::time::Duration::from_secs(2),
                         )
                     };
                     if ready {
@@ -575,8 +583,11 @@ impl PluginHostState {
                         return Ok(instance_id);
                     }
                     // Daemon did not reach Running — tear down and fallback.
+                    // Disable sandbox for remaining plugins this session to avoid
+                    // blocking startup with repeated 2s timeouts.
+                    self.sandbox_disabled_for_session.store(true, Ordering::Relaxed);
                     log::warn!(
-                        "[PluginSandbox] Daemon failed readiness gate for '{}' (instance {}), falling back to in-process",
+                        "[PluginSandbox] Daemon failed readiness gate for '{}' (instance {}), falling back to in-process. Sandbox disabled for this session.",
                         descriptor.name,
                         instance_id
                     );

@@ -146,12 +146,14 @@ pub fn move_clip_protected(
             available: project.tracks.len(),
         });
     }
-    if new_position.sample_frame < 0 {
-        return Err(MutatorError::NegativePosition {
-            clip_id,
-            position: new_position.sample_frame,
-        });
-    }
+    // ENTERPRISE FIX: Clamp negative positions to frame 0 instead of erroring.
+    // Returning Err here caused clips to vanish — find_and_remove_clip() removes
+    // the clip from its source track, so if we error after that the clip is lost.
+    let new_position = if new_position.sample_frame < 0 {
+        AbsoluteTime::new(0)
+    } else {
+        new_position
+    };
     let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
     clip.position = new_position;
     let target_track = &mut project.tracks[new_track_index];

@@ -35,6 +35,8 @@ export class TimelineEngine {
     private _clips: TimelineClipData[] = [];
     /** PERF-OPT-1: O(1) clip lookup by ID — built in setClips(). */
     private _clipById = new Map<string, TimelineClipData>();
+    /** Deferred clips from setClips() calls during active drag. */
+    private _pendingClips: TimelineClipData[] | null = null;
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
@@ -237,6 +239,15 @@ export class TimelineEngine {
     }
 
     setClips(clips: TimelineClipData[]): void {
+        // ENTERPRISE FIX: Skip setClips during active drag to prevent stale
+        // store data from overwriting drag visuals. The drag operates on internal
+        // clip objects; when the store triggers a React re-render, useEffect calls
+        // setClips with PRE-DRAG positions, causing clips to snap back visually.
+        if (this._drag.mode !== DragMode.None) {
+            this._pendingClips = clips;
+            return;
+        }
+
         const prevClips = this._clips;
         const normalizedInput = normalizeTimelineClips(clips);
 
@@ -1742,6 +1753,14 @@ export class TimelineEngine {
             startClientY: 0,
             clipResizeAllowStretch: false,
         };
+
+        // ENTERPRISE FIX: Flush any setClips() calls that were deferred during drag.
+        // React effects can fire during drag, queueing clip updates. Apply them now.
+        if (this._pendingClips) {
+            const pending = this._pendingClips;
+            this._pendingClips = null;
+            this.setClips(pending);
+        }
     }
 
     private _onDoubleClick(e: MouseEvent): void {

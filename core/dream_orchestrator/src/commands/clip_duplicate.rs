@@ -101,6 +101,14 @@ impl Command for DuplicateMultipleClipsCommand {
         let mut project = ctx.lock_project()?;
         let mut results = Vec::with_capacity(self.clips.len());
 
+        // ENTERPRISE FIX: Collect ALL source clip IDs in this batch so overlap
+        // resolution knows not to delete/trim them — they are all being duplicated
+        // together. Same pattern as MoveMultipleClipsCommand.
+        let batch_source_ids: Vec<Uuid> = self.clips.iter().map(|(id, _, _)| *id).collect();
+        // Track newly created duplicate IDs too — they must also be protected
+        // from each other's overlap resolution.
+        let mut all_protected_ids = batch_source_ids.clone();
+
         for (clip_id, dest_pos, dest_track) in &self.clips {
             let target_pos = dest_pos.map(AbsoluteTime::new);
             
@@ -117,9 +125,11 @@ impl Command for DuplicateMultipleClipsCommand {
                 .iter()
                 .any(|c| c.id == *clip_id);
 
-            // Using the mutators internally pushes the updates into the active project snapshot.
             if is_audio_clip {
-                if let Ok(dup) = mutators::duplicate_clip(&mut project, *clip_id, target_pos, *dest_track) {
+                if let Ok(dup) = mutators::duplicate_clip_protected(
+                    &mut project, *clip_id, target_pos, *dest_track, &all_protected_ids,
+                ) {
+                    all_protected_ids.push(dup.id);
                     results.push(DuplicateClipResult {
                         new_id: dup.id,
                         new_position_frames: dup.position.sample_frame,
@@ -127,7 +137,10 @@ impl Command for DuplicateMultipleClipsCommand {
                         new_duration_frames: dup.duration.sample_frame,
                     });
                 }
-            } else if let Ok(dup) = mutators::duplicate_midi_clip(&mut project, *clip_id, target_pos, *dest_track) {
+            } else if let Ok(dup) = mutators::duplicate_midi_clip_protected(
+                &mut project, *clip_id, target_pos, *dest_track, &all_protected_ids,
+            ) {
+                all_protected_ids.push(dup.id);
                 results.push(DuplicateClipResult {
                     new_id: dup.id,
                     new_position_frames: dup.position.sample_frame,

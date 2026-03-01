@@ -28,6 +28,11 @@ pub enum MutatorError {
         clip_duration: i64,
         min_duration: i64,
     },
+    /// The requested position is negative (semantically invalid for timeline).
+    NegativePosition {
+        clip_id: Uuid,
+        position: i64,
+    },
 }
 impl std::fmt::Display for MutatorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -51,6 +56,10 @@ impl std::fmt::Display for MutatorError {
             } => write!(
                 f,
                 "Clip too short to split ({clip_duration} frames, minimum {min_duration})"
+            ),
+            Self::NegativePosition { clip_id, position } => write!(
+                f,
+                "Clip {clip_id} position cannot be negative: {position}"
             ),
         }
     }
@@ -138,9 +147,9 @@ pub fn move_clip_protected(
         });
     }
     if new_position.sample_frame < 0 {
-        return Err(MutatorError::TrackOutOfRange {
-            requested: new_track_index,
-            available: project.tracks.len(),
+        return Err(MutatorError::NegativePosition {
+            clip_id,
+            position: new_position.sample_frame,
         });
     }
     let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
@@ -513,6 +522,42 @@ pub fn duplicate_clip(
     track.clips.insert(insert_pos, dup);
     Ok(ret)
 }
+
+/// Same as `duplicate_clip`, but with `protected_ids` for batch operations.
+/// Clips whose IDs are in `protected_ids` will NOT be deleted/trimmed by
+/// overlap resolution — they are being duplicated in the same batch.
+pub fn duplicate_clip_protected(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: Option<AbsoluteTime>,
+    target_track_idx: Option<usize>,
+    protected_ids: &[Uuid],
+) -> Result<AudioClip, MutatorError> {
+    let (track_idx, clip_idx) = find_clip_location(project, clip_id)?;
+    let mut dup = project.tracks[track_idx].clips[clip_idx].clone();
+    dup.id = Uuid::new_v4();
+    if let Some(pos) = new_position {
+        dup.position = pos;
+    } else {
+        dup.position = project.tracks[track_idx].clips[clip_idx].end_position();
+    }
+    dup.is_selected = true;
+    project.tracks[track_idx].clips[clip_idx].is_selected = false;
+    let target_idx = target_track_idx.unwrap_or(track_idx);
+    if target_idx >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
+    }
+    let track = &mut project.tracks[target_idx];
+    handle_overlaps(track, &dup, protected_ids);
+    let insert_pos = track
+        .clips
+        .binary_search_by(|c| c.position.cmp(&dup.position))
+        .unwrap_or_else(|i| i);
+    let ret = dup.clone();
+    track.clips.insert(insert_pos, dup);
+    Ok(ret)
+}
+
 /// Duplicates a MIDI clip, optionally at a specific destination position.
 pub fn duplicate_midi_clip(
     project: &mut Project,
@@ -548,6 +593,40 @@ pub fn duplicate_midi_clip(
     track.midi_clips.insert(insert_pos, dup);
     Ok(ret)
 }
+
+/// Same as `duplicate_midi_clip`, but with `protected_ids` for batch operations.
+pub fn duplicate_midi_clip_protected(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: Option<AbsoluteTime>,
+    target_track_idx: Option<usize>,
+    protected_ids: &[Uuid],
+) -> Result<MidiClip, MutatorError> {
+    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
+    let mut dup = project.tracks[track_idx].midi_clips[clip_idx].clone();
+    dup.id = Uuid::new_v4();
+    if let Some(pos) = new_position {
+        dup.position = pos;
+    } else {
+        dup.position = project.tracks[track_idx].midi_clips[clip_idx].end_position();
+    }
+    dup.is_selected = true;
+    project.tracks[track_idx].midi_clips[clip_idx].is_selected = false;
+    let target_idx = target_track_idx.unwrap_or(track_idx);
+    if target_idx >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
+    }
+    let track = &mut project.tracks[target_idx];
+    handle_midi_overlaps(track, &dup, protected_ids);
+    let insert_pos = track
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&dup.position))
+        .unwrap_or_else(|i| i);
+    let ret = dup.clone();
+    track.midi_clips.insert(insert_pos, dup);
+    Ok(ret)
+}
+
 // ── Move MIDI Clip ───────────────────────────────────────────────────────
 /// Moves a MIDI clip to a new track and/or position on the timeline.
 ///

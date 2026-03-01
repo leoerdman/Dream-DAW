@@ -177,10 +177,12 @@ async fn export_mix_cmd(
         bpm: export_bpm,
     };
 
-    // BUG-A013 FIX: Pre-flight write check to ensure the export path is valid and writable.
-    // If the disk is full, the path is read-only, or the directory doesn't exist, this fails immediately
-    // rather than waiting to the end of a 10-minute offline render to report an error.
-    if let Err(e) = std::fs::File::create(&settings.output_path) {
+    // BUG-A013/A069 FIX: Pre-flight write check on the temporary path.
+    // If the disk is full or directory unwritable, fail immediately rather
+    // than at the end of bounce. We check the .tmp path since the final
+    // path might be locked by a media player.
+    let temp_output_path = format!("{}.tmp", settings.output_path);
+    if let Err(e) = std::fs::File::create(&temp_output_path) {
         return Err(format!("Export path '{}' is not writable: {}", settings.output_path, e));
     }
 

@@ -37,7 +37,7 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
             })?;
 
         let mut changed = false;
-        let target_color = track.color;
+        let target_color = track.color.clone();
         let target_color_hex = track.color_hex.clone();
 
         for clip in &mut track.clips {
@@ -46,7 +46,7 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
             {
                 changed = true;
             }
-            clip.color_override = Some(target_color);
+            clip.color_override = Some(target_color.clone());
             clip.color_hex = target_color_hex.clone();
         }
 
@@ -56,7 +56,7 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
             {
                 changed = true;
             }
-            clip.color_override = Some(target_color);
+            clip.color_override = Some(target_color.clone());
             clip.color_hex = target_color_hex.clone();
         }
 

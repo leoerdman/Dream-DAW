@@ -48,8 +48,8 @@ export function usePianoRollCanvasEngine({
         const canvas = noteCanvasRef.current;
         if (!canvas) return;
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.ceil(canvasWidth * dpr);
-        canvas.height = Math.ceil(canvasHeight * dpr);
+        canvas.width = Math.max(1, Math.ceil(canvasWidth * dpr));
+        canvas.height = Math.max(1, Math.ceil(canvasHeight * dpr));
         canvas.style.width = `${canvasWidth}px`;
         canvas.style.height = `${canvasHeight}px`;
         const ctx = canvas.getContext('2d');

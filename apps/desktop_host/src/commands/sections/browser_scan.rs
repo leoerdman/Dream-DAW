@@ -142,7 +142,13 @@ fn generate_demo_samples_cmd(
     }
 
     // Write marker file
-    let _ = std::fs::write(&marker, "generated");
+    if let Err(e) = std::fs::write(&marker, "generated") {
+        log::warn!(
+            "[DemoSamples] Failed to write generation marker {}: {}",
+            marker.display(),
+            e
+        );
+    }
     log::info!("[DemoSamples] Generated {} demo samples in {}", count, samples_path);
     Ok(count)
 }
@@ -168,7 +174,16 @@ async fn preview_audio_file_cmd(
 
     // Build interleaved buffer for preview
     let num_ch = decoded.channels.len().min(2);
-    let num_frames = decoded.num_frames;
+    let num_frames = decoded
+        .channels
+        .iter()
+        .take(num_ch)
+        .map(|ch| ch.len())
+        .min()
+        .unwrap_or(0);
+    if num_frames == 0 {
+        return Err(format!("Decoded audio has no frames: {}", path));
+    }
     let mut interleaved = vec![0.0f32; num_frames * 2]; // always stereo output
 
     for frame in 0..num_frames {

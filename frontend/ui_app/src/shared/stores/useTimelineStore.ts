@@ -83,7 +83,7 @@ export const useTimelineStore = create<TimelineState>((set) => ({
             partial.rulerHeight = values.rulerHeight; changed = true;
         }
         if (!changed) return state;
-        return partial;
+        return { ...state, ...partial };
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({

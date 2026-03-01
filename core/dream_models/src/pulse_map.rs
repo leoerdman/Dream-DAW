@@ -81,7 +81,7 @@ pub struct PulseMap {
 }
 
 #[inline]
-fn clamp_f64_to_i64(value: f64) -> i64 {
+fn sanitize_f64_to_i64(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -152,7 +152,7 @@ impl PulseMap {
         let delta_samples = delta_seconds * self.sample_rate;
         event
             .sample_frame
-            .saturating_add(clamp_f64_to_i64(delta_samples.round()))
+            .saturating_add(sanitize_f64_to_i64(delta_samples.round()))
     }
 
     // ── Seconds Conversions ────────────────────────────────────────
@@ -166,7 +166,7 @@ impl PulseMap {
     /// Converts seconds to a sample frame (tempo-independent, pure math).
     #[inline]
     pub fn sample_frame_at_seconds(&self, seconds: f64) -> i64 {
-        clamp_f64_to_i64((seconds * self.sample_rate).round())
+        sanitize_f64_to_i64((seconds * self.sample_rate).round())
     }
 
     // ── Duration Conversion ────────────────────────────────────────

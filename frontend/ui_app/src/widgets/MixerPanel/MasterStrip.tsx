@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { clamp01, vuNorm } from '@/shared/lib/audioMath';
+import { clamp01 } from '@/shared/lib/audioMath';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { METER_WIDTH, STRIP_WIDTH } from './MixerPanel.constants';
 
@@ -13,8 +14,8 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
     const peakR = masterRight?.peak ?? -60;
     const rmsL = masterLeft?.rms ?? -60;
     const rmsR = masterRight?.rms ?? -60;
-    const meterL = clamp01(vuNorm((peakL * 0.7) + (rmsL * 0.3)));
-    const meterR = clamp01(vuNorm((peakR * 0.7) + (rmsR * 0.3)));
+    const meterL = clamp01(dbToMeterNorm((peakL * 0.7) + (rmsL * 0.3)));
+    const meterR = clamp01(dbToMeterNorm((peakR * 0.7) + (rmsR * 0.3)));
 
     return (
         <div style={{ display: 'flex', flexDirection: 'row', gap: 1 }}>

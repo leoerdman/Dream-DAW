@@ -233,7 +233,17 @@ impl ClipScheduler {
                     clip.is_clip_head = false;
                 }
 
-                out.push(clip);
+                // BUG-008 FIX (Audio): Deduplicate clips spanning the exact loop boundary
+                // that appear in both pre-wrap and post-wrap segments by overlapping offsets.
+                let is_duplicate = !is_first_chunk && out.iter().any(|existing| {
+                    existing.clip_index == clip.clip_index &&
+                    existing.buffer_offset < clip.buffer_offset + clip.frames_to_read &&
+                    existing.buffer_offset + existing.frames_to_read > clip.buffer_offset
+                });
+
+                if !is_duplicate {
+                    out.push(clip);
+                }
             }
 
             frames_remaining -= chunk_frames;
@@ -247,121 +257,7 @@ impl ClipScheduler {
         }
     }
 
-    /// Loop-aware scheduler variant.
-    ///
-    /// # ⚠ RT-Safety Warning
-    /// This allocates a temporary `Vec` internally. For real-time audio callbacks,
-    /// use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(
-        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
-    )]
-    pub fn fill_active_looped(
-        clips: &[AudioClip],
-        playhead_pos: i64,
-        buffer_size: usize,
-        loop_region: Option<&LoopRegion>,
-        out: &mut Vec<ActiveClipInfo>,
-    ) {
-        let mut tmp = Vec::new();
-        Self::fill_active_looped_with_tmp(
-            clips,
-            playhead_pos,
-            buffer_size,
-            loop_region,
-            out,
-            &mut tmp,
-        );
-    }
 
-    /// Finds all clips that overlap the given playback window.
-    ///
-    /// # Arguments
-    /// - `clips`: All clips on a track (should be sorted by position).
-    /// - `playhead_pos`: Current playhead position in sample frames.
-    /// - `buffer_size`: Size of the current audio buffer in frames.
-    ///
-    /// # Returns
-    /// A vector of `ActiveClip` descriptors for clips that need rendering.
-    ///
-    /// # ⚠ RT-Safety Warning
-    /// This allocates a `Vec` — do NOT use on the audio thread.
-    /// Use [`fill_active`](Self::fill_active) with a pre-allocated scratch buffer instead.
-    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active with pre-allocated buffer.")]
-    pub fn find_active<'a>(
-        clips: &'a [AudioClip],
-        playhead_pos: i64,
-        buffer_size: usize,
-    ) -> Vec<ActiveClip<'a>> {
-        let mut scratch = Vec::new();
-        Self::fill_active(clips, playhead_pos, buffer_size, &mut scratch);
-        scratch
-            .into_iter()
-            .map(|info| ActiveClip {
-                clip: &clips[info.clip_index],
-                source_start_frame: info.source_start_frame,
-                buffer_offset: info.buffer_offset,
-                frames_to_read: info.frames_to_read,
-                is_clip_head: info.is_clip_head,
-                is_clip_tail: info.is_clip_tail,
-                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
-                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
-            })
-            .collect()
-    }
-
-    /// Finds active clips with loop-aware scheduling.
-    ///
-    /// When the playback window crosses a loop boundary (end → start),
-    /// the buffer is split into two segments:
-    ///   1. Pre-wrap: from playhead to loop end
-    ///   2. Post-wrap: from loop start for remaining frames
-    ///
-    /// Clips are scheduled for both segments independently.
-    ///
-    /// Ported from Swift `PlaybackScheduler.scheduleLoopedBuffer()`.
-    ///
-    /// # Arguments
-    /// - `clips`: All clips on a track.
-    /// - `playhead_pos`: Current playhead position in sample frames.
-    /// - `buffer_size`: Size of the current audio buffer in frames.
-    /// - `loop_region`: Optional loop region. If `None`, behaves like `find_active`.
-    ///
-    /// # ⚠ RT-Safety Warning
-    /// This allocates `Vec`s — do NOT use on the audio thread.
-    /// Use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(
-        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
-    )]
-    pub fn find_active_looped<'a>(
-        clips: &'a [AudioClip],
-        playhead_pos: i64,
-        buffer_size: usize,
-        loop_region: Option<&LoopRegion>,
-    ) -> Vec<ActiveClip<'a>> {
-        let mut scratch = Vec::new();
-        let mut tmp = Vec::new();
-        Self::fill_active_looped_with_tmp(
-            clips,
-            playhead_pos,
-            buffer_size,
-            loop_region,
-            &mut scratch,
-            &mut tmp,
-        );
-        scratch
-            .into_iter()
-            .map(|info| ActiveClip {
-                clip: &clips[info.clip_index],
-                source_start_frame: info.source_start_frame,
-                buffer_offset: info.buffer_offset,
-                frames_to_read: info.frames_to_read,
-                is_clip_head: info.is_clip_head,
-                is_clip_tail: info.is_clip_tail,
-                is_loop_wrap_fade_out: info.is_loop_wrap_fade_out,
-                is_loop_wrap_fade_in: info.is_loop_wrap_fade_in,
-            })
-            .collect()
-    }
 }
 
 // ── Loop Region ────────────────────────────────────────────────────────
@@ -623,7 +519,7 @@ mod tests {
     fn loop_region_validity() {
         assert!(LoopRegion::new(0, 1000).is_valid());
         assert!(!LoopRegion::new(1000, 0).is_valid()); // Inverted
-        assert!(!LoopRegion::new(500, 500).is_valid()); // Zero length
+        assert!(!LoopRegion::new(500, 500).is_valid()); // Zero length (also < MIN_LOOP_LENGTH)
         assert!(!LoopRegion::new(-100, 500).is_valid()); // Negative start
     }
 

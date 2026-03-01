@@ -111,9 +111,16 @@ export function createTransportActions(
         setLoop: async (enabled: boolean, startFrames: number, endFrames: number) => {
             // BUG-014 FIX: Validate inputs — reject NaN/Infinity/negative, matching other transport actions.
             if (!Number.isFinite(startFrames) || !Number.isFinite(endFrames)) return;
-            const safeStart = Math.max(0, Math.round(startFrames));
+
+            // BUG-016 FIX: Round FIRST, then clamp/enforce ordering.
+            // Previously: clamped, then rounded. If start and end were floats between N and N+0.4,
+            // both could round down to N, creating a 0-length loop which the backend might reject or crash on.
+            const roundedStart = Math.max(0, Math.round(startFrames));
+            const roundedEnd = Math.max(0, Math.round(endFrames));
+
+            const safeStart = Math.min(roundedStart, roundedEnd);
             // BUG-015 FIX: Enforce minimum 1-frame loop duration to prevent zero/negative-length loops.
-            const safeEnd = Math.max(safeStart + 1, Math.round(endFrames));
+            const safeEnd = Math.max(safeStart + 1, roundedEnd);
             set((s) => ({
                 transport: { ...s.transport, loop_enabled: enabled, loop_start: safeStart, loop_end: safeEnd },
             }));

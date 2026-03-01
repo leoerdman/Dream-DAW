@@ -11,6 +11,10 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+export const DEFAULT_SAMPLE_RATE = 44_100;
+
+/** Minimum pitch-shift in semitones. */
+
 /**
  * Convert a beat position to a sample frame index.
  *
@@ -84,8 +88,6 @@ export function speedRatioToSemitone(speedRatio: number): number {
 export function clampFramePosition(frame: number): number {
     return Math.max(0, frame);
 }
-
-export const DEFAULT_SAMPLE_RATE = 44_100;
 
 // ── SSOT Constants ─────────────────────────────────────────────────────
 // These constants are the single source of truth for validation limits.
@@ -179,11 +181,13 @@ export function clampMidiVelocity(velocity: number): number {
 
 /**
  * Minimum MIDI note duration in sample frames.
- * 480 frames at 48kHz ≈ 10ms — the shortest playable note that
+ * ~10ms — the shortest playable note that
  * avoids inaudible single-sample clicks.
  * BUG-001 SSOT: Used by both updateMidiClip and updateMidiClipWithDeltas.
  */
-export const MIN_MIDI_NOTE_DURATION_FRAMES = 480;
+export function getMinMidiNoteDurationFrames(sampleRate: number = DEFAULT_SAMPLE_RATE): number {
+    return Math.max(1, Math.round(sampleRate * 0.01));
+}
 
 /** Clamp a normalized value to [0, 1]. Used for automation, fader positions, etc. */
 export function clamp01(value: number): number {
@@ -219,29 +223,13 @@ export function resolveSampleRate(
 }
 
 /**
- * Normalize a peak dB value to 0..1 for VU meter display.
- *
- * @deprecated Use `dbToMeterNorm` from `@/shared/lib/meterManifest` instead.
- * This function is kept for backward compatibility only.
- *
- * Range: −60 dB → 0, 0 dB → 0.909, +6 dB → 1.0.
- * Handles non-finite values (NaN, ±Infinity) gracefully.
- */
-export function vuNorm(peakDb: number): number {
-    // BUG-E006 FIX: Use <= for clearer boundary semantics at exactly -60 dB.
-    if (!isFinite(peakDb) || peakDb <= -60) return 0;
-    const clamped = Math.min(peakDb, 6);
-    return (clamped + 60) / 66;
-}
-
-/**
  * Format a duration in beats as Bars.Beats.Sixteenths (BBS).
  *
- * Standard DAW duration display:
- *   4 beats (4/4) → "1.0.0"  (1 bar, 0 extra beats, 0 sixteenths)
- *   5 beats (4/4) → "1.1.0"  (1 bar, 1 extra beat, 0 sixteenths)
- *   4.25 beats    → "1.0.1"  (1 bar, 0 beats, 1 sixteenth)
- *   0.5 beats     → "0.0.2"  (0 bars, 0 beats, 2 sixteenths)
+ * Standard DAW duration display (1-indexed):
+ *   4 beats (4/4) → "2.1.1"  (bar 2, beat 1, sixteenth 1)
+ *   5 beats (4/4) → "2.2.1"  (bar 2, beat 2, sixteenth 1)
+ *   4.25 beats    → "2.1.2"  (bar 2, beat 1, sixteenth 2)
+ *   0.5 beats     → "1.1.3"  (bar 1, beat 1, sixteenth 3)
  *
  * Sixteenths = 4 per beat (each beat is divided into 4).
  */

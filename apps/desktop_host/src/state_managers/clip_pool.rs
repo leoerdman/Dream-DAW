@@ -105,7 +105,7 @@ impl ClipPoolState {
         let cached = self.external_latency_cache.lock().ok();
         let mut new_cache = Vec::with_capacity(track_count);
 
-        for track_idx in 0..track_count {
+        for (track_idx, ext_latency_slot) in latencies.iter_mut().enumerate().take(track_count) {
             let ext_latency = if let Some(slots) = fx_snapshot.get(track_idx) {
                 let mut track_ext = 0u32;
                 let mut any_contended = false;
@@ -135,7 +135,7 @@ impl ClipPoolState {
                 0
             };
             new_cache.push(ext_latency);
-            latencies[track_idx] += ext_latency;
+            *ext_latency_slot += ext_latency;
         }
 
         // Update cache for next call

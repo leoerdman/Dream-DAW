@@ -63,7 +63,7 @@ impl std::error::Error for MutatorError {}
 /// (88 frames at 44.1kHz). This prevents degenerate zero-length clips.
 const MIN_CLIP_FRAMES: i64 = 128;
 #[inline]
-fn clamp_f64_to_i64(value: f64) -> i64 {
+fn sanitize_f64_to_i64(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -217,11 +217,11 @@ pub fn resize_clip(
             let source_available_after = (original_source_total
                 - clip.source_offset.sample_frame.max(0))
             .max(MIN_CLIP_FRAMES);
-            let max_duration_by_source = clamp_f64_to_i64(
+            let max_duration_by_source = sanitize_f64_to_i64(
                 (source_available_after as f64 / source_per_timeline.max(1e-9)).floor(),
             );
             next_duration = next_duration.min(max_duration_by_source.max(MIN_CLIP_FRAMES));
-            let consumed_source = clamp_f64_to_i64(
+            let consumed_source = sanitize_f64_to_i64(
                 (next_duration.max(MIN_CLIP_FRAMES) as f64 * source_per_timeline).round(),
             );
             clip.warp_source_duration_frames =
@@ -244,8 +244,8 @@ pub fn resize_clip(
     let total_fade = clip.fade_in_frames.saturating_add(clip.fade_out_frames);
     if total_fade > clip.duration.sample_frame && total_fade > 0 {
         let ratio = clip.duration.sample_frame as f64 / total_fade as f64;
-        clip.fade_in_frames = clamp_f64_to_i64((clip.fade_in_frames as f64 * ratio).floor());
-        clip.fade_out_frames = clamp_f64_to_i64((clip.fade_out_frames as f64 * ratio).floor());
+        clip.fade_in_frames = sanitize_f64_to_i64((clip.fade_in_frames as f64 * ratio).floor());
+        clip.fade_out_frames = sanitize_f64_to_i64((clip.fade_out_frames as f64 * ratio).floor());
     }
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];

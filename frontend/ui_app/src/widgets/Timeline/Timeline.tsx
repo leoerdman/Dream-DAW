@@ -7,10 +7,12 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
-import { buildMasterLaneGridLines, buildMasterLaneGridStyle, snapPhysical } from './lib/masterLaneGrid';
+import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
+import { snapPhysical } from '@/shared/lib/renderUtils';
 
 import { AutomationOverlay } from './AutomationOverlay';
 import { TimelineMasterLane } from './TimelineMasterLane';
@@ -96,7 +98,8 @@ export const Timeline = (props: TimelineProps) => {
         trackHeight: normalizedTrackHeight,
         trackHeights: normalizedTrackHeights,
         rulerHeight: RULER_HEIGHT,
-        bottomPaddingPx: normalizedTrackHeight * TRAILING_EMPTY_TRACK_SLOTS,
+        // BUG-058 FIX: Empty track slots at bottom should use settings or fallback to 1
+        bottomPaddingPx: normalizedTrackHeight * (((useSettingsStore.getState().settings as { trailingEmptyTrackSlots?: number }).trailingEmptyTrackSlots) ?? TRAILING_EMPTY_TRACK_SLOTS),
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
         snapEnabled,

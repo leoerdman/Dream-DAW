@@ -44,8 +44,8 @@ pub(super) struct CommandProcessingContext<'a> {
     pub time_sig_numerator: &'a mut u8,
     pub time_sig_denominator: &'a mut u8,
     pub master_gain_smoother: &'a mut crate::oscillator::ParameterSmoother,
-    pub track_disabled: &'a mut [bool; MAX_TRACKS],
-    pub track_soloed: &'a mut [bool; MAX_TRACKS],
+    pub track_disabled: &'a mut [bool],
+    pub track_soloed: &'a mut [bool],
     pub any_solo: &'a mut bool,
     /// PREVIEW-FIX: When `true`, the track has an external VST instrument loaded.
     /// Preview note-on/off will skip the built-in sampler/rack engines to prevent
@@ -59,10 +59,10 @@ pub(super) struct CommandProcessingContext<'a> {
     pub midi_chase_needed: &'a mut bool,
     pub deferred_topology: &'a mut VecDeque<DeferredDeviceChainCmd>,
     pub master_device_chain: &'a mut DeviceChain,
-    pub pending_track_volume: &'a mut [Option<f32>; MAX_TRACKS],
-    pub pending_track_pan: &'a mut [Option<f32>; MAX_TRACKS],
-    pub pending_track_disabled: &'a mut [Option<bool>; MAX_TRACKS],
-    pub pending_track_solo: &'a mut [Option<bool>; MAX_TRACKS],
+    pub pending_track_volume: &'a mut [Option<f32>],
+    pub pending_track_pan: &'a mut [Option<f32>],
+    pub pending_track_disabled: &'a mut [Option<bool>],
+    pub pending_track_solo: &'a mut [Option<bool>],
     pub routing_snapshot: &'a Arc<SharedRoutingSnapshot>,
     pub rt_debug_stats: &'a SharedRtDebugStats,
     /// When true, skip all external VST plugin try_lock() calls.

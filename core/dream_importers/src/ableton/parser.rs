@@ -23,6 +23,56 @@ use crate::ableton::xml_helpers::{
 };
 use dream_models::project::{Project, TempoAutomationEvent, TimeSignature, TimeSignatureChange};
 
+/// Sanitizes Ableton XML before parsing. Ableton occasionally writes unescaped '&' or '<'
+/// inside attribute strings (e.g., `<Name Value="Rock & Roll"/>`), which breaks strict XML parsers.
+pub fn sanitize_ableton_xml(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len() + 1024);
+    let mut in_quotes = false;
+    let mut chars = xml.chars().peekable();
+    
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+            out.push(c);
+        } else if in_quotes {
+            if c == '&' {
+                // Check if it's already a valid entity (`&amp;`, `&#32;`, etc.)
+                let is_entity = {
+                    let mut lookahead = chars.clone();
+                    let mut is_ent = false;
+                    for _ in 0..10 {
+                        if let Some(n) = lookahead.next() {
+                            if n == ';' {
+                                is_ent = true;
+                                break;
+                            } else if !n.is_alphanumeric() && n != '#' {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    is_ent
+                };
+                if is_entity {
+                    out.push('&');
+                } else {
+                    out.push_str("&amp;");
+                }
+            } else if c == '<' {
+                out.push_str("&lt;");
+            } else if c == '>' {
+                out.push_str("&gt;");
+            } else {
+                out.push(c);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub fn read_als_xml_text(file_path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(file_path)
         .map_err(|e| format!("Failed to read ALS file '{}': {e}", file_path.display()))?;
@@ -34,7 +84,8 @@ pub fn read_als_xml_text(file_path: &Path) -> Result<String, String> {
             _ => bytes,
         }
     };
-    String::from_utf8(xml_bytes).map_err(|e| format!("ALS is not valid UTF-8 XML: {e}"))
+    let raw_xml = String::from_utf8(xml_bytes).map_err(|e| format!("ALS is not valid UTF-8 XML: {e}"))?;
+    Ok(sanitize_ableton_xml(&raw_xml))
 }
 
 pub fn parse_als_document<'a>(xml_text: &'a str) -> Result<roxmltree::Document<'a>, String> {

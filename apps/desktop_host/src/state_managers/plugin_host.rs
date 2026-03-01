@@ -1164,17 +1164,4 @@ impl PluginHostState {
         Ok((migrated_count, reloaded_slots))
     }
 
-    /// Manually reset the circuit breaker, allowing the sandbox to be re-enabled.
-    /// Called by the user via a UI action (e.g., "Retry Plugin Sandbox" button).
-    pub(crate) fn reset_circuit_breaker(&self) {
-        let was_active = self.circuit_breaker_active.swap(false, Ordering::Release);
-        if was_active {
-            log::info!("[CircuitBreaker] Circuit breaker reset — sandbox may be re-enabled on next plugin load");
-        }
-    }
-
-    /// Returns whether the circuit breaker is currently active.
-    pub(crate) fn is_circuit_breaker_active(&self) -> bool {
-        self.circuit_breaker_active.load(Ordering::Relaxed)
-    }
 }

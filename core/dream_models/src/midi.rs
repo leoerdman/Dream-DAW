@@ -60,14 +60,25 @@ impl MidiNote {
         self.start_frame + self.duration_frames
     }
 
-    /// Returns the MIDI note name (e.g., "C4", "F#5").
-    pub fn note_name(&self) -> String {
+    /// Returns the MIDI note base name (e.g., "C", "F#").
+    #[inline]
+    pub fn note_base_name(&self) -> &'static str {
         const NAMES: [&str; 12] = [
             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
         ];
-        let name = NAMES[(self.pitch % 12) as usize];
-        let octave = (self.pitch as i32 / 12) - 1;
-        format!("{}{}", name, octave)
+        NAMES[(self.pitch % 12) as usize]
+    }
+
+    /// Returns the octave of this note. Middle C (60) is octave 4.
+    #[inline]
+    pub fn octave(&self) -> i32 {
+        (self.pitch as i32 / 12) - 1
+    }
+
+    /// Returns the formatted MIDI note name (e.g., "C4", "F#5").
+    /// Note: Allocates a String. Not RT-safe.
+    pub fn note_name(&self) -> String {
+        format!("{}{}", self.note_base_name(), self.octave())
     }
 
     /// Frequency in Hz for this note (A4 = 440 Hz, equal temperament).

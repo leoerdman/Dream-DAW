@@ -14,6 +14,8 @@ import { create } from 'zustand';
 import * as engineApi from '@/shared/api/engine';
 import type { AppSettings } from '@/shared/api/engine';
 
+type FolderSettingKey = 'userFolderPath' | 'samplesPath' | 'vst2Path' | 'vst3Path';
+
 interface SettingsStore {
     /** Current application settings. */
     settings: AppSettings;
@@ -30,12 +32,8 @@ interface SettingsStore {
     /** Replace all settings at once (bulk update). */
     updateAllSettings: (newSettings: AppSettings) => Promise<void>;
 
-    /**
-     * Open native folder picker dialog and update a folder setting.
-     * BUG-050: Narrowed to string-valued keys only — eliminates unsafe `as` cast.
-     * Returns the selected path, or null if cancelled.
-     */
-    pickAndSetFolder: (settingKey: { [K in keyof AppSettings]: AppSettings[K] extends string ? K : never }[keyof AppSettings]) => Promise<string | null>;
+    /** Open native folder picker dialog and update one of the folder path settings. */
+    pickAndSetFolder: (settingKey: FolderSettingKey) => Promise<string | null>;
 }
 
 /** Default settings — used before backend loads. Must match Rust defaults. */
@@ -110,26 +108,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     updateSetting: async (key, value) => {
         const current = get().settings;
         const updated = { ...current, [key]: value };
-        set({ settings: updated });
 
+        // BUG-020 FIX: Await backend persistence BEFORE updating local state
+        // to prevent data loss if the backend rejects or the app crashes.
         try {
             await engineApi.updateSettings(updated);
+            set({ settings: updated });
         } catch (err) {
             console.error('[SettingsStore] Failed to persist setting:', key, err);
-            // Revert optimistic update
-            set({ settings: current });
+            throw err;
         }
     },
 
     updateAllSettings: async (newSettings) => {
-        const current = get().settings;
-        set({ settings: newSettings });
-
+        const merged = { ...DEFAULT_SETTINGS, ...newSettings };
+        // BUG-020 FIX: Await backend persistence BEFORE updating local state
         try {
-            await engineApi.updateSettings(newSettings);
+            await engineApi.updateSettings(merged);
+            set({ settings: merged });
         } catch (err) {
             console.error('[SettingsStore] Failed to persist settings:', err);
-            set({ settings: current });
+            throw err;
         }
     },
 
@@ -137,7 +136,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         try {
             const selected = await engineApi.pickFolder();
             if (selected) {
-                await get().updateSetting(settingKey, selected as AppSettings[typeof settingKey]);
+                await get().updateSetting(settingKey, selected);
             }
             return selected;
         } catch (err) {

@@ -5,6 +5,7 @@ import {
 } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
+import { getSpectrumData } from '@/shared/api/engine';
 import { useEqSurfaceHandlers } from '@/widgets/DeviceRack/model/useEqSurfaceHandlers';
 import { EqBandContextMenu, EqBandOverlays, type EqContextMenu } from './PluginGuiSurfaceEqOverlays';
 import { PluginGuiSurfaceEqControls } from './PluginGuiSurfaceEqControls';
@@ -87,12 +88,13 @@ export function PluginGuiSurfaceEq({
 
     const out = effectiveParams.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
+    const isDraggingEq = dragEqBand !== null;
     const { curvePath, fillPath } = useMemo(
         // PERF-FIX: Reduce curve resolution to 80 steps during drag for 60% fewer
         // biquad evaluations per frame. 80 is visually indistinguishable during
         // fast mouse movement. Full 200-step resolution restores on drag end.
-        () => buildEqCurvePaths(bands, projectSampleRate, dragEqBand !== null ? 80 : 200),
-        [bands, projectSampleRate, dragEqBand !== null],
+        () => buildEqCurvePaths(bands, projectSampleRate, isDraggingEq ? 80 : 200),
+        [bands, projectSampleRate, isDraggingEq],
     );
 
     const bi = activeBandIdx;
@@ -299,6 +301,8 @@ export function PluginGuiSurfaceEq({
 const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { deviceId: string; eqSpectrumEnabled: boolean }) => {
     const [spectrumPath, setSpectrumPath] = useState<string | null>(null);
     const lastSpectrumRef = React.useRef<number[] | null>(null);
+    const pendingTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingRafRef = React.useRef<number | null>(null);
 
     useEffect(() => {
         if (!eqSpectrumEnabled) {
@@ -307,13 +311,26 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
         }
         let active = true;
         let errorBackoff = 50;
+        const waitFrame = () =>
+            new Promise<void>((resolve) => {
+                pendingRafRef.current = requestAnimationFrame(() => {
+                    pendingRafRef.current = null;
+                    resolve();
+                });
+            });
+        const waitMs = (ms: number) =>
+            new Promise<void>((resolve) => {
+                pendingTimeoutRef.current = setTimeout(() => {
+                    pendingTimeoutRef.current = null;
+                    resolve();
+                }, ms);
+            });
         const poll = async () => {
             try {
-                const { invoke } = await import('@tauri-apps/api/core');
                 while (active) {
                     if (!active) break;
                     try {
-                        const data = await invoke<number[]>('get_spectrum_data');
+                        const data = await getSpectrumData();
                         if (!active) break;
                         errorBackoff = 50;
                         if (Array.isArray(data) && data.length > 0) {
@@ -330,11 +347,11 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
                             lastSpectrumRef.current = null;
                             setSpectrumPath(null);
                         }
-                        await new Promise(r => requestAnimationFrame(r));
+                        await waitFrame();
                     } catch (err) {
                         console.warn('[Dream] poll error (backoff):', err);
                         errorBackoff = Math.min(errorBackoff * 2, 2000);
-                        await new Promise(r => setTimeout(r, errorBackoff));
+                        await waitMs(errorBackoff);
                     }
                 }
             } catch (err) {
@@ -344,6 +361,14 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
         poll();
         return () => {
             active = false;
+            if (pendingTimeoutRef.current) {
+                clearTimeout(pendingTimeoutRef.current);
+                pendingTimeoutRef.current = null;
+            }
+            if (pendingRafRef.current !== null) {
+                cancelAnimationFrame(pendingRafRef.current);
+                pendingRafRef.current = null;
+            }
             lastSpectrumRef.current = null;
         };
     }, [eqSpectrumEnabled]);

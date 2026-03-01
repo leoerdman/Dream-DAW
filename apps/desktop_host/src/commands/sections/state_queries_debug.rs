@@ -165,8 +165,8 @@ fn get_pdc_debug_snapshot(
             .collect(),
         nodes,
         edges,
-        node_summary: pdc::pdc_summary(&dag, &node_pdc),
-        edge_summary: pdc::pdc_edge_summary(&dag, &edge_pdc),
+        node_summary: pdc::PdcSummary { dag: &dag, compensation: &node_pdc }.to_string(),
+        edge_summary: pdc::PdcEdgeSummary { dag: &dag, edge_compensation: &edge_pdc }.to_string(),
     })
 }
 

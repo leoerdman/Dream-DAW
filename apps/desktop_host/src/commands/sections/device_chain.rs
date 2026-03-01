@@ -127,7 +127,7 @@ fn add_device_cmd(
         .prealloc_producer
         .lock()
         .map_err(|e| format!("prealloc lock poisoned: {e}"))?;
-    if let Err(_) = producer.push(prebuilt) {
+    if producer.push(prebuilt).is_err() {
         // Queue full — fall back to legacy path (allocates on RT thread).
         drop(producer);
         log::warn!(

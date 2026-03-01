@@ -159,6 +159,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     activeProjectId: null,
     openProjects: [], // BUG-051 FIX: Start empty — populated from backend on connect. Old 'default' id mismatched backend UUIDs.
     isDirty: false, // Legacy fallback, to be replaced by tab-specific dirty state
+
+    // Telemetry and Listeners
+    _telemetryUnlisten: null as (() => void) | null,
+
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
     timelineClips: [],
@@ -217,6 +221,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         const state = get();
         if (id === state.activeProjectId) return;
         try {
+            // BUG-002 FIX: Stop telemetry loop for the previous project before switching
+            // to prevent listeners from stacking up across multiple projects.
+            if (state.telemetryRunning) {
+                get().stopTelemetryLoop();
+            }
+
             const response = await engine.switchProjectTab(id);
             // BUG-002 FIX: Set activeProjectId AFTER delta application succeeds.
             // Previously set before — if applyProjectDeltas threw, UI pointed to
@@ -225,6 +235,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 await get().applyProjectDeltas(response.deltas, 'multi-project:switch');
             }
             set({ activeProjectId: id });
+
+            // Restart telemetry loop for the new project
+            get().startTelemetryLoop();
         } catch (e) {
             console.error('[MultiProject] switchProjectTab failed:', e);
         }
@@ -261,6 +274,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             if (!confirmed) return;
         }
         try {
+            // Stop telemetry loop before closing tab
+            if (state.telemetryRunning) {
+                get().stopTelemetryLoop();
+            }
+
             const response = await engine.closeProjectTab(id);
             const remaining = state.openProjects.filter(t => t.id !== id);
             // BUG-004 FIX: `remaining` already excludes `id`, so the .find(t => t.id !== id)
@@ -271,6 +289,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             set({ openProjects: remaining, activeProjectId: newActiveId });
             if (response.deltas?.length) {
                 await get().applyProjectDeltas(response.deltas, 'multi-project:close-switch');
+            }
+
+            // Restart telemetry loop for the new active project
+            if (newActiveId) {
+                get().startTelemetryLoop();
             }
         } catch (e) {
             console.error('[MultiProject] closeProjectTab failed:', e);

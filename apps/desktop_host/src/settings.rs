@@ -227,10 +227,10 @@ pub(crate) fn validated_sample_rate(raw: u32) -> u32 {
         .unwrap_or(44100)
 }
 
-/// BUF-014 FIX: Validates buffer_size to a power-of-2 in range [32, 8192].
+/// BUF-014 FIX: Validates buffer_size to a power-of-2 in range [64, 8192].
 /// Returns the nearest valid power-of-2, or 512 if the input is wildly out of range.
 pub(crate) fn validated_buffer_size(raw: u32) -> u32 {
-    let clamped = raw.clamp(32, 8192);
+    let clamped = raw.clamp(64, 8192);
     // Round to nearest power of 2
     let prev_pow2 = 1u32 << (31 - clamped.leading_zeros());
     let next_pow2 = prev_pow2.checked_shl(1).unwrap_or(prev_pow2);
@@ -392,12 +392,16 @@ impl SettingsState {
                 if let Some(s) = latest_settings.take() {
                     let user_info_dir = s.user_info_dir();
                     let settings_path = s.settings_file_path();
+                    let tmp_path = settings_path.with_extension("json.tmp");
                     if std::fs::create_dir_all(&user_info_dir).is_ok() {
                         if let Ok(json) = serde_json::to_string_pretty(&s) {
-                            if let Err(e) = std::fs::write(&settings_path, &json) {
-                                log::error!("Failed to debounce-save settings: {}", e);
+                            // BUG-062 FIX: Atomic write to prevent settings corruption on Cmd+Q
+                            if let Err(e) = std::fs::write(&tmp_path, &json) {
+                                log::error!("Failed to write settings temp file: {}", e);
+                            } else if let Err(e) = std::fs::rename(&tmp_path, &settings_path) {
+                                log::error!("Failed to commit settings atomic rename: {}", e);
                             } else {
-                                log::debug!("Settings auto-saved (debounced) to: {}", settings_path.display());
+                                log::debug!("Settings auto-saved unconditionally (debounced) to: {}", settings_path.display());
                             }
                         }
                     }

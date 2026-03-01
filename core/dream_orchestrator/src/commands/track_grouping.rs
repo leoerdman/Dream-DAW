@@ -111,7 +111,7 @@ impl Command for CreateGroupCommand {
                     .tracks
                     .iter()
                     .find(|track| track.id == *id)
-                    .map(|track| (track.color, track.color_hex.clone()))
+                    .map(|track| (track.color.clone(), track.color_hex.clone()))
             })
             .unwrap_or_else(|| (TrackColor::for_index(first_index), None));
 

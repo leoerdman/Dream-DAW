@@ -103,7 +103,6 @@ fn sync_flow_graph_cmd(
         resolve_flow_track_index(&project, track_index)
     };
 
-    // Persist Flow graph into the project model so save/load restores it.
     let payload = PersistedFlowGraph {
         nodes: nodes.clone(),
         connections: connections.clone(),

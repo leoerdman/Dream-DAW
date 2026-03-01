@@ -83,7 +83,7 @@ pub fn compute_edge_delay_compensation(
         max_to_output[node_idx.index()] = max_input + dag.node(node_idx).latency_samples();
     }
 
-    let mut edge_delays = Vec::new();
+    let mut edge_delays = Vec::with_capacity(dag.edge_count());
     for dst in graph.node_indices() {
         let incoming: Vec<_> = graph
             .edges_directed(dst, petgraph::Direction::Incoming)
@@ -113,56 +113,75 @@ pub fn compute_edge_delay_compensation(
     edge_delays
 }
 
-/// Returns diagnostic information about the PDC calculation for logging.
-pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("PDC Summary ({} nodes):", dag.node_count()));
+use std::fmt;
 
-    let graph = dag.graph();
-    for node_idx in graph.node_indices() {
-        let node = dag.node(node_idx);
-        let comp = compensation.get(node_idx.index()).copied().unwrap_or(0);
-        let latency = node.latency_samples();
-
-        if comp > 0 || latency > 0 {
-            lines.push(format!(
-                "  {} [latency={}smp, compensation={}smp]",
-                node.display_name(),
-                latency,
-                comp
-            ));
-        }
-    }
-
-    if lines.len() == 1 {
-        lines.push("  (no compensation needed — all paths equal)".to_string());
-    }
-
-    lines.join("\n")
+pub struct PdcSummary<'a> {
+    pub dag: &'a AudioDag,
+    pub compensation: &'a [u32],
 }
 
-/// Returns diagnostic information about per-edge PDC calculation.
-pub fn pdc_edge_summary(dag: &AudioDag, edge_compensation: &[EdgeDelayCompensation]) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("PDC Edge Summary ({} edges):", dag.edge_count()));
+impl<'a> fmt::Display for PdcSummary<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "PDC Summary ({} nodes):", self.dag.node_count())?;
 
-    for edge in edge_compensation {
-        if edge.delay_samples == 0 {
-            continue;
+        let graph = self.dag.graph();
+        let mut has_entries = false;
+
+        for node_idx in graph.node_indices() {
+            let node = self.dag.node(node_idx);
+            let comp = self.compensation.get(node_idx.index()).copied().unwrap_or(0);
+            let latency = node.latency_samples();
+
+            if comp > 0 || latency > 0 {
+                writeln!(
+                    f,
+                    "  {} [latency={}smp, compensation={}smp]",
+                    node.display_name(),
+                    latency,
+                    comp
+                )?;
+                has_entries = true;
+            }
         }
-        let from = dag.node(edge.from).display_name();
-        let to = dag.node(edge.to).display_name();
-        lines.push(format!(
-            "  {} -> {} [delay={}smp]",
-            from, to, edge.delay_samples
-        ));
-    }
 
-    if lines.len() == 1 {
-        lines.push("  (no edge compensation needed)".to_string());
-    }
+        if !has_entries {
+            writeln!(f, "  (no compensation needed — all paths equal)")?;
+        }
 
-    lines.join("\n")
+        Ok(())
+    }
+}
+
+pub struct PdcEdgeSummary<'a> {
+    pub dag: &'a AudioDag,
+    pub edge_compensation: &'a [EdgeDelayCompensation],
+}
+
+impl<'a> fmt::Display for PdcEdgeSummary<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "PDC Edge Summary ({} edges):", self.dag.edge_count())?;
+
+        let mut has_entries = false;
+        for edge in self.edge_compensation {
+            if edge.delay_samples == 0 {
+                continue;
+            }
+            let from = self.dag.node(edge.from).display_name();
+            let to = self.dag.node(edge.to).display_name();
+            writeln!(
+                f,
+                "  {} -> {} [delay={}smp]",
+                from, to, edge.delay_samples
+            )?;
+            has_entries = true;
+        }
+
+        if !has_entries {
+            writeln!(f, "  (no edge compensation needed)")?;
+        }
+
+        Ok(())
+    }
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -344,7 +363,7 @@ mod tests {
 
         assert_eq!(comp[fx2_idx.index()], 128);
 
-        let summary = pdc_summary(&dag, &comp);
+        let summary = PdcSummary { dag: &dag, compensation: &comp }.to_string();
         assert!(summary.contains("PDC Summary"));
     }
 
@@ -382,8 +401,7 @@ mod tests {
         let own = dag.node(node_idx).latency_samples();
         let outs = dag.outputs(node_idx);
         let best_child = outs
-            .iter()
-            .map(|&child| longest_to_master(dag, child, memo))
+            .map(|child| longest_to_master(dag, child, memo))
             .max()
             .unwrap_or(0);
         let total = own + best_child;
@@ -454,7 +472,7 @@ mod tests {
             let sources: Vec<_> = dag
                 .graph()
                 .node_indices()
-                .filter(|&idx| dag.inputs(idx).is_empty())
+                .filter(|&idx| dag.inputs(idx).next().is_none())
                 .collect();
 
             for &src in &sources {
@@ -494,7 +512,7 @@ mod tests {
             }
 
             for node_idx in dag.graph().node_indices() {
-                let incoming = dag.inputs(node_idx);
+                let incoming: Vec<_> = dag.inputs(node_idx).collect();
                 if incoming.len() <= 1 {
                     continue;
                 }

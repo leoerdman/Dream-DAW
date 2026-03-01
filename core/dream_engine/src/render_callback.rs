@@ -676,7 +676,7 @@ impl RenderContext {
                                     // Map into the START portion of the fade_in table
                                     // so the first sample always hits gain=0.
                                     let table_idx = i;
-                                    let gain = self.fade_cache.fade_in[table_idx];
+                                    let gain = self.fade_cache.fade_in.get(table_idx).copied().unwrap_or(1.0);
                                     slot.buf_left[offset + i] *= gain;
                                     slot.buf_right[offset + i] *= gain;
                                 }
@@ -694,7 +694,7 @@ impl RenderContext {
                                     // Map into the END portion of the fade_out table
                                     // so that the last sample always hits gain=0.
                                     let table_idx = fade_len - actual_fade + i;
-                                    let gain = self.fade_cache.fade_out[table_idx];
+                                    let gain = self.fade_cache.fade_out.get(table_idx).copied().unwrap_or(0.0);
                                     slot.buf_left[tail_start + i] *= gain;
                                     slot.buf_right[tail_start + i] *= gain;
                                 }
@@ -759,10 +759,11 @@ impl RenderContext {
                 continue;
             }
             if !slot.device_chain.is_empty() {
-                slot.device_chain.process_stereo(
+                let ctx = dream_dsp::device_slot::ProcessContext::new(self.sample_rate as f32);
+                slot.device_chain.process_with_context(
                     &mut slot.buf_left[..frame_count],
                     &mut slot.buf_right[..frame_count],
-                    self.sample_rate as f32,
+                    &ctx,
                 );
             }
             slot.strip.process_stereo(

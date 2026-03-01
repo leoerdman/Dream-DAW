@@ -65,9 +65,16 @@ export const useDragStore = create<DragState>((set, get) => ({
         const onMove = (e: MouseEvent) => {
             set({ cursorX: e.clientX, cursorY: e.clientY });
         };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                get().endDrag();
+            }
+        };
         window.addEventListener('mousemove', onMove);
+        window.addEventListener('keydown', onKey);
         _cleanupMouseMove = () => {
             window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('keydown', onKey);
         };
 
         // Safety-net: global mouseup ensures endDrag is ALWAYS called,

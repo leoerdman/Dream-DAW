@@ -112,7 +112,7 @@ pub(crate) fn resolve_output_setup(
     // Without this, the user's buffer_size setting in preferences had zero effect
     // on actual audio latency — cpal always used the OS default.
     if let Some(bs) = preferred_buffer_size {
-        let clamped = bs.clamp(32, 8192);
+        let clamped = bs.clamp(32, crate::render_callback::MAX_BUFFER_FRAMES as u32);
         config.buffer_size = cpal::BufferSize::Fixed(clamped);
         info!("Buffer size: {} frames (user preference)", clamped);
     } else {

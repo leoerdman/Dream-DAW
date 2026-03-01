@@ -514,20 +514,18 @@ impl AudioDag {
         Ok(self.parallelism_metrics_from_order(&order))
     }
 
-    /// Returns the list of immediate input nodes for a given node.
-    pub fn inputs(&self, idx: NodeIndex) -> Vec<NodeIndex> {
+    /// Returns an iterator over the immediate input nodes for a given node.
+    pub fn inputs(&self, idx: NodeIndex) -> impl Iterator<Item = NodeIndex> + '_ {
         self.graph
             .edges_directed(idx, petgraph::Direction::Incoming)
             .map(|e| e.source())
-            .collect()
     }
 
-    /// Returns the list of immediate output nodes for a given node.
-    pub fn outputs(&self, idx: NodeIndex) -> Vec<NodeIndex> {
+    /// Returns an iterator over the immediate output nodes for a given node.
+    pub fn outputs(&self, idx: NodeIndex) -> impl Iterator<Item = NodeIndex> + '_ {
         self.graph
             .edges_directed(idx, petgraph::Direction::Outgoing)
             .map(|e| e.target())
-            .collect()
     }
 }
 
@@ -683,7 +681,7 @@ mod tests {
             .node_indices()
             .find(|&i| dag.node(i).id == NodeId(4))
             .unwrap();
-        assert_eq!(dag.inputs(bus_idx).len(), 2);
+        assert_eq!(dag.inputs(bus_idx).count(), 2);
     }
 
     #[test]

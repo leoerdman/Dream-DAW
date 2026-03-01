@@ -41,20 +41,7 @@ pub struct Playhead {
     is_advancing: bool,
 }
 
-impl Playhead {
-    #[inline]
-    fn floor_nonneg_to_u32(value: f64, upper: u32) -> u32 {
-        if !value.is_finite() {
-            return 0;
-        }
-        value
-            .floor()
-            .clamp(0.0, f64::from(upper))
-            .to_u32()
-            .unwrap_or(upper)
-    }
-
-    /// Creates a new playhead at position 0.
+impl Playhead {    /// Creates a new playhead at position 0.
     pub fn new(sample_rate: f64) -> Self {
         Self {
             position: 0,
@@ -82,29 +69,26 @@ impl Playhead {
         seconds * bpm / 60.0
     }
 
-    /// Returns the current bar and beat (1-indexed), given BPM and time signature.
+    /// Returns the current bar and beat.
     ///
     /// Returns (bar, beat, tick) where:
-    /// - bar: 1-indexed bar number
+    /// - bar: 1-indexed bar number (can be <= 0 for pre-count)
     /// - beat: 1-indexed beat within the bar
     /// - tick: fractional beat (0.0–1.0)
-    pub fn bar_beat_tick(&self, bpm: f64, beats_per_bar: u32) -> (u32, u32, f64) {
-        // BUG-009 FIX: Guard against beats_per_bar=0 to prevent division by zero.
+    pub fn bar_beat_tick(&self, bpm: f64, beats_per_bar: u32) -> (i32, i32, f64) {
         let beats_per_bar = beats_per_bar.max(1);
         let total_beats = self.position_beats(bpm);
         if !total_beats.is_finite() {
             return (1, 1, 0.0);
         }
+        
         let beats_per_bar_f64 = f64::from(beats_per_bar);
-        let bar_zero_based_f64 = (total_beats / beats_per_bar_f64).floor().max(0.0);
-        let bar_zero_based = Self::floor_nonneg_to_u32(bar_zero_based_f64, u32::MAX);
-
-        let beat_zero_based_f64 = total_beats.rem_euclid(beats_per_bar_f64).floor().max(0.0);
-        let beat_zero_based = Self::floor_nonneg_to_u32(beat_zero_based_f64, beats_per_bar - 1);
-
+        let bar_zero_based = (total_beats / beats_per_bar_f64).floor() as i32;
+        let beat_zero_based = total_beats.rem_euclid(beats_per_bar_f64).floor() as i32;
+        
         let bar = bar_zero_based.saturating_add(1);
         let beat_in_bar = beat_zero_based.saturating_add(1);
-        let tick = total_beats.fract();
+        let tick = total_beats.rem_euclid(1.0);
         (bar, beat_in_bar, tick)
     }
 
@@ -202,6 +186,8 @@ impl Playhead {
 
     /// Returns and resets the count of rejected invalid sample rate attempts.
     /// Call from the UI thread to surface warnings without RT thread locks.
+    /// Drains the invalid sample rate count.
+    /// Note: Concurrent calls to this function can result in lost counts since it blindly swaps with 0.
     pub fn drain_invalid_sr_count() -> u32 {
         INVALID_SR_COUNT.swap(0, Ordering::Relaxed)
     }

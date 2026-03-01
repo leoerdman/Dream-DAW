@@ -43,10 +43,20 @@ async fn import_audio_file(
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
     log::info!("[IPC] import_audio_file: path='{}' track={} pos={:?}", path, track_index, position_frames);
     let file_path = PathBuf::from(&path);
+    if usize::from(track_index) >= dream_engine::render_callback::MAX_TRACKS {
+        return Err(format!(
+            "Track index {} exceeds realtime engine limit ({})",
+            track_index,
+            dream_engine::render_callback::MAX_TRACKS
+        ));
+    }
 
-    // Validate file exists
+    // Validate file exists and is a regular file
     if !file_path.exists() {
         return Err(format!("File not found: {}", file_path.display()));
+    }
+    if !file_path.is_file() {
+        return Err(format!("Path is not a file: {}", file_path.display()));
     }
 
     // Validate extension
@@ -58,9 +68,6 @@ async fn import_audio_file(
     if !matches!(ext.as_str(), "wav" | "mp3" | "flac" | "aiff" | "aif" | "ogg" | "m4a" | "aac") {
         return Err(format!("Unsupported audio format: .{ext}"));
     }
-
-    // Snapshot for undo BEFORE mutation
-    push_undo(&project_state)?;
 
     // Decode audio file (NOT real-time safe — runs on async thread pool)
     let decoded = AudioReader::read(&file_path)
@@ -105,8 +112,30 @@ async fn import_audio_file(
         }
     }
 
+    // Normalize channel lengths defensively: some malformed decoders/sources may
+    // produce channels with different frame counts. We clamp to the shortest
+    // channel to keep downstream DSP indexing sample-accurate and panic-free.
+    let num_frames = final_channels
+        .iter()
+        .map(|ch| ch.len())
+        .min()
+        .unwrap_or(0);
+    if num_frames == 0 {
+        return Err(format!("Decoded audio has no frames: {}", file_path.display()));
+    }
+    for ch in &mut final_channels {
+        if ch.len() > num_frames {
+            ch.truncate(num_frames);
+        }
+    }
+
     let sample_rate = final_sample_rate;
-    let num_frames = final_channels.first().map(|c| c.len()).unwrap_or(0);
+    if sample_rate == 0 {
+        return Err(format!(
+            "Decoded audio has invalid sample rate 0: {}",
+            file_path.display()
+        ));
+    }
     let num_channels = final_channels.len();
     let duration_seconds = num_frames as f64 / sample_rate as f64;
 

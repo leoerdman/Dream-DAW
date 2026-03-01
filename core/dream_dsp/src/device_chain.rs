@@ -167,29 +167,11 @@ impl DeviceChain {
     /// with 1000+ parameters (u8 caps at 256).
     pub fn set_param(&mut self, slot_index: usize, param_index: u32, value: f32) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.set_param(param_index, value as f64);
+            slot.set_param(param_index, value);
         }
     }
 
     // ── Processing ─────────────────────────────────────────────────────
-
-    /// Processes stereo audio through all non-bypassed slots in series.
-    ///
-    /// # Real-Time Safety
-    /// Zero allocations. O(N × slot_count).
-    #[inline]
-    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
-        let ctx = ProcessContext {
-            sample_rate,
-            ..ProcessContext::default()
-        };
-        for slot in &mut self.slots {
-            // DeviceProcessor::process handles bypass check internally.
-            let _ = slot.process(left, right, None, None, &ctx);
-            sanitize_buffer(left);
-            sanitize_buffer(right);
-        }
-    }
 
     /// Processes stereo audio with a full `ProcessContext`.
     ///
@@ -272,7 +254,7 @@ impl DeviceChain {
     ) {
         let ctx = ProcessContext {
             sample_rate,
-            ..ProcessContext::default()
+            ..ProcessContext::new(sample_rate)
         };
         self.process_slot_with_sidechain_ctx(
             slot_index, left, right, sidechain_left, sidechain_right, &ctx,
@@ -300,7 +282,7 @@ impl DeviceChain {
             // by running a 1-sample process pass.
             let ctx = ProcessContext {
                 sample_rate,
-                ..ProcessContext::default()
+                ..ProcessContext::new(sample_rate)
             };
             let mut dummy_l = [0.0f32; 1];
             let mut dummy_r = [0.0f32; 1];
@@ -337,7 +319,7 @@ mod tests {
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
         let original = left.clone();
-        chain.process_stereo(&mut left, &mut right, 44100.0);
+        chain.process_with_context(&mut left, &mut right, &ProcessContext::new(44100.0));
         assert_eq!(left, original);
     }
 
@@ -378,14 +360,14 @@ mod tests {
 
         let mut left = vec![1.0f32; 4096];
         let mut right = vec![1.0f32; 4096];
-        chain.process_stereo(&mut left, &mut right, 44100.0);
+        chain.process_with_context(&mut left, &mut right, &ProcessContext::new(44100.0));
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
         assert!(tail_avg < 0.1, "Gain at -60dB should silence: {tail_avg}");
 
         chain.set_bypass(0, true);
         let mut left2 = vec![1.0f32; 64];
         let mut right2 = vec![1.0f32; 64];
-        chain.process_stereo(&mut left2, &mut right2, 44100.0);
+        chain.process_with_context(&mut left2, &mut right2, &ProcessContext::new(44100.0));
         assert_eq!(left2, vec![1.0f32; 64]);
     }
 
@@ -398,7 +380,7 @@ mod tests {
 
         let mut left = vec![1.0f32; 4096];
         let mut right = vec![1.0f32; 4096];
-        chain.process_stereo(&mut left, &mut right, 44100.0);
+        chain.process_with_context(&mut left, &mut right, &ProcessContext::new(44100.0));
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
         assert!(tail_avg < 0.1);
     }
@@ -439,7 +421,7 @@ mod tests {
         let ctx = ProcessContext {
             sample_rate: 44100.0,
             is_playing: true,
-            ..ProcessContext::default()
+            ..ProcessContext::new(sample_rate)
         };
         chain.process_with_context(&mut left, &mut right, &ctx);
         assert!(left.iter().all(|s| s.abs() > 0.9));
@@ -455,7 +437,7 @@ mod tests {
         let sc_left = vec![0.5f32; 64];
         let sc_right = vec![0.5f32; 64];
         let sidechains = vec![(Some(sc_left.as_slice()), Some(sc_right.as_slice()))];
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         chain.process_with_sidechains(&mut left, &mut right, &sidechains, &ctx);
         // Should process without panic.
     }

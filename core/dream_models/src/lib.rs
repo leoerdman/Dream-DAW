@@ -27,7 +27,7 @@ pub mod spatial_grid;
 pub mod time;
 
 #[inline]
-fn clamp_f64_to_i64(value: f64) -> i64 {
+fn sanitize_f64_to_i64(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -80,7 +80,7 @@ impl Default for PlaybackState {
         let sample_rate = 44100.0_f64;
         // BUG-16 FIX: Compute loop region from sample_rate, not hardcoded.
         // At 120 BPM, 1 beat = 0.5 seconds = sample_rate / 2 frames.
-        let frames_per_beat = clamp_f64_to_i64((sample_rate / 2.0).round()); // 120 BPM
+        let frames_per_beat = sanitize_f64_to_i64((sample_rate / 2.0).round()); // 120 BPM
         Self {
             is_playing: false,
             bpm: 120.0,

@@ -34,7 +34,7 @@ use crate::pulse_map::PulseMap;
 pub const PPQN: u32 = 960;
 
 #[inline]
-fn clamp_f64_to_i64(value: f64) -> i64 {
+fn sanitize_f64_to_i64(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -100,7 +100,7 @@ impl AbsoluteTime {
         }
         let frames = (seconds * sample_rate).round();
         Self {
-            sample_frame: clamp_f64_to_i64(frames),
+            sample_frame: sanitize_f64_to_i64(frames),
         }
     }
 
@@ -249,7 +249,7 @@ impl TimePosition {
     #[inline]
     pub fn to_samples(self, bpm: f64, sample_rate: f64) -> i64 {
         let seconds = self.to_seconds(bpm);
-        clamp_f64_to_i64((seconds * sample_rate).round())
+        sanitize_f64_to_i64((seconds * sample_rate).round())
     }
 
     /// Creates from sample count at a given BPM and sample rate.

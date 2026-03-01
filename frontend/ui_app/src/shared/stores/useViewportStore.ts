@@ -210,13 +210,17 @@ function applyZoom(
     if (newSpp === oldSpp) return;
 
     // Anchor point in pixels (relative to viewport)
-    const anchor = anchorX ?? state.viewportWidth / 2;
+    const anchor = anchorX ?? Math.min(state.viewportWidth, state.timelineWidth) / 2;
 
     // Sample frame at the anchor point
     const sampleAtAnchor = (state.scrollX + anchor) * oldSpp;
 
     // New scroll position that keeps the same sample under the anchor
-    const newScrollX = Math.max(0, sampleAtAnchor / newSpp - anchor);
+    let newScrollX = Math.max(0, sampleAtAnchor / newSpp - anchor);
+
+    // BUG-085 FIX: Clamp new scrollX to valid max bounds based on timelineWidth vs viewportWidth.
+    const maxScrollX = Math.max(0, state.timelineWidth - state.viewportWidth);
+    newScrollX = Math.min(maxScrollX, newScrollX);
 
     set({
         samplesPerPixel: newSpp,

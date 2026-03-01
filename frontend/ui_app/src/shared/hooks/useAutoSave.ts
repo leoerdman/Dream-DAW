@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { autoSaveIfDirty, setArrangementViewport } from '../api/engine';
+import { useEngineStore, type ProjectTab } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -43,7 +44,10 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
                 }
                 const result = await autoSaveIfDirty();
                 if (result.saved) {
-                    console.info(`[Dream] Saved → ${result.path}`);
+                    const state = useEngineStore.getState();
+                    const activeTab = state.openProjects.find((t: ProjectTab) => t.id === state.activeProjectId);
+                    const projectName = activeTab?.name || 'Untitled';
+                    console.info(`[Dream] Auto-saved "${projectName}" → ${result.path}`);
                 }
             } catch (err) {
                 // Non-fatal: log and keep timer running
@@ -59,6 +63,7 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
             if (timerRef.current !== null) {
                 clearInterval(timerRef.current);
             }
+            inFlightRef.current = false;
         };
     }, [intervalMs]);
 }

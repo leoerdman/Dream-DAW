@@ -119,7 +119,7 @@ impl Command for AddTrackCommand {
                 .tracks
                 .iter()
                 .find(|t| t.id == gid)
-                .map(|t| (t.color, t.color_hex.clone()))
+                .map(|t| (t.color.clone(), t.color_hex.clone()))
         });
 
         let insert_index = self

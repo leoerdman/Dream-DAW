@@ -503,7 +503,7 @@ fn write_wav_header(
 ) -> std::io::Result<()> {
     use std::io::{Seek, SeekFrom, Write};
 
-    let block_align = channels * (bits_per_sample / 8);
+    let block_align = (channels * bits_per_sample + 7) / 8;
     let byte_rate = sample_rate * block_align as u32;
     
     // BUG-006 FIX: Handle >4GB files. Standard WAV limits data chunk to 4GB.
@@ -579,7 +579,7 @@ fn recording_worker(
 
     // BUG-028 FIX: Warn if recording sample rate seems unusual.
     // Common project rates: 44100, 48000, 88200, 96000, 176400, 192000.
-    const STANDARD_RATES: [u32; 6] = [44100, 48000, 88200, 96000, 176400, 192000];
+    const STANDARD_RATES: [u32; 7] = [44100, 48000, 88200, 96000, 176400, 192000, 384000];
     if !STANDARD_RATES.contains(&sample_rate) {
         log::warn!(
             "[RecordingWorker] Non-standard sample rate {} Hz detected. \

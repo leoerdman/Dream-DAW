@@ -231,7 +231,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         timelineClips,
         trackIds: tracksEntity.allIds,
         tracksById: tracksEntity.byId,
-        projectBpm,
         transportBpm: resolveBpm(transportBpm),
         projectSampleRate,
         applyProjectDeltas,

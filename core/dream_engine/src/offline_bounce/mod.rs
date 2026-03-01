@@ -2249,17 +2249,19 @@ impl OfflineRenderer {
                         }
                     }
                 } else if !master_device_chain.is_empty() {
-                    master_device_chain.process_stereo(
+                    let ctx = dream_dsp::device_slot::ProcessContext::new(project_sr as f32);
+                    master_device_chain.process_with_context(
                         tail_slice_l,
                         tail_slice_r,
-                        project_sr as f32,
+                        &ctx,
                     );
                 }
             } else if !master_device_chain.is_empty() {
-                master_device_chain.process_stereo(
+                let ctx = dream_dsp::device_slot::ProcessContext::new(project_sr as f32);
+                master_device_chain.process_with_context(
                     tail_slice_l,
                     tail_slice_r,
-                    project_sr as f32,
+                    &ctx,
                 );
             }
 
@@ -2338,9 +2340,14 @@ impl OfflineRenderer {
 
         let export_frames = final_l.len();
 
+        // BUG-A069 FIX: Write to a temporary file first, then atomically rename.
+        // This prevents the entire export from failing at the last second or being
+        // blocked up-front if the user is playing the previous bounce in VLC.
+        let temp_path = format!("{}.tmp", self.config.output_path);
+
         if is_mp3 {
             let mut mp3_writer =
-                Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate)
+                Mp3Writer::create_streaming(&temp_path, self.config.sample_rate)
                     .map_err(|e| BounceError::WriteError(e.to_string()))?;
             let chunk_size = 4096;
             let mut w_pos = 0;
@@ -2365,7 +2372,7 @@ impl OfflineRenderer {
                 .map_err(|e| BounceError::WriteError(e.to_string()))?;
         } else {
             let mut wav_writer = WavWriter::create(
-                &self.config.output_path,
+                &temp_path,
                 self.config.sample_rate,
                 self.config.bit_depth,
             )?;
@@ -2387,6 +2394,20 @@ impl OfflineRenderer {
                 }
             }
             wav_writer.finalize()?;
+        }
+
+        // Commit temporary file to final output path.
+        if let Err(e) = std::fs::rename(&temp_path, &self.config.output_path) {
+            // Cross-device link fallback
+            if std::fs::copy(&temp_path, &self.config.output_path).is_ok() {
+                let _ = std::fs::remove_file(&temp_path);
+            } else {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(BounceError::WriteError(format!(
+                    "Failed to replace '{}' (file may be locked): {}",
+                    self.config.output_path, e
+                )));
+            }
         }
 
         progress_callback(1.0);

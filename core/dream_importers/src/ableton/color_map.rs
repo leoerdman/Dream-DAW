@@ -63,7 +63,7 @@ pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
 /// We intentionally derive this from the same 70→16 semantic mapping as
 /// `ableton_color_to_track_color` so track/clip colors stay consistent
 /// throughout the app even when ALS variants use different palette internals.
-pub fn ableton_color_index_to_hex(index: i64) -> Option<&'static str> {
+pub fn ableton_color_index_to_hex(index: i64) -> Option<String> {
     (0..=69)
         .contains(&index)
         .then(|| ableton_color_to_track_color(index, 0).hex())

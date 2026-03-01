@@ -145,12 +145,14 @@ export const PluginGuiSurface = ({
     const pendingDragOverrides = useRef<Map<string, number>>(new Map());
     const [dragRenderTick, setDragRenderTick] = useState(0);
 
+    // BUG-058 FIX: Strict Mode Ref Violation. Moved cleanup to useEffect.
     // When drag ends, clear local overrides (store state will have caught up).
-    const prevDragBandRef = useRef<number | null>(null);
-    if (prevDragBandRef.current !== null && dragEqBand === null) {
-        pendingDragOverrides.current.clear();
-    }
-    prevDragBandRef.current = dragEqBand;
+    useEffect(() => {
+        if (dragEqBand === null) {
+            pendingDragOverrides.current.clear();
+            setDragRenderTick((t) => t + 1);
+        }
+    }, [dragEqBand]);
 
     const onParamChangeLocal = useCallback((paramName: string, value: number) => {
         if (dragEqBand !== null) {
@@ -162,12 +164,17 @@ export const PluginGuiSurface = ({
 
     // Merge device.params with local drag overrides for instant curve feedback.
     const mergedEqParams = useMemo(() => {
-        if (pendingDragOverrides.current.size === 0) return device.params;
-        return device.params.map((p) => {
-            const override = pendingDragOverrides.current.get(p.name.toLowerCase());
+        // Safe to read map here because we use dragRenderTick/dragEqBand to trigger re-eval
+        const overrides = pendingDragOverrides.current;
+        if (dragEqBand === null && overrides.size === 0) return device.params;
+        let hasOverride = false;
+        const next = device.params.map((p) => {
+            const override = overrides.get(p.name.toLowerCase());
+            if (override !== undefined) hasOverride = true;
             return override !== undefined ? { ...p, value: override } : p;
         });
-    }, [device.params, dragRenderTick]);
+        return hasOverride ? next : device.params;
+    }, [device.params, dragRenderTick, dragEqBand]);
 
     useEqBandDragEffect({
         dragEqBand,

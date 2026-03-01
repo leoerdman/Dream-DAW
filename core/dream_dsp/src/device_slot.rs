@@ -54,10 +54,10 @@ pub struct ProcessContext {
     pub time_sig_denominator: u8,
 }
 
-impl Default for ProcessContext {
-    fn default() -> Self {
+impl ProcessContext {
+    pub fn new(sample_rate: f32) -> Self {
         Self {
-            sample_rate: 44100.0,
+            sample_rate,
             playhead_frames: 0,
             tempo: 120.0,
             is_playing: false,
@@ -145,7 +145,7 @@ pub trait DeviceProcessor: Send {
     ///
     /// # Real-Time Safety
     /// Must be O(1). Called from the audio thread via command dispatch.
-    fn set_param(&mut self, index: u32, value: f64);
+    fn set_param(&mut self, index: u32, value: f32);
 
     /// Reset internal state (delay lines, filter history, etc.).
     ///
@@ -225,10 +225,10 @@ impl DeviceProcessor for InternalDeviceSlot {
     }
 
     #[inline]
-    fn set_param(&mut self, index: u32, value: f64) {
+    fn set_param(&mut self, index: u32, value: f32) {
         // DspProcessor uses u8 index and f32 value; clamp to match.
         if index <= u8::MAX as u32 {
-            self.processor.set_param(index as u8, value as f32);
+            self.processor.set_param(index as u8, value);
         }
     }
 
@@ -279,16 +279,16 @@ pub struct MacroMapping {
     /// Parameter index on the target device.
     pub param_index: u32,
     /// Value sent when macro is at minimum (0.0).
-    pub min_value: f64,
+    pub min_value: f32,
     /// Value sent when macro is at maximum (1.0).
-    pub max_value: f64,
+    pub max_value: f32,
 }
 
 /// State of a single macro control knob.
 #[derive(Debug, Clone)]
 pub struct MacroState {
     /// Current macro value (0.0 – 1.0).
-    pub value: f64,
+    pub value: f32,
     /// Parameter mappings driven by this macro.
     pub mappings: Vec<MacroMapping>,
 }
@@ -407,7 +407,7 @@ impl DeviceGroupSlot {
     }
 
     /// Sets a macro knob value and propagates to all mapped parameters.
-    pub fn set_macro(&mut self, macro_index: usize, value: f64) {
+    pub fn set_macro(&mut self, macro_index: usize, value: f32) {
         if macro_index >= MAX_MACROS {
             return;
         }
@@ -540,7 +540,7 @@ impl DeviceProcessor for DeviceGroupSlot {
         ProcessResult::Processed
     }
 
-    fn set_param(&mut self, index: u32, value: f64) {
+    fn set_param(&mut self, index: u32, value: f32) {
         // Group-level params: index 0–15 map to macro knobs.
         if (index as usize) < MAX_MACROS {
             self.set_macro(index as usize, value);
@@ -600,7 +600,7 @@ mod tests {
         // Default utility gain is 0 dB (passthrough).
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         let result = slot.process(&mut left, &mut right, None, None, &ctx);
         assert_eq!(result, ProcessResult::Processed);
         // Utility at default gain should pass signal through.
@@ -616,7 +616,7 @@ mod tests {
 
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         slot.process(&mut left, &mut right, None, None, &ctx);
 
         // Bypassed — signal should pass through unchanged.
@@ -629,7 +629,7 @@ mod tests {
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
         let original = left.clone();
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         group.process(&mut left, &mut right, None, None, &ctx);
         // Empty group should passthrough.
         assert_eq!(left, original);
@@ -645,7 +645,7 @@ mod tests {
 
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         let result = group.process(&mut left, &mut right, None, None, &ctx);
         assert_eq!(result, ProcessResult::Processed);
         // Signal should have been processed (utility at default = passthrough).
@@ -663,7 +663,7 @@ mod tests {
 
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         group.process(&mut left, &mut right, None, None, &ctx);
         // Bypassed group — signal unchanged.
         assert!(left.iter().all(|s| (*s - 1.0).abs() < 0.001));
@@ -680,7 +680,7 @@ mod tests {
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
         let original = left.clone();
-        let ctx = ProcessContext::default();
+        let ctx = ProcessContext::new(44100.0);
         group.process(&mut left, &mut right, None, None, &ctx);
         // Muted chain — signal passes through unmodified.
         assert_eq!(left, original);

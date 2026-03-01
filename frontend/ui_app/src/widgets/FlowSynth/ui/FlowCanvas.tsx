@@ -110,7 +110,18 @@ export function FlowCanvas() {
         setMenuIndex(0);
     }, [viewportRef]);
 
-    const handleAddNode = (type: SynthNodeType) => {
+    const filteredCatalog = useMemo(() => {
+        const q = menuSearch.trim().toLowerCase();
+        const source = NODE_CATALOG.filter((item) => (item.type !== 'output' || !hasOutputNode));
+        if (!q) return source;
+        return source.filter((item) =>
+            item.label.toLowerCase().includes(q)
+            || item.type.toLowerCase().includes(q)
+            || item.keywords.some((k) => k.includes(q)),
+        );
+    }, [menuSearch, hasOutputNode]);
+
+    const handleAddNode = useCallback((type: SynthNodeType) => {
         if (!menuState) return;
         const nodeId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
             ? `node-${globalThis.crypto.randomUUID()}`
@@ -133,7 +144,7 @@ export function FlowCanvas() {
             data: { label: labelByType[type] }
         });
         setMenuState(null);
-    };
+    }, [menuState, addNode, setMenuState]);
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -217,7 +228,7 @@ export function FlowCanvas() {
             document.removeEventListener('keyup', onKeyUp, true);
             window.removeEventListener('blur', onBlur);
         };
-    }, [menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex]);
+    }, [menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex, filteredCatalog, handleAddNode]);
 
     useEffect(() => {
         if (!menuState) return;
@@ -289,17 +300,6 @@ export function FlowCanvas() {
             window.removeEventListener('pointerup', onPointerUp);
         };
     }, [pendingConnection, updatePendingConnection, cancelConnectionDrag, commitConnection, viewportRef, nodes, connections]);
-
-    const filteredCatalog = useMemo(() => {
-        const q = menuSearch.trim().toLowerCase();
-        const source = NODE_CATALOG.filter((item) => (item.type !== 'output' || !hasOutputNode));
-        if (!q) return source;
-        return source.filter((item) =>
-            item.label.toLowerCase().includes(q)
-            || item.type.toLowerCase().includes(q)
-            || item.keywords.some((k) => k.includes(q)),
-        );
-    }, [menuSearch, hasOutputNode]);
 
     useEffect(() => {
         setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));

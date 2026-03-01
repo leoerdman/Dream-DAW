@@ -12,6 +12,12 @@ use crate::plugin_sandbox_recovery::{
 };
 use crate::state_managers::{AudioEngineHandle, ClipPoolState, PluginHostState};
 
+fn emit_with_log<T: Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: T) {
+    if let Err(err) = app.emit(event, payload) {
+        log::warn!("[Events] emit('{}') failed: {}", event, err);
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct TransportTelemetryPayload {
     is_playing: bool,
@@ -74,6 +80,9 @@ pub(crate) fn spawn_background_runtime_threads(
             // System performance monitoring — refreshed every ~1s (every 30 ticks)
             let mut sys = sysinfo::System::new();
             let mut cached_perf = SystemPerformancePayload::default();
+
+            // BUG-011 FIX: Cache to prevent 200ms unconditional rebuilds
+            let mut prev_slot_instance_map: Option<std::collections::HashMap<uuid::Uuid, uuid::Uuid>> = None;
 
             loop {
                 {
@@ -144,7 +153,7 @@ pub(crate) fn spawn_background_runtime_threads(
                         loop_start: state.loop_start,
                         loop_end: state.loop_end,
                         output_latency_frames: handle.output_latency_frames,
-                        master_pdc_latency_frames: master_pdc as u32,
+                        master_pdc_latency_frames: master_pdc,
                         telemetry_timestamp_ms,
                     }
                 };
@@ -157,8 +166,9 @@ pub(crate) fn spawn_background_runtime_threads(
                     performance: cached_perf.clone(),
                 };
 
-                let _ = telemetry_app.emit("telemetry_tick", payload);
-                let _ = telemetry_app.emit(
+                emit_with_log(&telemetry_app, "telemetry_tick", payload);
+                emit_with_log(
+                    &telemetry_app,
                     "telemetry_meters_binary",
                     build_meters_binary_packet(&handle),
                 );
@@ -167,7 +177,9 @@ pub(crate) fn spawn_background_runtime_threads(
                     let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
                     if let Some(pstate) = registry.get_active_project() {
                         if let Ok(project) = pstate.project.lock() {
-                            let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                            if let Err(err) = pstate.mark_dirty(&project.name, Some(&telemetry_app)) {
+                                log::warn!("[Telemetry] mark_dirty failed: {}", err);
+                            }
                         }
                     }
                 }
@@ -189,21 +201,35 @@ pub(crate) fn spawn_background_runtime_threads(
 
                     // PDC-003: Check if any VST3 plugin signaled latency change
                     let vst3_latency_changed = dream_plugins::vst3_host::take_latency_changed();
+                    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
 
-                    if let Some(pstate) = registry.get_active_project() {
-                        if let Ok(mut project) = pstate.project.lock() {
-                            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-                            clip_pool_state
-                                .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+                    // BUG-011 FIX: Only rebuild if there was a change in slot_instance map
+                    // or a latency change occurred.
+                    let mut should_rebuild = vst3_latency_changed;
+                    if let Some(prev) = prev_slot_instance_map.as_ref() {
+                        if *prev != *slot_instance_map {
+                            should_rebuild = true;
+                        }
+                    } else {
+                        should_rebuild = true;
+                    }
+                    // Save state for next tick compare
+                    prev_slot_instance_map = Some((*slot_instance_map).clone());
 
-                            // PDC-003: If latency changed, force an explicit log
-                            if vst3_latency_changed {
-                                log::info!(
-                                    "[PDC-003] VST3 plugin signaled kLatencyChanged — graph PDC rebuilt"
-                                );
-                            }
+                    if should_rebuild {
+                        if let Some(pstate) = registry.get_active_project() {
+                            if let Ok(mut project) = pstate.project.lock() {
+                                clip_pool_state
+                                    .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
 
-                            // PDC-007 FIX: Sync runtime plugin latencies → project model.
+                                // PDC-003: If latency changed, force an explicit log
+                                if vst3_latency_changed {
+                                    log::info!(
+                                        "[PDC-003] VST3 plugin signaled kLatencyChanged — graph PDC rebuilt"
+                                    );
+                                }
+
+                                // PDC-007 FIX: Sync runtime plugin latencies → project model.
                             // PERF: Collect latencies OUTSIDE the project lock (lock-free reads
                             // from the plugin registry), then briefly lock project only for writes.
                             // This reduces project Mutex hold time by ~90%.
@@ -246,10 +272,12 @@ pub(crate) fn spawn_background_runtime_threads(
                                     }
                                 }
                             }
+
+                            }
                         }
-                    }
                 }
             }
+        }
         })
     {
         log::warn!("Failed to spawn telemetry thread: {err}");
@@ -274,7 +302,7 @@ pub(crate) fn spawn_background_runtime_threads(
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-            let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
+            emit_with_log(&sandbox_app, "plugin_sandbox_tick", &snapshot);
             if !crashes.is_empty() || !recoveries.is_empty() {
                 let mut failed_instance_ids: HashSet<Uuid> = crashes
                     .iter()
@@ -317,10 +345,15 @@ pub(crate) fn spawn_background_runtime_threads(
                                 &project,
                                 slot_instance_map.as_ref(),
                             );
-                            let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
+                            if let Err(err) =
+                                project_state.mark_dirty(&project.name, Some(&sandbox_app))
+                            {
+                                log::warn!("[Watchdog] mark_dirty after auto-bypass failed: {}", err);
+                            }
 
                             if bypassed_changed > 0 {
-                                let _ = sandbox_app.emit(
+                                emit_with_log(
+                                    &sandbox_app,
                                     "plugin_sandbox_auto_bypass",
                                     serde_json::json!({
                                         "instanceIds": failed_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
@@ -331,7 +364,8 @@ pub(crate) fn spawn_background_runtime_threads(
                             }
 
                             if recovered_changed > 0 {
-                                let _ = sandbox_app.emit(
+                                emit_with_log(
+                                    &sandbox_app,
                                     "plugin_sandbox_auto_recovered",
                                     serde_json::json!({
                                         "instanceIds": recovered_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
@@ -349,10 +383,10 @@ pub(crate) fn spawn_background_runtime_threads(
                 if recoveries.iter().any(|r| r.instance_id == crash.instance_id) {
                     continue;
                 }
-                let _ = sandbox_app.emit("plugin_sandbox_crashed", &crash);
+                emit_with_log(&sandbox_app, "plugin_sandbox_crashed", &crash);
             }
             for recovery in recoveries {
-                let _ = sandbox_app.emit("plugin_sandbox_recovered", &recovery);
+                emit_with_log(&sandbox_app, "plugin_sandbox_recovered", &recovery);
             }
 
             // ── ENTERPRISE CIRCUIT BREAKER ────────────────────────────────
@@ -380,11 +414,19 @@ pub(crate) fn spawn_background_runtime_threads(
                                         slot_instance_map.as_ref(),
                                     );
                                     plugin_host_state.publish_registry();
-                                    let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
+                                    if let Err(err) =
+                                        project_state.mark_dirty(&project.name, Some(&sandbox_app))
+                                    {
+                                        log::warn!(
+                                            "[Watchdog] mark_dirty after circuit-breaker migration failed: {}",
+                                            err
+                                        );
+                                    }
                                 }
                             }
                         }
-                        let _ = sandbox_app.emit(
+                        emit_with_log(
+                            &sandbox_app,
                             "plugin_sandbox_circuit_breaker",
                             serde_json::json!({
                                 "action": "migrated_to_inprocess",
@@ -423,7 +465,7 @@ pub(crate) fn spawn_background_runtime_threads(
                         .map(|d| d.as_millis())
                         .unwrap_or(0),
                 });
-                let _ = stream_error_app.emit("audio_stream_error", payload);
+                emit_with_log(&stream_error_app, "audio_stream_error", payload);
             }
         })
     {
@@ -432,11 +474,52 @@ pub(crate) fn spawn_background_runtime_threads(
 }
 
 pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<String>) {
+    let raise_splash = |window: &tauri::WebviewWindow| {
+        if let Err(err) = window.set_always_on_top(true) {
+            log::warn!("[Splash] set_always_on_top(true) failed: {}", err);
+        }
+        if let Err(err) = window.show() {
+            log::warn!("[Splash] show() failed: {}", err);
+        }
+        if let Err(err) = window.set_focus() {
+            log::warn!("[Splash] set_focus() failed: {}", err);
+        }
+    };
+
     if let Some(splash_window) = app.get_webview_window("splashscreen") {
         // Startup race fix: explicitly lift splash above other windows/apps.
-        let _ = splash_window.set_always_on_top(true);
-        let _ = splash_window.show();
-        let _ = splash_window.set_focus();
+        raise_splash(&splash_window);
+
+        // Some window managers briefly override Z-order during app bootstrap.
+        // Re-assert splash foreground status shortly after startup.
+        let app_handle = app.handle().clone();
+        if let Err(err) = std::thread::Builder::new()
+            .name("splash-foreground-retry".into())
+            .spawn(move || {
+                for delay_ms in [120_u64, 350_u64] {
+                    std::thread::sleep(Duration::from_millis(delay_ms));
+                    if let Some(window) = app_handle.get_webview_window("splashscreen") {
+                        if let Err(err) = window.set_always_on_top(true) {
+                            log::warn!(
+                                "[Splash] delayed({}ms) set_always_on_top(true) failed: {}",
+                                delay_ms, err
+                            );
+                        }
+                        if let Err(err) = window.show() {
+                            log::warn!("[Splash] delayed({}ms) show() failed: {}", delay_ms, err);
+                        }
+                        if let Err(err) = window.set_focus() {
+                            log::warn!(
+                                "[Splash] delayed({}ms) set_focus() failed: {}",
+                                delay_ms, err
+                            );
+                        }
+                    }
+                }
+            })
+        {
+            log::warn!("[Splash] failed to spawn foreground retry thread: {}", err);
+        }
     }
 
     spawn_background_runtime_threads(&app.handle(), stream_error_rx);
@@ -501,10 +584,19 @@ fn install_macos_transport_monitor(app_handle: &tauri::AppHandle) {
 
                             if let Ok(mut prod) = handle.producer.lock() {
                                 if new_state {
-                                    let _ = prod
-                                        .push(dream_ipc::EngineCommand::SetTimelineSampleRate(sr));
+                                    if prod
+                                        .push(dream_ipc::EngineCommand::SetTimelineSampleRate(sr))
+                                        .is_err()
+                                    {
+                                        log::warn!(
+                                            "[NSEventMonitor] failed to queue SetTimelineSampleRate command"
+                                        );
+                                    }
                                 }
-                                let _ = prod.push(dream_ipc::EngineCommand::SetPlay(new_state));
+                                if prod.push(dream_ipc::EngineCommand::SetPlay(new_state)).is_err()
+                                {
+                                    log::warn!("[NSEventMonitor] failed to queue SetPlay command");
+                                }
                             }
 
                             log::info!(

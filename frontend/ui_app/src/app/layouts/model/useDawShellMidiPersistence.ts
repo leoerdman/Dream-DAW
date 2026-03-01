@@ -19,7 +19,6 @@ interface UseDawShellMidiPersistenceArgs {
     timelineClips: TimelineClip[];
     trackIds: string[];
     tracksById: Record<string, ProjectTrack>;
-    projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
     applyProjectDeltas: (deltas: engineApi.ProjectDelta[], reason?: string) => Promise<void>;
@@ -56,7 +55,6 @@ export function useDawShellMidiPersistence({
     timelineClips,
     trackIds,
     tracksById,
-    projectBpm,
     transportBpm,
     projectSampleRate,
     applyProjectDeltas,
@@ -85,7 +83,7 @@ export function useDawShellMidiPersistence({
             startFrames: Math.max(0, beatToFrame(note.startBeat, bpm, sampleRate)),
             durationFrames: Math.max(1, beatDurationToFrames(note.durationBeats, bpm, sampleRate)),
         }));
-    }, [projectBpm, transportBpm, projectSampleRate]);
+    }, [transportBpm, projectSampleRate]);
 
     const flushMidiThrottles = useCallback(() => {
         midiSaveThrottlesRef.current.forEach((send) => send.flush());
@@ -232,7 +230,7 @@ export function useDawShellMidiPersistence({
         } finally {
             setAiVariationBusy(false);
         }
-    }, [midiNotesByClip, trackIds, tracksById, projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
+    }, [midiNotesByClip, trackIds, tracksById, transportBpm, projectSampleRate, applyProjectDeltas]);
 
     const handlePianoRollNotesChange = useCallback((selectedTimelineClip: TimelineClip | undefined, notes: MidiNote[]) => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;

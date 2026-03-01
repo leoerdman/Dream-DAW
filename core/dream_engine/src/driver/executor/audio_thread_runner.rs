@@ -80,7 +80,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
     );
 
     // ── Spectrum analyzer ring buffer (lock-free: audio thread → UI thread) ──
-    let (spectrum_producer, spectrum_consumer) = rtrb::RingBuffer::new(8192);
+    // BUG-A064 FIX: Dynamically compute capacity to handle high sample rates (e.g. 192kHz).
+    // Assuming 30fps UI refresh, we need ~6400 frames per poll at 192kHz.
+    // We add a 2.5x safety margin and clamp to a minimum of 8192.
+    let spectrum_capacity = ((sample_rate_f64 / 30.0) * 2.5).ceil() as usize;
+    let (spectrum_producer, spectrum_consumer) = rtrb::RingBuffer::new(spectrum_capacity.max(8192));
     render_ctx.spectrum_producer = Some(spectrum_producer);
 
     // AUD-057/058 FIX: Use named constants instead of hardcoded magic numbers.
@@ -101,8 +105,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
     // ── 4. Test tone state (fallback when no clips loaded) ──────────
     let mut test_tone_phase: f64 = 0.0;
-    let mut test_tone_current_freq: f32 = DEFAULT_FREQUENCY;
-    let mut test_tone_target_freq: f32 = DEFAULT_FREQUENCY;
+    let mut test_tone_current_freq: f32 = 440.0;
+    let mut test_tone_target_freq: f32 = 440.0;
     let mut test_tone_enabled: bool = false;
 
     // ── 5. Playback state ───────────────────────────────────────────
@@ -116,20 +120,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // Historically this path was bypassed; now it is active in the master FX stage.
     let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
-    let mut track_disabled = [false; MAX_TRACKS];
-    let mut track_soloed = [false; MAX_TRACKS];
+    let mut track_disabled = vec![false; MAX_TRACKS];
+    let mut track_soloed = vec![false; MAX_TRACKS];
     let mut any_solo: bool = false;
     // PREVIEW-FIX: Per-track flag indicating an external VST instrument is loaded.
     // When true, preview note-on/off skips the built-in sampler/rack engines
     // (they would produce a buzzing waveform layered on top of the VST).
     // Updated every callback from external_fx_snapshot.
-    let mut track_has_external_instrument = [false; MAX_TRACKS];
+    let mut track_has_external_instrument = vec![false; MAX_TRACKS];
 
     // UI state mutations are accumulated here to avoid mid-buffer discontinuities
-    let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_disabled: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
+    let mut pending_track_volume: Vec<Option<f32>> = vec![None; MAX_TRACKS];
+    let mut pending_track_pan: Vec<Option<f32>> = vec![None; MAX_TRACKS];
+    let mut pending_track_disabled: Vec<Option<bool>> = vec![None; MAX_TRACKS];
+    let mut pending_track_solo: Vec<Option<bool>> = vec![None; MAX_TRACKS];
     // BUG-026 FIX: Persist the last loop region so SetLoopEnabled(true) can restore it.
     let mut last_loop_region: Option<LoopRegion> = None;
     let mut loop_enabled = false;
@@ -200,19 +204,33 @@ pub(crate) fn start_audio_thread_on_device_impl(
             // (i.e., the audio callback closure is dropped when the stream stops).
             // Without this, the GC thread runs forever, leaking a thread per
             // audio engine lifecycle.
+            let mut backoff_ms = 1;
             loop {
                 let mut drained_any = false;
                 while let Ok(arc) = gc_consumer.pop() {
                     drop(arc); // Deallocate off the audio thread
                     drained_any = true;
                 }
+                
+                if drained_any {
+                    // High load: snap back to fast polling
+                    backoff_ms = 1;
+                    std::thread::yield_now();
+                    continue;
+                }
+
                 // If the producer is dropped and queue is empty, the rtrb
                 // consumer.pop() returns Err permanently. We check if we
                 // haven't drained anything AND the producer is gone.
-                if !drained_any && gc_consumer.is_abandoned() {
+                if gc_consumer.is_abandoned() {
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+
+                // Adaptive sleep: 1ms up to 50ms when idle
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                if backoff_ms < 50 {
+                    backoff_ms = (backoff_ms * 2).min(50);
+                }
             }
         }) {
         Ok(_) => {}
@@ -274,7 +292,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             orig
                         };
 
-                        let frame_count = data.len() / channels.max(1);
+                        let mut frame_count = data.len() / channels.max(1);
+                        if frame_count > crate::render_callback::MAX_BUFFER_FRAMES {
+                            #[cfg(debug_assertions)]
+                            log::warn!("Audio callback requested {} frames, capping to MAX_BUFFER_FRAMES ({})", frame_count, crate::render_callback::MAX_BUFFER_FRAMES);
+                            frame_count = crate::render_callback::MAX_BUFFER_FRAMES;
+                        }
 
                         // Baseline all track meters to silence each callback, with
                         // peak-decay persistence. Active signal paths below will lift

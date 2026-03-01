@@ -73,6 +73,7 @@ pub use snapshots::{
 // ── Constants ───────────────────────────────────────────────────────────
 
 /// Default test tone frequency (A4 = 440 Hz).
+#[cfg(test)]
 const DEFAULT_FREQUENCY: f32 = 440.0;
 /// Test tone amplitude for RT sanity checks in driver tests.
 #[cfg(test)]

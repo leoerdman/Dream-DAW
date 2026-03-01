@@ -103,11 +103,17 @@ impl LoopRegion {
         self.enabled = !self.enabled;
     }
 
-    /// Validates that the loop region is usable.
-    /// Returns `true` if the loop has a positive length.
+    /// Whether this loop region is valid.
+    ///
+    /// # Rationale for minimum length (32 frames)
+    /// A loop region must be at least 32 frames long. If a loop is too short
+    /// (e.g. 1 frame), the audio thread will spend all its time repeatedly
+    /// wrapping the playhead and rescheduling clips to fill a single 256-frame
+    /// output buffer, causing a catastrophic CPU spike and dropping audio.
     #[inline]
     pub fn is_valid(&self) -> bool {
-        self.end > self.start
+        // BUG FIX: Enforce minimum loop length (32 frames) to prevent RT thread CPU spikes
+        self.end >= self.start + 32 && self.start >= 0
     }
 }
 
@@ -192,6 +198,9 @@ mod tests {
     fn is_valid() {
         let valid = LoopRegion::with_range(0, 100);
         assert!(valid.is_valid());
+
+        let invalid_short = LoopRegion::with_range(0, 10);
+        assert!(!invalid_short.is_valid());
 
         let invalid = LoopRegion::new();
         assert!(!invalid.is_valid());

@@ -22,10 +22,7 @@ import {
 
 export type { GhostClipData, LoopRegion, TimelineClipData } from './CanvasClipRenderer.types';
 
-function snapPhysical(value: number): number {
-    const dpr = window.devicePixelRatio || 1;
-    return Math.round(value * dpr) / dpr;
-}
+import { snapPhysical } from './renderUtils';
 
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
@@ -46,11 +43,11 @@ export class CanvasClipRenderer {
         this._waveformCache = waveformCache;
     }
 
-    private _truncateTextToWidth(
+    private readonly _truncateTextToWidth = (
         ctx: CanvasRenderingContext2D,
         text: string,
         maxWidth: number,
-    ): string {
+    ): string => {
         if (!text || maxWidth <= 0) return '';
         if (ctx.measureText(text).width <= maxWidth) return text;
 
@@ -70,7 +67,7 @@ export class CanvasClipRenderer {
             }
         }
         return lo > 0 ? `${text.slice(0, lo)}${ellipsis}` : '';
-    }
+    };
 
     private _syncTheme(): void {
         const now = performance.now();
@@ -170,13 +167,13 @@ export class CanvasClipRenderer {
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
     }
 
-    private _drawTrackBackgrounds(
+    private readonly _drawTrackBackgrounds = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         theme: TimelineTheme,
         selectedTrack: number,
         selectedTracks: number[],
-    ): void {
+    ): void => {
         const rulerH = vp.rulerHeight;
 
         ctx.fillStyle = theme.trackDefault;
@@ -200,14 +197,14 @@ export class CanvasClipRenderer {
         }
     }
 
-    private _drawGrid(
+    private readonly _drawGrid = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         range: VisibleRange,
         beatsPerBar: number,
         snapBeats: number,
         theme: TimelineTheme,
-    ): void {
+    ): void => {
         ctx.save();
         const ppb = vp.pixelsPerBeat;
         const rulerH = vp.rulerHeight;
@@ -261,7 +258,7 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawRuler(
+    private readonly _drawRuler = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         range: VisibleRange,
@@ -271,7 +268,7 @@ export class CanvasClipRenderer {
         loop: LoopRegion | null,
         theme: TimelineTheme,
         hasClipSelection: boolean,
-    ): void {
+    ): void => {
         ctx.save();
         const rulerH = vp.rulerHeight;
 
@@ -403,16 +400,20 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawClips(
+    private readonly _drawClips = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         clips: TimelineClipData[],
         range: VisibleRange,
         sampleRate: number,
         automationVisible: boolean,
-    ): void {
+    ): void => {
         const bufferBeats = 2;
-        // ── P5: Reuse pre-allocated buffer instead of filter() ──
+        // BUG-104 FIX: Allow GC of huge arrays when project is cleared or zoomed in drastically.
+        // If the buffer retains > 1024 slots but we're only viewing a few clips, discard it.
+        if (this._filteredClips.length > 1024 && clips.length < 512) {
+            this._filteredClips = [];
+        }
         const filtered = this._filteredClips;
         filtered.length = 0;
         let hasAnySelected = false;
@@ -442,13 +443,13 @@ export class CanvasClipRenderer {
         }
     }
 
-    private _drawSingleClip(
+    private readonly _drawSingleClip = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         clip: TimelineClipData,
         sampleRate: number,
         automationVisible: boolean,
-    ): void {
+    ): void => {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
 
@@ -535,7 +536,8 @@ export class CanvasClipRenderer {
         const bodyY = y + headerH;
         const bodyH = Math.max(0, h - headerH);
 
-        if (bodyH > 8) {
+        const MIN_WAVEFORM_RENDER_HEIGHT = 8;
+        if (bodyH > MIN_WAVEFORM_RENDER_HEIGHT) {
             if (clip.type === 'audio' && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true, x, w);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
@@ -644,7 +646,7 @@ export class CanvasClipRenderer {
         }
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
-            const handleY = bodyY + 6;
+            const fadeHandleY = snapPhysical(bodyY + 6);
             const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
             const fadeOutWidth = w * Math.max(0, Math.min(0.5, clip.fadeOut ?? 0));
             const leftX = x + Math.max(4, Math.min(w - 4, fadeInWidth));
@@ -656,13 +658,16 @@ export class CanvasClipRenderer {
             ctx.strokeStyle = rgba(0, 0, 0, 0.65);
             ctx.lineWidth = 1;
 
+            const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+            const drawRadius = FADE_GRAB_RADIUS * dpr;
+
             ctx.beginPath();
-            ctx.arc(leftX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
+            ctx.arc(leftX, fadeHandleY, drawRadius, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
 
             ctx.beginPath();
-            ctx.arc(rightX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
+            ctx.arc(rightX, fadeHandleY, drawRadius, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
 
@@ -695,7 +700,7 @@ export class CanvasClipRenderer {
         }
     }
 
-    private _drawWaveform(
+    private readonly _drawWaveform = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         clip: TimelineClipData,
@@ -705,7 +710,7 @@ export class CanvasClipRenderer {
         muted: boolean,
         clipX: number,
         clipW: number,
-    ): void {
+    ): void => {
         if (!clip.durationSamples) return;
 
         const ppb = vp.pixelsPerBeat;
@@ -817,7 +822,7 @@ export class CanvasClipRenderer {
         ctx.stroke();
     }
 
-    private _drawMidiNotes(
+    private readonly _drawMidiNotes = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         clip: TimelineClipData,
@@ -825,7 +830,7 @@ export class CanvasClipRenderer {
         bodyH: number,
         muted: boolean,
         clipX: number,
-    ): void {
+    ): void => {
         if (!clip.midiNotes || clip.midiNotes.length === 0) return;
 
         const ppb = vp.pixelsPerBeat;
@@ -852,13 +857,13 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawPlayhead(
+    private readonly _drawPlayhead = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         playheadBeat: number,
         canvasH: number,
         theme: TimelineTheme,
-    ): void {
+    ): void => {
         const x = snapPhysical(playheadBeat * vp.pixelsPerBeat - vp.scrollX);
         if (x < -10 || x > vp.viewportWidth + 10) return;
 
@@ -873,13 +878,13 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawEditCursor(
+    private readonly _drawEditCursor = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         beat: number,
         trackStart: number,
         trackEnd: number,
-    ): void {
+    ): void => {
         if (beat < 0) return; // Hidden when clip is selected (mutual exclusivity)
         const cursorX = snapPhysical(beat * vp.pixelsPerBeat - vp.scrollX);
         if (cursorX < -2 || cursorX > vp.viewportWidth + 2) return;
@@ -905,12 +910,12 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawLoopRegion(
+    private readonly _drawLoopRegion = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         loop: LoopRegion | null,
         theme: TimelineTheme,
-    ): void {
+    ): void => {
         if (!loop || !loop.enabled) return;
 
         const x1 = snapPhysical(loop.start * vp.pixelsPerBeat - vp.scrollX);
@@ -926,11 +931,11 @@ export class CanvasClipRenderer {
         ctx.fillRect(x2, y, 1, Math.max(0, h));
     }
 
-    private _drawDropTarget(
+    private readonly _drawDropTarget = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         target: { track: number; beat: number } | null,
-    ): void {
+    ): void => {
         if (!target) return;
 
         const x = snapPhysical(target.beat * vp.pixelsPerBeat - vp.scrollX);
@@ -945,11 +950,11 @@ export class CanvasClipRenderer {
         ctx.strokeRect(x, y, w, h);
     }
 
-    private _drawMarquee(
+    private readonly _drawMarquee = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null,
-    ): void {
+    ): void => {
         if (!marquee) return;
 
         const x1 = snapPhysical(Math.min(marquee.startBeat, marquee.endBeat) * vp.pixelsPerBeat - vp.scrollX);
@@ -973,11 +978,11 @@ export class CanvasClipRenderer {
         ctx.fillRect(sx2 - 1, sy1, 1, sy2 - sy1);
     }
 
-    private _drawGhostClip(
+    private readonly _drawGhostClip = (
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         ghost: GhostClipData | null,
-    ): void {
+    ): void => {
         if (!ghost) return;
 
         const x = snapPhysical(ghost.beat * vp.pixelsPerBeat - vp.scrollX);
@@ -1016,10 +1021,10 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _roundRect(
+    private readonly _roundRect = (
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number, r: number,
-    ): void {
+    ): void => {
         ctx.beginPath();
         if (r > 0) {
             ctx.moveTo(x + r, y);
@@ -1046,16 +1051,16 @@ export class CanvasClipRenderer {
         return result;
     }
 
-    private _toMutedGray(rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+    private readonly _toMutedGray = (rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } => {
         const luma = Math.round(rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722);
         const gray = Math.max(78, Math.min(168, luma));
         return { r: gray, g: gray, b: gray };
     }
 
-    private _drawOfflineStripes(
+    private readonly _drawOfflineStripes = (
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
-    ): void {
+    ): void => {
         ctx.save();
         ctx.fillStyle = OFFLINE_STRIPE_COLOR;
         const step = 12;
@@ -1071,12 +1076,12 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    private _drawFade(
+    private readonly _drawFade = (
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
         direction: 'in' | 'out',
         curve: number,
-    ): void {
+    ): void => {
         if (w <= 0 || h <= 0) return;
         const t = Math.max(0.05, Math.min(0.95, curve));
 

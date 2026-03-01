@@ -61,7 +61,7 @@ pub struct ExternalDeviceSlot {
     /// MIDI events for this processing call.
     midi_events: Vec<MidiEvent>,
     /// Pending parameter updates queued by the RT thread.
-    pending_params: Vec<(u32, f64)>,
+    pending_params: Vec<(u32, f32)>,
 }
 
 impl ExternalDeviceSlot {
@@ -145,7 +145,7 @@ impl DeviceProcessor for ExternalDeviceSlot {
 
         // Flush pending parameter updates
         for (index, value) in self.pending_params.drain(..) {
-            let _ = plugin.set_parameter(index, value);
+            let _ = plugin.set_parameter(index, value as f64);
         }
 
         // Set transport context for this buffer.
@@ -233,7 +233,7 @@ impl DeviceProcessor for ExternalDeviceSlot {
         }
     }
 
-    fn set_param(&mut self, index: u32, value: f64) {
+    fn set_param(&mut self, index: u32, value: f32) {
         // Instead of try_lock, queue param values so they aren't lost if UI holds lock
         if self.pending_params.len() < 1024 {
             self.pending_params.push((index, value));

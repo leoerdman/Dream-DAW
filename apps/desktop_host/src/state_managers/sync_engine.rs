@@ -152,7 +152,7 @@ pub fn push_prealloc_device(
         .prealloc_producer
         .lock()
         .map_err(|e| format!("prealloc lock poisoned: {e}"))?;
-    if let Err(_) = producer.push(prebuilt) {
+    if producer.push(prebuilt).is_err() {
         drop(producer);
         log::warn!(
             "[RT-SafeDevice] prealloc queue full, falling back to legacy AddDevice \
@@ -170,7 +170,7 @@ pub fn push_prealloc_device(
     Ok(())
 }
 
-const MAX_UNDO_DEPTH: usize = 120; // 120 * ~200KB = ~24MB RAM usage
+
 
 /// Snapshots the current project state onto the undo stack.
 ///
@@ -185,7 +185,7 @@ pub fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     drop(project);
     undo.undo_stack.push_back(snapshot);
     let depth = undo.undo_stack.len();
-    if undo.undo_stack.len() > MAX_UNDO_DEPTH {
+    if undo.undo_stack.len() > crate::snapshot::MAX_UNDO_DEPTH {
         undo.undo_stack.pop_front(); // O(1) eviction via VecDeque ring buffer
     }
     undo.redo_stack.clear();

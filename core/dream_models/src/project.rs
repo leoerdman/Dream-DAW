@@ -156,10 +156,11 @@ pub struct ClipEnvelope {
 
 /// Predefined track colors matching the Ableton-style palette.
 ///
-/// 16-color palette ported from Swift `TrackColor` enum.
-/// Each variant maps to a specific hex value for the frontend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
+/// 16-color palette ported from Swift `TrackColor` enum, 
+/// plus unlimited user hex colors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(from = "String", into = "String")]
 pub enum TrackColor {
     Coral,
     Orange,
@@ -170,7 +171,6 @@ pub enum TrackColor {
     Teal,
     Cyan,
     Sky,
-    #[default]
     Blue,
     Indigo,
     Purple,
@@ -178,30 +178,86 @@ pub enum TrackColor {
     Pink,
     Rose,
     Slate,
+    Custom(String),
+}
+
+impl Default for TrackColor {
+    fn default() -> Self {
+        Self::Blue
+    }
+}
+
+impl From<String> for TrackColor {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "Coral" => Self::Coral,
+            "Orange" => Self::Orange,
+            "Gold" => Self::Gold,
+            "Yellow" => Self::Yellow,
+            "Lime" => Self::Lime,
+            "Green" => Self::Green,
+            "Teal" => Self::Teal,
+            "Cyan" => Self::Cyan,
+            "Sky" => Self::Sky,
+            "Blue" => Self::Blue,
+            "Indigo" => Self::Indigo,
+            "Purple" => Self::Purple,
+            "Magenta" => Self::Magenta,
+            "Pink" => Self::Pink,
+            "Rose" => Self::Rose,
+            "Slate" => Self::Slate,
+            _ => Self::Custom(s),
+        }
+    }
+}
+
+impl From<TrackColor> for String {
+    fn from(val: TrackColor) -> Self {
+        match val {
+            TrackColor::Coral => "Coral".into(),
+            TrackColor::Orange => "Orange".into(),
+            TrackColor::Gold => "Gold".into(),
+            TrackColor::Yellow => "Yellow".into(),
+            TrackColor::Lime => "Lime".into(),
+            TrackColor::Green => "Green".into(),
+            TrackColor::Teal => "Teal".into(),
+            TrackColor::Cyan => "Cyan".into(),
+            TrackColor::Sky => "Sky".into(),
+            TrackColor::Blue => "Blue".into(),
+            TrackColor::Indigo => "Indigo".into(),
+            TrackColor::Purple => "Purple".into(),
+            TrackColor::Magenta => "Magenta".into(),
+            TrackColor::Pink => "Pink".into(),
+            TrackColor::Rose => "Rose".into(),
+            TrackColor::Slate => "Slate".into(),
+            TrackColor::Custom(c) => c,
+        }
+    }
 }
 
 impl TrackColor {
     /// Returns the hex color string for this track color.
     ///
     /// Values ported from Swift `Track.swift` NSColor definitions.
-    pub fn hex(&self) -> &'static str {
+    pub fn hex(&self) -> String {
         match self {
-            Self::Coral => "#F05C4D",
-            Self::Orange => "#FF8A1A",
-            Self::Gold => "#FFBF33",
-            Self::Yellow => "#FFE14D",
-            Self::Lime => "#A3D94D",
-            Self::Green => "#4DC775",
-            Self::Teal => "#4DC7B0",
-            Self::Cyan => "#4DC7CC",
-            Self::Sky => "#4DA6E3",
-            Self::Blue => "#4D7AE3",
-            Self::Indigo => "#6B5CE3",
-            Self::Purple => "#9B59D9",
-            Self::Magenta => "#D94DA6",
-            Self::Pink => "#E36B96",
-            Self::Rose => "#E66673",
-            Self::Slate => "#8C949E",
+            Self::Coral => "#F05C4D".to_string(),
+            Self::Orange => "#FF8A1A".to_string(),
+            Self::Gold => "#FFBF33".to_string(),
+            Self::Yellow => "#FFE14D".to_string(),
+            Self::Lime => "#A3D94D".to_string(),
+            Self::Green => "#4DC775".to_string(),
+            Self::Teal => "#4DC7B0".to_string(),
+            Self::Cyan => "#4DC7CC".to_string(),
+            Self::Sky => "#4DA6E3".to_string(),
+            Self::Blue => "#4D7AE3".to_string(),
+            Self::Indigo => "#6B5CE3".to_string(),
+            Self::Purple => "#9B59D9".to_string(),
+            Self::Magenta => "#D94DA6".to_string(),
+            Self::Pink => "#E36B96".to_string(),
+            Self::Rose => "#E66673".to_string(),
+            Self::Slate => "#8C949E".to_string(),
+            Self::Custom(hex) => hex.clone(),
         }
     }
 
@@ -227,11 +283,51 @@ impl TrackColor {
             TrackColor::Rose,
             TrackColor::Slate,
         ];
-        // BUG-064 FIX: Use a prime stride (7) to distribute colors evenly.
-        // A direct modulo (index % 16) produces a sequential rainbow rainbow gradient
-        // which creates indistinguishable contiguous segments on very large projects.
-        ALL[(index * 7) % ALL.len()]
+        if index < 16 {
+            // BUG-064 FIX: Use a prime stride (7) to distribute colors evenly.
+            // A direct modulo (index % 16) produces a sequential rainbow gradient
+            // which creates indistinguishable contiguous segments on very large projects.
+            ALL[(index * 7) % ALL.len()].clone()
+        } else {
+            // BUG-A067 FIX: Procedural HSL generation for tracks > 15
+            // Golden ratio spread (137.508 degrees) ensures optimal hue distribution
+            let hue = (index as f32 * 137.508) % 360.0;
+            let saturation = 0.75; // 75%
+            let lightness = 0.60;  // 60%
+            let hex = hsl_to_hex(hue, saturation, lightness);
+            TrackColor::Custom(hex)
+        }
     }
+}
+
+/// Helper for procedural `TrackColor::for_index()` generation.
+fn hsl_to_hex(h: f32, s: f32, l: f32) -> String {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = h / 60.0;
+    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
+    let (mut r, mut g, mut b) = if h_prime < 1.0 {
+        (c, x, 0.0)
+    } else if h_prime < 2.0 {
+        (x, c, 0.0)
+    } else if h_prime < 3.0 {
+        (0.0, c, x)
+    } else if h_prime < 4.0 {
+        (0.0, x, c)
+    } else if h_prime < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = l - c / 2.0;
+    r += m;
+    g += m;
+    b += m;
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8
+    )
 }
 
 // ── Track Type ─────────────────────────────────────────────────────────

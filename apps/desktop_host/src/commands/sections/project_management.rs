@@ -32,7 +32,15 @@ fn new_project(
 ) -> Result<DeltaMutationResponse, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    
+    let runtime_sample_rate = handle
+        .playback_state
+        .lock()
+        .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?
+        .sample_rate;
+
     let mut new = dream_models::project::Project::default();
+    new.sample_rate = runtime_sample_rate;
     new.normalize_invariants();
     refresh_offline_flags(&mut new);
     *project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())? = new.clone();
@@ -299,6 +307,28 @@ fn open_project(
         // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
         // keyword matcher hits on substrings like "shaper" in "ShaperBox".
         let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|e| e.to_string())?;
+        
+        let runtime_sample_rate = handle
+            .playback_state
+            .lock()
+            .map_err(|e| e.to_string())?
+            .sample_rate;
+
+        // BUG-A010 FIX: Validate sample rate to prevent silent playback speed/pitch distortion
+        if (project.sample_rate - runtime_sample_rate).abs() > 1.0 {
+            log::warn!(
+                "[OpenProject] Sample rate mismatch! Project: {}Hz, Audio Device: {}Hz. Loading aborted to prevent audio distortion.",
+                project.sample_rate,
+                runtime_sample_rate
+            );
+            return Err(format!(
+                "Sample rate mismatch: The project was saved at {} Hz, but your audio hardware is running at {} Hz. \
+                 Please change your device's sample rate in OS settings or use a different device to open this project correctly.",
+                project.sample_rate.round(),
+                runtime_sample_rate.round()
+            ));
+        }
+
         normalized_empty_tracks_on_load = report.default_tracks_injected;
         project
     };

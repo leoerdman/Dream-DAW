@@ -31,10 +31,10 @@ fn close_plugin_window_cmd(
         let plugin_id_clone = plugin_id.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
-            let result = (|| {
+            let result = {
                 let mut host = host_arc.lock();
                 host.close_editor(instance_id).map_err(|e| e.to_string())
-            })();
+            };
             let _ = tx.send(result);
         })
         .map_err(|e| format!("Failed to schedule editor close on main thread: {e}"))?;
@@ -95,10 +95,10 @@ fn close_plugin_window_for_slot(
         let slot_id_log = slot_id.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
-            let result = (|| {
+            let result = {
                 let mut host = host_arc.lock();
                 host.close_editor(instance_id).map_err(|e| e.to_string())
-            })();
+            };
             let _ = tx.send(result);
         })
         .map_err(|e| format!("Failed to schedule editor close on main thread: {e}"))?;

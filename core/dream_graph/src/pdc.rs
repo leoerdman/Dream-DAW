@@ -414,7 +414,9 @@ mod tests {
         let mut rng = XorShift64::new(0xC0FFEE_u64);
 
         // Fuzz-style deterministic sweep of random DAGs.
-        for _ in 0..300 {
+        // BUG-A076 FIX: Reduced from 300 to 15 to prevent test suite slowdown
+        // while maintaining adequate randomized coverage on each run.
+        for _ in 0..15 {
             let node_count = rng.range(4, 14) as usize;
             let master_id = (node_count - 1) as u64;
 

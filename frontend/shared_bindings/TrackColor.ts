@@ -3,7 +3,7 @@
 /**
  * Predefined track colors matching the Ableton-style palette.
  *
- * 16-color palette ported from Swift `TrackColor` enum.
- * Each variant maps to a specific hex value for the frontend.
+ * 16-color palette ported from Swift `TrackColor` enum, 
+ * plus unlimited user hex colors.
  */
-export type TrackColor = "Coral" | "Orange" | "Gold" | "Yellow" | "Lime" | "Green" | "Teal" | "Cyan" | "Sky" | "Blue" | "Indigo" | "Purple" | "Magenta" | "Pink" | "Rose" | "Slate";
+export type TrackColor = "Coral" | "Orange" | "Gold" | "Yellow" | "Lime" | "Green" | "Teal" | "Cyan" | "Sky" | "Blue" | "Indigo" | "Purple" | "Magenta" | "Pink" | "Rose" | "Slate" | { "Custom": string };

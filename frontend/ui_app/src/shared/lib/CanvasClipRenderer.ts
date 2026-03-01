@@ -147,7 +147,7 @@ export class CanvasClipRenderer {
         this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack, selectedTracks);
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
-        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
+        const hasClipSelection = this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
         this._drawMarquee(ctx, vp, marquee);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
@@ -155,7 +155,6 @@ export class CanvasClipRenderer {
 
         // FIX-3: Hide edit cursor when marquee is active OR clips are selected.
         // PERF FIX: Compute once, pass to _drawRuler to avoid duplicate O(N) scan per frame.
-        const hasClipSelection = clips.some(c => c.selected);
         if (!hasClipSelection && !marquee) {
             this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
         }
@@ -407,7 +406,7 @@ export class CanvasClipRenderer {
         range: VisibleRange,
         sampleRate: number,
         automationVisible: boolean,
-    ): void => {
+    ): boolean => {
         const bufferBeats = 2;
         // BUG-104 FIX: Allow GC of huge arrays when project is cleared or zoomed in drastically.
         // If the buffer retains > 1024 slots but we're only viewing a few clips, discard it.
@@ -441,6 +440,8 @@ export class CanvasClipRenderer {
         for (const clip of filtered) {
             this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible);
         }
+
+        return hasAnySelected;
     }
 
     private readonly _drawSingleClip = (

@@ -68,10 +68,11 @@ impl Command for ResizeClipCommand {
             new_position,
             new_duration,
             self.allow_stretch,
+            None,
         ) {
             // BUG-017 FIX: Return the MIDI error (not audio error) when both fail.
             if let Err(midi_err) =
-                mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)
+                mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration, None)
             {
                 return Err(OrchestratorError::MutatorFailed(midi_err));
             }

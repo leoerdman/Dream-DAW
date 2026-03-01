@@ -239,16 +239,26 @@ export function useAudioFailoverRecovery(args: {
 export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
     useEffect(() => {
         startTelemetryLoop();
-        // Permanent retry: if telemetry dies mid-session (error, delta reset, etc.),
-        // this ensures it recovers automatically within 2 seconds.
-        const retryId = setInterval(() => {
+        let retryCount = 0;
+        const maxRetries = 10;
+
+        const retryId = window.setInterval(() => {
             const running = useEngineStore.getState().telemetryRunning;
             if (!running) {
+                if (retryCount >= maxRetries) {
+                    console.error('[Dream] Telemetry failed to start after maximum retries. Giving up.');
+                    window.clearInterval(retryId);
+                    return;
+                }
                 console.warn('[Dream] Telemetry not running — retrying startTelemetryLoop()');
                 startTelemetryLoop();
+                retryCount++;
+            } else {
+                // Telemetry successfully started, no need to keep polling
+                window.clearInterval(retryId);
             }
         }, 2000);
-        return () => clearInterval(retryId);
+        return () => window.clearInterval(retryId);
     }, [startTelemetryLoop]);
 }
 export function useInitialLayoutSync(): void {

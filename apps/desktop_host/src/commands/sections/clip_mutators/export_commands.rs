@@ -1,3 +1,51 @@
+use std::fmt;
+
+#[derive(Debug)]
+pub enum ExportError {
+    PathNotWritable(String, String),
+    StateError(String),
+    UnsupportedRange(String),
+    UnsupportedFormat(String),
+    InvalidSelectedRange,
+    LockError,
+    EngineCommandFailed(String),
+    JobError(String),
+    BounceError(String),
+}
+
+impl std::error::Error for ExportError {}
+
+impl fmt::Display for ExportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PathNotWritable(path, err) => write!(f, "Export path '{}' is not writable: {}", path, err),
+            Self::StateError(msg) => write!(f, "Application state error: {}", msg),
+            Self::UnsupportedRange(range) => write!(f, "Unsupported export range: {}. Use 'full', 'loop', or 'selected'.", range),
+            Self::UnsupportedFormat(fmt) => write!(f, "Unsupported export format: {}. Use 'wav' or 'mp3'.", fmt),
+            Self::InvalidSelectedRange => write!(f, "Selected range requires valid start_frame and end_frame"),
+            Self::LockError => write!(f, "Application state error. Please restart Dream DAW."),
+            Self::EngineCommandFailed(msg) => write!(f, "Engine command failed: {}", msg),
+            Self::JobError(msg) => write!(f, "Job error: {}", msg),
+            Self::BounceError(msg) => write!(f, "Bounce error: {}", msg),
+        }
+    }
+}
+
+impl serde::Serialize for ExportError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl From<String> for ExportError {
+    fn from(s: String) -> Self {
+        ExportError::StateError(s)
+    }
+}
+
 fn restore_slot_state_for_export(
     plugin_host_state: &PluginHostState,
     slot: &dream_models::project::PluginSlot,
@@ -89,7 +137,7 @@ async fn export_mix_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<String, String> {
+) -> Result<String, ExportError> {
     let (rt_sample_rate_hz, rt_buffer_frames) = {
         let host = plugin_host_state.host.lock();
         let (sr, bs) = host.audio_config();
@@ -101,22 +149,16 @@ async fn export_mix_cmd(
     let project = project_state
         .project
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| ExportError::StateError(e.to_string()))?
         .clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
     if !["full", "loop", "selected"].contains(&export_range.as_str()) {
-        return Err(format!(
-            "Unsupported export range '{}'. Use 'full', 'loop', or 'selected'.",
-            settings.range
-        ));
+        return Err(ExportError::UnsupportedRange(settings.range));
     }
     let export_format = settings.format.trim().to_ascii_lowercase();
     if export_format != "wav" && export_format != "mp3" {
-        return Err(format!(
-            "Unsupported export format '{}'. Use 'wav' or 'mp3'.",
-            settings.format
-        ));
+        return Err(ExportError::UnsupportedFormat(settings.format));
     }
 
     let project_end_frame = project
@@ -144,10 +186,10 @@ async fn export_mix_cmd(
     let (start_frame, end_frame) = if export_range == "selected" {
         match (settings.start_frame, settings.end_frame) {
             (Some(s), Some(e)) if e > s => (s, e),
-            _ => return Err("Selected range requires valid start_frame and end_frame".to_string()),
+            _ => return Err(ExportError::InvalidSelectedRange),
         }
     } else if export_range == "loop" {
-        let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| ExportError::LockError)?;
         if state.loop_enabled && state.loop_end > state.loop_start {
             (state.loop_start, state.loop_end)
         } else {
@@ -159,7 +201,7 @@ async fn export_mix_cmd(
 
     let local_pool = build_local_pool_for_project(&project, &clip_pool_state)?;
 
-    let export_bpm = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm;
+    let export_bpm = handle.playback_state.lock().map_err(|_| ExportError::LockError)?.bpm;
     let cfg = BounceConfig {
         output_path: settings.output_path.clone(),
         sample_rate: settings.sample_rate,
@@ -183,7 +225,7 @@ async fn export_mix_cmd(
     // path might be locked by a media player.
     let temp_output_path = format!("{}.tmp", settings.output_path);
     if let Err(e) = std::fs::File::create(&temp_output_path) {
-        return Err(format!("Export path '{}' is not writable: {}", settings.output_path, e));
+        return Err(ExportError::PathNotWritable(settings.output_path, e.to_string()));
     }
 
     // ── Ensure external plugin runtime bindings are ready for export ──
@@ -342,17 +384,17 @@ async fn export_mix_cmd(
     //    triggering the VST3 passthrough guard → all FX/instruments silent.
     // Fix: stop playback FIRST, wait for quiescence, THEN reactivate.
     let was_playing = {
-        let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        let state = handle.playback_state.lock().map_err(|_| ExportError::LockError)?;
         state.is_playing
     };
     if was_playing {
-        push_command(&handle, EngineCommand::SetPlay(false))?;
+        push_command(&handle, EngineCommand::SetPlay(false)).map_err(|e| ExportError::EngineCommandFailed(e.to_string()))?;
         let timeline_sr = {
-            let state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+            let state = handle.playback_state.lock().map_err(|_| ExportError::LockError)?;
             state.sample_rate
         };
         {
-            let mut state = handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+            let mut state = handle.playback_state.lock().map_err(|_| ExportError::LockError)?;
             state.is_playing = false;
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
@@ -373,7 +415,7 @@ async fn export_mix_cmd(
     // This MUST happen after quiescence wait so the command is drained
     // in the next callback cycle. After this, the RT callback will skip
     // all try_lock() calls on shared PluginInstanceArc objects.
-    push_command(&handle, EngineCommand::SetExportActive(true))?;
+    push_command(&handle, EngineCommand::SetExportActive(true)).map_err(|e| ExportError::EngineCommandFailed(e.to_string()))?;
     // BUF-E04 FIX: Adaptive wait for the RT callback to drain SetExportActive.
     // The old hardcoded 50ms was insufficient at high buffer sizes (e.g.
     // 8192 frames @ 44.1kHz = 186ms callback period). Now uses the same
@@ -399,7 +441,7 @@ async fn export_mix_cmd(
 
     // Clone the command producer so we can resume playback from spawn_blocking.
     let cmd_producer = {
-        let producer_guard = handle.producer.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        let producer_guard = handle.producer.lock().map_err(|_| ExportError::LockError)?;
         // We can't clone the producer, but we need it for post-export.
         // Instead, pass the was_playing flag and resume via the app handle.
         drop(producer_guard);
@@ -432,7 +474,7 @@ async fn export_mix_cmd(
     // We'll use the AppHandle to send an IPC command to resume playback.
     let app_for_resume = app.clone();
 
-    let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
+    let (job_id, job_cancel) = start_job(&app, "export_mix", true).map_err(|e| ExportError::JobError(e))?;
 
     // Reset cancel flag and execute export as detached background worker.
     handle
@@ -484,7 +526,7 @@ async fn export_mix_cmd(
                     );
                 },
             )
-            .map_err(|e| e.to_string());
+            .map_err(|e| ExportError::BounceError(e.to_string()));
 
         // ── Reactivate plugins to RT buffer size after export ────────
         // During export, plugins were activated with OFFLINE_BUFFER_FRAMES (512).
@@ -545,7 +587,7 @@ async fn export_mix_cmd(
                     &job_id_for_finish,
                     false,
                     cancelled,
-                    Some(err),
+                    Some(err.to_string()),
                 );
             }
         }

@@ -44,10 +44,10 @@ impl Command for SplitClipCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<SplitClipResult> {
         let mut project = ctx.lock_project()?;
 
-        let result = match mutators::split_clip(&mut project, self.clip_id, self.split_frame) {
+        let result = match mutators::split_clip(&mut project, self.clip_id, self.split_frame, None) {
             Ok(r) => r,
             Err(_audio_err) => {
-                mutators::split_midi_clip(&mut project, self.clip_id, self.split_frame)?
+                mutators::split_midi_clip(&mut project, self.clip_id, self.split_frame, None)?
             }
         };
 

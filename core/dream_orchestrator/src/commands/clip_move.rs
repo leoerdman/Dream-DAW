@@ -82,6 +82,7 @@ impl Command for MoveClipCommand {
             self.clip_id,
             self.new_track_index,
             new_position,
+            None,
         ) {
             // Fall back to MIDI clip move
             if mutators::move_midi_clip(
@@ -89,6 +90,7 @@ impl Command for MoveClipCommand {
                 self.clip_id,
                 self.new_track_index,
                 new_position,
+                None,
             )
             .is_err()
             {
@@ -123,6 +125,16 @@ impl Command for MoveMultipleClipsCommand {
         // the target track by a previous iteration.
         let batch_ids: Vec<Uuid> = self.clips.iter().map(|(id, _, _)| *id).collect();
 
+        let mut clip_track_map = std::collections::HashMap::new();
+        for (idx, track) in project.tracks.iter().enumerate() {
+            for clip in &track.clips {
+                clip_track_map.insert(clip.id, idx);
+            }
+            for clip in &track.midi_clips {
+                clip_track_map.insert(clip.id, idx);
+            }
+        }
+
         for (clip_id, new_track_index, new_position_frames) in &self.clips {
             if *new_track_index >= project.tracks.len() {
                 continue; // Skip invalid moves instead of failing entire transaction
@@ -133,19 +145,9 @@ impl Command for MoveMultipleClipsCommand {
             }
 
             let new_position = AbsoluteTime::new(*new_position_frames);
-            let mut old_track_index_opt = None;
-
-            for (idx, track) in project.tracks.iter().enumerate() {
-                if track.clips.iter().any(|clip| clip.id == *clip_id)
-                    || track.midi_clips.iter().any(|clip| clip.id == *clip_id)
-                {
-                    old_track_index_opt = Some(idx);
-                    break;
-                }
-            }
-
-            let old_track_index = match old_track_index_opt {
-                Some(idx) => idx,
+            
+            let old_track_index = match clip_track_map.get(clip_id) {
+                Some(&idx) => idx,
                 None => continue,
             };
 
@@ -155,6 +157,7 @@ impl Command for MoveMultipleClipsCommand {
                 *new_track_index,
                 new_position,
                 &batch_ids,
+                Some(old_track_index),
             );
 
             if audio_err.is_err()
@@ -164,6 +167,7 @@ impl Command for MoveMultipleClipsCommand {
                     *new_track_index,
                     new_position,
                     &batch_ids,
+                    Some(old_track_index),
                 )
                 .is_err()
             {

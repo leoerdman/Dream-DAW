@@ -42,7 +42,16 @@ pub fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f
 pub fn find_clip_location(
     project: &Project,
     clip_id: Uuid,
+    track_hint: Option<usize>,
 ) -> Result<(usize, usize), MutatorError> {
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &project.tracks[track_idx];
+            if let Some(clip_idx) = track.clips.iter().position(|c| c.id == clip_id) {
+                return Ok((track_idx, clip_idx));
+            }
+        }
+    }
     for (track_idx, track) in project.tracks.iter().enumerate() {
         for (clip_idx, clip) in track.clips.iter().enumerate() {
             if clip.id == clip_id {
@@ -56,7 +65,16 @@ pub fn find_clip_location(
 pub fn find_midi_clip_location(
     project: &Project,
     clip_id: Uuid,
+    track_hint: Option<usize>,
 ) -> Result<(usize, usize), MutatorError> {
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &project.tracks[track_idx];
+            if let Some(clip_idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                return Ok((track_idx, clip_idx));
+            }
+        }
+    }
     for (track_idx, track) in project.tracks.iter().enumerate() {
         if let Some(clip_idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
             return Ok((track_idx, clip_idx));
@@ -68,7 +86,17 @@ pub fn find_midi_clip_location(
 pub fn find_and_remove_clip(
     project: &mut Project,
     clip_id: Uuid,
+    track_hint: Option<usize>,
 ) -> Result<(usize, AudioClip), MutatorError> {
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &mut project.tracks[track_idx];
+            if let Some(clip_idx) = track.clips.iter().position(|c| c.id == clip_id) {
+                let clip = track.clips.remove(clip_idx);
+                return Ok((track_idx, clip));
+            }
+        }
+    }
     for (track_idx, track) in project.tracks.iter_mut().enumerate() {
         if let Some(clip_idx) = track.clips.iter().position(|c| c.id == clip_id) {
             let clip = track.clips.remove(clip_idx);

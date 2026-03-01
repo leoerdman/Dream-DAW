@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { FlowCanvas } from './FlowCanvas';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -24,10 +24,11 @@ export function FlowSynthOverlay() {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, closeFlowEditor]);
 
+    const intervalRef = useRef<number | null>(null);
+
     useEffect(() => {
         if (!isOpen) return;
 
-        let intervalId: number | null = null;
         let lastFreeRunBucket = -1;
         const activeNotes = new Set<string>();
 
@@ -86,9 +87,16 @@ export function FlowSynthOverlay() {
             }
         };
 
-        intervalId = window.setInterval(tick, 40);
+        if (intervalRef.current !== null) {
+            window.clearInterval(intervalRef.current);
+        }
+        intervalRef.current = window.setInterval(tick, 40);
+
         return () => {
-            if (intervalId !== null) window.clearInterval(intervalId);
+            if (intervalRef.current !== null) {
+                window.clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
         };
     }, [isOpen]);
 

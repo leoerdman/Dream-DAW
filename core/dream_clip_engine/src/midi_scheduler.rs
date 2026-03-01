@@ -14,11 +14,8 @@
 //   - No I/O, no locks, no panics
 //
 // ═══════════════════════════════════════════════════════════════════════════
-
-use crate::scheduler::LoopRegion;
 use dream_models::midi::MidiClip;
 use num_traits::ToPrimitive;
-
 /// A MIDI note event scheduled for the current buffer.
 ///
 /// Contains timing relative to the output buffer for sample-accurate triggering.
@@ -29,31 +26,24 @@ pub struct ScheduledNote {
     pub velocity: u8,
     /// Stable note identity for pairing note-on/off across loop wraps.
     pub note_uid: u64,
-
     /// Frame offset within the current buffer where this note starts.
     /// For notes that started before this buffer, this is 0.
     pub buffer_onset: usize,
-
     /// Frame offset within the current buffer where this note ends.
     /// For notes that extend beyond this buffer, this equals `frame_count`.
     pub buffer_offset_end: usize,
-
     /// Whether this note is starting in this buffer (trigger note-on).
     pub is_note_on: bool,
-
     /// Whether this note is ending in this buffer (trigger note-off).
     pub is_note_off: bool,
 }
-
 /// Schedules MIDI notes from clips for the current playback buffer.
 pub struct MidiScheduler;
-
 impl MidiScheduler {
     #[inline]
     fn i64_nonneg_to_usize(value: i64) -> usize {
         usize::try_from(value.max(0)).unwrap_or(usize::MAX)
     }
-
     #[inline]
     fn velocity_with_fades(raw_velocity: u8, fade_gain: f64) -> u8 {
         let scaled = (f64::from(raw_velocity) * fade_gain)
@@ -61,7 +51,6 @@ impl MidiScheduler {
             .clamp(0.0, 127.0);
         scaled.to_u8().unwrap_or(127).min(127)
     }
-
     #[inline]
     fn note_uid(clip: &MidiClip, note: &dream_models::midi::MidiNote) -> u64 {
         let clip_u128 = clip.id.as_u128();
@@ -80,7 +69,6 @@ impl MidiScheduler {
         x = x.wrapping_mul(0x94d049bb133111eb);
         x ^ (x >> 31)
     }
-
     #[inline]
     fn sort_and_dedup(events: &mut Vec<ScheduledNote>) {
         events.sort_by(|a, b| {
@@ -92,11 +80,9 @@ impl MidiScheduler {
                 .then_with(|| a.pitch.cmp(&b.pitch))
                 .then_with(|| a.note_uid.cmp(&b.note_uid))
         });
-
         if events.len() <= 1 {
             return;
         }
-
         let mut write = 0usize;
         for read in 0..events.len() {
             if write > 0 {
@@ -122,7 +108,6 @@ impl MidiScheduler {
         }
         events.truncate(write);
     }
-
     /// Fills caller-provided output with active MIDI notes (zero alloc reuse).
     pub fn fill_active(
         clips: &[MidiClip],
@@ -135,44 +120,35 @@ impl MidiScheduler {
         // (matching ClipScheduler::fill_active which already has this guard).
         let frame_count_i64 = i64::try_from(frame_count).unwrap_or(i64::MAX);
         let buffer_end = playhead_pos.saturating_add(frame_count_i64);
-
         for clip in clips {
             // Skip muted clips — they remain visible but produce no MIDI output.
             if clip.is_disabled {
                 continue;
             }
-
             let clip_start = clip.position.sample_frame;
             let clip_end = clip.end_position().sample_frame;
-
             // Skip clips entirely outside the buffer window.
             if clip_end <= playhead_pos || clip_start >= buffer_end {
                 continue;
             }
-
             for note in &clip.notes {
                 let note_abs_start = clip_start + note.start_frame;
                 let note_abs_end = clip_start + note.end_frame();
-
                 if note_abs_end <= playhead_pos || note_abs_start >= buffer_end {
                     continue;
                 }
-
                 let onset = if note_abs_start >= playhead_pos {
                     Self::i64_nonneg_to_usize(note_abs_start - playhead_pos)
                 } else {
                     0
                 };
-
                 let offset_end = if note_abs_end <= buffer_end {
                     Self::i64_nonneg_to_usize(note_abs_end - playhead_pos)
                 } else {
                     frame_count
                 };
-
                 let is_note_on = note_abs_start >= playhead_pos && note_abs_start < buffer_end;
                 let is_note_off = note_abs_end > playhead_pos && note_abs_end <= buffer_end;
-
                 let clip_fade_in = clip.fade_in_frames.max(0).to_f64().unwrap_or(0.0);
                 let clip_fade_out = clip.fade_out_frames.max(0).to_f64().unwrap_or(0.0);
                 let clip_len = clip.duration.sample_frame.max(1).to_f64().unwrap_or(1.0);
@@ -190,7 +166,6 @@ impl MidiScheduler {
                 };
                 let velocity_scaled =
                     Self::velocity_with_fades(note.velocity, fade_in_gain.min(fade_out_gain));
-
                 // AUD-208 FIX: Per MIDI 1.0 spec, velocity-0 note-on is note-off
                 // (Running Status optimization). Some MIDI files/controllers use this.
                 // Without this, such notes create a stuck note with velocity=1 that
@@ -207,7 +182,6 @@ impl MidiScheduler {
                     });
                     continue;
                 }
-
                 out.push(ScheduledNote {
                     pitch: note.pitch,
                     velocity: velocity_scaled.max(1),
@@ -219,56 +193,49 @@ impl MidiScheduler {
                 });
             }
         }
-
         Self::sort_and_dedup(out);
     }
-
-
     /// Loop-aware MIDI scheduling into caller-provided scratch output.
     pub fn fill_active_looped_with_tmp(
         clips: &[MidiClip],
         playhead_pos: i64,
         frame_count: usize,
-        loop_region: Option<&LoopRegion>,
+        loop_region: Option<(i64, i64)>,
         out: &mut Vec<ScheduledNote>,
         tmp: &mut Vec<ScheduledNote>,
     ) {
-        let lr = match loop_region {
-            Some(lr) if lr.is_valid() => lr,
+        let (loop_start, loop_end) = match loop_region {
+            Some((start, end)) if end >= start + 32 && start >= 0 => (start, end),
             _ => {
                 Self::fill_active(clips, playhead_pos, frame_count, out);
                 return;
             }
         };
-
         // ── Guard: playhead genuinely past the loop ────────────────────
         // When the user places the cursor AFTER the loop region, the scheduler
         // must NOT wrap it back into the loop. The transport only wraps when
-        // `position < lr.end` (Playhead::advance). If the playhead is at or
-        // past lr.end, normal non-looped scheduling is correct — `fill_active`
+        // `position < loop_end` (Playhead::advance). If the playhead is at or
+        // past loop_end, normal non-looped scheduling is correct — `fill_active`
         // will naturally produce zero notes because no clips exist there.
         //
         // The only edge case: `midi_playhead_pos` is captured BEFORE the
         // transport advance. On a wrap, the transport moves position from
-        // lr.end - Δ  to  lr.start + Δ. So `midi_playhead_pos` is always
-        // < lr.end during active looped playback. If it's >= lr.end, the user
+        // loop_end - Δ  to  loop_start + Δ. So `midi_playhead_pos` is always
+        // < loop_end during active looped playback. If it's >= loop_end, the user
         // has explicitly seeked past the loop → no looping.
-        if playhead_pos >= lr.end {
+        if playhead_pos >= loop_end {
             Self::fill_active(clips, playhead_pos, frame_count, out);
             return;
         }
-
         let frame_count_i64 = i64::try_from(frame_count).unwrap_or(i64::MAX);
         let buffer_end = playhead_pos.saturating_add(frame_count_i64);
         // If the buffer fits entirely within the loop (no wrap crossing),
         // standard scheduling is sufficient.
-        if buffer_end <= lr.end {
+        if buffer_end <= loop_end {
             Self::fill_active(clips, playhead_pos, frame_count, out);
             return;
         }
-
         out.clear();
-
         let mut current_playhead = playhead_pos;
         let mut frames_remaining = frame_count;
         let mut current_buffer_offset = 0;
@@ -276,23 +243,19 @@ impl MidiScheduler {
         // Prevents infinite loop from corrupted loop regions on RT thread.
         let mut safety_iterations = 0u32;
         const MAX_LOOP_ITERATIONS: u32 = 16;
-
         while frames_remaining > 0 {
             safety_iterations += 1;
             if safety_iterations > MAX_LOOP_ITERATIONS {
                 break;
             }
-
-            let frames_to_end = Self::i64_nonneg_to_usize(lr.end - current_playhead);
+            let frames_to_end = Self::i64_nonneg_to_usize(loop_end - current_playhead);
             let chunk_frames = frames_remaining.min(frames_to_end);
-
             // STAGE3-02 FIX: Same infinite loop guard as scheduler.rs STAGE3-01.
-            // If current_playhead == lr.end, chunk_frames is 0 and the loop spins forever.
+            // If current_playhead == loop_end, chunk_frames is 0 and the loop spins forever.
             if chunk_frames == 0 {
-                current_playhead = lr.start;
+                current_playhead = loop_start;
                 continue;
             }
-
             Self::fill_active(clips, current_playhead, chunk_frames, tmp);
             for mut note in tmp.iter().copied() {
                 note.buffer_onset += current_buffer_offset;
@@ -301,10 +264,8 @@ impl MidiScheduler {
                 note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
                 out.push(note);
             }
-
             frames_remaining -= chunk_frames;
             current_buffer_offset += chunk_frames;
-
             if frames_remaining > 0 {
                 // Loop boundary safety: explicitly turn off notes that cross the wrap point.
                 //
@@ -338,37 +299,29 @@ impl MidiScheduler {
                         }
                     }
                 }
-
                 // Wrap around to loop start
-                current_playhead = lr.start;
+                current_playhead = loop_start;
             }
         }
-
         Self::sort_and_dedup(out);
     }
-
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use dream_models::midi::MidiNote;
     use dream_models::time::AbsoluteTime;
-
     #[derive(Clone, Copy)]
     struct Rng32 {
         state: u32,
     }
-
     impl Rng32 {
         fn new(seed: u32) -> Self {
             Self { state: seed.max(1) }
         }
-
         fn next_u32(&mut self) -> u32 {
             let mut x = self.state;
             x ^= x << 13;
@@ -377,29 +330,25 @@ mod tests {
             self.state = x;
             x
         }
-
         fn range_i64(&mut self, min: i64, max_exclusive: i64) -> i64 {
             let span = (max_exclusive - min).max(1) as u64;
             min + (self.next_u32() as u64 % span) as i64
         }
-
         fn range_u8(&mut self, min: u8, max_inclusive: u8) -> u8 {
             let span = (max_inclusive - min).max(1) as u32 + 1;
             min + (self.next_u32() % span) as u8
         }
     }
-
     fn make_midi_clip(pos: i64, dur: i64, notes: Vec<MidiNote>) -> MidiClip {
         let mut clip = MidiClip::new("Test", AbsoluteTime::new(pos), AbsoluteTime::new(dur));
         clip.notes = notes;
         clip
     }
-
     fn looped_events(
         clips: &[MidiClip],
         playhead_pos: i64,
         frame_count: usize,
-        loop_region: Option<&LoopRegion>,
+        loop_region: Option<(i64, i64)>,
     ) -> Vec<ScheduledNote> {
         let mut out = Vec::new();
         let mut tmp = Vec::new();
@@ -419,7 +368,6 @@ mod tests {
         MidiScheduler::fill_active_looped_with_tmp(clips, pos, fc, None, &mut out, &mut tmp);
         out
     }
-
     #[test]
     fn note_inside_buffer() {
         let clip = make_midi_clip(
@@ -429,7 +377,6 @@ mod tests {
                 MidiNote::new(60, 100, 100, 500), // starts at frame 100, 500 frames long
             ],
         );
-
         let events = find_active_tmp(&[clip], 0, 1024);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].pitch, 60);
@@ -437,7 +384,6 @@ mod tests {
         assert!(events[0].is_note_on);
         assert!(events[0].is_note_off); // ends at 600, within 1024
     }
-
     #[test]
     fn note_spans_buffer() {
         let clip = make_midi_clip(
@@ -447,14 +393,12 @@ mod tests {
                 MidiNote::new(64, 80, 0, 44100), // spans entire clip
             ],
         );
-
         let events = find_active_tmp(&[clip], 512, 1024);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].buffer_onset, 0); // already started
         assert!(!events[0].is_note_on); // started before buffer
         assert!(!events[0].is_note_off); // ends after buffer
     }
-
     #[test]
     fn note_before_buffer() {
         let clip = make_midi_clip(
@@ -464,19 +408,15 @@ mod tests {
                 MidiNote::new(60, 100, 0, 100), // ends at frame 100
             ],
         );
-
         let events = find_active_tmp(&[clip], 200, 1024);
         assert!(events.is_empty()); // note ended before buffer
     }
-
     #[test]
     fn note_after_buffer() {
         let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 2000, 500)]);
-
         let events = find_active_tmp(&[clip], 0, 1024);
         assert!(events.is_empty()); // note starts after buffer
     }
-
     #[test]
     fn multiple_notes_sorted_by_onset() {
         let clip = make_midi_clip(
@@ -488,14 +428,12 @@ mod tests {
                 MidiNote::new(67, 100, 300, 200),
             ],
         );
-
         let events = find_active_tmp(&[clip], 0, 1024);
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].pitch, 64); // onset=100 (first)
         assert_eq!(events[1].pitch, 67); // onset=300
         assert_eq!(events[2].pitch, 60); // onset=500
     }
-
     #[test]
     fn clip_offset_applied() {
         // Clip starts at absolute frame 10000
@@ -506,21 +444,18 @@ mod tests {
                 MidiNote::new(60, 100, 100, 500), // absolute: 10100–10600
             ],
         );
-
         // Buffer at 10000..11024
         let events = find_active_tmp(&[clip], 10000, 1024);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].buffer_onset, 100); // 10100 - 10000
         assert!(events[0].is_note_on);
     }
-
     #[test]
     fn empty_clip_returns_empty() {
         let clip = make_midi_clip(0, 44100, vec![]);
         let events = find_active_tmp(&[clip], 0, 1024);
         assert!(events.is_empty());
     }
-
     #[test]
     fn notes_with_same_onset_are_sorted_by_pitch_as_tie_break() {
         let clip = make_midi_clip(
@@ -531,29 +466,22 @@ mod tests {
                 MidiNote::new(60, 100, 100, 200),
             ],
         );
-
         let events = find_active_tmp(&[clip], 0, 256);
         let at_100: Vec<_> = events.iter().filter(|e| e.buffer_onset == 100).collect();
         assert_eq!(at_100.len(), 2);
         assert_eq!(at_100[0].pitch, 60);
         assert_eq!(at_100[1].pitch, 67);
     }
-
     // ── Loop-Aware Scheduling Tests ────────────────────────────────────
-
     #[test]
     fn looped_no_wrap_same_as_standard() {
         let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
-        let lr = LoopRegion::new(0, 44100);
-
         let standard = find_active_tmp(std::slice::from_ref(&clip), 0, 1024);
-        let looped = looped_events(&[clip], 0, 1024, Some(&lr));
-
+        let looped = looped_events(&[clip], 0, 1024, Some((0, 44100)));
         assert_eq!(standard.len(), looped.len());
         assert_eq!(standard[0].pitch, looped[0].pitch);
         assert_eq!(standard[0].buffer_onset, looped[0].buffer_onset);
     }
-
     #[test]
     fn looped_note_at_loop_start_after_wrap() {
         // This is the exact bug scenario:
@@ -570,10 +498,7 @@ mod tests {
                 MidiNote::new(36, 100, 0, 200), // Kick at frame 0, 200 frames long
             ],
         );
-        let lr = LoopRegion::new(0, 4000);
-
-        let events = looped_events(&[clip], 3800, 512, Some(&lr));
-
+        let events = looped_events(&[clip], 3800, 512, Some((0, 4000)));
         // Should find the note in the post-wrap segment
         assert_eq!(events.len(), 1, "Kick at loop start must be scheduled");
         assert_eq!(events[0].pitch, 36);
@@ -581,7 +506,6 @@ mod tests {
         // Buffer onset should be at pre_wrap_frames (200) + note offset (0) = 200
         assert_eq!(events[0].buffer_onset, 200);
     }
-
     #[test]
     fn looped_notes_both_segments() {
         // Note near loop end AND note at loop start
@@ -593,11 +517,8 @@ mod tests {
                 MidiNote::new(42, 100, 3900, 50), // Near loop end
             ],
         );
-        let lr = LoopRegion::new(0, 4000);
-
         // Playhead at 3800, buffer 512: pre-wrap 200 frames, post-wrap 312 frames
-        let events = looped_events(&[clip], 3800, 512, Some(&lr));
-
+        let events = looped_events(&[clip], 3800, 512, Some((0, 4000)));
         assert_eq!(events.len(), 2, "Should schedule notes from both segments");
         // First should be the hi-hat near loop end (onset = 3900 - 3800 = 100)
         assert_eq!(events[0].pitch, 42);
@@ -606,14 +527,12 @@ mod tests {
         assert_eq!(events[1].pitch, 36);
         assert_eq!(events[1].buffer_onset, 200);
     }
-
     #[test]
     fn looped_no_region_falls_back() {
         let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
         let events = looped_events(&[clip], 0, 1024, None);
         assert_eq!(events.len(), 1);
     }
-
     #[test]
     fn looped_with_offset_loop_region() {
         // Loop region doesn't start at 0
@@ -626,19 +545,15 @@ mod tests {
                 MidiNote::new(60, 100, 0, 200), // absolute: 10000..10200
             ],
         );
-        let lr = LoopRegion::new(10000, 14000);
-
         // Playhead at 13800, buffer 512 → crosses 14000
         // Pre-wrap: 200 frames (13800..14000)
         // Post-wrap: 312 frames (10000..10312)
-        let events = looped_events(&[clip], 13800, 512, Some(&lr));
-
+        let events = looped_events(&[clip], 13800, 512, Some((10000, 14000)));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].pitch, 60);
         assert!(events[0].is_note_on);
         assert_eq!(events[0].buffer_onset, 200);
     }
-
     #[test]
     fn dedups_identical_notes_same_frame_and_pitch() {
         let clip = make_midi_clip(
@@ -649,7 +564,6 @@ mod tests {
                 MidiNote::new(42, 110, 120, 120), // duplicate, stronger velocity
             ],
         );
-
         let events = find_active_tmp(&[clip], 0, 512);
         let on_events: Vec<_> = events
             .iter()
@@ -661,7 +575,6 @@ mod tests {
             "strongest velocity should be kept"
         );
     }
-
     #[test]
     fn loop_wrap_emits_single_forced_note_off_for_crossing_note() {
         // Note crosses loop end and should receive exactly one forced off at wrap.
@@ -670,9 +583,7 @@ mod tests {
             4000,
             vec![MidiNote::new(42, 100, 3900, 300)], // spans 3900..4200 across loop end
         );
-        let lr = LoopRegion::new(0, 4000);
-        let events = looped_events(&[clip], 3800, 512, Some(&lr));
-
+        let events = looped_events(&[clip], 3800, 512, Some((0, 4000)));
         let offs: Vec<_> = events
             .iter()
             .filter(|e| e.is_note_off && !e.is_note_on && e.pitch == 42)
@@ -687,21 +598,16 @@ mod tests {
             "forced off must happen 1 sample before wrap frame"
         );
     }
-
     #[test]
     fn stress_loop_wrap_single_note_never_duplicates_in_callback() {
         let clip = make_midi_clip(0, 4000, vec![MidiNote::new(42, 100, 0, 180)]);
-        let lr = LoopRegion::new(0, 4000);
-
         let frame_sizes = [64usize, 96, 128, 256, 192];
         let mut pos = 3890i64;
         let mut observed_on = 0usize;
         let mut observed_off = 0usize;
-
         for i in 0..200usize {
             let fc = frame_sizes[i % frame_sizes.len()];
-            let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some(&lr));
-
+            let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some((0, 4000)));
             let on_count = events
                 .iter()
                 .filter(|e| e.pitch == 42 && e.is_note_on)
@@ -710,7 +616,6 @@ mod tests {
                 .iter()
                 .filter(|e| e.pitch == 42 && e.is_note_off)
                 .count();
-
             assert!(
                 on_count <= 1,
                 "duplicate note-on in callback (i={i}, pos={pos}, fc={fc}, events={events:?})"
@@ -719,18 +624,15 @@ mod tests {
                 off_count <= 1,
                 "duplicate note-off in callback (i={i}, pos={pos}, fc={fc}, events={events:?})"
             );
-
             observed_on += on_count;
             observed_off += off_count;
-
             let next = pos + fc as i64;
-            pos = if next >= lr.end {
-                lr.start + (next - lr.end)
+            pos = if next >= 4000 {
+                0 + (next - 4000)
             } else {
                 next
             };
         }
-
         assert!(
             observed_on > 0,
             "expected at least one note-on in stress run"
@@ -740,14 +642,11 @@ mod tests {
             "expected at least one note-off in stress run"
         );
     }
-
     #[test]
     fn fuzz_scheduler_no_duplicate_events_per_callback() {
         let mut rng = Rng32::new(0xC0FF_EE11);
         let loop_len = 8192i64;
-        let lr = LoopRegion::new(0, loop_len);
         let frame_sizes = [64usize, 96, 128, 192, 256, 384, 512];
-
         for _case in 0..120 {
             let note_count = rng.range_i64(1, 28) as usize;
             let mut notes = Vec::with_capacity(note_count);
@@ -760,13 +659,11 @@ mod tests {
                 ));
             }
             let clip = make_midi_clip(0, loop_len, notes);
-
             let mut pos = rng.range_i64(0, loop_len);
             for i in 0..260usize {
                 let fc = frame_sizes
                     [(i + (rng.next_u32() as usize % frame_sizes.len())) % frame_sizes.len()];
-                let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some(&lr));
-
+                let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some((0, loop_len)));
                 let mut sigs = std::collections::HashSet::<(usize, usize, u8, u64)>::new();
                 for e in &events {
                     if e.is_note_on {
@@ -778,23 +675,19 @@ mod tests {
                     assert!(e.buffer_onset <= fc);
                     assert!(e.buffer_offset_end <= fc);
                 }
-
                 let next = pos + fc as i64;
-                pos = if next >= lr.end {
-                    lr.start + (next - lr.end)
+                pos = if next >= loop_len {
+                    0 + (next - loop_len)
                 } else {
                     next
                 };
             }
         }
     }
-
     #[test]
     fn fuzz_scheduler_event_bounds_and_order() {
         let mut rng = Rng32::new(0xA11C_ED42);
         let loop_len = 12288i64;
-        let lr = LoopRegion::new(0, loop_len);
-
         for _case in 0..80 {
             let note_count = rng.range_i64(1, 40) as usize;
             let mut notes = Vec::with_capacity(note_count);
@@ -809,8 +702,7 @@ mod tests {
             let clip = make_midi_clip(0, loop_len, notes);
             let fc = rng.range_i64(32, 1024) as usize;
             let pos = rng.range_i64(0, loop_len);
-
-            let events = looped_events(&[clip], pos, fc, Some(&lr));
+            let events = looped_events(&[clip], pos, fc, Some((0, loop_len)));
             for w in events.windows(2) {
                 let a = w[0];
                 let b = w[1];

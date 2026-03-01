@@ -1,6 +1,6 @@
 /// Imports an Ableton `.als` project and installs it as the active session.
 #[tauri::command]
-fn import_ableton_project(
+async fn import_ableton_project(
     path: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
@@ -17,12 +17,12 @@ fn import_ableton_project(
         handle,
         plugin_host_state,
         app,
-    )
+    ).await
 }
 
-/// Creates a new empty project and replaces the current one.
+/// Creates a new project from the default template.
 #[tauri::command]
-fn new_project(
+async fn new_project(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
@@ -270,7 +270,7 @@ async fn save_project_as(
 
 /// Opens a project from a file path.
 #[tauri::command]
-fn open_project(
+async fn open_project(
     path: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
@@ -289,67 +289,76 @@ fn open_project(
         .map(|s| s.eq_ignore_ascii_case("als"))
         .unwrap_or(false);
 
-    let mut normalized_empty_tracks_on_load = false;
-    let mut loaded = if importing_als {
-        let runtime_sample_rate = handle
-            .playback_state
-            .lock()
-            .map_err(|e| e.to_string())?
-            .sample_rate;
-        dream_importers::ableton::project_import::import_als_project_with_target_sample_rate(
-            &file_path,
-            Some(runtime_sample_rate),
-        )?
-    } else {
-        // CRITICAL: Do NOT call normalize_internal_plugins_for_import() here.
-        // That normalizer is intended for ALS imports (where plugin names need
-        // mapping to internal://). Calling it on native .ddpj projects destroys
-        // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
-        // keyword matcher hits on substrings like "shaper" in "ShaperBox".
-        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|e| e.to_string())?;
-        
-        let runtime_sample_rate = handle
-            .playback_state
-            .lock()
-            .map_err(|e| e.to_string())?
-            .sample_rate;
+    let runtime_sample_rate = handle
+        .playback_state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .sample_rate;
 
-        // BUG-A010 FIX: Validate sample rate to prevent silent playback speed/pitch distortion
-        if (project.sample_rate - runtime_sample_rate).abs() > 1.0 {
-            log::warn!(
-                "[OpenProject] Sample rate mismatch! Project: {}Hz, Audio Device: {}Hz. Loading aborted to prevent audio distortion.",
-                project.sample_rate,
-                runtime_sample_rate
-            );
-            return Err(format!(
-                "Sample rate mismatch: The project was saved at {} Hz, but your audio hardware is running at {} Hz. \
-                 Please change your device's sample rate in OS settings or use a different device to open this project correctly.",
-                project.sample_rate.round(),
-                runtime_sample_rate.round()
-            ));
+    // SPATIAL IO UNBLOCKING: Move massive JSON parsing arrays/Audio to background tokio thread
+    // This prevents Tauri IPC synchrony from starving the UI rendering loops during heavy ALS and DDPJ decodes.
+    let path_for_task = file_path.clone();
+    let (
+        mut loaded,
+        normalized_empty_tracks_on_load,
+        unresolved_missing_after_open,
+        missing_slots_before_auto_resolve,
+        missing_slots_after_auto_resolve,
+        auto_resolved_internal,
+        auto_resolved_external
+    ) = tauri::async_runtime::spawn_blocking(move || -> Result<(dream_models::project::Project, bool, Vec<String>, usize, usize, usize, usize), String> {
+        let (mut project, mut is_norm) = if importing_als {
+            let p = dream_importers::ableton::project_import::import_als_project_with_target_sample_rate(
+                &path_for_task,
+                Some(runtime_sample_rate),
+            )?;
+            (p, false)
+        } else {
+            let (p, report) = ProjectFile::load_with_report(&path_for_task).map_err(|e| e.to_string())?;
+            // BUG-A010 FIX: Validate sample rate to prevent silent playback speed/pitch distortion
+            if (p.sample_rate - runtime_sample_rate).abs() > 1.0 {
+                log::warn!(
+                    "[OpenProject] Sample rate mismatch! Project: {}Hz, Audio Device: {}Hz. Loading aborted to prevent audio distortion.",
+                    p.sample_rate,
+                    runtime_sample_rate
+                );
+                return Err(format!(
+                    "Sample rate mismatch: The project was saved at {} Hz, but your audio hardware is running at {} Hz. \
+                     Please change your device's sample rate in OS settings or use a different device to open this project correctly.",
+                    p.sample_rate.round(),
+                    runtime_sample_rate.round()
+                ));
+            }
+            (p, report.default_tracks_injected)
+        };
+
+        let missing_slots_before_auto_resolve = count_missing_plugin_slots(&project);
+        let mut auto_resolved_internal = 0;
+        let mut auto_resolved_external = 0;
+        if importing_als || missing_slots_before_auto_resolve > 0 {
+            let stats = auto_resolve_missing_external_plugin_slots(&mut project);
+            auto_resolved_internal = stats.replaced_internal;
+            auto_resolved_external = stats.replaced_external;
+        }
+        if importing_als {
+            for track in &mut project.tracks {
+                track.height = track.height.clamp(24.0, 120.0);
+            }
+        }
+        let als_norm_report = project.normalize_invariants();
+        if importing_als && als_norm_report.default_tracks_injected {
+            is_norm = true;
         }
 
-        normalized_empty_tracks_on_load = report.default_tracks_injected;
-        project
-    };
-    let mut als_auto_resolve_stats = MissingPluginAutoResolveStats::default();
-    let missing_slots_before_auto_resolve = count_missing_plugin_slots(&loaded);
-    if importing_als || missing_slots_before_auto_resolve > 0 {
-        als_auto_resolve_stats = auto_resolve_missing_external_plugin_slots(&mut loaded);
-    }
-    if importing_als {
-        for track in &mut loaded.tracks {
-            track.height = track.height.clamp(24.0, 120.0);
-        }
-    }
-    let als_norm_report = loaded.normalize_invariants();
-    if importing_als && als_norm_report.default_tracks_injected {
-        normalized_empty_tracks_on_load = true;
-    }
+        let missing_slots_after_auto_resolve = count_missing_plugin_slots(&project);
+        let unresolved = collect_missing_slot_labels(&project, 20);
+        Ok((project, is_norm, unresolved, missing_slots_before_auto_resolve, missing_slots_after_auto_resolve, auto_resolved_internal, auto_resolved_external))
+    })
+    .await
+    .map_err(|e| format!("JoinError: {}", e))??;
+
     normalize_runtime_external_plugin_slots(&mut loaded, &plugin_host_state);
     refresh_offline_flags(&mut loaded);
-    let missing_slots_after_auto_resolve = count_missing_plugin_slots(&loaded);
-    let unresolved_missing_after_open = collect_missing_slot_labels(&loaded, 20);
 
     let _ = plugin_host_state.unload_all_instances();
     // Best-effort preload of external slots so imported projects sound/render
@@ -486,8 +495,8 @@ fn open_project(
             track_count: loaded.track_count(),
             missing_slots_before: missing_slots_before_auto_resolve,
             missing_slots_after: missing_after,
-            auto_resolved_internal: als_auto_resolve_stats.replaced_internal,
-            auto_resolved_external: als_auto_resolve_stats.replaced_external,
+            auto_resolved_internal,
+            auto_resolved_external,
             warped_clip_count,
             warp_marker_count,
             warped_with_source_frames,
@@ -498,8 +507,8 @@ fn open_project(
         log::info!("Project opened: '{}' ({} tracks)", loaded.name, loaded.track_count());
     }
 
-    if als_auto_resolve_stats.replaced_internal > 0
-        || als_auto_resolve_stats.replaced_external > 0
+    if auto_resolved_internal > 0
+        || auto_resolved_external > 0
         || missing_slots_after_auto_resolve > 0
     {
         let _ = app.emit(
@@ -509,8 +518,8 @@ fn open_project(
                 "source": if importing_als { "als_import" } else { "project_open" },
                 "missingBefore": missing_slots_before_auto_resolve,
                 "missingAfter": missing_slots_after_auto_resolve,
-                "autoResolvedInternal": als_auto_resolve_stats.replaced_internal,
-                "autoResolvedExternal": als_auto_resolve_stats.replaced_external,
+                "autoResolvedInternal": auto_resolved_internal,
+                "autoResolvedExternal": auto_resolved_external,
                 "unresolvedMissingLabels": unresolved_missing_after_open,
             }),
         );

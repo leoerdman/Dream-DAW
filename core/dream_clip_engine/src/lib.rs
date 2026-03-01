@@ -28,4 +28,4 @@ pub use disk_streamer::{
 pub use midi_scheduler::MidiScheduler;
 pub use pool::ClipPool;
 pub use reader::ClipReader;
-pub use scheduler::{ClipScheduler, LoopRegion};
+pub use scheduler::ClipScheduler;

@@ -70,10 +70,10 @@ impl Command for DuplicateClipCommand {
             .any(|c| c.id == self.clip_id);
 
         let (new_id, new_position_frames, new_duration_frames) = if is_audio_clip {
-            let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
+            let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos, self.target_track_index, None)?;
             (dup.id, dup.position.sample_frame, dup.duration.sample_frame)
         } else {
-            let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos, self.target_track_index)?;
+            let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos, self.target_track_index, None)?;
             (dup.id, dup.position.sample_frame, dup.duration.sample_frame)
         };
 
@@ -109,14 +109,21 @@ impl Command for DuplicateMultipleClipsCommand {
         let source_ids: Vec<Uuid> = self.clips.iter().map(|(id, _, _)| *id).collect();
         let mut protected_ids: Vec<Uuid> = source_ids.clone();
 
+        let mut clip_track_map = std::collections::HashMap::new();
+        for (idx, track) in project.tracks.iter().enumerate() {
+            for clip in &track.clips {
+                clip_track_map.insert(clip.id, idx);
+            }
+            for clip in &track.midi_clips {
+                clip_track_map.insert(clip.id, idx);
+            }
+        }
+
         for (clip_id, dest_pos, dest_track) in &self.clips {
             let target_pos = dest_pos.map(AbsoluteTime::new);
             
-            let track_index = match project.tracks.iter().position(|track| {
-                track.clips.iter().any(|c| c.id == *clip_id)
-                    || track.midi_clips.iter().any(|c| c.id == *clip_id)
-            }) {
-                Some(idx) => idx,
+            let track_index = match clip_track_map.get(clip_id) {
+                Some(&idx) => idx,
                 None => continue,
             };
 
@@ -127,7 +134,7 @@ impl Command for DuplicateMultipleClipsCommand {
 
             if is_audio_clip {
                 if let Ok(dup) = mutators::duplicate_clip_with_protected(
-                    &mut project, *clip_id, target_pos, *dest_track, &protected_ids,
+                    &mut project, *clip_id, target_pos, *dest_track, &protected_ids, Some(track_index),
                 ) {
                     // Add the new ID to protected set for subsequent iterations
                     protected_ids.push(dup.id);
@@ -139,7 +146,7 @@ impl Command for DuplicateMultipleClipsCommand {
                     });
                 }
             } else if let Ok(dup) = mutators::duplicate_midi_clip_with_protected(
-                &mut project, *clip_id, target_pos, *dest_track, &protected_ids,
+                &mut project, *clip_id, target_pos, *dest_track, &protected_ids, Some(track_index),
             ) {
                 // Add the new ID to protected set for subsequent iterations
                 protected_ids.push(dup.id);

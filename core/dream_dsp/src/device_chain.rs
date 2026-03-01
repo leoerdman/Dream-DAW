@@ -421,7 +421,7 @@ mod tests {
         let ctx = ProcessContext {
             sample_rate: 44100.0,
             is_playing: true,
-            ..ProcessContext::new(sample_rate)
+            ..ProcessContext::new(44100.0)
         };
         chain.process_with_context(&mut left, &mut right, &ctx);
         assert!(left.iter().all(|s| s.abs() > 0.9));

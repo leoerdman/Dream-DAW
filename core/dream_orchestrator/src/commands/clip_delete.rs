@@ -47,9 +47,9 @@ impl Command for DeleteClipCommand {
                 id: self.clip_id.to_string(),
             })?;
 
-        if let Err(audio_err) = mutators::delete_clip(&mut project, self.clip_id) {
+        if let Err(audio_err) = mutators::delete_clip(&mut project, self.clip_id, None) {
             // Fall back to MIDI clip
-            if mutators::delete_midi_clip(&mut project, self.clip_id).is_err() {
+            if mutators::delete_midi_clip(&mut project, self.clip_id, None).is_err() {
                 return Err(OrchestratorError::MutatorFailed(audio_err));
             }
         }

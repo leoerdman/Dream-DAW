@@ -108,9 +108,11 @@ impl LiveGraph {
         // and pay the deallocation cost. By pushing to `garbage`, we guarantee
         // the UI thread holds a strong ref and pays the drop cost on the next swap.
         // parking_lot locks never poison, lock directly
-        let mut trash = self.garbage.lock();
-        trash.clear(); // Drop previous plans on the UI thread
-        trash.push(old_arc);
+        let _old_trash = {
+            let mut trash = self.garbage.lock();
+            std::mem::replace(&mut *trash, vec![old_arc])
+        };
+        // _old_trash drops here, outside the lock, preventing latency spikes.
 
         // GR-027 FIX: Increment generation counter for staleness tracking.
         self.generation.fetch_add(1, AtomicOrdering::Release);

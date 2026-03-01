@@ -135,10 +135,10 @@ fn track_color_16_variants() {
 }
 
 #[test]
-fn track_color_for_index_cycles() {
+fn track_color_for_index_generates_custom_after_15() {
     assert_eq!(TrackColor::for_index(0), TrackColor::Coral);
     assert_eq!(TrackColor::for_index(15), TrackColor::Blue);
-    assert_eq!(TrackColor::for_index(16), TrackColor::Coral); // Wraps around
+    assert_eq!(TrackColor::for_index(16), TrackColor::Custom("#E6B34D".to_string())); // Generated HSL color
 }
 
 #[test]

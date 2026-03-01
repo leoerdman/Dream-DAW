@@ -97,8 +97,9 @@ pub fn move_clip(
     clip_id: Uuid,
     new_track_index: usize,
     new_position: AbsoluteTime,
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
-    move_clip_with_protected(project, clip_id, new_track_index, new_position, &[])
+    move_clip_with_protected(project, clip_id, new_track_index, new_position, &[], track_hint)
 }
 
 /// Moves a clip with overlap protection for batch operations.
@@ -112,6 +113,7 @@ pub fn move_clip_with_protected(
     new_track_index: usize,
     new_position: AbsoluteTime,
     protected_ids: &[Uuid],
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
     // Validate target track
     if new_track_index >= project.tracks.len() {
@@ -121,7 +123,7 @@ pub fn move_clip_with_protected(
         });
     }
     // Find and remove the clip from its current track
-    let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+    let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id, track_hint)?;
     // Update position
     clip.position = new_position;
     // Insert into target track (sorted by position for efficient scheduling)
@@ -149,6 +151,7 @@ pub fn resize_clip(
     new_position: AbsoluteTime,
     new_duration: AbsoluteTime,
     allow_stretch: bool,
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
     // Validate duration
     if new_duration.sample_frame < MIN_CLIP_FRAMES {
@@ -158,7 +161,7 @@ pub fn resize_clip(
         });
     }
     // Find and remove the clip
-    let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+    let (track_idx, mut clip) = find_and_remove_clip(project, clip_id, track_hint)?;
     let original_duration = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
     let original_source_offset = clip.source_offset.sample_frame.max(0);
     let original_source_total = clip
@@ -289,9 +292,10 @@ pub fn split_clip(
     project: &mut Project,
     clip_id: Uuid,
     split_frame: i64,
+    track_hint: Option<usize>,
 ) -> Result<SplitResult, MutatorError> {
     // Find the clip (without removing — we need to validate first)
-    let (track_idx, clip_idx) = find_clip_location(project, clip_id)?;
+    let (track_idx, clip_idx) = find_clip_location(project, clip_id, track_hint)?;
     let clip = &project.tracks[track_idx].clips[clip_idx];
     let clip_start = clip.position.sample_frame;
     let clip_end = clip.end_position().sample_frame;
@@ -374,8 +378,9 @@ pub fn split_midi_clip(
     project: &mut Project,
     clip_id: Uuid,
     split_frame: i64,
+    track_hint: Option<usize>,
 ) -> Result<SplitResult, MutatorError> {
-    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
+    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id, track_hint)?;
     let clip = &project.tracks[track_idx].midi_clips[clip_idx];
     let clip_start = clip.position.sample_frame;
     let clip_end = clip.end_position().sample_frame;
@@ -456,8 +461,8 @@ pub fn split_midi_clip(
 /// # Arguments
 /// - `project`: The project to mutate.
 /// - `clip_id`: UUID of the clip to delete.
-pub fn delete_clip(project: &mut Project, clip_id: Uuid) -> Result<AudioClip, MutatorError> {
-    let (_, clip) = find_and_remove_clip(project, clip_id)?;
+pub fn delete_clip(project: &mut Project, clip_id: Uuid, track_hint: Option<usize>) -> Result<AudioClip, MutatorError> {
+    let (_, clip) = find_and_remove_clip(project, clip_id, track_hint)?;
     Ok(clip)
 }
 // ── Duplicate Clip ───────────────────────────────────────────────────────
@@ -470,8 +475,9 @@ pub fn duplicate_clip(
     clip_id: Uuid,
     new_position: Option<AbsoluteTime>,
     target_track_idx: Option<usize>,
+    track_hint: Option<usize>,
 ) -> Result<AudioClip, MutatorError> {
-    duplicate_clip_with_protected(project, clip_id, new_position, target_track_idx, &[])
+    duplicate_clip_with_protected(project, clip_id, new_position, target_track_idx, &[], track_hint)
 }
 
 /// Duplicates a clip with overlap protection for batch operations.
@@ -485,8 +491,9 @@ pub fn duplicate_clip_with_protected(
     new_position: Option<AbsoluteTime>,
     target_track_idx: Option<usize>,
     protected_ids: &[Uuid],
+    track_hint: Option<usize>,
 ) -> Result<AudioClip, MutatorError> {
-    let (track_idx, clip_idx) = find_clip_location(project, clip_id)?;
+    let (track_idx, clip_idx) = find_clip_location(project, clip_id, track_hint)?;
     // Prepare duplicate
     let mut dup = project.tracks[track_idx].clips[clip_idx].clone();
     dup.id = Uuid::new_v4();
@@ -520,8 +527,9 @@ pub fn duplicate_midi_clip(
     clip_id: Uuid,
     new_position: Option<AbsoluteTime>,
     target_track_idx: Option<usize>,
+    track_hint: Option<usize>,
 ) -> Result<MidiClip, MutatorError> {
-    duplicate_midi_clip_with_protected(project, clip_id, new_position, target_track_idx, &[])
+    duplicate_midi_clip_with_protected(project, clip_id, new_position, target_track_idx, &[], track_hint)
 }
 
 /// Duplicates a MIDI clip with overlap protection for batch operations.
@@ -531,8 +539,9 @@ pub fn duplicate_midi_clip_with_protected(
     new_position: Option<AbsoluteTime>,
     target_track_idx: Option<usize>,
     protected_ids: &[Uuid],
+    track_hint: Option<usize>,
 ) -> Result<MidiClip, MutatorError> {
-    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
+    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id, track_hint)?;
     // Prepare duplicate
     let mut dup = project.tracks[track_idx].midi_clips[clip_idx].clone();
     dup.id = Uuid::new_v4();
@@ -570,8 +579,9 @@ pub fn move_midi_clip(
     clip_id: Uuid,
     new_track_index: usize,
     new_position: AbsoluteTime,
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
-    move_midi_clip_with_protected(project, clip_id, new_track_index, new_position, &[])
+    move_midi_clip_with_protected(project, clip_id, new_track_index, new_position, &[], track_hint)
 }
 
 /// Moves a MIDI clip with overlap protection for batch operations.
@@ -585,6 +595,7 @@ pub fn move_midi_clip_with_protected(
     new_track_index: usize,
     new_position: AbsoluteTime,
     protected_ids: &[Uuid],
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
     if new_track_index >= project.tracks.len() {
         return Err(MutatorError::TrackOutOfRange {
@@ -594,12 +605,24 @@ pub fn move_midi_clip_with_protected(
     }
     // Find and remove the MIDI clip from its current track
     let mut extracted = None;
-    for track in &mut project.tracks {
-        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            let mut clip = track.midi_clips.remove(idx);
-            clip.position = new_position;
-            extracted = Some(clip);
-            break;
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &mut project.tracks[track_idx];
+            if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                let mut clip = track.midi_clips.remove(idx);
+                clip.position = new_position;
+                extracted = Some(clip);
+            }
+        }
+    }
+    if extracted.is_none() {
+        for track in &mut project.tracks {
+            if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                let mut clip = track.midi_clips.remove(idx);
+                clip.position = new_position;
+                extracted = Some(clip);
+                break;
+            }
         }
     }
     let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
@@ -617,7 +640,15 @@ pub fn move_midi_clip_with_protected(
 /// Removes a MIDI clip from the project by UUID.
 ///
 /// Returns the removed clip for potential undo operations.
-pub fn delete_midi_clip(project: &mut Project, clip_id: Uuid) -> Result<MidiClip, MutatorError> {
+pub fn delete_midi_clip(project: &mut Project, clip_id: Uuid, track_hint: Option<usize>) -> Result<MidiClip, MutatorError> {
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &mut project.tracks[track_idx];
+            if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                return Ok(track.midi_clips.remove(idx));
+            }
+        }
+    }
     for track in &mut project.tracks {
         if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
             return Ok(track.midi_clips.remove(idx));
@@ -635,6 +666,7 @@ pub fn resize_midi_clip(
     clip_id: Uuid,
     new_position: AbsoluteTime,
     new_duration: AbsoluteTime,
+    track_hint: Option<usize>,
 ) -> Result<(), MutatorError> {
     if new_duration.sample_frame < MIN_CLIP_FRAMES {
         return Err(MutatorError::ClipTooShort {
@@ -644,70 +676,81 @@ pub fn resize_midi_clip(
     }
     // Find and remove the MIDI clip
     let mut extracted = None;
-    let mut source_track_idx = None;
-    for (track_idx, track) in project.tracks.iter_mut().enumerate() {
-        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            let mut clip = track.midi_clips.remove(idx);
-
-            // CLIP-001 FIX: When the left edge moves, adjust MIDI note positions
-            // so they maintain their absolute timeline position.
-            //
-            // Notes use clip-local coordinates (start_frame is relative to clip.position).
-            // If clip.position moves RIGHT by +delta frames, each note must shift LEFT
-            // by -delta frames to stay at the same absolute position.
-            //
-            // Example: Clip at beat 1, note at start_frame=0 (absolute beat 1).
-            //   → User drags left edge to beat 2 (delta = +1 beat in frames).
-            //   → Without fix: note stays at start_frame=0 → now plays at beat 2 (WRONG!)
-            //   → With fix: note.start_frame -= delta → start_frame becomes negative → removed.
-            //     Or if note was at start_frame=44100 (beat 2), after fix: start_frame=0 → still plays at beat 2. ✓
-            let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
-
-            clip.position = new_position;
-            clip.duration = new_duration;
-
-            if left_edge_delta != 0 {
-                clip.notes.retain_mut(|note| {
-                    note.start_frame -= left_edge_delta;
-                    // Remove notes that are now entirely before the clip start
-                    if note.start_frame + note.duration_frames <= 0 {
-                        return false;
-                    }
-                    // Trim notes that partially extend before clip start
-                    if note.start_frame < 0 {
-                        let trim = -note.start_frame;
-                        note.duration_frames -= trim;
-                        note.start_frame = 0;
-                        if note.duration_frames < 1 {
-                            return false;
-                        }
-                    }
-                    true
-                });
+    
+    if let Some(track_idx) = track_hint {
+        if track_idx < project.tracks.len() {
+            let track = &mut project.tracks[track_idx];
+            if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                let clip = track.midi_clips.remove(idx);
+                extracted = Some((clip, track_idx));
             }
-
-            // BUG-B12 FIX: Trim or remove MIDI notes that extend beyond the
-            // new clip duration. Without this, notes can reference beats outside
-            // the clip bounds, causing playback glitches and visual artifacts.
-            let dur = new_duration.sample_frame;
-            clip.notes.retain_mut(|note| {
-                if note.start_frame >= dur {
-                    return false; // Note starts outside clip — remove
-                }
-                // Truncate notes that span across the new clip end
-                let note_end = note.start_frame + note.duration_frames;
-                if note_end > dur {
-                    note.duration_frames = (dur - note.start_frame).max(1);
-                }
-                true
-            });
-            extracted = Some(clip);
-            source_track_idx = Some(track_idx);
-            break;
         }
     }
-    let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
-    let track_idx = source_track_idx.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    
+    if extracted.is_none() {
+        for (track_idx, track) in project.tracks.iter_mut().enumerate() {
+            if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+                let clip = track.midi_clips.remove(idx);
+                extracted = Some((clip, track_idx));
+                break;
+            }
+        }
+    }
+    
+
+    // Extract the clip and its original track index
+    let (mut clip, track_idx) = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    //
+    // Notes use clip-local coordinates (start_frame is relative to clip.position).
+    // If clip.position moves RIGHT by +delta frames, each note must shift LEFT
+    // by -delta frames to stay at the same absolute position.
+    //
+    // Example: Clip at beat 1, note at start_frame=0 (absolute beat 1).
+    //   → User drags left edge to beat 2 (delta = +1 beat in frames).
+    //   → Without fix: note stays at start_frame=0 → now plays at beat 2 (WRONG!)
+    //   → With fix: note.start_frame -= delta → start_frame becomes negative → removed.
+    //     Or if note was at start_frame=44100 (beat 2), after fix: start_frame=0 → still plays at beat 2. ✓
+    let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
+
+    clip.position = new_position;
+    clip.duration = new_duration;
+
+    if left_edge_delta != 0 {
+        clip.notes.retain_mut(|note| {
+            note.start_frame -= left_edge_delta;
+            // Remove notes that are now entirely before the clip start
+            if note.start_frame + note.duration_frames <= 0 {
+                return false;
+            }
+            // Trim notes that partially extend before clip start
+            if note.start_frame < 0 {
+                let trim = -note.start_frame;
+                note.duration_frames -= trim;
+                note.start_frame = 0;
+                if note.duration_frames < 1 {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    // BUG-B12 FIX: Trim or remove MIDI notes that extend beyond the
+    // new clip duration. Without this, notes can reference beats outside
+    // the clip bounds, causing playback glitches and visual artifacts.
+    let dur = new_duration.sample_frame;
+    clip.notes.retain_mut(|note| {
+        if note.start_frame >= dur {
+            return false; // Note starts outside clip — remove
+        }
+        // Truncate notes that span across the new clip end
+        let note_end = note.start_frame + note.duration_frames;
+        if note_end > dur {
+            note.duration_frames = (dur - note.start_frame).max(1);
+        }
+        true
+    });
+    
     let target = &mut project.tracks[track_idx];
     // Handle overlaps before re-insertion
     handle_midi_overlaps(target, &clip, &[]);
@@ -750,7 +793,7 @@ mod tests {
     fn move_clip_same_track() {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
-        move_clip(&mut project, clip_id, 0, AbsoluteTime::new(22050)).unwrap();
+        move_clip(&mut project, clip_id, 0, AbsoluteTime::new(22050), None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 2);
         let moved = project.tracks[0]
             .clips
@@ -763,7 +806,7 @@ mod tests {
     fn move_clip_to_different_track() {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
-        move_clip(&mut project, clip_id, 1, AbsoluteTime::new(0)).unwrap();
+        move_clip(&mut project, clip_id, 1, AbsoluteTime::new(0), None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 1); // removed from track 0
         assert_eq!(project.tracks[1].clips.len(), 1); // added to track 1
         assert_eq!(project.tracks[1].clips[0].id, clip_id);
@@ -772,14 +815,14 @@ mod tests {
     fn move_clip_invalid_track() {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
-        let result = move_clip(&mut project, clip_id, 99, AbsoluteTime::new(0));
+        let result = move_clip(&mut project, clip_id, 99, AbsoluteTime::new(0), None);
         assert!(matches!(result, Err(MutatorError::TrackOutOfRange { .. })));
     }
     #[test]
     fn move_clip_not_found() {
         let mut project = make_test_project();
         let fake_id = Uuid::new_v4();
-        let result = move_clip(&mut project, fake_id, 0, AbsoluteTime::new(0));
+        let result = move_clip(&mut project, fake_id, 0, AbsoluteTime::new(0), None);
         assert!(matches!(result, Err(MutatorError::ClipNotFound(_))));
     }
     #[test]
@@ -787,7 +830,7 @@ mod tests {
         let mut project = make_test_project();
         let clip_b_id = project.tracks[0].clips[1].id;
         // Move clip B to position before clip A
-        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(0)).unwrap();
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(0), None).unwrap();
         // Clip B should now be first (sorted by position)
         assert_eq!(project.tracks[0].clips[0].id, clip_b_id);
     }
@@ -796,7 +839,7 @@ mod tests {
     fn split_clip_at_midpoint() {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
-        let result = split_clip(&mut project, clip_id, 22050).unwrap();
+        let result = split_clip(&mut project, clip_id, 22050, None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 3); // 2 original → 3 after split
         // Left half
         let left = project.tracks[0]
@@ -823,7 +866,7 @@ mod tests {
         // Set source offset to simulate a trimmed clip
         project.tracks[0].clips[0].source_offset = AbsoluteTime::new(10000);
         let clip_id = project.tracks[0].clips[0].id;
-        let result = split_clip(&mut project, clip_id, 22050).unwrap();
+        let result = split_clip(&mut project, clip_id, 22050, None).unwrap();
         let right = project.tracks[0]
             .clips
             .iter()
@@ -836,13 +879,13 @@ mod tests {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
         // Split at clip start (invalid)
-        let result = split_clip(&mut project, clip_id, 0);
+        let result = split_clip(&mut project, clip_id, 0, None);
         assert!(matches!(result, Err(MutatorError::SplitOutOfBounds { .. })));
         // Split at clip end (invalid)
-        let result = split_clip(&mut project, clip_id, 44100);
+        let result = split_clip(&mut project, clip_id, 44100, None);
         assert!(matches!(result, Err(MutatorError::SplitOutOfBounds { .. })));
         // Split past clip end (invalid)
-        let result = split_clip(&mut project, clip_id, 100000);
+        let result = split_clip(&mut project, clip_id, 100000, None);
         assert!(matches!(result, Err(MutatorError::SplitOutOfBounds { .. })));
     }
     #[test]
@@ -850,7 +893,7 @@ mod tests {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
         // Split very close to the start → left half too short
-        let result = split_clip(&mut project, clip_id, 10);
+        let result = split_clip(&mut project, clip_id, 10, None);
         assert!(matches!(result, Err(MutatorError::ClipTooShort { .. })));
     }
     #[test]
@@ -858,7 +901,7 @@ mod tests {
         let mut project = make_test_project();
         project.tracks[0].clips[0].gain = 0.75;
         let clip_id = project.tracks[0].clips[0].id;
-        let result = split_clip(&mut project, clip_id, 22050).unwrap();
+        let result = split_clip(&mut project, clip_id, 22050, None).unwrap();
         let left = project.tracks[0]
             .clips
             .iter()
@@ -877,7 +920,7 @@ mod tests {
     fn delete_clip_removes_from_track() {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
-        let removed = delete_clip(&mut project, clip_id).unwrap();
+        let removed = delete_clip(&mut project, clip_id, None).unwrap();
         assert_eq!(removed.id, clip_id);
         assert_eq!(project.tracks[0].clips.len(), 1);
         assert!(project.tracks[0].clips.iter().all(|c| c.id != clip_id));
@@ -886,7 +929,7 @@ mod tests {
     fn delete_clip_not_found() {
         let mut project = make_test_project();
         let fake_id = Uuid::new_v4();
-        let result = delete_clip(&mut project, fake_id);
+        let result = delete_clip(&mut project, fake_id, None);
         assert!(matches!(result, Err(MutatorError::ClipNotFound(_))));
     }
     #[test]
@@ -894,7 +937,7 @@ mod tests {
         let mut project = make_test_project();
         let clip_id = project.tracks[0].clips[0].id;
         let original_name = project.tracks[0].clips[0].name.clone();
-        let removed = delete_clip(&mut project, clip_id).unwrap();
+        let removed = delete_clip(&mut project, clip_id, None).unwrap();
         assert_eq!(removed.name, original_name);
         assert_eq!(removed.id, clip_id);
     }
@@ -906,7 +949,7 @@ mod tests {
         // Clip B: [2s, 3s]
         let clip_b_id = project.tracks[0].clips[1].id;
         // Move Clip B to [0.5s, 1.5s] -> Should trim Clip A to [0, 0.5s]
-        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(22050)).unwrap();
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(22050), None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 2);
         let clip_a = project.tracks[0]
             .clips
@@ -936,6 +979,7 @@ mod tests {
             AbsoluteTime::new(0),
             AbsoluteTime::new(44100 * 3),
             true,
+            None,
         )
         .unwrap();
         assert_eq!(project.tracks[0].clips.len(), 1);
@@ -952,6 +996,7 @@ mod tests {
             AbsoluteTime::new(0),
             AbsoluteTime::new(44100 * 3),
             false,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -972,6 +1017,7 @@ mod tests {
             AbsoluteTime::new(22050),
             AbsoluteTime::new(22050),
             false,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -993,6 +1039,7 @@ mod tests {
             AbsoluteTime::new(44100 * 10),
             AbsoluteTime::new(22050),
             false,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -1014,6 +1061,7 @@ mod tests {
             AbsoluteTime::new(22050),
             AbsoluteTime::new(22050),
             true,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -1046,6 +1094,7 @@ mod tests {
             AbsoluteTime::new(0),
             AbsoluteTime::new(22050),
             false,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -1074,6 +1123,7 @@ mod tests {
             AbsoluteTime::new(22050),
             AbsoluteTime::new(22050),
             false,
+            None,
         )
         .unwrap();
         let clip_a = project.tracks[0]
@@ -1093,7 +1143,7 @@ mod tests {
         // Clip B: [20s, 21s]
         let clip_b_id = project.tracks[0].clips[1].id;
         // Move Clip B to [2s, 3s] -> Should split Clip A into [0, 2s] and [3s, 10s]
-        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(44100 * 2)).unwrap();
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(44100 * 2), None).unwrap();
         // We expect 3 clips now: Clip A (left), Clip B, Clip A (right)
         assert_eq!(project.tracks[0].clips.len(), 3);
         // Sorted order:
@@ -1115,15 +1165,15 @@ mod tests {
         project.add_track(Track::new("Empty Track"));
         let fake_id = Uuid::new_v4();
         assert!(matches!(
-            move_clip(&mut project, fake_id, 0, AbsoluteTime::ZERO),
+            move_clip(&mut project, fake_id, 0, AbsoluteTime::ZERO, None),
             Err(MutatorError::ClipNotFound(_))
         ));
         assert!(matches!(
-            split_clip(&mut project, fake_id, 1000),
+            split_clip(&mut project, fake_id, 1000, None),
             Err(MutatorError::ClipNotFound(_))
         ));
         assert!(matches!(
-            delete_clip(&mut project, fake_id),
+            delete_clip(&mut project, fake_id, None),
             Err(MutatorError::ClipNotFound(_))
         ));
     }
@@ -1136,7 +1186,7 @@ mod tests {
         let clip_a_id = project.tracks[0].clips[0].id;
         // Duplicate Clip A to position [2.5s, 3.5s] -> Should trim Clip B
         let target_pos = AbsoluteTime::new(110250); // 2.5s
-        let dup = duplicate_clip(&mut project, clip_a_id, Some(target_pos), None).unwrap();
+        let dup = duplicate_clip(&mut project, clip_a_id, Some(target_pos), None, None).unwrap();
         assert_eq!(project.tracks[0].clips.len(), 3);
         // Clip B should now be [2s, 2.5s]
         let clip_b = project.tracks[0]
@@ -1165,7 +1215,7 @@ mod tests {
         let midi_b = MidiClip::new("MIDI B", AbsoluteTime::new(22050), AbsoluteTime::new(44100));
         project.tracks[0].midi_clips.push(midi_b);
         // Duplicate MIDI A to the same position -> Should delete MIDI B (fully covered)
-        duplicate_midi_clip(&mut project, clip_id, Some(AbsoluteTime::new(22050)), None).unwrap();
+        duplicate_midi_clip(&mut project, clip_id, Some(AbsoluteTime::new(22050)), None, None).unwrap();
         // We expect MIDI B to be deleted
         assert_eq!(project.tracks[0].midi_clips.len(), 2);
         assert!(
@@ -1216,6 +1266,7 @@ mod tests {
             clip_id,
             AbsoluteTime::new(22050),  // new position
             AbsoluteTime::new(66150),  // new duration: 88200 - 22050
+            None,
         )
         .unwrap();
 

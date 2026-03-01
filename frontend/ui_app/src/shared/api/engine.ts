@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 type InvokeArgs = Record<string, unknown>;
 
@@ -27,7 +26,10 @@ function extractIpcErrorMessage(error: unknown): string {
     }
     return String(error);
 }
-import { useStatusStore } from '@/shared/stores/useStatusStore';
+// ENTERPRISE FIX: useStatusStore and useEngineStore are accessed LAZILY
+// inside function bodies to break the circular dependency:
+//   engine.ts → useEngineStore → engine.ts
+// Top-level imports would deadlock ESM module evaluation.
 
 interface InvokeOptions {
     suppressGlobalError?: boolean;
@@ -58,7 +60,11 @@ async function invokeTauri<T>(command: string, args?: InvokeArgs, options?: Invo
         if (!options?.suppressGlobalError) {
             console.error(`[Dream] ${fullMessage}`, error);
             // Push to unified status bar for user visibility
-            useStatusStore.getState().setError(fullMessage);
+            // LAZY ACCESS: avoids circular import deadlock
+            try {
+                const { useStatusStore } = await import('@/shared/stores/useStatusStore');
+                useStatusStore.getState().setError(fullMessage);
+            } catch { /* store not ready yet during early boot */ }
         }
 
         throw new IpcCommandError(
@@ -565,7 +571,7 @@ export const updateMidiClip = (
             start_frames: Math.max(0, Math.round(n.startFrames)),
             // BUG-001 FIX: SSOT — both updateMidiClip and updateMidiClipWithDeltas
             // use the same getMinMidiNoteDurationFrames function.
-            duration_frames: Math.max(getMinMidiNoteDurationFrames(useEngineStore.getState().transport.sample_rate || 44100), Math.round(n.durationFrames)),
+            duration_frames: Math.max(getMinMidiNoteDurationFrames(), Math.round(n.durationFrames)),
         })),
     });
 export const updateMidiClipWithDeltas = (
@@ -582,7 +588,7 @@ export const updateMidiClipWithDeltas = (
             start_frames: Math.max(0, Math.round(n.startFrames)),
             // SSOT FIX: Must match updateMidiClip's minimum (~10ms).
             // Previously used Math.max(1, ...) — 1-frame notes are inaudible clicks.
-            duration_frames: Math.max(getMinMidiNoteDurationFrames(useEngineStore.getState().transport.sample_rate || 44100), Math.round(n.durationFrames)),
+            duration_frames: Math.max(getMinMidiNoteDurationFrames(), Math.round(n.durationFrames)),
         })),
     });
 export interface MidiClipEnvelopePointUpdate {

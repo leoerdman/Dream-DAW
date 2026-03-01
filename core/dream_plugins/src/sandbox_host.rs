@@ -539,18 +539,18 @@ impl PluginSandboxSupervisor {
                         bypass.push(*id);
                     }
                     Ok(None) => {
-                        let heartbeat_age = if instance.heartbeat_seen {
-                            fs::metadata(&instance.heartbeat_file)
-                                .ok()
-                                .and_then(|m| m.modified().ok())
-                                .and_then(|modified| now.duration_since(modified).ok())
-                                .or_else(|| now.duration_since(instance.spawned_at).ok())
-                        } else {
-                            now.duration_since(instance.spawned_at).ok()
-                        };
-
-                        if let Some(age) = heartbeat_age
-                            && age <= timeout
+                        // FIX: Use HeartbeatAck flag instead of filesystem timestamps.
+                        // fs::metadata().modified() has 1-second resolution on macOS APFS,
+                        // causing false-positive heartbeat timeouts at 100ms threshold.
+                        // The JSON HeartbeatAck round-trip sets heartbeat_seen reliably.
+                        if instance.heartbeat_seen {
+                            instance.heartbeat_seen = false; // reset for next tick
+                            continue;
+                        }
+                        // Grace period: newly spawned instances need time to start up,
+                        // load VST3 binaries, and begin heartbeating.
+                        if let Some(age) = now.duration_since(instance.spawned_at).ok()
+                            && age <= Duration::from_secs(5)
                         {
                             continue;
                         }

@@ -1603,14 +1603,6 @@ export class TimelineEngine {
                             this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
                         } else {
                             this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
-
-                            // ENTERPRISE FIX: Discard stale _pendingClips after move commit.
-                            // The backend will send ProjectSnapshotReplaced with authoritative
-                            // positions for ALL clips (including those affected by overlap
-                            // resolution). Patching pending clips locally was incomplete and
-                            // caused clips to appear 'deleted' when the patch missed side
-                            // effects like overlap trimming/removal.
-                            this._pendingClips = null;
                         }
                     }
                     // Always clear Cmd+Drag ghosts on commit

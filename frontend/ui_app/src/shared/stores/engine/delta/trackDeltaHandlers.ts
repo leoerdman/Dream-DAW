@@ -228,9 +228,9 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             nextAllIds.push(clip.id);
         }
         state.clipsById = nextClips;
-        // BUG-009 FIX: Also rebuild clips EntityState — previously only clipsById was updated,
-        // leaving clips.byId/allIds stale after track insertion.
-        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
+        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
+        // DeltaWorkingState now has proper `clips: EntityState<TimelineClip>` field.
+        state.clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }
@@ -256,8 +256,8 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         }
         state.timelineClips = nextTimeline;
         state.clipsById = nextClips;
-        // BUG-010 FIX: Also rebuild clips EntityState after track removal.
-        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
+        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
+        state.clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }
@@ -286,8 +286,8 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             nextAllIds.push(clip.id);
         }
         state.clipsById = nextClips;
-        // BUG-011 FIX: Also rebuild clips EntityState after track reorder.
-        (state as any).clips = { byId: nextClips, allIds: nextAllIds };
+        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
+        state.clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
         return true;
     }

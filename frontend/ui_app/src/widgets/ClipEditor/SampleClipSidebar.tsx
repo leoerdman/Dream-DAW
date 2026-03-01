@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
-import { DEFAULT_BPM, DEFAULT_TIME_SIG_NUMERATOR, formatBeatsAsBBS } from '@/shared/lib/audioMath';
+import { DEFAULT_BPM, DEFAULT_TIME_SIG_NUMERATOR, formatBeatsAsBBS, MIN_BPM, MAX_BPM } from '@/shared/lib/audioMath';
 
 interface SampleClipSidebarProps {
     clipDurationBeats: number;
@@ -85,8 +85,8 @@ export function SampleClipSidebar({
                     <span style={editorMetaTextStyle}>Base BPM</span>
                     <input
                         type="number"
-                        min={20}
-                        max={300}
+                        min={MIN_BPM}
+                        max={MAX_BPM}
                         value={draftWarpBaseBpm}
                         disabled={!draftWarpEnabled}
                         onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || DEFAULT_BPM)}

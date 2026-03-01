@@ -259,6 +259,8 @@ export function applyProjectDeltasToState(
     const working: DeltaWorkingState = {
         timelineClips: [...state.timelineClips],
         clipsById: { ...state.clipsById },
+        // BUG-036 FIX: Initialize clips EntityState — enables typed updates in ClipsMerged handler.
+        clips: { byId: { ...state.clips.byId }, allIds: [...state.clips.allIds] },
         projectTracks: canonicalTracks.allIds
             .map((trackId) => canonicalTracks.byId[trackId])
             .filter((track): track is NonNullable<typeof track> => Boolean(track)),

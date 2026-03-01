@@ -228,10 +228,14 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         nextClips.push(mergedClip);
         state.timelineClips = nextClips;
         syncClipMapFromTimeline(state);
-        // BUG-012 FIX: Also rebuild clips EntityState after merge — previously only clipsById was synced.
+        // BUG-036 FIX: Rebuild clips EntityState after merge with proper types (no unsafe `as any`).
         const mergedAllIds: string[] = [];
-        for (const c of state.timelineClips) mergedAllIds.push(c.id);
-        (state as any).clips = { byId: state.clipsById, allIds: mergedAllIds };
+        const mergedById: Record<string, import('@/shared/lib/arrangementTypes').TimelineClip> = {};
+        for (const c of state.timelineClips) {
+            mergedAllIds.push(c.id);
+            mergedById[c.id] = c;
+        }
+        state.clips = { byId: mergedById, allIds: mergedAllIds };
         state.changed = true;
         return true;
     }

@@ -4,6 +4,8 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 
 const CLIP_PEAK_CACHE = new Map<string, WaveformPeaks>();
 const CLIP_PEAK_INFLIGHT = new Map<string, Promise<WaveformPeaks>>();
+// BUG-037 FIX: Cap peak cache to prevent unbounded memory growth across sessions.
+const MAX_PEAK_CACHE_SIZE = 200;
 
 const WAVEFORM_COLOR = 'var(--token-color-rgba-120-200-255-0d85)';
 const WAVEFORM_COLOR_SELECTED = 'var(--token-color-rgba-160-230-255-0d95)';
@@ -21,6 +23,15 @@ export async function loadPeaksCached(filePath: string): Promise<WaveformPeaks> 
         .then((data) => {
             CLIP_PEAK_CACHE.set(filePath, data);
             CLIP_PEAK_INFLIGHT.delete(filePath);
+            // BUG-037 FIX: Evict oldest entries when cache exceeds max size.
+            if (CLIP_PEAK_CACHE.size > MAX_PEAK_CACHE_SIZE) {
+                const keysIter = CLIP_PEAK_CACHE.keys();
+                for (let i = 0; i < 50; i++) {
+                    const oldest = keysIter.next();
+                    if (oldest.done) break;
+                    CLIP_PEAK_CACHE.delete(oldest.value);
+                }
+            }
             return data;
         })
         .catch((err) => {

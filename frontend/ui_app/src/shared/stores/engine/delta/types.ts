@@ -54,6 +54,8 @@ export interface DeltaApplyResult {
 export interface DeltaWorkingState {
     timelineClips: TimelineClip[];
     clipsById: Record<string, TimelineClip>;
+    /** BUG-036 FIX: Explicit clips EntityState — previously required unsafe `(state as any).clips` cast. */
+    clips: EntityState<TimelineClip>;
     projectTracks: ProjectTrack[];
     tracks: EntityState<ProjectTrack>;
     changed: boolean;

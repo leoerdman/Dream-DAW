@@ -450,7 +450,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         projectBpm,
         transportBpm: resolveBpm(transportBpm),
         projectSampleRate,
-        timelineClipsForView,
         selectedClipIds: selectedClipIdsForView,
         trackCountRaw,
         hiddenTrackIndices,

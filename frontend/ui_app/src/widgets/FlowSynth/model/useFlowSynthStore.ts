@@ -3,6 +3,7 @@ import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
 import { portNameToIndex, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType } from './portRegistry';
+import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
 
 export type { SynthNodeType };
 
@@ -10,7 +11,8 @@ export interface SynthNode {
     id: string;
     type: SynthNodeType;
     position: { x: number; y: number };
-    data: any;
+    /** AUDIT FIX: Replaced `any` with typed Record — enforces type narrowing at usage sites. */
+    data: Record<string, unknown>;
 }
 
 export interface SynthConnection {
@@ -139,7 +141,7 @@ function cloneDefaultGraph(): FlowGraph {
         nodes: DEFAULT_FLOW_GRAPH.nodes.map((n) => ({
             ...n,
             position: { ...n.position },
-            data: n.data ? { ...n.data } : undefined,
+            data: { ...(n.data ?? {}) },
         })),
         connections: DEFAULT_FLOW_GRAPH.connections.map((c) => ({ ...c })),
         viewport: { ...DEFAULT_FLOW_GRAPH.viewport },
@@ -163,8 +165,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     activeDeviceId: null,
     activeTrackId: null,
 
-    nodes: cloneDefaultGraph().nodes,
-    connections: cloneDefaultGraph().connections,
+    // AUDIT FIX: Single cloneDefaultGraph() call instead of two separate calls.
+    ...(() => {
+        const graph = cloneDefaultGraph();
+        return { nodes: graph.nodes, connections: graph.connections };
+    })(),
     selectedNodeIds: [],
     selectedConnectionId: null,
     connectionPulseById: {},
@@ -367,7 +372,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const selectedIds = state.nodes
             .filter((node) => {
                 const left = node.position.x;
-                const right = node.position.x + 240;
+                const right = node.position.x + FLOW_NODE_WIDTH;
                 const top = node.position.y;
                 const bottom = node.position.y + FLOW_NODE_HEADER_HEIGHT + 100;
                 return right >= box.x
@@ -613,7 +618,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             ];
         });
 
-        await engine.setFlowEnabled(trackIndex, true);
-        await engine.syncFlowGraph(trackIndex, nodes, connections);
+        // AUDIT FIX: Parallel awaits instead of sequential — setFlowEnabled and syncFlowGraph
+        // are independent operations that can execute concurrently.
+        await Promise.all([
+            engine.setFlowEnabled(trackIndex, true),
+            engine.syncFlowGraph(trackIndex, nodes, connections),
+        ]);
     },
 }));

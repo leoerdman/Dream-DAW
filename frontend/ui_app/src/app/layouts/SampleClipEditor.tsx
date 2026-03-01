@@ -4,7 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
+import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR, MIN_BPM, MAX_BPM } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
@@ -31,7 +31,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const [zoomY, setZoomY] = useState(1);
     const [draftWarpEnabled, setDraftWarpEnabled] = useState<boolean>(Boolean(clip.isWarped));
     const [draftWarpMode, setDraftWarpMode] = useState<number>((clip.warpMode ?? 0) > 0 ? 1 : 0);
-    const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
+    const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(MIN_BPM, Math.round(clip.warpBaseBpm ?? bpm)));
     const [draftPitch, setDraftPitch] = useState<number>(clip.pitchShiftSemitones ?? 0);
     const isPreviewingRef = useRef(false);
     const [isPreviewing, setIsPreviewing] = useState(false);
@@ -44,7 +44,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
             prevClipIdRef.current = clip.id;
             setDraftWarpEnabled(Boolean(clip.isWarped));
             setDraftWarpMode((clip.warpMode ?? 0) > 0 ? 1 : 0);
-            setDraftWarpBaseBpm(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
+            setDraftWarpBaseBpm(Math.max(MIN_BPM, Math.round(clip.warpBaseBpm ?? bpm)));
             setDraftPitch(clip.pitchShiftSemitones ?? 0);
         }
     }, [clip.id, clip.isWarped, clip.warpMode, clip.warpBaseBpm, clip.pitchShiftSemitones, bpm]);
@@ -104,12 +104,17 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const commitWarp = useCallback(async (next: { enabled: boolean; mode: number; baseBpm: number }) => {
         if (commitInFlightRef.current) return;
         commitInFlightRef.current = true;
-        const base = Math.max(20, Math.min(300, Math.round(next.baseBpm)));
+        // BUG-038 FIX: Use MIN_BPM/MAX_BPM constants instead of hardcoded 20/300.
+        const base = Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(next.baseBpm)));
         const store = useEngineStore.getState();
         const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const projectTempo = resolveBpm(store.transport.bpm);
         const liveClip = store.timelineClips.find(c => c.id === clip.id);
-        if (!liveClip) return;
+        // BUG-039 FIX: Clear commitInFlightRef on early return to prevent permanent block.
+        if (!liveClip) {
+            commitInFlightRef.current = false;
+            return;
+        }
         const sourceFrames = Math.max(1, liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
         const pitchMultiplier = Math.pow(2.0, (liveClip.pitchShiftSemitones ?? 0) / 12.0);
         const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.round(sourceFrames / pitchMultiplier), projectTempo, sr);

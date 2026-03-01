@@ -21,7 +21,6 @@ type Args = {
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
-    timelineClipsForView: TimelineClip[];
     selectedClipIds: string[];
     trackCountRaw: number;
     hiddenTrackIndices: Set<number>;
@@ -43,7 +42,6 @@ type Result = {
 export function useTimelineClipHandlers({
     projectBpm,
     projectSampleRate,
-    timelineClipsForView,
     selectedClipIds,
     trackCountRaw,
     hiddenTrackIndices,
@@ -56,6 +54,32 @@ export function useTimelineClipHandlers({
         const message = err instanceof Error ? err.message : String(err);
         return /clip/i.test(message) && /(not\s+found|unknown|does\s+not\s+exist|missing)/i.test(message);
     };
+
+    // AUDIT FIX: Extracted from duplicate inline definitions in handleClipMove and handleClipDuplicate.
+    // Single Source of Truth for snap-to-visible-track logic.
+    const snapToVisibleTrack = useCallback((targetTrack: number, preferredDirection: -1 | 0 | 1 = 0): number => {
+        const clamped = Math.max(0, Math.min(trackCountRaw - 1, targetTrack));
+        if (!hiddenTrackIndices.has(clamped)) return clamped;
+
+        if (preferredDirection >= 0) {
+            for (let i = clamped + 1; i < trackCountRaw; i += 1) {
+                if (!hiddenTrackIndices.has(i)) return i;
+            }
+        }
+        if (preferredDirection <= 0) {
+            for (let i = clamped - 1; i >= 0; i -= 1) {
+                if (!hiddenTrackIndices.has(i)) return i;
+            }
+        }
+
+        for (let radius = 1; radius < trackCountRaw; radius += 1) {
+            const up = clamped - radius;
+            const down = clamped + radius;
+            if (up >= 0 && !hiddenTrackIndices.has(up)) return up;
+            if (down < trackCountRaw && !hiddenTrackIndices.has(down)) return down;
+        }
+        return clamped;
+    }, [hiddenTrackIndices, trackCountRaw]);
 
     // SSOT FIX: Use timelineClips as the single source of truth.
     // Previously guessed which byId map was canonical — now always derives from the array.
@@ -105,7 +129,8 @@ export function useTimelineClipHandlers({
             return;
         }
 
-        const dragged = liveClip ?? timelineClipsForView.find((clip) => clip.id === clipId);
+        // AUDIT FIX: Use resolveClipById as the SSOT — removed fallback to timelineClipsForView.
+        const dragged = liveClip;
         if (!dragged) {
             pruneGhostClip(clipId);
             return;
@@ -113,30 +138,6 @@ export function useTimelineClipHandlers({
 
         const selectedSet = new Set(selectedClipIds);
         const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
-
-        const snapToVisibleTrack = (targetTrack: number, preferredDirection: -1 | 0 | 1): number => {
-            const clamped = Math.max(0, Math.min(trackCountRaw - 1, targetTrack));
-            if (!hiddenTrackIndices.has(clamped)) return clamped;
-
-            if (preferredDirection >= 0) {
-                for (let i = clamped + 1; i < trackCountRaw; i += 1) {
-                    if (!hiddenTrackIndices.has(i)) return i;
-                }
-            }
-            if (preferredDirection <= 0) {
-                for (let i = clamped - 1; i >= 0; i -= 1) {
-                    if (!hiddenTrackIndices.has(i)) return i;
-                }
-            }
-
-            for (let radius = 1; radius < trackCountRaw; radius += 1) {
-                const up = clamped - radius;
-                const down = clamped + radius;
-                if (up >= 0 && !hiddenTrackIndices.has(up)) return up;
-                if (down < trackCountRaw && !hiddenTrackIndices.has(down)) return down;
-            }
-            return clamped;
-        };
 
         const run = async () => {
             let clipsToMove: TimelineClip[];
@@ -157,7 +158,7 @@ export function useTimelineClipHandlers({
 
             const deltaBeat = newStartBeat - dragged.startBeat;
             const deltaTrack = newTrackIndex - dragged.trackIndex;
-            const preferredDirection = deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0);
+            const preferredDirection: -1 | 0 | 1 = deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0);
 
             const requests = clipsToMove.map((clip) => {
                 const targetBeat = moveAsGroup ? Math.max(0, clip.startBeat + deltaBeat) : newStartBeat;
@@ -190,12 +191,11 @@ export function useTimelineClipHandlers({
             });
     }, [
         applyProjectDeltas,
-        hiddenTrackIndices,
         projectBpm,
         projectSampleRate,
         pruneGhostClip,
         selectedClipIds,
-        timelineClipsForView,
+        snapToVisibleTrack,
         trackCountRaw,
     ]);
 
@@ -272,17 +272,7 @@ export function useTimelineClipHandlers({
         const selectedSet = new Set(selectedClipIds);
         const duplicateAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
 
-        const snapToVisibleTrack = (targetTrack: number): number => {
-            const clamped = Math.max(0, Math.min(trackCountRaw - 1, targetTrack));
-            if (!hiddenTrackIndices.has(clamped)) return clamped;
-            for (let radius = 1; radius < trackCountRaw; radius += 1) {
-                const up = clamped - radius;
-                const down = clamped + radius;
-                if (up >= 0 && !hiddenTrackIndices.has(up)) return up;
-                if (down < trackCountRaw && !hiddenTrackIndices.has(down)) return down;
-            }
-            return clamped;
-        };
+        const snapToVisibleTrackLocal = (targetTrack: number): number => snapToVisibleTrack(targetTrack, 0);
 
         const run = async () => {
             let clipsToDuplicate: TimelineClip[];
@@ -306,7 +296,7 @@ export function useTimelineClipHandlers({
 
             const requests = clipsToDuplicate.map((clip) => {
                 const targetBeat = duplicateAsGroup ? Math.max(0, clip.startBeat + deltaBeat) : newStartBeat;
-                const targetTrack = snapToVisibleTrack(Math.max(0, Math.min(trackCountRaw - 1, duplicateAsGroup ? clip.trackIndex + deltaTrack : newTrackIndex)));
+                const targetTrack = snapToVisibleTrackLocal(Math.max(0, Math.min(trackCountRaw - 1, duplicateAsGroup ? clip.trackIndex + deltaTrack : newTrackIndex)));
                 const positionFrames = Math.round(beatToFrame(Math.max(0, targetBeat), bpm, sampleRate));
                 return { id: clip.id, newPositionFrames: positionFrames, targetTrackIndex: targetTrack };
             });
@@ -331,12 +321,12 @@ export function useTimelineClipHandlers({
         });
     }, [
         applyProjectDeltas,
-        hiddenTrackIndices,
         projectBpm,
         projectSampleRate,
         pruneGhostClip,
         selectedClipIds,
         setSelectedClipIds,
+        snapToVisibleTrack,
         trackCountRaw,
     ]);
 

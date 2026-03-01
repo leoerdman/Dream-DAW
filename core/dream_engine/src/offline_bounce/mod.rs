@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+use dream_transport::LoopRegion;
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Offline Bounce (Mix Export Engine)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -35,7 +37,6 @@ use log::info;
 
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
-use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_io::mp3_writer::Mp3Writer;
 use dream_ipc::metering::MeterBank;
 use dream_models::midi::MidiClip;
@@ -113,7 +114,7 @@ struct RenderRoutingCtx<'a> {
     /// MIDI clips per track for VST instrument rendering.
     midi_clips_per_track: &'a [Vec<MidiClip>],
     /// Loop region for MIDI scheduling (if loop enabled).
-    loop_region: Option<ClipLoopRegion>,
+    loop_region: Option<LoopRegion>,
     /// Per-track MIDI FX configs for pitch/scale/velocity/random transforms.
     /// Built from project track data, mirroring the RT path's MidiFxRuntimeConfig.
     /// EXP-004 FIX: Borrowed slice instead of owned Vec to avoid per-chunk clone.
@@ -1009,7 +1010,7 @@ impl OfflineRenderer {
                     midi_clips,
                     playhead_pos,
                     frame_count,
-                    ctx.loop_region.as_ref(),
+                    ctx.loop_region.as_ref().map(|lr| (lr.start, lr.end)),
                     &mut midi_schedule,
                     &mut midi_tmp,
                 );
@@ -1776,7 +1777,7 @@ impl OfflineRenderer {
     fn create_render_ctx(
         &self,
         project: &Project,
-        loop_region: Option<&ClipLoopRegion>,
+        loop_region: Option<&LoopRegion>,
         sample_rate: f64,
     ) -> RenderContext {
         let meter_bank = Arc::new(MeterBank::new(project.tracks.len().max(1)));
@@ -1848,7 +1849,7 @@ impl OfflineRenderer {
         &self,
         project: &mut Project,
         clip_pool: &mut ClipPool,
-        loop_region: Option<&ClipLoopRegion>,
+        loop_region: Option<&LoopRegion>,
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
         external_fx_map: &[Vec<ExternalPluginRuntimeSlot>],
         mut progress_callback: F,
@@ -1922,7 +1923,7 @@ impl OfflineRenderer {
             .collect();
         let bounce_loop_region = loop_region
             .as_ref()
-            .map(|lr| ClipLoopRegion::new(lr.start, lr.end));
+            .copied();
         let (routing, post_sum_mask) = Self::build_routing(project);
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
@@ -2077,7 +2078,7 @@ impl OfflineRenderer {
                 time_sig_denominator: project.time_signature.denominator.max(1),
                 master_device_chain: &mut master_device_chain,
                 midi_clips_per_track: &midi_clips_per_track,
-                loop_region: bounce_loop_region,
+                loop_region: bounce_loop_region.copied(),
                 midi_fx_configs: &midi_fx_configs,
                 automation: &bounce_automation,
                 bounce_scratch_left: &mut bounce_scratch_left,

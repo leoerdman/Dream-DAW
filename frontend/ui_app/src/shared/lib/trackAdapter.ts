@@ -21,7 +21,9 @@ import { DEFAULT_TRACK_HEIGHT_PX } from '@/shared/lib/TimelineEngine.types';
 const toHexColor = (r: number, g: number, b: number): string =>
     `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
-const TRACK_COLORS: Record<TrackColor, string> = {
+export type NamedTrackColor = Exclude<TrackColor, { Custom: string }>;
+
+const TRACK_COLORS: Record<NamedTrackColor, string> = {
     Coral: toHexColor(240, 92, 77),
     Orange: toHexColor(255, 138, 26),
     Gold: toHexColor(255, 191, 51),
@@ -49,7 +51,13 @@ export const DEFAULT_TRACK_COLOR = toHexColor(102, 119, 136);
 export function resolveTrackColor(color: unknown): string {
     if (typeof color === 'string') {
         if (color.startsWith('#')) return color;
-        return TRACK_COLORS[color as TrackColor] ?? DEFAULT_TRACK_COLOR;
+        return TRACK_COLORS[color as NamedTrackColor] ?? DEFAULT_TRACK_COLOR;
+    }
+    if (color && typeof color === 'object' && 'Custom' in color) {
+        const customColor = (color as any).Custom;
+        if (typeof customColor === 'string' && customColor.startsWith('#')) {
+            return customColor;
+        }
     }
     return DEFAULT_TRACK_COLOR;
 }

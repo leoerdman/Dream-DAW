@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+use dream_transport::LoopRegion;
 use super::super::rt_debug::SharedRtDebugStats;
 use super::super::*;
 use super::command_dispatch::{
@@ -180,7 +182,7 @@ pub(super) fn drain_commands(
                 if !*ctx.loop_enabled {
                     ctx.render_ctx.loop_region = None;
                 } else if let Some((start, end)) = loop_region {
-                    let region = LoopRegion { start, end };
+                    let region = LoopRegion::with_range(start, end);
                     *ctx.last_loop_region = Some(region);
                     ctx.render_ctx.loop_region = Some(region);
                 } else if let Some(ref lr) = *ctx.last_loop_region {
@@ -201,7 +203,7 @@ pub(super) fn drain_commands(
             }
             EngineCommand::SetLoopRegion { start, end } => {
                 if end > start {
-                    let region = LoopRegion { start, end };
+                    let region = LoopRegion::with_range(start, end);
                     *ctx.last_loop_region = Some(region);
                     // Keep loop markers cached, but only apply loop playback when
                     // loop mode is explicitly enabled.

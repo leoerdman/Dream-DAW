@@ -524,6 +524,12 @@ pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<
 
     spawn_background_runtime_threads(&app.handle(), stream_error_rx);
     install_macos_transport_monitor(&app.handle());
+    
+    // TEMPORARY DEBUG: Force DevTools open on the main window to catch React crashes
+    if let Some(main_window) = app.get_webview_window("main") {
+        main_window.open_devtools();
+    }
+    
     log::info!(
         "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
         app.package_info().version,

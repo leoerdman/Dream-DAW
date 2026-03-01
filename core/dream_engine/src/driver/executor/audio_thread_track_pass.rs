@@ -12,7 +12,7 @@ use dream_clip_engine::midi_scheduler::ScheduledNote;
 use dream_dsp::device_slot::ProcessContext;
 use dream_plugins::{MidiEvent, TransportContext};
 use crate::driver::PluginInstanceArc;
-use crate::driver::LoopRegion;
+use dream_transport::LoopRegion;
 
 use crate::driver::{
     automation::{
@@ -227,13 +227,13 @@ pub(crate) fn process_track_graph_node(
                             {
                                 let midi_loop_region = ctx.loop_region
                                     .as_ref()
-                                    .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
+                                    .map(|r| (r.start, r.end));
                                 ctx.midi_schedule_scratch.clear();
                                 dream_clip_engine::midi_scheduler::MidiScheduler::fill_active_looped_with_tmp(
                                     &midi_track.clips,
                                     ctx.midi_playhead_pos,
                                     ctx.timeline_frame_count,
-                                    midi_loop_region.as_ref(),
+                                    midi_loop_region,
                                     ctx.midi_schedule_scratch,
                                     ctx.midi_schedule_tmp,
                                 );
@@ -245,7 +245,7 @@ pub(crate) fn process_track_graph_node(
                                     midi_track,
                                     ctx.midi_playhead_pos,
                                     ctx.timeline_frame_count,
-                                    midi_loop_region.as_ref(),
+                                    midi_loop_region,
                                     ctx.frame_converter,
                                     ctx.midi_schedule_scratch,
                                     ctx.midi_schedule_tmp,

@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+use dream_transport::LoopRegion;
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Render Callback (The Conductor)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -19,7 +21,7 @@
 use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::{ClipReader, WarpResampleMode};
-use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
+use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
 use dream_ipc::metering::{
@@ -192,7 +194,7 @@ pub struct RenderContext {
     pub meter_bank: Arc<MeterBank>,
 
     /// Current loop region (None = no looping).
-    pub loop_region: Option<ClipLoopRegion>,
+    pub loop_region: Option<LoopRegion>,
 
     /// Streaming windows for disk-streamed clips (large files).
     /// Keyed by source file path. If a clip's file_path is found here,
@@ -416,7 +418,7 @@ impl RenderContext {
                 clips,
                 playhead_pos,
                 frame_count,
-                self.loop_region.as_ref(),
+                self.loop_region.as_ref().map(|lr| (lr.start, lr.end)),
                 &mut self.scratch_active_clips,
                 &mut self.scratch_post_wrap_clips,
             );

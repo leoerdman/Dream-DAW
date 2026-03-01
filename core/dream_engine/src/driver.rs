@@ -25,7 +25,6 @@ use arc_swap::ArcSwap;
 use dream_plugins::MidiEvent;
 
 use dream_clip_engine::pool::ClipPool;
-use dream_clip_engine::scheduler::LoopRegion;
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 use dream_ipc::metering::{MeterBank, linear_to_db, peak_decay_for_block};

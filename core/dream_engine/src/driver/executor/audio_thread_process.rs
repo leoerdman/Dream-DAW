@@ -24,7 +24,7 @@ pub(crate) fn process_midi_events(
     midi_track: &MidiTrackRuntime,
     midi_playhead_pos: i64,
     timeline_frame_count: usize,
-    loop_region: Option<&dream_clip_engine::LoopRegion>,
+    loop_region: Option<(i64, i64)>,
     frame_converter: &FrameDomainConverter,
     midi_schedule_scratch: &mut Vec<ScheduledNote>,
     midi_schedule_tmp: &mut Vec<ScheduledNote>,
@@ -47,8 +47,8 @@ pub(crate) fn process_midi_events(
     // LOOP-WRAP-FIX (Enterprise): Handle All Sound/Notes Off at loop boundaries
     if let Some(lr) = loop_region {
         let buffer_end_timeline = midi_playhead_pos.saturating_add(timeline_frame_count as i64);
-        if midi_playhead_pos < lr.end && buffer_end_timeline > lr.end {
-            let wrap_offset_timeline = (lr.end - midi_playhead_pos) as usize;
+        if midi_playhead_pos < lr.1 && buffer_end_timeline > lr.1 {
+            let wrap_offset_timeline = (lr.1 - midi_playhead_pos) as usize;
             let wrap_offset = frame_converter.timeline_to_device_offset(wrap_offset_timeline);
             split_offset_device = Some(wrap_offset);
             let flush_offset = (wrap_offset as i32).saturating_sub(1).max(0);

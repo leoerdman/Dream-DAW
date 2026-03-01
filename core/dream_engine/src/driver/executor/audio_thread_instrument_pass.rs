@@ -83,7 +83,7 @@ pub(super) fn render_instrument_sources(
         let midi_loop_region = render_ctx
             .loop_region
             .as_ref()
-            .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
+            .map(|r| (r.start, r.end));
 
         slot.midi_schedule_scratch.clear();
         if is_playing {
@@ -91,7 +91,7 @@ pub(super) fn render_instrument_sources(
                 &midi_track.clips,
                 midi_playhead_pos,
                 timeline_frame_count,
-                midi_loop_region.as_ref(),
+                midi_loop_region,
                 &mut slot.midi_schedule_scratch,
                 &mut slot.midi_schedule_tmp,
             );

@@ -223,6 +223,16 @@ export class CanvasClipRenderer {
             else gridStep = 0.5;
         }
 
+        // ENTERPRISE FIX: Level-of-Detail guard for fine grid settings (1:16, 1:32).
+        // When zoomed out with a fine grid, the number of lines can exceed 4000+
+        // causing severe CPU spikes and UI freezing. Coarsen the grid step
+        // until the line count stays under MAX_GRID_LINES.
+        const MAX_GRID_LINES = 2000;
+        const visibleBeats = range.endBeat - range.startBeat;
+        while (gridStep > 0 && (visibleBeats / gridStep) > MAX_GRID_LINES) {
+            gridStep *= 2;
+        }
+
         const startBeat = Math.floor(range.startBeat / gridStep) * gridStep;
         const endBeat = Math.ceil(range.endBeat / gridStep) * gridStep;
 
@@ -764,10 +774,11 @@ export class CanvasClipRenderer {
         const pixelsPerPeak = clipW / peakCount;
 
         if (pixelsPerPeak >= 1) {
-            // AUDIT FIX: Apply consistent globalAlpha in bar mode (matches path mode below).
-            // Previously bar mode had no alpha adjustment, causing opacity jump during zoom.
-            ctx.save();
-            ctx.globalAlpha = muted ? 0.25 : 1.0;
+            // ENTERPRISE FIX: Removed globalAlpha override that caused color flash
+            // during zoom. Previously bar mode forced globalAlpha=1.0 which overrode
+            // the clip-level alpha (trackDisabled=0.25, automationVisible=0.55),
+            // while path mode inherited it. This caused a visual POP at the threshold.
+            // Both branches now use inherited alpha — opacity is baked in fillStyle.
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 const barW = Math.max(1, pixelsPerPeak);
@@ -778,7 +789,6 @@ export class CanvasClipRenderer {
                 const barH = Math.max(1, bottom - top);
                 ctx.fillRect(px, top, barW, barH);
             }
-            ctx.restore();
         } else {
             ctx.beginPath();
             ctx.moveTo(clipX, centerY);
@@ -794,10 +804,6 @@ export class CanvasClipRenderer {
             }
 
             ctx.closePath();
-            // FIX-4: Use same opacity as bar branch — prevents visual flash when
-            // crossing the pixelsPerPeak threshold during zoom. Previously the path
-            // branch set 0.6 while bars used inherit (1.0), causing waveforms to
-            // look different at different zoom levels.
             ctx.fill();
         }
 

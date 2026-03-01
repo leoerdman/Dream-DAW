@@ -367,12 +367,12 @@ pub(crate) fn apply_native_device_automation_sample_accurate_block(
     }
 
     for (key, points) in &lane.plugin_params {
-        if let Some(target) = parse_external_param_target(key) {
-            if let Some(slot_index) = target.slot_index {
-                let mut cursor = 0usize;
-                if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
-                    device_chain.set_param(slot_index, target.param_index, value);
-                }
+        if let Some(target) = parse_external_param_target(key)
+            && let Some(slot_index) = target.slot_index
+        {
+            let mut cursor = 0usize;
+            if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
+                device_chain.set_param(slot_index, target.param_index, value);
             }
         }
     }

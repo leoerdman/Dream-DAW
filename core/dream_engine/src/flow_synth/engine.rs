@@ -41,14 +41,13 @@ impl FlowVoice {
 
     /// Set gate/note/velocity on this voice's MidiInNode.
     fn set_midi_state(&mut self, note: u8, velocity: u8, gate: bool) {
-        if let Some(idx) = self.midi_in_index {
-            if let Some(node_box) = self.graph.get_node_mut(idx) {
-                if let Some(midi_node) = node_box.as_any_mut().downcast_mut::<MidiInNode>() {
-                    midi_node.note = note;
-                    midi_node.velocity = velocity;
-                    midi_node.gate = gate;
-                }
-            }
+        if let Some(idx) = self.midi_in_index
+            && let Some(node_box) = self.graph.get_node_mut(idx)
+            && let Some(midi_node) = node_box.as_any_mut().downcast_mut::<MidiInNode>()
+        {
+            midi_node.note = note;
+            midi_node.velocity = velocity;
+            midi_node.gate = gate;
         }
     }
 }

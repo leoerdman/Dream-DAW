@@ -8,9 +8,9 @@ static PAN_SIN_TABLE: OnceLock<[f32; PAN_TABLE_SIZE]> = OnceLock::new();
 fn get_sin_table() -> &'static [f32; PAN_TABLE_SIZE] {
     PAN_SIN_TABLE.get_or_init(|| {
         let mut table = [0.0; PAN_TABLE_SIZE];
-        for i in 0..PAN_TABLE_SIZE {
+        for (i, slot) in table.iter_mut().enumerate() {
             let angle = (i as f32 / (PAN_TABLE_SIZE - 1) as f32) * std::f32::consts::FRAC_PI_2;
-            table[i] = angle.sin();
+            *slot = angle.sin();
         }
         table
     })

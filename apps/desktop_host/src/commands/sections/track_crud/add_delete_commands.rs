@@ -110,6 +110,12 @@ async fn add_track_with_deltas_cmd(
         });
     }
 
+    // SSOT FIX: Append full snapshot for structural topology changes.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
+
     Ok(TrackManagementDeltaResponse { deltas })
 }
 
@@ -177,11 +183,18 @@ async fn delete_track_with_deltas_cmd(
     project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.evict_unused_clips(&project_state);
 
+    // SSOT FIX: Append full snapshot — track deletion affects routing, indices, and clip ownership.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(TrackManagementDeltaResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::TrackRemoved {
-            track_id: result.removed_track_id,
-            track_index: result.removed_index,
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::TrackRemoved {
+                track_id: result.removed_track_id,
+                track_index: result.removed_index,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
+            },
+        ],
     })
 }
 

@@ -189,7 +189,7 @@ pub(super) fn drain_commands(
             }
             EngineCommand::SetTimelineSampleRate(sample_rate) => {
                 ctx.render_ctx.set_timeline_sample_rate(sample_rate);
-                ctx.master_gain_smoother.set_time_constant(sample_rate as f64, 5.0);
+                ctx.master_gain_smoother.set_time_constant(sample_rate, 5.0);
             }
             EngineCommand::SetLoopEnabled(enabled) => {
                 *ctx.loop_enabled = enabled;

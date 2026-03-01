@@ -345,10 +345,10 @@ impl PluginScanner {
 
                 if depth < max_depth && path.is_dir() {
                     // ENT-SCAN1: Canonicalize to detect symlink loops.
-                    if let Ok(canonical) = path.canonicalize() {
-                        if seen_dirs.insert(canonical) {
-                            stack.push((path, depth + 1));
-                        }
+                    if let Ok(canonical) = path.canonicalize()
+                        && seen_dirs.insert(canonical)
+                    {
+                        stack.push((path, depth + 1));
                     }
                 }
             }

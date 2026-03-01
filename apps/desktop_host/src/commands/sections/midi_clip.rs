@@ -115,20 +115,27 @@ async fn create_midi_clip_with_deltas_cmd(
             })?
     };
 
+    // SSOT FIX: Append full snapshot — MIDI clip creation may auto-create tracks.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(CreateMidiClipWithDeltasResponse {
         clip_id: response.clip_id.clone(),
         clip_name: response.clip_name.clone(),
         position_frames: response.position_frames,
         duration_frames: response.duration_frames,
-        deltas: vec![dream_models::delta::ProjectDelta::ClipAdded {
-            clip_id: clip_uuid,
-            track_index: resolved_track_index,
-            name: response.clip_name,
-            clip_type: "midi".to_string(),
-            file_path: None,
-            position: response.position_frames,
-            duration: response.duration_frames,
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::ClipAdded {
+                clip_id: clip_uuid,
+                track_index: resolved_track_index,
+                name: response.clip_name,
+                clip_type: "midi".to_string(),
+                file_path: None,
+                position: response.position_frames,
+                duration: response.duration_frames,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
+            },
+        ],
     })
 }
 
@@ -616,11 +623,18 @@ async fn update_midi_clip_with_deltas_cmd(
         collect_midi_note_deltas_for_clip(&project, clip_uuid)
     };
 
+    // SSOT FIX: Append full snapshot — MIDI note updates change project state.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::MidiClipNotesReplaced {
-            clip_id: clip_uuid,
-            notes: note_deltas,
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::MidiClipNotesReplaced {
+                clip_id: clip_uuid,
+                notes: note_deltas,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
+            },
+        ],
     })
 }
 

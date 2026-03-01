@@ -17,6 +17,12 @@ impl MidiInNode {
     }
 }
 
+impl Default for MidiInNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlowNode for MidiInNode {
     fn process(&mut self, _inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
         // Output 0: Frequency in Hz (Audio-rate CV)

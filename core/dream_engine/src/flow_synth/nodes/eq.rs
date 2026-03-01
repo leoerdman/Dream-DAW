@@ -110,6 +110,12 @@ impl EqNode {
     }
 }
 
+impl Default for EqNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlowNode for EqNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64) {
         let input = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));

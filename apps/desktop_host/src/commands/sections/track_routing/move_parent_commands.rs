@@ -68,12 +68,19 @@ async fn move_track_to_index_with_deltas_cmd(
         result.old_index,
         result.new_index
     );
+    // SSOT FIX: Append full snapshot — track reordering changes all indices.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(TrackManagementDeltaResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::TrackMoved {
-            track_id: moving_id,
-            old_index: result.old_index,
-            new_index: result.new_index,
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::TrackMoved {
+                track_id: moving_id,
+                old_index: result.old_index,
+                new_index: result.new_index,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
+            },
+        ],
     })
 }
 
@@ -143,6 +150,8 @@ async fn move_track_with_parent_with_deltas_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
+    // SSOT FIX: Append full snapshot — parent+index changes affect routing topology.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(DeltaMutationResponse {
         deltas: vec![
             dream_models::delta::ProjectDelta::TrackMoved {
@@ -153,6 +162,9 @@ async fn move_track_with_parent_with_deltas_cmd(
             dream_models::delta::ProjectDelta::TrackParentChanged {
                 track_id: cmd.track_id,
                 parent_track_id: cmd.target_parent_group_id,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
             },
         ],
     })

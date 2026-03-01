@@ -27,7 +27,15 @@ impl AutoFilterNode {
             env_follow_depth: 0.0,
         }
     }
+}
 
+impl Default for AutoFilterNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AutoFilterNode {
     pub fn set_filter_type_by_name(&mut self, name: &str) {
         self.filter.set_filter_type_by_name(name);
     }

@@ -42,6 +42,12 @@ impl ReverseNode {
     }
 }
 
+impl Default for ReverseNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlowNode for ReverseNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64) {
         let input = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);

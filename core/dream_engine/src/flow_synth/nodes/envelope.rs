@@ -11,6 +11,12 @@ pub struct EnvelopeNode {
     params: AdsrParams,
 }
 
+impl Default for EnvelopeNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EnvelopeNode {
     /// Create with default sample rate. The audio thread will call process
     /// with the actual sample rate, but the envelope time constants are set

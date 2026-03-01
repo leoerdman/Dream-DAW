@@ -274,6 +274,8 @@ async fn import_audio_file_with_deltas(
         })?
     };
 
+    // SSOT FIX: Append full snapshot — import handles overlaps and may create tracks.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     Ok(ImportAudioWithDeltasResponse {
         clip_id: response.clip_id.clone(),
         clip_name: response.clip_name,
@@ -281,14 +283,19 @@ async fn import_audio_file_with_deltas(
         sample_rate: response.sample_rate,
         channels: response.channels,
         frames: response.frames,
-        deltas: vec![dream_models::delta::ProjectDelta::ClipAdded {
-            clip_id: clip_uuid,
-            track_index: resolved_track_index,
-            name: clip_name,
-            clip_type: "audio".to_string(),
-            file_path: Some(file_path),
-            position,
-            duration,
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::ClipAdded {
+                clip_id: clip_uuid,
+                track_index: resolved_track_index,
+                name: clip_name,
+                clip_type: "audio".to_string(),
+                file_path: Some(file_path),
+                position,
+                duration,
+            },
+            dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+                project: Box::new(project.clone()),
+            },
+        ],
     })
 }

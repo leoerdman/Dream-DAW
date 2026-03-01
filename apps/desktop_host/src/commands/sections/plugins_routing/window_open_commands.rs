@@ -68,11 +68,11 @@ fn open_plugin_window(
     let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
     app.run_on_main_thread(move || {
-        let result = (|| {
+        let result = {
             let mut host = host_arc.lock();
             host.open_editor(instance_id)
                 .map_err(|e| format!("Failed to open plugin editor: {e}"))
-        })();
+        };
         let _ = tx.send(result);
     })
     .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
@@ -201,11 +201,11 @@ fn open_plugin_window_for_slot(
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
-            let result = (|| {
+            let result = {
                 let mut host = host_arc.lock();
                 host.open_editor(instance_id)
                     .map_err(|e| e.to_string())
-            })();
+            };
             let _ = tx.send(result);
         })
         .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
@@ -286,11 +286,11 @@ fn open_plugin_window_for_slot(
             let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
             let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
             app.run_on_main_thread(move || {
-                let result = (|| {
+                let result = {
                     let mut host = host_arc.lock();
                     host.open_editor(recovered_instance)
                         .map_err(|e| e.to_string())
-                })();
+                };
                 let _ = tx.send(result);
             })
             .map_err(|e| format!("Failed to schedule GUI open retry on main thread: {e}"))?;

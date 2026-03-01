@@ -140,12 +140,12 @@ impl Command for ConsolidateClipsCommand {
         let mut project = ctx.lock_project()?;
         let track_count = project.tracks.len();
         
-        let track = project.tracks.get_mut(self.track_index).ok_or_else(|| {
+        let track = project.tracks.get_mut(self.track_index).ok_or(
             crate::error::OrchestratorError::TrackOutOfRange {
                 requested: self.track_index,
                 total: track_count,
             }
-        })?;
+        )?;
 
         track.clips.retain(|c| !self.clips_to_remove.contains(&c.id));
         track.midi_clips.retain(|c| !self.clips_to_remove.contains(&c.id));

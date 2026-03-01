@@ -1127,17 +1127,16 @@ impl OfflineRenderer {
             if let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
                 .find(|e| e.from == node_idx)
                 .map(|e| e.delay_samples)
+                && delay_frames > 0
             {
-                if delay_frames > 0 {
-                    let delay_buf = &mut ctx.pdc_buffers[track_idx];
-                    if delay_buf.len() != delay_frames as usize {
-                        delay_buf.resize(delay_frames as usize);
-                    }
-                    delay_buf.process_stereo(
-                        &mut slot.buf_left[..frame_count],
-                        &mut slot.buf_right[..frame_count],
-                    );
+                let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                if delay_buf.len() != delay_frames as usize {
+                    delay_buf.resize(delay_frames as usize);
                 }
+                delay_buf.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                );
             }
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)

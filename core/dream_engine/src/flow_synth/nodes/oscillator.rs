@@ -10,6 +10,12 @@ pub struct OscillatorNode {
     base_frequency_hz: f32,
 }
 
+impl Default for OscillatorNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OscillatorNode {
     /// Create an oscillator with a default Sine waveform.
     /// Waveform can be changed at runtime via a control input or direct setter.

@@ -7,18 +7,13 @@ pub type NodeId = u64;
 
 /// A signal in the Flow graph. In a modular synth, almost everything is a
 /// control voltage (CV) or audio signal represented as an f32.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum FlowSignal {
+    #[default]
     None,
     Audio(f32),
     Control(f32),
     Midi { pitch: u8, velocity: u8, gate: bool },
-}
-
-impl Default for FlowSignal {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl FlowSignal {
@@ -327,13 +322,13 @@ impl FlowGraph {
 
             // Fill inputs based on connections.
             for conn in &self.connections {
-                if conn.to_node == this_node_id {
-                    if let Some(&from_idx) = self.node_map.get(&conn.from_node) {
-                        if conn.from_port < MAX_NODE_PORTS && conn.to_port < MAX_NODE_PORTS {
-                            let source_signal = self.signal_buffer[from_idx * MAX_NODE_PORTS + conn.from_port];
-                            inputs[conn.to_port] = source_signal;
-                        }
-                    }
+                if conn.to_node == this_node_id
+                    && let Some(&from_idx) = self.node_map.get(&conn.from_node)
+                    && conn.from_port < MAX_NODE_PORTS
+                    && conn.to_port < MAX_NODE_PORTS
+                {
+                    let source_signal = self.signal_buffer[from_idx * MAX_NODE_PORTS + conn.from_port];
+                    inputs[conn.to_port] = source_signal;
                 }
             }
 

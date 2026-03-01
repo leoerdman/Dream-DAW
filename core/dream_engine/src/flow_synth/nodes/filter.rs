@@ -10,6 +10,12 @@ pub struct FilterNode {
     default_resonance: f32,
 }
 
+impl Default for FilterNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FilterNode {
     /// Create a Filter with default Lowpass type.
     pub fn new() -> Self {

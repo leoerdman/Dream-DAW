@@ -152,7 +152,7 @@ pub fn push_prealloc_device(
         .prealloc_producer
         .lock()
         .map_err(|e| format!("prealloc lock poisoned: {e}"))?;
-    if let Err(_) = producer.push(prebuilt) {
+    if producer.push(prebuilt).is_err() {
         drop(producer);
         log::warn!(
             "[RT-SafeDevice] prealloc queue full, falling back to legacy AddDevice \

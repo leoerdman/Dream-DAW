@@ -49,7 +49,6 @@ const METER_FALL_TIME_SECS: f64 = 0.3;
 ///
 /// # Real-Time Safety
 /// Pure arithmetic. Can be called per-buffer but ideally cached.
-
 static PEAK_DECAY_CACHE_SR: AtomicU32 = AtomicU32::new(0);
 static PEAK_DECAY_CACHE_BLOCK: AtomicU32 = AtomicU32::new(0);
 static PEAK_DECAY_CACHE_VAL: AtomicU32 = AtomicU32::new(0);

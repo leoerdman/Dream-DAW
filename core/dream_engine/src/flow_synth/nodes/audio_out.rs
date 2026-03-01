@@ -9,6 +9,12 @@ impl AudioOutNode {
     }
 }
 
+impl Default for AudioOutNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlowNode for AudioOutNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
         // Input 0: Audio Signal

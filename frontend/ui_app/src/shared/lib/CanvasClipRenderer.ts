@@ -737,22 +737,72 @@ export class CanvasClipRenderer {
             sourceWindowSamples = Math.round(clip.durationSamples * pitchMultiplier);
         }
 
-        const drawData = this._waveformCache.getDrawData(
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTERPRISE: Ableton-style dual-mip blended waveform rendering.
+        //
+        // Instead of abruptly switching between mip levels (which causes
+        // visible height pops), we fetch TWO adjacent levels and interpolate
+        // min/max values between them using a logarithmic blend factor.
+        //
+        // This produces perfectly stable waveform height during zoom
+        // transitions — identical to Ableton Live's rendering approach.
+        // ═══════════════════════════════════════════════════════════════════
+        const blendedData = this._waveformCache.getBlendedDrawData(
             clip.id,
             samplesPerPixel,
             clip.sourceOffset ?? 0,
             sourceWindowSamples,
         );
 
-        if (!drawData) return; // Still loading
+        if (!blendedData) return; // Still loading
 
-        const { mins, maxs } = drawData;
-        const peakCount = mins.length;
+        const { fine, coarse, blendFactor } = blendedData;
+        const { mins: fineMins, maxs: fineMaxs } = fine;
+        const peakCount = fineMins.length;
         if (peakCount === 0) return;
+
+        // ── Blend peaks from two mip levels ──────────────────────────────
+        // The fine level has more peaks (higher resolution) than coarse.
+        // We resample the coarse level to match the fine level's count,
+        // then linearly interpolate between them.
+        let renderMins: Float32Array | number[];
+        let renderMaxs: Float32Array | number[];
+
+        if (coarse && blendFactor > 0.001) {
+            const { mins: coarseMins, maxs: coarseMaxs } = coarse;
+            const coarseCount = coarseMins.length;
+
+            // Pre-allocate blended arrays
+            renderMins = new Float32Array(peakCount);
+            renderMaxs = new Float32Array(peakCount);
+            const bf = blendFactor;
+            const invBf = 1 - bf;
+
+            for (let i = 0; i < peakCount; i++) {
+                // Map fine-level index to coarse-level position
+                const coarsePos = coarseCount > 0 ? (i / peakCount) * coarseCount : 0;
+                const coarseIdx = Math.min(Math.floor(coarsePos), coarseCount - 1);
+                const coarseNextIdx = Math.min(coarseIdx + 1, coarseCount - 1);
+                const coarseFrac = coarsePos - coarseIdx;
+
+                // Linearly interpolate within coarse level for sub-peak precision
+                const cMin = coarseMins[coarseIdx] * (1 - coarseFrac) + coarseMins[coarseNextIdx] * coarseFrac;
+                const cMax = coarseMaxs[coarseIdx] * (1 - coarseFrac) + coarseMaxs[coarseNextIdx] * coarseFrac;
+
+                // Blend between fine and interpolated coarse
+                renderMins[i] = fineMins[i] * invBf + cMin * bf;
+                renderMaxs[i] = fineMaxs[i] * invBf + cMax * bf;
+            }
+        } else {
+            // No blending needed — use fine level directly
+            renderMins = fineMins;
+            renderMaxs = fineMaxs;
+        }
 
         const centerY = bodyY + bodyH / 2;
         const halfH = bodyH / 2;
 
+        // ── Choose fill style ────────────────────────────────────────────
         const contrastColor = getContrastColor(clip.color);
 
         if (this._waveformStyle === 'classic') {
@@ -774,39 +824,37 @@ export class CanvasClipRenderer {
         const pixelsPerPeak = clipW / peakCount;
 
         if (pixelsPerPeak >= 1) {
-            // ENTERPRISE FIX: Removed globalAlpha override that caused color flash
-            // during zoom. Previously bar mode forced globalAlpha=1.0 which overrode
-            // the clip-level alpha (trackDisabled=0.25, automationVisible=0.55),
-            // while path mode inherited it. This caused a visual POP at the threshold.
-            // Both branches now use inherited alpha — opacity is baked in fillStyle.
+            // ── Bar mode (zoomed in — each peak gets ≥1px) ───────────────
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 const barW = Math.max(1, pixelsPerPeak);
-                const minVal = mins[i];
-                const maxVal = maxs[i];
+                const minVal = renderMins[i];
+                const maxVal = renderMaxs[i];
                 const top = centerY - maxVal * halfH;
                 const bottom = centerY - minVal * halfH;
                 const barH = Math.max(1, bottom - top);
                 ctx.fillRect(px, top, barW, barH);
             }
         } else {
+            // ── Path mode (zoomed out — multiple peaks per pixel) ─────────
             ctx.beginPath();
             ctx.moveTo(clipX, centerY);
 
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
-                ctx.lineTo(px, centerY - maxs[i] * halfH);
+                ctx.lineTo(px, centerY - renderMaxs[i] * halfH);
             }
 
             for (let i = peakCount - 1; i >= 0; i--) {
                 const px = clipX + (i / peakCount) * clipW;
-                ctx.lineTo(px, centerY - mins[i] * halfH);
+                ctx.lineTo(px, centerY - renderMins[i] * halfH);
             }
 
             ctx.closePath();
             ctx.fill();
         }
 
+        // ── Center line ──────────────────────────────────────────────────
         if (this._waveformStyle === 'classic') {
             ctx.strokeStyle = muted
                 ? rgba(40, 44, 52, 0.2)

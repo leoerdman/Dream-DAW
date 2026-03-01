@@ -85,6 +85,71 @@ export class WaveformCache {
         return this._extractDrawData(sourceOffset, durationSamples, entry);
     }
 
+    /**
+     * ENTERPRISE: Get blended draw data from two adjacent mip levels for smooth
+     * zoom transitions (Ableton-style). Returns fine + coarse levels with a
+     * blend factor [0..1] where 0 = fully fine, 1 = fully coarse.
+     *
+     * When zoom is between two mip level boundaries, the waveform smoothly
+     * transitions between them instead of popping abruptly.
+     */
+    getBlendedDrawData(
+        clipId: string,
+        samplesPerPixel: number,
+        sourceOffset: number,
+        durationSamples: number,
+    ): { fine: WaveformDrawData; coarse: WaveformDrawData | null; blendFactor: number } | null {
+        const fineLevel = this._selectLodLevel(samplesPerPixel);
+        const coarseLevel = Math.min(fineLevel + 1, MIP_FACTORS.length - 1);
+
+        const fineCacheKey = `${clipId}:${fineLevel}`;
+        const fineEntry = this._cache.get(fineCacheKey);
+        if (!fineEntry) {
+            this._fetchAsync(clipId, fineLevel, fineCacheKey);
+            return null;
+        }
+
+        // LRU touch
+        this._cache.delete(fineCacheKey);
+        this._cache.set(fineCacheKey, fineEntry);
+        fineEntry.lastAccessed = performance.now();
+
+        const fineData = this._extractDrawData(sourceOffset, durationSamples, fineEntry);
+
+        // If fine===coarse (at max zoom out), no blending needed
+        if (fineLevel === coarseLevel) {
+            return { fine: fineData, coarse: null, blendFactor: 0 };
+        }
+
+        // Calculate blend factor: how far are we between the two mip boundaries?
+        // At MIP_FACTORS[fineLevel] → blendFactor = 0 (fully fine)
+        // At MIP_FACTORS[coarseLevel] → blendFactor = 1 (fully coarse)
+        const fineSpp = MIP_FACTORS[fineLevel];
+        const coarseSpp = MIP_FACTORS[coarseLevel];
+        // Use logarithmic interpolation for perceptually linear zoom transition
+        const logFine = Math.log2(fineSpp);
+        const logCoarse = Math.log2(coarseSpp);
+        const logCurrent = Math.log2(Math.max(1, samplesPerPixel));
+        const blendFactor = Math.max(0, Math.min(1, (logCurrent - logFine) / (logCoarse - logFine)));
+
+        // Prefetch coarse level for seamless transition
+        const coarseCacheKey = `${clipId}:${coarseLevel}`;
+        const coarseEntry = this._cache.get(coarseCacheKey);
+        if (!coarseEntry) {
+            this._fetchAsync(clipId, coarseLevel, coarseCacheKey);
+            // Return fine-only until coarse loads
+            return { fine: fineData, coarse: null, blendFactor: 0 };
+        }
+
+        // LRU touch
+        this._cache.delete(coarseCacheKey);
+        this._cache.set(coarseCacheKey, coarseEntry);
+        coarseEntry.lastAccessed = performance.now();
+
+        const coarseData = this._extractDrawData(sourceOffset, durationSamples, coarseEntry);
+        return { fine: fineData, coarse: coarseData, blendFactor };
+    }
+
     /** Force-prefetch waveform data for a set of clips. */
     prefetch(clipIds: string[], samplesPerPixel: number): void {
         const lodLevel = this._selectLodLevel(samplesPerPixel);

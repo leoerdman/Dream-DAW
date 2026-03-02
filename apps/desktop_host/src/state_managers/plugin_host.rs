@@ -6,6 +6,7 @@ use dream_plugins::{
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use parking_lot::Mutex;
 use uuid::Uuid;
@@ -17,6 +18,10 @@ pub(crate) struct PluginHostState {
     pub(crate) sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
     pub(crate) cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
     pub(crate) plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
+    /// Set to `true` when all sandbox daemon instances fail to start.
+    /// Prevents further sandbox attempts for this session, falling through
+    /// to in-process VST3 loading (matches pre-sandbox behavior).
+    sandbox_disabled_for_session: AtomicBool,
 }
 impl PluginHostState {
     const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
@@ -178,6 +183,7 @@ impl PluginHostState {
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
             cached_scan: Mutex::new(None),
             plugin_registry: None,
+            sandbox_disabled_for_session: AtomicBool::new(false),
         }
     }
     pub(crate) fn set_plugin_registry(
@@ -549,7 +555,10 @@ impl PluginHostState {
                 descriptor.format
             ));
         }
-        if descriptor.format == PluginFormat::VST3 && self.sandbox_enabled().unwrap_or(false) {
+        if descriptor.format == PluginFormat::VST3
+            && self.sandbox_enabled().unwrap_or(false)
+            && !self.sandbox_disabled_for_session.load(Ordering::Relaxed)
+        {
             match self.open_in_sandbox(plugin_id, descriptor.clone()) {
                 Ok(instance_id) => {
                     self.bind_slot_instance(slot_id, instance_id);
@@ -810,6 +819,23 @@ impl PluginHostState {
     pub(crate) fn sandbox_enabled(&self) -> Result<bool, String> {
         let supervisor = self.sandbox_supervisor.lock();
         Ok(supervisor.enabled())
+    }
+    /// Disable sandbox for the rest of this session. Called by the watchdog
+    /// when ALL daemon instances fail to start. After this, plugins will be
+    /// loaded in-process (the pre-sandbox fallback path).
+    pub(crate) fn disable_sandbox_for_session(&self) {
+        if self.sandbox_disabled_for_session.swap(true, Ordering::Relaxed) {
+            return; // already disabled
+        }
+        log::warn!(
+            "[PluginSandbox] All daemon instances failed — disabling sandbox for this session. \
+             Plugins will be loaded in-process."
+        );
+        let mut supervisor = self.sandbox_supervisor.lock();
+        supervisor.set_enabled(false);
+    }
+    pub(crate) fn is_sandbox_disabled_for_session(&self) -> bool {
+        self.sandbox_disabled_for_session.load(Ordering::Relaxed)
     }
     pub(crate) fn open_in_sandbox(
         &self,

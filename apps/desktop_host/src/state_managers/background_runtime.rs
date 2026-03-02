@@ -277,6 +277,41 @@ pub(crate) fn spawn_background_runtime_threads(
             for recovery in recoveries {
                 let _ = sandbox_app.emit("plugin_sandbox_recovered", &recovery);
             }
+
+            // ── AUTO-DISABLE: when ALL sandbox instances are bypassed, it means
+            // every daemon process failed (e.g. hangs during VST3 load without
+            // Cocoa/NSApplication). Fall back to in-process plugin loading for
+            // the rest of this session.
+            if !snapshot.instances.is_empty()
+                && snapshot.instances.iter().all(|i| i.bypass_requested)
+                && !plugin_host_state.is_sandbox_disabled_for_session()
+            {
+                plugin_host_state.disable_sandbox_for_session();
+
+                // Unload all stale sandboxed instances so they can be reloaded
+                // in-process on the next ensure_loaded_instance_for_slot call.
+                let stale_ids: Vec<Uuid> = snapshot
+                    .instances
+                    .iter()
+                    .map(|i| i.plugin_instance_id)
+                    .collect();
+                for id in &stale_ids {
+                    let _ = plugin_host_state.unload_instance(*id);
+                }
+                log::warn!(
+                    "[PluginSandbox] Evicted {} stale sandbox instance(s); \
+                     project reload will use in-process loading",
+                    stale_ids.len()
+                );
+
+                let _ = sandbox_app.emit(
+                    "plugin_sandbox_session_disabled",
+                    serde_json::json!({
+                        "reason": "All sandbox daemon processes failed to start. Falling back to in-process plugin loading.",
+                        "evictedInstanceIds": stale_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+                    }),
+                );
+            }
         })
     {
         log::warn!("Failed to spawn plugin sandbox watchdog thread: {err}");

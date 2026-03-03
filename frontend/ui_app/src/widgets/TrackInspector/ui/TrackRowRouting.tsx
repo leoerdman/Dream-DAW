@@ -101,29 +101,16 @@ export const TrackRowRouting = memo(({
         );
     }
 
-    // Level 1: hide routing column entirely
-    if (heightLevel <= 1) {
-        return (
-            <div
-                style={{
-                    width: 0,
-                    minWidth: 0,
-                    maxWidth: 0,
-                    overflow: 'hidden',
-                }}
-            />
-        );
-    }
-
-    // Show input routing only at Level 3+
-    const showInput = heightLevel >= 3;
+    // ENTERPRISE FIX: Always show at least output routing — never collapse to width:0.
+    // Input routing shown at Level 2+ (48px) where space permits.
+    const showInput = heightLevel >= 2;
 
     return (
         <div
             style={{
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
+                justifyContent: 'flex-start',
                 gap: 4,
                 padding: 4,
                 borderRight: 'var(--space-px) solid var(--color-border-subtle)',

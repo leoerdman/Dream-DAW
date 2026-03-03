@@ -100,8 +100,8 @@ export const TrackRowHeader = memo(({
                     flex: 1,
                     display: 'flex',
                     flexDirection: 'column',
-                    justifyContent: 'center',
-                    padding: `var(--space-0-5) ${mixerFocusMode ? 8 : 6}px var(--space-0-5) ${basePaddingLeft}px`,
+                    justifyContent: 'flex-start',
+                    padding: `4px ${mixerFocusMode ? 8 : 6}px 4px ${basePaddingLeft}px`,
                     background: headerBgColor,
                     boxShadow: isHeaderSelected
                         ? 'inset 0 0 0 var(--token-size-px-2) color-mix(in srgb, var(--color-text-bright) 90%, transparent)'

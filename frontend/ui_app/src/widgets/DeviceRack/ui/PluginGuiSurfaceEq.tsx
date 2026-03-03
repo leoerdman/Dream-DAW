@@ -99,10 +99,17 @@ export function PluginGuiSurfaceEq({
     );
 
     const bi = activeBandIdx;
-    const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);
-    const gainParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}gain`);
-    const qParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}q`);
-    const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
+    // Use device.params for full PluginParam shape (min/max/suffix) but override
+    // values from effectiveParams for live drag feedback on knobs.
+    const mergeValue = (param: typeof device.params[0] | undefined) => {
+        if (!param) return undefined;
+        const merged = effectiveParams.find((x) => x.name.toLowerCase() === param.name.toLowerCase());
+        return merged ? { ...param, value: merged.value } : param;
+    };
+    const freqParam = mergeValue(device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`));
+    const gainParam = mergeValue(device.params.find((x) => x.name.toLowerCase() === `b${bi}gain`));
+    const qParam = mergeValue(device.params.find((x) => x.name.toLowerCase() === `b${bi}q`));
+    const outParam = mergeValue(device.params.find((x) => x.name.toLowerCase() === 'out'));
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
     const curveStops = useMemo(() => buildEqGradientStops(enabledBands), [enabledBands]);

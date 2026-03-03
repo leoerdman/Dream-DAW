@@ -23,12 +23,12 @@ export const DEVICE_PARAM_PRESETS: Record<
         // Band 3: Peaking — enabled by default (centered flat line)
         { name: 'B3Freq', value: 1000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B3Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
-        { name: 'B3Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B3Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
         { name: 'B3En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
         // Band 4: Peaking
         { name: 'B4Freq', value: 2500, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B4Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
-        { name: 'B4Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B4Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
         { name: 'B4En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 5: Peaking
         { name: 'B5Freq', value: 6000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
@@ -47,6 +47,16 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'B7En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Output gain
         { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        // Filter type per band (0=HP, 1=LP, 2=LowShelf, 3=HighShelf, 4=Peaking, 5=Notch)
+        // CRITICAL: these MUST exist for filter types to persist through project save/load
+        { name: 'B0Type', value: 0, min: 0, max: 5, suffix: '', step: 1 },  // HP
+        { name: 'B1Type', value: 2, min: 0, max: 5, suffix: '', step: 1 },  // LowShelf
+        { name: 'B2Type', value: 4, min: 0, max: 5, suffix: '', step: 1 },  // Peaking
+        { name: 'B3Type', value: 4, min: 0, max: 5, suffix: '', step: 1 },  // Peaking
+        { name: 'B4Type', value: 4, min: 0, max: 5, suffix: '', step: 1 },  // Peaking
+        { name: 'B5Type', value: 4, min: 0, max: 5, suffix: '', step: 1 },  // Peaking
+        { name: 'B6Type', value: 3, min: 0, max: 5, suffix: '', step: 1 },  // HighShelf
+        { name: 'B7Type', value: 1, min: 0, max: 5, suffix: '', step: 1 },  // LP
         // Legacy aliases (for backward compat)
         { name: 'LowFreq', value: 120, min: 20, max: 1200, suffix: 'Hz', step: 1 },
         { name: 'Low', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },

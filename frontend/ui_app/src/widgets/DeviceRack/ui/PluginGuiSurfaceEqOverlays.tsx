@@ -77,6 +77,16 @@ export function EqBandOverlays({
                             onParamChange(`B${band.idx}En`, 0);
                         }}
                     >
+                        {/* Invisible 24px hit zone for easier grabbing */}
+                        <div style={{
+                            position: 'absolute',
+                            left: '50%',
+                            top: '50%',
+                            width: 24,
+                            height: 24,
+                            transform: 'translate(-50%, -50%)',
+                            borderRadius: '50%',
+                        }} />
                         {isActive && (
                             <div
                                 style={{

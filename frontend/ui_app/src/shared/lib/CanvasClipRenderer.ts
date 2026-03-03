@@ -39,6 +39,15 @@ export class CanvasClipRenderer {
 
     /** Reusable buffer for visible-clip filtering (avoids per-frame allocation). */
     private _filteredClips: TimelineClipData[] = [];
+    /** PERF #4: Tracked flag — avoids O(N) clips.some(c => c.selected) scan per frame. */
+    private _hasClipSelection = false;
+    /** PERF #5: Contrast color cache — avoids parseColorToRgb + luminance calc per clip per frame. */
+    private static _contrastColorCache = new Map<string, 'black' | 'white'>();
+    /** PERF #8: Text width cache — avoids ctx.measureText() binary search per clip per frame. */
+    private static _textWidthCache = new Map<string, number>();
+    /** PERF #2: Reusable Float32Arrays for waveform blending (avoids per-frame allocation). */
+    private _blendMins: Float32Array | null = null;
+    private _blendMaxs: Float32Array | null = null;
 
     /** Group track metadata: maps group track index → child track indices */
     private _groupTracks: Map<number, number[]> = new Map();
@@ -53,16 +62,23 @@ export class CanvasClipRenderer {
         this._waveformCache = waveformCache;
     }
 
+    /** PERF #4: Update tracked selection flag (called from TimelineEngine.setClipSelection). */
+    setHasClipSelection(has: boolean): void {
+        this._hasClipSelection = has;
+    }
+
     private _truncateTextToWidth(
         ctx: CanvasRenderingContext2D,
         text: string,
         maxWidth: number,
     ): string {
         if (!text || maxWidth <= 0) return '';
-        if (ctx.measureText(text).width <= maxWidth) return text;
+        // PERF #8: Cache measured text widths to avoid ctx.measureText() per clip per frame.
+        const fullW = this._measureTextCached(ctx, text);
+        if (fullW <= maxWidth) return text;
 
         const ellipsis = '...';
-        const ellipsisW = ctx.measureText(ellipsis).width;
+        const ellipsisW = this._measureTextCached(ctx, ellipsis);
         if (ellipsisW >= maxWidth) return '';
 
         let lo = 0;
@@ -70,13 +86,35 @@ export class CanvasClipRenderer {
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
             const candidate = `${text.slice(0, mid)}${ellipsis}`;
-            if (ctx.measureText(candidate).width <= maxWidth) {
+            if (this._measureTextCached(ctx, candidate) <= maxWidth) {
                 lo = mid;
             } else {
                 hi = mid - 1;
             }
         }
         return lo > 0 ? `${text.slice(0, lo)}${ellipsis}` : '';
+    }
+
+    /** PERF #8: Cached text measurement — avoids repeated ctx.measureText() for same strings. */
+    private _measureTextCached(ctx: CanvasRenderingContext2D, text: string): number {
+        const cached = CanvasClipRenderer._textWidthCache.get(text);
+        if (cached !== undefined) return cached;
+        const w = ctx.measureText(text).width;
+        CanvasClipRenderer._textWidthCache.set(text, w);
+        // Prevent unbounded cache growth
+        if (CanvasClipRenderer._textWidthCache.size > 2000) {
+            CanvasClipRenderer._textWidthCache.clear();
+        }
+        return w;
+    }
+
+    /** PERF #5: Cached contrast color — avoids hex parse + luminance per clip per frame. */
+    private _getContrastColorCached(hexColor: string): 'black' | 'white' {
+        const cached = CanvasClipRenderer._contrastColorCache.get(hexColor);
+        if (cached !== undefined) return cached;
+        const result = getContrastColor(hexColor);
+        CanvasClipRenderer._contrastColorCache.set(hexColor, result);
+        return result;
     }
 
     private _syncTheme(): void {
@@ -165,8 +203,8 @@ export class CanvasClipRenderer {
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
 
         // FIX-3: Hide edit cursor when marquee is active OR clips are selected.
-        // PERF FIX: Compute once, pass to _drawRuler to avoid duplicate O(N) scan per frame.
-        const hasClipSelection = clips.some(c => c.selected);
+        // PERF #4: Use pre-tracked flag instead of O(N) clips.some() scan per frame.
+        const hasClipSelection = this._hasClipSelection;
         if (!hasClipSelection && !marquee) {
             this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
         }
@@ -626,7 +664,7 @@ export class CanvasClipRenderer {
         const textPad = 3;
         const maxTextW = w - textPad * 2;
         if (maxTextW > 4 && headerH > 8) {
-            const contrastColor = getContrastColor(clip.color);
+            const contrastColor = this._getContrastColorCached(clip.color);
             const isDisabledVisual = clip.muted || isTrackDisabled;
             ctx.font = CLIP_LABEL_FONT;
             const label = this._truncateTextToWidth(ctx, clip.name, maxTextW);
@@ -824,9 +862,13 @@ export class CanvasClipRenderer {
             const { mins: coarseMins, maxs: coarseMaxs } = coarse;
             const coarseCount = coarseMins.length;
 
-            // Pre-allocate blended arrays
-            renderMins = new Float32Array(peakCount);
-            renderMaxs = new Float32Array(peakCount);
+            // PERF #2: Reuse Float32Array buffers for waveform blending
+            if (!this._blendMins || this._blendMins.length < peakCount) {
+                this._blendMins = new Float32Array(peakCount);
+                this._blendMaxs = new Float32Array(peakCount);
+            }
+            renderMins = this._blendMins;
+            renderMaxs = this._blendMaxs!;
             const bf = blendFactor;
             const invBf = 1 - bf;
 
@@ -855,7 +897,7 @@ export class CanvasClipRenderer {
         const halfH = bodyH / 2;
 
         // ── Choose fill style ────────────────────────────────────────────
-        const contrastColor = getContrastColor(clip.color);
+        const contrastColor = this._getContrastColorCached(clip.color);
 
         if (this._waveformStyle === 'classic') {
             ctx.fillStyle = muted
@@ -938,7 +980,7 @@ export class CanvasClipRenderer {
         const midiRowStep = bodyH / 128;
         const noteH = Math.max(1, midiRowStep);
 
-        const contrastColor = getContrastColor(clip.color);
+        const contrastColor = this._getContrastColorCached(clip.color);
         ctx.fillStyle = muted
             ? rgba(156, 163, 173, 0.62)
             : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));

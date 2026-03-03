@@ -37,10 +37,15 @@ export function deriveEqBandFilterTypes(
     params: Array<{ name: string; value: number }>,
     fallback: string[],
 ): string[] {
+    // PERF: Build Map once for O(1) lookups instead of 8× linear scans
+    const paramMap = new Map<string, number>();
+    for (const p of params) {
+        paramMap.set(p.name.toLowerCase(), p.value);
+    }
     const next: string[] = [];
     for (let i = 0; i < 8; i++) {
         const fallbackType = fallback[i] ?? 'peaking';
-        const typeRaw = params.find((p) => p.name.toLowerCase() === `b${i}type`)?.value;
+        const typeRaw = paramMap.get(`b${i}type`);
         next.push(eqFilterTypeFromIndex(typeRaw, fallbackType));
     }
     return next;
@@ -233,12 +238,17 @@ export function parseBandsFromParams(
 ): EqBand8[] {
     const DEFAULT_BAND_ENABLED = [0, 0, 0, 1, 0, 0, 0, 0] as const;
     const resolvedTypes = deriveEqBandFilterTypes(params, eqBandFilterTypes);
+    // PERF: O(N) Map build instead of O(N²) repeated .find() calls
+    const paramMap = new Map<string, number>();
+    for (const p of params) {
+        paramMap.set(p.name.toLowerCase(), p.value);
+    }
     const bands: EqBand8[] = [];
     for (let i = 0; i < 8; i++) {
-        const rawFreq = params.find((p) => p.name.toLowerCase() === `b${i}freq`)?.value;
-        const rawGain = params.find((p) => p.name.toLowerCase() === `b${i}gain`)?.value;
-        const rawQ = params.find((p) => p.name.toLowerCase() === `b${i}q`)?.value;
-        const rawEn = params.find((p) => p.name.toLowerCase() === `b${i}en`)?.value;
+        const rawFreq = paramMap.get(`b${i}freq`);
+        const rawGain = paramMap.get(`b${i}gain`);
+        const rawQ = paramMap.get(`b${i}q`);
+        const rawEn = paramMap.get(`b${i}en`);
         const freq = Number.isFinite(rawFreq) ? Math.max(20, Math.min(20000, rawFreq as number)) : DEFAULT_BAND_FREQS[i];
         const gain = Number.isFinite(rawGain) ? clampEqGainDb(rawGain as number) : 0;
         const q = Number.isFinite(rawQ) ? Math.max(0.1, Math.min(18, rawQ as number)) : 0.71;

@@ -335,6 +335,8 @@ export class TimelineEngine {
         }
 
         if (!changed) return;
+        // PERF #4: Update renderer's tracked selection flag (avoids O(N) clips.some() per frame)
+        this._renderer.setHasClipSelection(selected.size > 0);
         this._requestRedraw();
     }
 

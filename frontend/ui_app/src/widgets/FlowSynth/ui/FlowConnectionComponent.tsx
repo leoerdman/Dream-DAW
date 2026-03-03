@@ -85,12 +85,12 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const baseColor = signalType === 'midi'
         ? 'var(--color-signal-midi)'
         : signalType === 'control'
-            ? 'var(--color-signal-control, #f59e0b)'
+            ? 'var(--color-signal-control)'
             : 'var(--color-signal-audio)';
     const glowColor = signalType === 'midi'
         ? 'color-mix(in srgb, var(--color-signal-midi) 72%, transparent)'
         : signalType === 'control'
-            ? 'color-mix(in srgb, var(--color-signal-control, #f59e0b) 72%, transparent)'
+            ? 'color-mix(in srgb, var(--color-signal-control) 72%, transparent)'
             : 'color-mix(in srgb, var(--color-signal-audio) 72%, transparent)';
 
     const elapsed = Math.max(0, now - pulseTs);

@@ -87,7 +87,7 @@ function PortDot({
         ? 'var(--color-signal-midi)'
         : isAudio
             ? 'var(--color-signal-audio)'
-            : 'var(--color-accent-tertiary)';
+            : 'var(--color-signal-control)';
 
     // ENTERPRISE: Visual type differentiation — control ports are smaller diamonds
     const dotSize = isControl ? 10 : FLOW_PORT_SIZE;

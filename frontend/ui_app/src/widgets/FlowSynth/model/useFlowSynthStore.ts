@@ -115,7 +115,7 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
             fromNode: 'node-osc-1',
             fromPort: 'audio',
             toNode: 'node-out-1',
-            toPort: 'audioL',
+            toPort: 'audio',
             signalType: 'audio',
         },
     ],
@@ -257,7 +257,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                         fromNode: c.from_node,
                         fromPort: c.from_port,
                         toNode: c.to_node,
-                        toPort: c.to_port,
+                        // ENTERPRISE MIGRATION: audioL/audioR → audio (single stereo input)
+                        toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
                         signalType: c.signal_type ?? 'audio'
                     })),
                     viewport: {

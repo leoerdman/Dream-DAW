@@ -125,8 +125,9 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'Output',
         color: 'var(--color-synth-out)',
         inputs: [
-            { id: 'audioL', label: 'L', type: 'audio' },
-            { id: 'audioR', label: 'R', type: 'audio' },
+            // ENTERPRISE: Single stereo audio input (Bitwig Grid pattern).
+            // Signal is always stereo internally. No L/R split needed.
+            { id: 'audio', label: 'In', type: 'audio' },
         ],
         outputs: [],
     },

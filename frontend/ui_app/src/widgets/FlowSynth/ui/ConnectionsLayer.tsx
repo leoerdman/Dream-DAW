@@ -120,7 +120,7 @@ export function ConnectionsLayer() {
                 const baseColor = pendingConnection.signalType === 'midi'
                     ? 'var(--color-signal-midi)'
                     : pendingConnection.signalType === 'control'
-                        ? 'var(--color-signal-control, #f59e0b)'
+                        ? 'var(--color-signal-control)'
                         : 'var(--color-signal-audio)';
                 return (
                     <path

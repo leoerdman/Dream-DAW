@@ -305,6 +305,10 @@ fn parse_comm<R: Read + Seek>(
             b"fl64" | b"FL64" => AiffCompression::Float64,
             b"in24" | b"IN24" => AiffCompression::PcmBigEndian, // 24-bit BE
             b"in32" | b"IN32" => AiffCompression::PcmBigEndian, // 32-bit BE
+            b"raw " => AiffCompression::PcmBigEndian,           // raw uncompressed
+            // Ableton 'able' — metadata wrapper, SSND data is raw PCM
+            // at the declared bit depth (verified: compression ratio = 1.0x).
+            b"able" => AiffCompression::PcmBigEndian,
             _ => {
                 return Err(AudioReaderError::UnsupportedFormat(format!(
                     "AIFF-C: unsupported compression '{}'",
@@ -752,6 +756,82 @@ mod tests {
         assert!((buf.channels[0][2] - 1.0).abs() < 0.001);
         // Channel 1 (right): [0, ~-0.5, ~-1.0, 0]
         assert!((buf.channels[1][2] - (-1.0)).abs() < 0.001);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn read_ableton_aifc_able_compression() {
+        // Build FORM/AIFC with 'able' compression (Ableton-style).
+        // SSND data is raw 24-bit big-endian PCM despite the 'able' tag.
+        let samples: &[i32] = &[0, 4194303, 8388607, -8388607, -4194303, 0];
+        let mut pcm = Vec::new();
+        for &s in samples {
+            let bytes = s.to_be_bytes();
+            pcm.extend_from_slice(&bytes[1..4]); // 24-bit BE
+        }
+
+        // 80-bit extended: 44100 Hz
+        let sr_ext = [0x40u8, 0x0E, 0xAC, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        // FVER chunk (required for AIFC)
+        let mut fver = Vec::new();
+        fver.extend_from_slice(b"FVER");
+        fver.extend_from_slice(&4u32.to_be_bytes());
+        fver.extend_from_slice(&0xA2805140u32.to_be_bytes());
+
+        // COMM chunk with 'able' compression
+        let comp_name = b"\x0fAbleton Content\x00"; // pascal string
+        let mut comm_data = Vec::new();
+        comm_data.extend_from_slice(&1u16.to_be_bytes()); // channels
+        comm_data.extend_from_slice(&(samples.len() as u32).to_be_bytes()); // frames
+        comm_data.extend_from_slice(&24u16.to_be_bytes()); // bits
+        comm_data.extend_from_slice(&sr_ext);
+        comm_data.extend_from_slice(b"able");
+        comm_data.extend_from_slice(comp_name);
+
+        let mut comm = Vec::new();
+        comm.extend_from_slice(b"COMM");
+        comm.extend_from_slice(&(comm_data.len() as u32).to_be_bytes());
+        comm.extend_from_slice(&comm_data);
+
+        // SSND chunk
+        let ssnd_size = 8 + pcm.len();
+        let mut ssnd = Vec::new();
+        ssnd.extend_from_slice(b"SSND");
+        ssnd.extend_from_slice(&(ssnd_size as u32).to_be_bytes());
+        ssnd.extend_from_slice(&[0u8; 8]); // offset + blockSize
+        ssnd.extend_from_slice(&pcm);
+
+        // FORM/AIFC
+        let mut body = Vec::new();
+        body.extend_from_slice(b"AIFC");
+        body.extend_from_slice(&fver);
+        body.extend_from_slice(&comm);
+        body.extend_from_slice(&ssnd);
+
+        let mut file_data = Vec::new();
+        file_data.extend_from_slice(b"FORM");
+        file_data.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        file_data.extend_from_slice(&body);
+
+        let path = std::path::PathBuf::from("/tmp/dream_test_ableton_able.aif");
+        std::fs::write(&path, &file_data).expect("write test file");
+
+        // Test full decode
+        let buf = read_aiff(&path).expect("read_aiff should handle 'able' compression");
+        assert_eq!(buf.channels.len(), 1);
+        assert_eq!(buf.num_frames, 6);
+        assert_eq!(buf.sample_rate, 44100);
+        assert!((buf.channels[0][0] - 0.0).abs() < 0.001);
+        assert!((buf.channels[0][2] - 1.0).abs() < 0.001); // max positive
+        assert!((buf.channels[0][3] - (-1.0)).abs() < 0.001); // max negative
+
+        // Test metadata
+        let (sr, ch, frames) = read_aiff_metadata(&path).expect("metadata should work");
+        assert_eq!(sr, 44100);
+        assert_eq!(ch, 1);
+        assert_eq!(frames, Some(6));
 
         std::fs::remove_file(&path).ok();
     }

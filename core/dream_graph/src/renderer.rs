@@ -323,7 +323,18 @@ unsafe fn sum_node_inputs_raw(
             );
         }
     } else {
-        // BUG-001 FIX: Zero-alloc fallback for direct routing
+        // PDC-DIAG: This fallback path does NOT apply edge PDC delay lines.
+        // It should only trigger for nodes with no registered edge inputs
+        // (i.e., during topology transitions). Log for diagnostics.
+        static PDC_FALLBACK_COUNT: std::sync::atomic::AtomicU32 =
+            std::sync::atomic::AtomicU32::new(0);
+        let count = PDC_FALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count < 5 || count.is_multiple_of(1000) {
+            log::debug!(
+                "[PDC-DIAG] sum_node_inputs_raw fallback (no edge PDC) for node {} (#{count})",
+                idx
+            );
+        }
         for edge in dag
             .graph()
             .edges_directed(node_idx, petgraph::Direction::Incoming)
@@ -529,8 +540,17 @@ impl GraphRenderer {
                 );
             }
         } else {
-            // BUG-020 FIX: Zero-alloc fallback — iterate edges directly instead of
-            // collecting into a Vec. Heap allocation on the RT thread causes dropouts.
+            // PDC-DIAG: This fallback path does NOT apply edge PDC delay lines.
+            // It should only trigger for nodes with no registered edge inputs.
+            static PDC_FALLBACK_COUNT2: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(0);
+            let count = PDC_FALLBACK_COUNT2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count < 5 || count.is_multiple_of(1000) {
+                log::debug!(
+                    "[PDC-DIAG] sum_node_inputs fallback (no edge PDC) for node {} (#{count})",
+                    idx
+                );
+            }
             for edge in dag
                 .graph()
                 .edges_directed(node_idx, petgraph::Direction::Incoming)

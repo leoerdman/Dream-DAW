@@ -406,7 +406,15 @@ impl PluginInstance for Vst3Instance {
                 self.scratch_sidechain_left.as_mut_ptr(),
                 self.scratch_sidechain_right.as_mut_ptr(),
             ];
-            let mut out_ptrs = [ptr::null_mut::<f32>(), ptr::null_mut::<f32>()];
+            // CRASH FIX: NEVER use null pointers for buffer channels.
+            // CLAP-as-VST3 wrappers (e.g., MiniMeters) may memset ALL declared
+            // channels regardless of num_channels, causing SIGSEGV on null.
+            // Initialize both entries with valid scratch pointers; then overwrite
+            // with actual output buffers for main_channels.
+            let mut out_ptrs = [
+                self.scratch_aux_out_left.as_mut_ptr(),
+                self.scratch_aux_out_right.as_mut_ptr(),
+            ];
             for ch in 0..main_channels {
                 out_ptrs[ch] = outputs[ch].as_mut_ptr();
             }
@@ -641,14 +649,60 @@ impl PluginInstance for Vst3Instance {
             return false;
         }
         let processor = self.processor_ptr as *mut IAudioProcessor;
-        // SAFETY: processor pointer is valid while plugin is active and com_initialized.
+
+        // ── VST3 Spec-Compliant Latency Refresh ──
+        // Per VST3 spec, when kLatencyChanged is received, the host MUST:
+        //   1. setProcessing(false)
+        //   2. setActive(false)
+        //   3. getLatencySamples()
+        //   4. setActive(true)
+        //   5. setProcessing(true)
+        // This ensures the plugin can safely reconfigure its internal
+        // buffers during the deactivated window.
+        //
+        // First, probe the new latency without deactivation to check
+        // if it actually changed (avoid unnecessary audio interruption).
         let new_latency = unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
-        if new_latency != self.latency {
+        if new_latency == self.latency {
+            return false;
+        }
+
+        log::info!(
+            "[VST3-PDC] '{}' latency changed: {} → {} samples — performing deactivation cycle",
+            self.descriptor.name, self.latency, new_latency
+        );
+
+        // Perform the full deactivation/reactivation cycle per VST3 spec.
+        unsafe {
+            let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
+        }
+        if self.component_ptr != 0 {
+            let component = self.component_ptr as *mut IComponent;
+            unsafe {
+                let _ = ((*(*component).vtbl).set_active)(component, 0);
+            }
+        }
+
+        // Re-query latency in the deactivated state (spec-compliant read point).
+        let confirmed_latency =
+            unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
+
+        if self.component_ptr != 0 {
+            let component = self.component_ptr as *mut IComponent;
+            unsafe {
+                let _ = ((*(*component).vtbl).set_active)(component, 1);
+            }
+        }
+        unsafe {
+            let _ = ((*(*processor).vtbl).set_processing)(processor, 1);
+        }
+
+        if confirmed_latency != self.latency {
             log::info!(
-                "[VST3-PDC] '{}' latency changed: {} → {} samples",
-                self.descriptor.name, self.latency, new_latency
+                "[VST3-PDC] '{}' confirmed latency: {} → {} samples",
+                self.descriptor.name, self.latency, confirmed_latency
             );
-            self.latency = new_latency;
+            self.latency = confirmed_latency;
             true
         } else {
             false

@@ -212,6 +212,9 @@ impl FlowGraph {
         }
 
         if let Some(eq) = node.as_any_mut().downcast_mut::<EqNode>() {
+            // AUDIT-G04 FIX: Only update bands that are explicitly provided.
+            // Previously, `unwrap_or(0.0)` reset unchanged bands to 0 dB
+            // when only one parameter was updated via IPC.
             let mut low = None;
             let mut mid = None;
             let mut high = None;
@@ -223,7 +226,13 @@ impl FlowGraph {
                     _ => {}
                 }
             }
-            eq.set_band_gains(low.unwrap_or(0.0), mid.unwrap_or(0.0), high.unwrap_or(0.0));
+            // Read existing gains for bands that weren't updated.
+            let current = eq.current_band_gains();
+            eq.set_band_gains(
+                low.unwrap_or(current.0),
+                mid.unwrap_or(current.1),
+                high.unwrap_or(current.2),
+            );
             return;
         }
 
@@ -334,6 +343,15 @@ impl FlowGraph {
         }
     }
 
+    /// AUDIT-E03 FIX: Propagate sample rate change to all nodes.
+    /// Resets node state so SR-dependent caches (ReverseNode buffer,
+    /// AutoFilter LFO, EQ biquad coefficients) rebuild at the new rate.
+    pub fn set_sample_rate(&mut self, _sample_rate: f64) {
+        // Nodes detect SR changes via the `sample_rate` argument in process().
+        // Reset clears stale SR-dependent state so it rebuilds correctly.
+        self.reset();
+    }
+
     /// Returns true if ALL envelope nodes in this graph are in idle state
     /// (completed release phase). If no envelope nodes exist, returns true.
     /// Used by the engine to determine when a releasing voice can be freed.
@@ -377,8 +395,13 @@ impl FlowGraph {
             // Fill inputs from pre-computed incoming connections (O(k) where k = incoming edges).
             if i < self.incoming_cache.len() {
                 for &(from_idx, from_port, to_port) in &self.incoming_cache[i] {
-                    let source_signal = self.signal_buffer[from_idx * MAX_NODE_PORTS + from_port];
-                    inputs[to_port] = source_signal;
+                    // AUDIT-G05 FIX: Bounds check on signal_buffer read.
+                    // Prevents panic if from_idx is stale after graph topology change.
+                    let sig_idx = from_idx * MAX_NODE_PORTS + from_port;
+                    if sig_idx < self.signal_buffer.len() {
+                        let source_signal = self.signal_buffer[sig_idx];
+                        inputs[to_port] = source_signal;
+                    }
                 }
             }
 

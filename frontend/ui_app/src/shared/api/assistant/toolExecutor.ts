@@ -1012,7 +1012,7 @@ async function executeToolInner(
                 bitDepth: ((args.bitDepth as number) || 24) as 16 | 24 | 32,
                 range: ((args.range as string) || 'full') as 'full' | 'loop' | 'selected',
                 normalize: (args.normalize as boolean) ?? false,
-                tailMs: 500,
+                includeTail: true,
             };
             await engineApi.exportMix(settings);
             return JSON.stringify({ success: true, outputPath: settings.outputPath, format: settings.format });

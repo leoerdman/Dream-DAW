@@ -123,7 +123,7 @@ pub struct ExportSettingsPayload {
     pub bit_depth: u16,
     pub range: String,
     pub normalize: bool,
-    pub tail_ms: u32,
+    pub include_tail: bool,
     #[serde(default = "default_export_format")]
     pub format: String,
     #[serde(default)]

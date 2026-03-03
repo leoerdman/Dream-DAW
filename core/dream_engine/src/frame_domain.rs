@@ -314,12 +314,12 @@ mod tests {
         let (frames1, acc1) = fc.playhead_advance(0.0);
         // 512 * (48000/44100) = 557.142...
         assert_eq!(frames1, 557);
-        assert!(acc1 > 0.0 && acc1 < 1.0);
+        assert!((0.0..1.0).contains(&acc1));
 
         let (frames2, acc2) = fc.playhead_advance(acc1);
         // Should advance 557 or 558 depending on accumulator
         assert!(frames2 == 557 || frames2 == 558);
-        assert!(acc2 >= 0.0 && acc2 < 1.0);
+        assert!((0.0..1.0).contains(&acc2));
     }
 
     #[test]

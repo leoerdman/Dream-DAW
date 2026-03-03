@@ -85,6 +85,11 @@ impl FlowNode for FilterNode {
         // if the incoming control signals moved, or if engine SR changed.
         // For static synth presets with no active LFO/Env on cutoff, this drops CPU usage by 95%
         if (cutoff - self.last_cutoff).abs() > 0.001 || (resonance - self.last_resonance).abs() > 0.001 || (sample_rate - self.last_sr).abs() > 0.01 {
+            // ENT-FILTER-001: Guard against zero/non-finite sample_rate to prevent
+            // Infinity propagation into filter coefficients.
+            if sample_rate <= 0.0 || !sample_rate.is_finite() {
+                return;
+            }
             let inv_sr = 1.0 / sample_rate;
             self.g = (std::f64::consts::PI * cutoff * inv_sr).tan() as f32;
             self.k = (2.0 * (1.0 - resonance)) as f32;

@@ -59,7 +59,7 @@ export interface ExportPrefs {
     bitDepth: BitDepth;
     range: ExportRange;
     normalize: boolean;
-    tailMs: number;
+    includeTail: boolean;
 }
 
 export function beatsToFrames(beats: number, bpm: number, sampleRate: number): number {
@@ -82,7 +82,7 @@ export function loadExportPrefs(): ExportPrefs {
     try {
         const raw = safeStorage.getItem(EXPORT_PREFS_KEY);
         if (!raw) {
-            return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
+            return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, includeTail: false };
         }
         const parsed = JSON.parse(raw) as Partial<ExportPrefs>;
         return {
@@ -95,10 +95,10 @@ export function loadExportPrefs(): ExportPrefs {
             range: (['full', 'loop', 'selected'] as ExportRange[]).includes(parsed.range as ExportRange)
                 ? (parsed.range as ExportRange) : 'full',
             normalize: typeof parsed.normalize === 'boolean' ? parsed.normalize : false,
-            tailMs: typeof parsed.tailMs === 'number' ? Math.max(0, Math.min(5000, parsed.tailMs)) : 0,
+            includeTail: typeof parsed.includeTail === 'boolean' ? parsed.includeTail : false,
         };
     } catch {
-        return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
+        return { format: 'wav', sampleRate: DEFAULT_SAMPLE_RATE, bitDepth: 24, range: 'full', normalize: false, includeTail: false };
     }
 }
 

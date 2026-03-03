@@ -43,7 +43,7 @@ async fn split_track_to_stems_cmd(
         start_frame,
         end_frame,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: handle.playback_state.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?.bpm,

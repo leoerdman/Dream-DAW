@@ -100,12 +100,18 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     // Calculate dynamic bezier path
     const dx = Math.abs(end.x - start.x);
     const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
-    const cpOffset = Math.min(250, Math.max(50, distance / 2.5));
+    // ENTERPRISE: Less aggressive curves for short connections
+    const cpOffset = Math.min(200, Math.max(30, distance / 3));
     const c1x = start.x + cpOffset;
     const c1y = start.y;
     const c2x = end.x - cpOffset;
     const c2y = end.y;
     const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
+
+    // ENTERPRISE: Cable type differentiation
+    const isControlSignal = signalType === 'control';
+    const coreStrokeWidth = isSelected ? 3 : (isControlSignal ? 1.5 : 2.5);
+    const controlDash = isControlSignal ? '8 4' : 'none';
 
     const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);
     const pulseY = cubicBezierAt(pulseT, start.y, c1y, c2y, end.y);
@@ -141,7 +147,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 d={pathData}
                 fill="none"
                 stroke={isSelected ? 'color-mix(in srgb, white 32%, var(--color-accent-primary))' : baseColor}
-                strokeWidth={isSelected ? 3 : 2}
+                strokeWidth={coreStrokeWidth}
+                strokeDasharray={isSelected ? 'none' : controlDash}
                 opacity={1.0}
                 pointerEvents="none"
             />

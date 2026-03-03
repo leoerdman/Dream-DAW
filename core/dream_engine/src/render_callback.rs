@@ -484,8 +484,12 @@ impl RenderContext {
                 // debug_assert was stripped in release, allowing corrupt gain to reach output.
                 // Default to unity gain (1.0) to prevent silent audio or NaN corruption.
                 let safe_gain = if clip.gain.is_finite() { clip.gain } else {
-                    #[cfg(debug_assertions)]
-                    log::warn!("clip.gain is not finite ({}), defaulting to 1.0", clip.gain);
+                    // BUG-W5-001 FIX: Replaced log::warn! with RT-safe atomic counter.
+                    // log::warn! acquires a global Mutex in the log backend — forbidden
+                    // on the audio thread (priority inversion risk).
+                    static NONFINITE_GAIN_COUNT: std::sync::atomic::AtomicU32 =
+                        std::sync::atomic::AtomicU32::new(0);
+                    NONFINITE_GAIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     1.0
                 };
 
@@ -539,7 +543,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            safe_gain as f32,
+                            safe_gain,
                             warp_mode,
                         );
                     } else {
@@ -561,7 +565,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            safe_gain as f32,
+                            safe_gain,
                             WarpResampleMode::Standard,
                         );
                     }
@@ -597,7 +601,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            safe_gain as f32,
+                            safe_gain,
                         );
                     } else {
                         // BUG-A1/A2 FIX: Unwarped streaming path must match pool path
@@ -617,7 +621,7 @@ impl RenderContext {
                             &mut slot.buf_right,
                             ac.buffer_offset,
                             ac.frames_to_read,
-                            safe_gain as f32,
+                            safe_gain,
                         );
                     }
                 } else {

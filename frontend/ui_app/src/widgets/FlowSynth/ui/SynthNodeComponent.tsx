@@ -22,7 +22,7 @@ import { OutputControls } from './nodes/OutputControls';
 import { MidiInControls } from './nodes/MidiInControls';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 
-export const FLOW_NODE_WIDTH = 240;
+export const FLOW_NODE_WIDTH = 260;
 const FLOW_GRID_SNAP = 20;
 
 interface Props {
@@ -81,12 +81,17 @@ function PortDot({
     const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi' : port.type === 'control' ? 'control' : 'audio';
     const isAudio = port.type === 'audio';
     const isMidi = port.type === 'midi';
+    const isControl = port.type === 'control';
 
     const dotColor = isMidi
         ? 'var(--color-signal-midi)'
         : isAudio
             ? 'var(--color-signal-audio)'
             : 'var(--color-accent-tertiary)';
+
+    // ENTERPRISE: Visual type differentiation — control ports are smaller diamonds
+    const dotSize = isControl ? 10 : FLOW_PORT_SIZE;
+    const HIT_PAD = 8;
 
     const handlePointerDown = (e: React.PointerEvent) => {
         if (side !== 'out' || interactionDisabled) return;
@@ -129,6 +134,10 @@ function PortDot({
     const isCompatibleTarget = isDragging && side === 'in' && (dragType === signalType || port.type === 'control');
     const showTargetGlow = isCompatibleTarget && !isHovered;
 
+    // ENTERPRISE: Direction differentiation — output ports are solid filled,
+    // input ports are hollow (transparent center + border only).
+    const isFilled = side === 'out';
+
     return (
         <div
             onPointerDown={handlePointerDown}
@@ -137,25 +146,33 @@ function PortDot({
             onPointerLeave={() => setIsHovered(false)}
             style={{
                 position: 'absolute',
-                [side === 'in' ? 'left' : 'right']: -(FLOW_PORT_SIZE / 2),
-                top: cy - FLOW_PORT_SIZE / 2,
-                width: FLOW_PORT_SIZE,
-                height: FLOW_PORT_SIZE,
-                borderRadius: '50%',
-                backgroundColor: side === 'out' ? dotColor : 'var(--color-bg-elevated)',
-                border: `2.5px solid ${dotColor}`,
+                [side === 'in' ? 'left' : 'right']: -(dotSize / 2),
+                top: cy - dotSize / 2,
+                width: dotSize,
+                height: dotSize,
+                // ENTERPRISE: Control ports = diamond shape, audio/midi = circle
+                borderRadius: isControl ? 3 : '50%',
+                transform: isHovered
+                    ? `${isControl ? 'rotate(45deg) ' : ''}scale(1.4)`
+                    : showTargetGlow
+                        ? `${isControl ? 'rotate(45deg) ' : ''}scale(1.15)`
+                        : isControl ? 'rotate(45deg)' : 'none',
+                // ENTERPRISE: Output = solid fill, Input = hollow
+                backgroundColor: isFilled ? dotColor : 'transparent',
+                border: `2px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
                 boxShadow: isHovered
-                    ? `0 0 16px ${dotColor}, 0 0 6px rgba(255,255,255,0.5)`
+                    ? `0 0 14px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
                     : showTargetGlow
                         ? `0 0 10px ${dotColor}`
-                        : (side === 'out' ? `0 0 8px ${dotColor}` : '0 0 0 3px var(--color-overlay-dark)'),
+                        : isFilled
+                            ? `0 0 6px ${dotColor}`
+                            : 'none',
                 transition: 'transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s',
-                transform: isHovered ? 'scale(1.4)' : showTargetGlow ? 'scale(1.1)' : 'scale(1)',
                 zIndex: isHovered ? 10 : 5,
-                // Massive hit area via padding trick for easy magnetic connect
-                padding: 12,
-                margin: -12,
+                // Hit area — reduced from 12→8 to prevent overlap at 32px row height
+                padding: HIT_PAD,
+                margin: -HIT_PAD,
                 backgroundClip: 'content-box',
             }}
         />
@@ -177,12 +194,15 @@ function PortLabel({
         <span
             style={{
                 position: 'absolute',
-                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + 4,
+                // ENTERPRISE: Increased offset to clear hit area padding
+                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + 8,
                 top: cy - 7,
-                fontSize: 'var(--font-size-2xs)',
+                // ENTERPRISE: Increased from 2xs→xs for readability
+                fontSize: 'var(--font-size-xs)',
                 fontFamily: 'var(--font-role-data)',
                 fontWeight: 'var(--font-weight-semibold)',
-                color: 'var(--color-text-tertiary)',
+                // ENTERPRISE: Increased from tertiary→secondary for contrast
+                color: 'var(--color-text-secondary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
                 lineHeight: '14px',

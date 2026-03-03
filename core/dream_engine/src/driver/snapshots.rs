@@ -615,7 +615,7 @@ impl SharedDiskStreamers {
 
     /// Returns true if there are no active disk streamers.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.inner.lock().is_empty()
     }
 }
 

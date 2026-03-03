@@ -774,134 +774,134 @@ impl OfflineRenderer {
 
                         // ── VST3 FX slot ──
                         if let Some(instance_id) = runtime_slot.instance_id {
-                            if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
-                                // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
-                                // thread skips all VST try_lock() calls when export_active=true,
-                                // so no contention exists. The previous cooperative try_lock()+
-                                // sleep(1ms) loop introduced timing jitter in the render.
-                                let mut host = plugin_mtx.lock();
-                                let transport = TransportContext {
-                                    sample_rate: ctx.sample_rate,
-                                    position_samples: ctx.playhead_pos,
-                                    tempo: ctx.bpm,
-                                    is_playing: true,
-                                    is_recording: false,
-                                    time_sig_numerator: i32::from(ctx.time_sig_numerator),
-                                    time_sig_denominator: i32::from(ctx.time_sig_denominator),
-                                    cycle_active: false,
-                                    loop_start_samples: 0,
-                                    loop_end_samples: 0,
-                                };
-                                host.set_transport_context(transport);
-
-                                // BOUNCE-AUTOMATION-FIX: Apply external plugin parameter
-                                // automation during export (mirrors RT path's call at
-                                // audio_thread_runner.rs:617). Without this, automated
-                                // plugin parameters are ignored during export.
-                                apply_external_plugin_param_automation_block(
-                                    &mut host,
-                                    ctx.automation.get(ctx.track_idx),
-                                    runtime_slot,
-                                    runtime_slot_idx,
-                                    ctx.playhead_pos,
-                                );
-
-                                // CRACKLE-FIX-4: Use pre-allocated scratch buffers instead of
-                                // per-chunk Vec allocation. Eliminates heap thrashing.
-                                let out_left = &mut scratch_left[..c];
-                                let out_right = &mut scratch_right[..c];
-                                out_left.fill(0.0);
-                                out_right.fill(0.0);
-                                let main_inputs: [&[f32]; 2] =
-                                    [&slot.buf_left[..c], &slot.buf_right[..c]];
-                                let mut out_slices: [&mut [f32]; 2] =
-                                    [&mut out_left[..], &mut out_right[..]];
-                                let midi_to_send: &[MidiEvent] = ctx.midi_events;
-                                let empty_midi: &[MidiEvent] = &[];
-                                let use_midi =
-                                    if runtime_slot.is_instrument && !midi_to_send.is_empty() {
-                                        midi_to_send
-                                    } else {
-                                        empty_midi
-                                    };
-                                let sc_pair =
-                                    source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
-
-                                if let Err(proc_err) = host.process_with_sidechain(
-                                    &main_inputs,
-                                    sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                    &mut out_slices,
-                                    c,
-                                    use_midi,
-                                ) {
-                                    static LOGGED_INSTANCES: std::sync::atomic::AtomicU64 =
-                                        std::sync::atomic::AtomicU64::new(0);
-                                    let prev = LOGGED_INSTANCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                    if prev < 8 {
-                                        log::warn!(
-                                            "[Bounce/FX] Track {}: process_with_sidechain failed: {} (further errors suppressed)",
-                                            track_idx, proc_err
-                                        );
-                                    }
-                                }
-
-                                // ── ULTIMATE VST SLOT DIAGNOSTIC ──
-                                // Logs EVERY slot interaction for ALL buffers (no limit).
-                                // Smart: only logs when something interesting happens.
-                                {
-                                    let out_rms: f32 = (scratch_left[..c].iter()
-                                        .chain(scratch_right[..c].iter())
-                                        .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
-                                    let in_rms: f32 = (main_inputs[0].iter().chain(main_inputs[1].iter())
-                                        .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
-                                    let midi_sent = use_midi.len();
-                                    let has_sc = sc_pair.is_some();
-                                    let sc_rms = sc_pair.as_ref().map(|pair| {
-                                        (pair[0].iter().chain(pair[1].iter())
-                                            .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt()
-                                    }).unwrap_or(-1.0);
-                                    // Log when: (a) non-zero output, (b) sidechain active,
-                                    // (c) MIDI sent, (d) instrument slot — always interesting
-                                    let interesting = out_rms > 0.0001 || midi_sent > 0
-                                        || (has_sc && sc_rms > 0.0001)
-                                        || runtime_slot.is_instrument;
-                                    static SLOT_LOG_COUNT: std::sync::atomic::AtomicU32 =
-                                        std::sync::atomic::AtomicU32::new(0);
-                                    let sl_n = SLOT_LOG_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-                                    if interesting && sl_n < 3000 {
-                                        let out_peak: f32 = scratch_left[..c].iter()
-                                            .chain(scratch_right[..c].iter())
-                                            .map(|s| s.abs())
-                                            .fold(0.0f32, f32::max);
-                                        log::debug!(
-                                            "[Bounce-VST] T[{}]S[{}] inst={} sc={} byp={} | in={:.5} sc={:.5} out={:.5} peak={:.5} midi={}",
-                                            track_idx, runtime_slot_idx,
-                                            runtime_slot.is_instrument, has_sc, runtime_slot.is_bypassed,
-                                            in_rms, sc_rms, out_rms, out_peak, midi_sent
-                                        );
-                                        SLOT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                    }
-                                }
-
-                                // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
-                                // misbehaving plugin would corrupt the entire export file.
-                                for i in 0..c {
-                                    if !scratch_left[i].is_finite() {
-                                        scratch_left[i] = 0.0;
-                                    }
-                                    if !scratch_right[i].is_finite() {
-                                        scratch_right[i] = 0.0;
-                                    }
-                                }
-                                slot.buf_left[..c].copy_from_slice(&scratch_left[..c]);
-                                slot.buf_right[..c].copy_from_slice(&scratch_right[..c]);
-                            } else {
+                            let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) else {
                                 log::warn!(
                                     "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
                                     track_idx,
                                     instance_id
                                 );
+                                continue;
+                            };
+                            // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
+                            // thread skips all VST try_lock() calls when export_active=true,
+                            // so no contention exists. The previous cooperative try_lock()+
+                            // sleep(1ms) loop introduced timing jitter in the render.
+                            let mut host = plugin_mtx.lock();
+                            let transport = TransportContext {
+                                sample_rate: ctx.sample_rate,
+                                position_samples: ctx.playhead_pos,
+                                tempo: ctx.bpm,
+                                is_playing: true,
+                                is_recording: false,
+                                time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                                time_sig_denominator: i32::from(ctx.time_sig_denominator),
+                                cycle_active: false,
+                                loop_start_samples: 0,
+                                loop_end_samples: 0,
+                            };
+                            host.set_transport_context(transport);
+
+                            // BOUNCE-AUTOMATION-FIX: Apply external plugin parameter
+                            // automation during export (mirrors RT path's call at
+                            // audio_thread_runner.rs:617). Without this, automated
+                            // plugin parameters are ignored during export.
+                            apply_external_plugin_param_automation_block(
+                                &mut host,
+                                ctx.automation.get(ctx.track_idx),
+                                runtime_slot,
+                                runtime_slot_idx,
+                                ctx.playhead_pos,
+                            );
+
+                            // CRACKLE-FIX-4: Use pre-allocated scratch buffers instead of
+                            // per-chunk Vec allocation. Eliminates heap thrashing.
+                            let out_left = &mut scratch_left[..c];
+                            let out_right = &mut scratch_right[..c];
+                            out_left.fill(0.0);
+                            out_right.fill(0.0);
+                            let main_inputs: [&[f32]; 2] =
+                                [&slot.buf_left[..c], &slot.buf_right[..c]];
+                            let mut out_slices: [&mut [f32]; 2] =
+                                [&mut out_left[..], &mut out_right[..]];
+                            let midi_to_send: &[MidiEvent] = ctx.midi_events;
+                            let empty_midi: &[MidiEvent] = &[];
+                            let use_midi =
+                                if runtime_slot.is_instrument && !midi_to_send.is_empty() {
+                                    midi_to_send
+                                } else {
+                                    empty_midi
+                                };
+                            let sc_pair =
+                                source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+
+                            if let Err(proc_err) = host.process_with_sidechain(
+                                &main_inputs,
+                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                &mut out_slices,
+                                c,
+                                use_midi,
+                            ) {
+                                static LOGGED_INSTANCES: std::sync::atomic::AtomicU64 =
+                                    std::sync::atomic::AtomicU64::new(0);
+                                let prev = LOGGED_INSTANCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                if prev < 8 {
+                                    log::warn!(
+                                        "[Bounce/FX] Track {}: process_with_sidechain failed: {} (further errors suppressed)",
+                                        track_idx, proc_err
+                                    );
+                                }
                             }
+
+                            // ── ULTIMATE VST SLOT DIAGNOSTIC ──
+                            // Logs EVERY slot interaction for ALL buffers (no limit).
+                            // Smart: only logs when something interesting happens.
+                            {
+                                let out_rms: f32 = (scratch_left[..c].iter()
+                                    .chain(scratch_right[..c].iter())
+                                    .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
+                                let in_rms: f32 = (main_inputs[0].iter().chain(main_inputs[1].iter())
+                                    .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
+                                let midi_sent = use_midi.len();
+                                let has_sc = sc_pair.is_some();
+                                let sc_rms = sc_pair.as_ref().map(|pair| {
+                                    (pair[0].iter().chain(pair[1].iter())
+                                        .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt()
+                                }).unwrap_or(-1.0);
+                                // Log when: (a) non-zero output, (b) sidechain active,
+                                // (c) MIDI sent, (d) instrument slot — always interesting
+                                let interesting = out_rms > 0.0001 || midi_sent > 0
+                                    || (has_sc && sc_rms > 0.0001)
+                                    || runtime_slot.is_instrument;
+                                static SLOT_LOG_COUNT: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                let sl_n = SLOT_LOG_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+                                if interesting && sl_n < 3000 {
+                                    let out_peak: f32 = scratch_left[..c].iter()
+                                        .chain(scratch_right[..c].iter())
+                                        .map(|s| s.abs())
+                                        .fold(0.0f32, f32::max);
+                                    log::debug!(
+                                        "[Bounce-VST] T[{}]S[{}] inst={} sc={} byp={} | in={:.5} sc={:.5} out={:.5} peak={:.5} midi={}",
+                                        track_idx, runtime_slot_idx,
+                                        runtime_slot.is_instrument, has_sc, runtime_slot.is_bypassed,
+                                        in_rms, sc_rms, out_rms, out_peak, midi_sent
+                                    );
+                                    SLOT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
+
+                            // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
+                            // misbehaving plugin would corrupt the entire export file.
+                            for i in 0..c {
+                                if !scratch_left[i].is_finite() {
+                                    scratch_left[i] = 0.0;
+                                }
+                                if !scratch_right[i].is_finite() {
+                                    scratch_right[i] = 0.0;
+                                }
+                            }
+                            slot.buf_left[..c].copy_from_slice(&scratch_left[..c]);
+                            slot.buf_right[..c].copy_from_slice(&scratch_right[..c]);
                         }
                     }
                 }
@@ -2162,10 +2162,10 @@ impl OfflineRenderer {
         let has_any_track_reverb_vst = external_fx_map.iter().any(|slots| {
             slots.iter().any(|s| s.instance_id.is_some() && !s.is_bypassed)
         });
-        let max_tail_frames = if has_any_master_fx || has_any_track_reverb_vst {
-            (project_sr as usize).min(192000) // 1 second max (was 2)
+        let max_tail_frames = if self.config.include_tail && (has_any_master_fx || has_any_track_reverb_vst) {
+            (project_sr as usize).min(192000) // 1 second max (auto-detected from FX)
         } else {
-            0 // No effects = no tail needed!
+            0 // Tail disabled OR no effects = no tail
         };
         let total_with_tail = total_frames + max_tail_frames;
         log::info!(

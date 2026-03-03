@@ -110,7 +110,8 @@ export function ConnectionsLayer() {
                 const end = { x: pendingConnection.currentX, y: pendingConnection.currentY };
                 const dx = Math.abs(end.x - start.x);
                 const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
-                const cpOffset = Math.min(250, Math.max(50, distance / 2.5));
+                // ENTERPRISE: Match improved bezier formula from FlowConnectionComponent
+                const cpOffset = Math.min(200, Math.max(30, distance / 3));
                 const c1x = start.x + cpOffset;
                 const c1y = start.y;
                 const c2x = end.x - cpOffset;

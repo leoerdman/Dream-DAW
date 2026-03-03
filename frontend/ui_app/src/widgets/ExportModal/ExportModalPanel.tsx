@@ -32,8 +32,8 @@ interface ExportModalPanelProps {
     rangeInfo: RangeInfo;
     normalize: boolean;
     setNormalize: (v: boolean) => void;
-    tailMs: number;
-    setTailMs: (v: number) => void;
+    includeTail: boolean;
+    setIncludeTail: (v: boolean) => void;
     bounceError: string | null;
     canBounce: boolean;
     bounceDisabledReason: string | null;
@@ -56,8 +56,8 @@ export function ExportModalPanel({
     rangeInfo,
     normalize,
     setNormalize,
-    tailMs,
-    setTailMs,
+    includeTail,
+    setIncludeTail,
     bounceError,
     canBounce,
     bounceDisabledReason,
@@ -117,21 +117,8 @@ export function ExportModalPanel({
                 <ToggleSwitch checked={normalize} onChange={setNormalize} />
             </SettingRow>
 
-            <SettingRow label="Tail (ms)">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                        type="range"
-                        min={0}
-                        max={5000}
-                        step={100}
-                        value={tailMs}
-                        onChange={(e) => setTailMs(Number(e.target.value))}
-                        style={{ width: 120, accentColor: 'var(--color-accent-primary)' }}
-                    />
-                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-role-data)', minWidth: 40 }}>
-                        {tailMs}ms
-                    </span>
-                </div>
+            <SettingRow label="Effect Tail">
+                <ToggleSwitch checked={includeTail} onChange={setIncludeTail} />
             </SettingRow>
 
             {bounceError && (

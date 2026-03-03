@@ -92,12 +92,13 @@ fn bounce_config_total_frames() {
         start_frame: 0,
         end_frame: 44100,
         normalize: false,
-        tail_frames: 4410,
+        include_tail: true,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
     };
-    assert_eq!(config.total_frames(), 48510);
+    // total_frames() returns content-only frames (tail is computed dynamically by renderer)
+    assert_eq!(config.total_frames(), 44100);
 }
 
 #[test]
@@ -109,7 +110,7 @@ fn bounce_rejects_invalid_range() {
         start_frame: 100,
         end_frame: 50, // end < start
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -132,7 +133,7 @@ fn bounce_rejects_invalid_bit_depth() {
         start_frame: 0,
         end_frame: 1000,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -156,7 +157,7 @@ fn bounce_silence_produces_wav() {
         start_frame: 0,
         end_frame: 4096, // ~93ms
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -192,7 +193,7 @@ fn bounce_with_normalization() {
         start_frame: 0,
         end_frame: 2048,
         normalize: true,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -218,7 +219,7 @@ fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing(
         start_frame: 0,
         end_frame: 4096,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -253,7 +254,7 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track
         start_frame: 0,
         end_frame: 4096,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -286,7 +287,7 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_maste
         start_frame: 0,
         end_frame: 4096,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: 44100.0,
         bpm: 120.0,
@@ -388,7 +389,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
         start_frame: 0,
         end_frame: FRAMES as i64,
         normalize: false,
-        tail_frames: 0,
+        include_tail: false,
         format: "wav".to_string(),
         project_sample_rate: SR,
         bpm: BPM,

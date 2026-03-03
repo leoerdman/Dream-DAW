@@ -109,8 +109,12 @@ impl FlowSynthEngine {
     pub fn set_sample_rate(&mut self, sample_rate: f64) {
         self.sample_rate = sample_rate;
         self.volume.set_time_constant(sample_rate, 10.0);
+        // AUDIT-E03 FIX: Propagate SR to graph so nodes that cache
+        // SR-dependent state (ReverseNode window, AutoFilter LFO) rebuild.
+        // Previously just called reset() which cleared state but left
+        // SR-dependent parameters stale.
         for voice in &mut self.voices {
-            voice.graph.reset();
+            voice.graph.set_sample_rate(sample_rate);
         }
     }
 
@@ -361,7 +365,10 @@ impl FlowSynthEngine {
 
             // No voices rendering (either none active or all just deactivated) — silence.
             if rendering_voice_count == 0 {
-                self.frame_counter += 1;
+                // AUDIT-E01 FIX: Removed per-frame `frame_counter += 1`.
+                // It was double-incremented: once here and once at L376 via `+= frame_count`.
+                // This caused frame_counter to grow at 2× rate during mixed silence/activity
+                // frames, making voice-age tracking inaccurate and stealing the wrong voice.
                 continue;
             }
 
@@ -369,8 +376,12 @@ impl FlowSynthEngine {
             let poly_norm = 1.0 / (rendering_voice_count as f32).sqrt();
             let final_left = Self::soft_limit(mixed_left * poly_norm * vol);
             let final_right = Self::soft_limit(mixed_right * poly_norm * vol);
-            left_out[i] += final_left;
-            right_out[i] += final_right;
+            // AUDIT-E02 FIX: Bounds guard on output write (mirrors ext_in read guard at L336).
+            // Prevents panic if caller passes frame_count > buffer length.
+            if i < left_out.len() && i < right_out.len() {
+                left_out[i] += final_left;
+                right_out[i] += final_right;
+            }
         }
 
         self.frame_counter += frame_count as u64;

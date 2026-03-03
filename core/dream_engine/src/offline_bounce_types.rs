@@ -15,9 +15,10 @@ pub struct BounceConfig {
     pub end_frame: i64,
     /// Whether to normalize the output to 0 dBFS.
     pub normalize: bool,
-    /// Whether to apply a tail (extra silence at end for reverb tails).
-    /// Value in frames.
-    pub tail_frames: i64,
+    /// Whether to include an effect tail after the selected region.
+    /// When true, the renderer auto-detects reverb/delay FX and renders
+    /// until they decay. When false, output is cut exactly at the region end.
+    pub include_tail: bool,
     /// Output format: "wav" or "mp3". Defaults to "wav" if unset.
     pub format: String,
     /// The project's internal sample rate (Hz).
@@ -28,11 +29,11 @@ pub struct BounceConfig {
 }
 
 impl BounceConfig {
-    /// Total frames to render (including tail).
-    /// BUG-FIX: Use saturating arithmetic to prevent i64 overflow when
-    /// end_frame is very large and tail_frames is added.
+    /// Total frames to render (content only, without tail).
+    /// Tail frames are computed dynamically by the renderer based on
+    /// FX detection when `include_tail` is true.
     pub fn total_frames(&self) -> i64 {
-        (self.end_frame - self.start_frame).saturating_add(self.tail_frames)
+        self.end_frame - self.start_frame
     }
 }
 

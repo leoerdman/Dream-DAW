@@ -75,19 +75,29 @@ impl FlowNode for AutoFilterNode {
 
         let input_val = input.as_float().unwrap_or(0.0);
 
+        // ENT-AUTOFILTER-001: Guard against zero/non-finite sample_rate to prevent
+        // Infinity/NaN in envelope follower exp() and LFO phase increment.
+        if sample_rate <= 0.0 || !sample_rate.is_finite() {
+            if let Some(out) = outputs.first_mut() {
+                *out = input;
+            }
+            return;
+        }
+        let sr_f32 = sample_rate as f32;
+
         // Simple Envelope Follower
         let attack = 0.01;
         let release = 0.1;
         let abs_input = input_val.abs();
         if abs_input > self.envelope_state {
-            self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sample_rate as f32 * attack)).exp());
+            self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sr_f32 * attack)).exp());
         } else {
-            self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sample_rate as f32 * release)).exp());
+            self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sr_f32 * release)).exp());
         }
 
         // LFO (Sine) — ENTERPRISE: normalized 0..1 phase prevents f32 precision
         // drift after long sessions. Previous raw radian approach lost accuracy.
-        self.lfo_phase += lfo_rate / sample_rate as f32;
+        self.lfo_phase += lfo_rate / sr_f32;
         self.lfo_phase = self.lfo_phase.fract();
         let lfo_val = (self.lfo_phase * 2.0 * std::f32::consts::PI).sin();
 

@@ -466,6 +466,11 @@ impl EssenceSynthEngine {
         let filter_type = self.filter_type;
         let lfo_target = self.lfo_target;
         // BUG-019 FIX: Pre-compute inverse sample rate once instead of per-voice.
+        // ENT-ESS-002: Guard against zero/non-finite sample_rate to prevent Infinity
+        // propagation into oscillator phase increments and filter coefficients.
+        if sr <= 0.0 || !sr.is_finite() {
+            return;
+        }
         let inv_sr = 1.0 / sr;
 
         // ENT-ESS1: Bounds-check frame_count against output buffer sizes.

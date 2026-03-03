@@ -66,13 +66,13 @@ export const ExportModal = ({
     const [bitDepth, setBitDepth] = useState(savedPrefs.bitDepth);
     const [exportRange, setExportRange] = useState<ExportRange>(savedPrefs.range);
     const [normalize, setNormalize] = useState(savedPrefs.normalize);
-    const [tailMs, setTailMs] = useState(savedPrefs.tailMs);
+    const [includeTail, setIncludeTail] = useState(savedPrefs.includeTail);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [bounceError, setBounceError] = useState<string | null>(null);
 
     useEffect(() => {
-        saveExportPrefs({ format, sampleRate: exportSampleRate, bitDepth, range: exportRange, normalize, tailMs });
-    }, [format, exportSampleRate, bitDepth, exportRange, normalize, tailMs]);
+        saveExportPrefs({ format, sampleRate: exportSampleRate, bitDepth, range: exportRange, normalize, includeTail });
+    }, [format, exportSampleRate, bitDepth, exportRange, normalize, includeTail]);
 
     useEffect(() => {
         if (isOpen) {
@@ -205,7 +205,7 @@ export const ExportModal = ({
                 bitDepth: format === 'wav' ? bitDepth : 24,
                 range: exportRange,
                 normalize,
-                tailMs: Math.max(0, Math.min(5000, tailMs)),
+                includeTail,
                 format,
             };
 
@@ -228,7 +228,7 @@ export const ExportModal = ({
         } finally {
             setIsSubmitting(false);
         }
-    }, [canBounce, bounceDisabledReason, isSubmitting, exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate, loopStartBeat, loopEndBeat]);
+    }, [canBounce, bounceDisabledReason, isSubmitting, exportSampleRate, bitDepth, exportRange, normalize, includeTail, format, projectName, onClose, selectedRange, bpm, projectSampleRate, loopStartBeat, loopEndBeat]);
 
     // BUG-51 FIX: Memoize rangeOptions to avoid re-creating array every render.
     // MUST be before the early-return to satisfy Rules of Hooks (constant hook count).
@@ -261,8 +261,8 @@ export const ExportModal = ({
                 rangeInfo={rangeInfo}
                 normalize={normalize}
                 setNormalize={setNormalize}
-                tailMs={tailMs}
-                setTailMs={setTailMs}
+                includeTail={includeTail}
+                setIncludeTail={setIncludeTail}
                 bounceError={bounceError}
                 canBounce={canBounce}
                 bounceDisabledReason={bounceDisabledReason}

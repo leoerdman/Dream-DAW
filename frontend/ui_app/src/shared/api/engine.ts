@@ -1262,7 +1262,7 @@ export interface ExportSettings {
     bitDepth: 16 | 24 | 32;
     range: 'full' | 'loop' | 'selected';
     normalize: boolean;
-    tailMs: number;
+    includeTail: boolean;
     format: 'wav' | 'mp3';
     startFrame?: number;
     endFrame?: number;

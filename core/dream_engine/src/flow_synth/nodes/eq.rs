@@ -54,8 +54,15 @@ impl BiquadBand {
             return;
         }
 
+        // ENT-EQ-001: Guard against zero/non-finite sample_rate to prevent
+        // Infinity propagation into biquad coefficients.
+        if sample_rate <= 0.0 || !sample_rate.is_finite() {
+            return;
+        }
         let w0 = 2.0 * std::f32::consts::PI * self.freq / sample_rate as f32;
-        let alpha = w0.sin() / (2.0 * self.q);
+        // ENT-EQ-002: Clamp Q to minimum 0.01 to prevent / 0 in alpha.
+        let safe_q = self.q.max(0.01);
+        let alpha = w0.sin() / (2.0 * safe_q);
         let a = 10.0f32.powf(self.gain_db / 40.0);
 
         let b0 = 1.0 + alpha * a;
@@ -110,6 +117,13 @@ impl EqNode {
                 band.dirty = true;
             }
         }
+    }
+
+    /// AUDIT-G04 FIX: Returns the current gain (dB) for each band.
+    /// Used by `set_node_params` to preserve existing values when
+    /// only a subset of bands are updated via IPC.
+    pub fn current_band_gains(&self) -> (f32, f32, f32) {
+        (self.bands[0].gain_db, self.bands[1].gain_db, self.bands[2].gain_db)
     }
 }
 

@@ -1124,19 +1124,39 @@ impl OfflineRenderer {
             );
 
             // ── PDC (Plugin Delay Compensation) ──
-            if let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
-                .find(|e| e.from == node_idx)
-                .map(|e| e.delay_samples)
-                && delay_frames > 0
-            {
-                let delay_buf = &mut ctx.pdc_buffers[track_idx];
-                if delay_buf.len() != delay_frames as usize {
-                    delay_buf.resize(delay_frames as usize);
+            // PDC-7 FIX: Match the exact routing edge (from→to) instead of just
+            // `e.from == node_idx`. A track can have multiple outgoing edges
+            // (routing + sidechain) with different delays. The previous `.find()`
+            // by `from` alone could pick a sidechain edge with the wrong delay.
+            // We compute the destination node from the routing table and match
+            // both endpoints to find the correct routing-edge delay.
+            let dest_node_idx = ctx.routing.get(track_idx)
+                .and_then(|r| *r)
+                .map(|parent_idx| {
+                    // Destination is a group/bus track: NodeId = parent_idx + 1
+                    snapshot.dag.graph().node_indices()
+                        .find(|ni| snapshot.dag.node(*ni).id.0 == (parent_idx as u64) + 1)
+                })
+                .unwrap_or_else(|| {
+                    // Destination is master output: NodeId = 0
+                    snapshot.dag.graph().node_indices()
+                        .find(|ni| snapshot.dag.node(*ni).id.0 == 0)
+                });
+            if let Some(dest_ni) = dest_node_idx {
+                if let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
+                    .find(|e| e.from == node_idx && e.to == dest_ni)
+                    .map(|e| e.delay_samples)
+                    && delay_frames > 0
+                {
+                    let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                    if delay_buf.len() != delay_frames as usize {
+                        delay_buf.resize(delay_frames as usize);
+                    }
+                    delay_buf.process_stereo(
+                        &mut slot.buf_left[..frame_count],
+                        &mut slot.buf_right[..frame_count],
+                    );
                 }
-                delay_buf.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
-                );
             }
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
@@ -2048,6 +2068,72 @@ impl OfflineRenderer {
                 state
             })
             .collect();
+
+        // ── PDC-8 FIX: Pre-Roll Phase ──────────────────────────────────
+        // PDC delay lines are freshly allocated (all zeros). Without pre-roll,
+        // the first `max_tracking_delay` frames of the export would have wrong
+        // timing on PDC-delayed tracks — they output silence until the delay
+        // line fills up. The RT path doesn't have this issue because its delay
+        // lines are continuously filled during playback.
+        //
+        // Solution: Seek the playhead backward by max_tracking_delay, render
+        // those extra frames through the full pipeline (priming all delay
+        // buffers with valid audio), then discard the output.
+        if max_tracking_delay > 0 {
+            let preroll_frames = max_tracking_delay as usize;
+            let preroll_start = (self.config.start_frame - preroll_frames as i64).max(0);
+            let actual_preroll = (self.config.start_frame - preroll_start) as usize;
+
+            if actual_preroll > 0 {
+                render_ctx.playhead.seek(preroll_start);
+                let mut preroll_rendered = 0usize;
+                let mut preroll_interleaved = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
+
+                info!(
+                    "[Bounce] PDC pre-roll: rendering {} frames from position {} to prime delay lines",
+                    actual_preroll, preroll_start
+                );
+
+                while preroll_rendered < actual_preroll {
+                    let chunk = (actual_preroll - preroll_rendered).min(OFFLINE_BUFFER_FRAMES);
+                    let chunk_samples = chunk * OFFLINE_CHANNELS;
+                    preroll_interleaved[..chunk_samples].fill(0.0);
+
+                    let mut preroll_routing_ctx = RenderRoutingCtx {
+                        clips_per_track: &clips_per_track,
+                        clip_pool,
+                        routing: &routing,
+                        sidechains: &sidechains,
+                        post_sum_mask: &post_sum_mask,
+                        track_latencies: &track_latencies,
+                        max_tracking_delay,
+                        pdc_buffers: &mut pdc_buffers,
+                        plugin_registry,
+                        external_fx_map,
+                        bpm: self.config.bpm,
+                        time_sig_numerator: project.time_signature.numerator.max(1),
+                        time_sig_denominator: project.time_signature.denominator.max(1),
+                        master_device_chain: &mut master_device_chain,
+                        midi_clips_per_track: &midi_clips_per_track,
+                        loop_region: bounce_loop_region,
+                        midi_fx_configs: &midi_fx_configs,
+                        automation: &bounce_automation,
+                        bounce_scratch_left: &mut bounce_scratch_left,
+                        bounce_scratch_right: &mut bounce_scratch_right,
+                        bounce_midi_events: &mut bounce_midi_events,
+                    };
+                    Self::render_routing_aware(
+                        &mut render_ctx,
+                        &mut preroll_interleaved[..chunk_samples],
+                        &mut preroll_routing_ctx,
+                    );
+                    // Discard output — we only care about priming PDC delay buffers
+                    preroll_rendered += chunk;
+                }
+
+                info!("[Bounce] PDC pre-roll complete: {} frames processed", preroll_rendered);
+            }
+        }
 
         while frames_rendered < total_frames {
             if self.cancel_flag.load(Ordering::SeqCst) {

@@ -148,15 +148,16 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                         if (dotIdx < 0) return false;
                         const ext = path.slice(dotIdx).toLowerCase();
                         return [
-                            '.wav', '.wave',
+                            '.wav', '.wave', '.bwf', '.rf64', '.w64',
                             '.aiff', '.aif', '.aifc',
                             '.mp3',
                             '.flac',
                             '.ogg', '.oga', '.opus',
-                            '.m4a', '.mp4', '.aac',
+                            '.m4a', '.mp4', '.aac', '.alac',
                             '.caf',
                             '.wma',
-                            '.webm',
+                            '.webm', '.mkv',
+                            '.sd2',
                         ].includes(ext);
                     });
                     if (audioFiles.length === 0) {

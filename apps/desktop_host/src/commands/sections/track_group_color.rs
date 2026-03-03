@@ -117,6 +117,15 @@ fn refresh_runtime_after_track_topology_change(
     // before device chains are rebuilt, process_slot_with_sidechain_ctx()
     // references stale/missing slots → silent FX.
     rebuild_runtime_device_chains_from_project(project, handle)?;
+    // TOPOLOGY-PDC-FIX: Ensure plugin registry and latencies are fresh
+    // BEFORE rebuilding snapshots. Without this, collect_per_track_latencies()
+    // reads from a stale registry_map and PDC drops to 0 until the background
+    // polling thread (~500ms) re-queries — causing a brief timing glitch.
+    plugin_host_state.publish_registry();
+    {
+        let mut host = plugin_host_state.host.lock();
+        host.refresh_all_latencies();
+    }
     // PDC-FIX: Publish external FX snapshot BEFORE rebuild_snapshot() so that
     // collect_per_track_latencies() reads the CURRENT plugin instances.
     // Previously this was called AFTER rebuild_snapshot(), causing the graph

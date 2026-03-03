@@ -125,8 +125,12 @@ fn normalize_audio_extension(ext: &str) -> String {
         "aif"   => "aiff".to_string(),
         "aifc"  => "aiff".to_string(),
         "wave"  => "wav".to_string(),
+        "bwf"   => "wav".to_string(),   // Broadcast WAV → standard WAV reader
+        "rf64"  => "wav".to_string(),   // >4GB WAV → WAV reader
+        "w64"   => "wav".to_string(),   // Sony Wave64 → WAV reader
         "m4a"   => "mp4".to_string(),
         "aac"   => "mp4".to_string(),
+        "alac"  => "mp4".to_string(),   // Apple Lossless → MP4 container
         "oga"   => "ogg".to_string(),
         "opus"  => "ogg".to_string(),
         "webm"  => "webm".to_string(),

@@ -268,6 +268,10 @@ enum AiffCompression {
     Float32,
     /// 64-bit IEEE float ('fl64'/'FL64').
     Float64,
+    /// Ableton 'able' delta-encoded PCM. Each sample is a delta (difference)
+    /// from the previous sample. Cumulative sum reconstructs the original audio.
+    /// Uses i64 accumulator because integrated values exceed 24-bit range.
+    DeltaPcm,
 }
 
 /// Parsed COMM chunk data.
@@ -306,6 +310,10 @@ fn parse_comm<R: Read + Seek>(
             b"in24" | b"IN24" => AiffCompression::PcmBigEndian, // 24-bit BE
             b"in32" | b"IN32" => AiffCompression::PcmBigEndian, // 32-bit BE
             b"raw " => AiffCompression::PcmBigEndian,           // raw uncompressed
+            // Ableton 'able' — delta-encoded PCM. Each 24-bit value is the
+            // difference from the previous sample. Reverse-engineered via
+            // autocorrelation analysis (raw=−0.03 noise, delta-decoded=+0.997).
+            b"able" => AiffCompression::DeltaPcm,
             _ => {
                 return Err(AudioReaderError::UnsupportedFormat(format!(
                     "AIFF-C: unsupported compression '{}' — this file uses a proprietary codec and must be re-exported as uncompressed AIFF or WAV",
@@ -357,6 +365,9 @@ fn decode_pcm_to_f32(
         }
         AiffCompression::PcmLittleEndian => {
             decode_pcm_integer(raw, num_channels, num_frames, bit_depth, false)
+        }
+        AiffCompression::DeltaPcm => {
+            decode_delta_pcm(raw, num_channels, num_frames, bit_depth)
         }
     }
 }
@@ -436,6 +447,72 @@ fn decode_pcm_integer(
             out.len()
         );
     }
+
+    Ok(out)
+}
+
+/// Decodes Ableton 'able' delta-encoded PCM to f32.
+///
+/// The codec stores 24-bit big-endian **deltas** (differences between
+/// consecutive samples). Integration (cumulative sum) reconstructs the
+/// original waveform. Uses i64 accumulator because integrated values
+/// far exceed the 24-bit range (observed peaks of 300M+).
+///
+/// Multi-channel: each channel has its own accumulator. Interleaved layout
+/// is preserved for consistency with the de-interleave step in `read_aiff`.
+fn decode_delta_pcm(
+    raw: &[u8],
+    num_channels: usize,
+    num_frames: usize,
+    bit_depth: u16,
+) -> Result<Vec<f32>, AudioReaderError> {
+    let bytes_per_sample = ((bit_depth + 7) / 8) as usize;
+    let total_samples = num_channels * num_frames;
+    let available_samples = raw.len() / bytes_per_sample;
+    let sample_count = total_samples.min(available_samples);
+
+    // ── Pass 1: read deltas and integrate into i64 per channel ───────
+    let mut accumulators = vec![0i64; num_channels];
+    let mut integrated = Vec::with_capacity(sample_count);
+    let mut peak: i64 = 1; // avoid div-by-zero
+
+    for i in 0..sample_count {
+        let offset = i * bytes_per_sample;
+        if offset + bytes_per_sample > raw.len() {
+            break;
+        }
+        let bytes = &raw[offset..offset + bytes_per_sample];
+        let ch = i % num_channels;
+
+        // Read the delta in big-endian sign-extended format
+        let delta: i64 = match bit_depth {
+            16 => i16::from_be_bytes([bytes[0], bytes[1]]) as i64,
+            24 => {
+                let raw32 =
+                    (bytes[0] as i32) << 16 | (bytes[1] as i32) << 8 | (bytes[2] as i32);
+                (if raw32 & 0x800000 != 0 {
+                    raw32 | !0xFFFFFF
+                } else {
+                    raw32
+                }) as i64
+            }
+            32 => i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as i64,
+            _ => {
+                return Err(AudioReaderError::UnsupportedFormat(format!(
+                    "AIFF 'able': unsupported bit depth {bit_depth}"
+                )));
+            }
+        };
+
+        accumulators[ch] += delta;
+        let val = accumulators[ch];
+        integrated.push(val);
+        peak = peak.max(val.unsigned_abs() as i64);
+    }
+
+    // ── Pass 2: normalize to f32 [-1.0, 1.0] ────────────────────────
+    let scale = if peak > 0 { 1.0 / peak as f64 } else { 1.0 };
+    let out: Vec<f32> = integrated.iter().map(|&v| (v as f64 * scale) as f32).collect();
 
     Ok(out)
 }

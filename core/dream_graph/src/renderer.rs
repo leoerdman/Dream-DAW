@@ -449,7 +449,11 @@ impl GraphRenderer {
                     scratch_right: vec![0.0; self.max_frames],
                 });
             } else {
-                self.edge_pdc_delays[runtime_idx].delay.reset(); // Clear history of recycled delay
+                // PDC-11 FIX: Do NOT reset() the delay buffer — that wipes all
+                // historical audio to zeros, causing a click artifact when the
+                // output jumps from delayed audio to silence. Instead, only
+                // update the delay tap point. The read pointer moves smoothly
+                // to the new offset, reading existing buffered audio.
                 self.edge_pdc_delays[runtime_idx].delay.set_delay(edge.delay_samples as usize);
             }
             self.active_edge_pdc_count += 1;

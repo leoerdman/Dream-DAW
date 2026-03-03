@@ -1,7 +1,18 @@
-import React from 'react';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import {
+    buildSurfaceKnobParams,
+    formatSurfaceParam,
+    getDevicePluginKey,
+    KnobParamGrid,
+    pluginPanelCardBaseStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
+    readSurfaceParam,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
+    type SurfaceHandlers,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
@@ -210,21 +221,7 @@ export function renderStandardAnalyzerMidiSurface(
                     </span>
                 </div>
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(2, knobParams.length))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => (
-                        <PluginKnob
-                            key={p.name}
-                            param={p}
-                            onChange={onParamChange}
-                            onGestureStart={onParamGestureStart}
-                            onGestureEnd={onParamGestureEnd}
-                            onContextMenu={onParamContextMenu}
-                            compact
-                        />
-                    ))}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} maxCols={4} minCols={2} />
         </div>
     );
 }

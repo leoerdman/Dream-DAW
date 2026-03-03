@@ -21,13 +21,13 @@ export interface SynthConnection {
     fromPort: string;
     toNode: string;
     toPort: string;
-    signalType?: 'audio' | 'midi';
+    signalType?: 'audio' | 'midi' | 'control';
 }
 
 export interface PendingConnection {
     fromNode: string;
     fromPort: string;
-    signalType: 'audio' | 'midi';
+    signalType: 'audio' | 'midi' | 'control';
     startX: number;
     startY: number;
     currentX: number;
@@ -70,9 +70,9 @@ interface FlowSynthState {
     setConnections: (connections: SynthConnection[]) => void;
     startConnectionDrag: (connection: Omit<PendingConnection, 'currentX' | 'currentY'>) => void;
     updatePendingConnection: (x: number, y: number) => void;
-    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi') => void;
+    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi' | 'control') => void;
     cancelConnectionDrag: () => void;
-    pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi') => void;
+    pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi' | 'control') => void;
     pulseConnection: (connectionId: string) => void;
     syncFlowGraphToEngine: () => Promise<void>;
 }
@@ -491,7 +491,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         };
     }),
 
-    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi') => set((state: FlowSynthState) => {
+    commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi' | 'control') => set((state: FlowSynthState) => {
         const pending = state.pendingConnection;
         if (!pending) return {};
         if (pending.fromNode === toNode) return { pendingConnection: null };

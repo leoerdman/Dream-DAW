@@ -230,7 +230,7 @@ export function FlowCanvas() {
             const occupiedInputs = new Set(
                 connections.map((conn) => `${conn.toNode}:${conn.toPort}`),
             );
-            let best: { nodeId: string; signalType: 'audio' | 'midi'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
+            let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
             let bestDist = Infinity;
             for (const node of nodes) {
                 if (node.id === pendingConnection.fromNode) continue;
@@ -239,8 +239,9 @@ export function FlowCanvas() {
                 // Check each input port
                 for (let pi = 0; pi < config.inputs.length; pi++) {
                     const portDef = config.inputs[pi];
-                    const signalType: 'audio' | 'midi' = portDef.type === 'midi' ? 'midi' : 'audio';
-                    // Only snap if types are compatible
+                    const signalType: 'audio' | 'midi' | 'control' = portDef.type === 'midi' ? 'midi' : portDef.type === 'control' ? 'control' : 'audio';
+                    // Only snap if types are compatible. Control inputs accept all signal types. Control outputs can connect to any control input. 
+                    // To keep things simple, we'll allow audio -> control and control -> control, but reject audio -> midi.
                     if (signalType !== pendingConnection.signalType && portDef.type !== 'control') continue;
                     const toPort = portDef.id;
                     const x = node.position.x;

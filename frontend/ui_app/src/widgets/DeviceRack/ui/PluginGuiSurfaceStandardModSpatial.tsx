@@ -14,19 +14,6 @@ import {
     shouldShowDryWet,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
-import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-import {
-    buildSurfaceKnobParams,
-    formatSurfaceParam,
-    getDevicePluginKey,
-    panelWithOptionalDryWetStyle,
-    pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
-    readSurfaceParam,
-    shouldShowDryWet,
-    type SurfaceHandlers,
-} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;

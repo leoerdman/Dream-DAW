@@ -102,10 +102,14 @@ export function ConnectionsLayer() {
                 const signalType = conn.signalType ?? 'audio';
                 const baseColor = signalType === 'midi'
                     ? 'var(--color-signal-midi)'
-                    : 'var(--color-signal-audio)';
+                    : signalType === 'control'
+                        ? 'var(--color-signal-control, #f59e0b)'
+                        : 'var(--color-signal-audio)';
                 const glowColor = signalType === 'midi'
                     ? 'color-mix(in srgb, var(--color-signal-midi) 72%, transparent)'
-                    : 'color-mix(in srgb, var(--color-signal-audio) 72%, transparent)';
+                    : signalType === 'control'
+                        ? 'color-mix(in srgb, var(--color-signal-control, #f59e0b) 72%, transparent)'
+                        : 'color-mix(in srgb, var(--color-signal-audio) 72%, transparent)';
                 const pulseTs = connectionPulseById[conn.id] ?? 0;
                 const elapsed = Math.max(0, now - pulseTs);
                 const pulseActive = elapsed < PULSE_DURATION_MS;
@@ -187,7 +191,9 @@ export function ConnectionsLayer() {
                 const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
                 const baseColor = pendingConnection.signalType === 'midi'
                     ? 'var(--color-signal-midi)'
-                    : 'var(--color-signal-audio)';
+                    : pendingConnection.signalType === 'control'
+                        ? 'var(--color-signal-control, #f59e0b)'
+                        : 'var(--color-signal-audio)';
                 return (
                     <path
                         d={pathData}

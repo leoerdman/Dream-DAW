@@ -5,21 +5,7 @@ import {
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGrid,
-    panelWithOptionalDryWetStyle,
-    pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
-    readSurfaceParam,
-    shouldShowDryWet,
-    PLUGIN_TITLE_MAP,
-    type SurfaceHandlers,
-} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
-import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-import {
-    buildSurfaceKnobParams,
-    formatSurfaceParam,
-    getDevicePluginKey,
+    KnobParamGridMemo,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -66,7 +52,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-56d4c8)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -74,7 +60,6 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
     const rangeParam = readSurfaceParam(device, 'range', -80, 'dB');
     const gateAtkParam = readSurfaceParam(device, ['atk', 'attack'], 0.1, 'ms');
@@ -104,7 +89,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-8ec77c)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -112,7 +97,6 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
 function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const normalizedInternalId = getDevicePluginKey(device);
     const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Auto Filter';
     const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
@@ -153,7 +137,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-4cc9d8)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

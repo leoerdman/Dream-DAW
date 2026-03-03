@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import React, { useRef } from 'react';
 import { resolvePlugin } from '@/shared/config/pluginManifest';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import type * as engineApi from '@/shared/api/engine';
@@ -42,7 +42,7 @@ interface DeviceNodeProps {
     onEnsureActive?: () => void;
 }
 
-export const DeviceNode = ({
+export const DeviceNode = React.memo(({
     device,
     deviceIndex,
     canReorder,
@@ -220,4 +220,5 @@ export const DeviceNode = ({
             />
         </div>
     );
-};
+});
+DeviceNode.displayName = 'DeviceNode';

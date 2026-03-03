@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
@@ -18,7 +18,7 @@ const MAX_EQ_CACHE_SIZE = 64;
 const eqFilterTypeCache = new Map<string, string[]>();
 const EQ_DEFAULT_TYPES = ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
 
-export const PluginGuiSurface = ({
+export const PluginGuiSurface = React.memo(({
     device,
     onParamChange,
     onParamGestureStart,
@@ -312,6 +312,6 @@ export const PluginGuiSurface = ({
             onParamGestureStart={onParamGestureStart}
             onParamGestureEnd={onParamGestureEnd}
             onParamContextMenu={onParamContextMenu}
-        />
     );
-};
+});
+PluginGuiSurface.displayName = 'PluginGuiSurface';

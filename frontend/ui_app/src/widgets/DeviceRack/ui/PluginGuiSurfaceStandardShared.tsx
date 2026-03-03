@@ -313,7 +313,7 @@ import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
  * Eliminates the identical `{knobParams.length > 0 && <div style={pluginPanelKnobGrid(...)}>...map...</div>}`
  * pattern that was duplicated in 12 surfaces.
  */
-export function KnobParamGrid({
+export const KnobParamGrid = React.memo(({
     params,
     handlers,
     maxCols = 8,
@@ -323,7 +323,7 @@ export function KnobParamGrid({
     handlers: SurfaceHandlers;
     maxCols?: number;
     minCols?: number;
-}): React.ReactNode {
+}) => {
     if (params.length === 0) return null;
     const cols = Math.min(maxCols, Math.max(minCols, params.length));
     return (
@@ -341,14 +341,41 @@ export function KnobParamGrid({
             ))}
         </div>
     );
-}
+});
+KnobParamGrid.displayName = 'KnobParamGrid';
+
+/**
+ * Memoized version of KnobParamGrid that computes buildSurfaceKnobParams internally.
+ * BUG-R04 FIX: Caches the O(N) param filtering so it doesn't run every frame.
+ */
+export const KnobParamGridMemo = React.memo(({
+    device,
+    handlers,
+    options = {},
+    maxCols,
+    minCols,
+}: {
+    device: DeviceSlot;
+    handlers: SurfaceHandlers;
+    options?: SurfaceParamFilterOptions;
+    maxCols?: number;
+    minCols?: number;
+}) => {
+    // Memoize the expensive param filtering based on device.params reference
+    const params = React.useMemo(
+        () => buildSurfaceKnobParams(device, options),
+        [device.params, options],
+    );
+    return <KnobParamGrid params={params} handlers={handlers} maxCols={maxCols} minCols={minCols} />;
+});
+KnobParamGridMemo.displayName = 'KnobParamGridMemo';
 
 /**
  * Shared DryWet knob section — conditionally renders the DryWet knob.
  * Eliminates the identical `{showDryWet && <DryWetKnob .../>}` pattern
  * that was duplicated in 12 surfaces.
  */
-export function DryWetSection({
+export const DryWetSection = React.memo(({
     device,
     handlers,
     accent,
@@ -358,7 +385,7 @@ export function DryWetSection({
     handlers: SurfaceHandlers;
     accent: string;
     show: boolean;
-}): React.ReactNode {
+}) => {
     if (!show) return null;
     return (
         <DryWetKnob
@@ -370,4 +397,5 @@ export function DryWetSection({
             accent={accent}
         />
     );
-}
+});
+DryWetSection.displayName = 'DryWetSection';

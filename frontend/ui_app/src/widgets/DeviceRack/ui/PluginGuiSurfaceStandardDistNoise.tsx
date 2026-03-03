@@ -3,15 +3,14 @@
 // Handles: distortion, bitcrusher, noiseMachine
 // Each effect has unique SVG visualization + Dry/Wet knob on right side.
 // ═══════════════════════════════════════════════════════════════════════════
-import React from 'react';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
-import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
+    DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
+    KnobParamGrid,
+    panelWithOptionalDryWetStyle,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -19,7 +18,6 @@ import {
     readSurfaceParam,
     safeParamValue,
     shouldShowDryWet,
-    panelWithOptionalDryWetStyle,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';

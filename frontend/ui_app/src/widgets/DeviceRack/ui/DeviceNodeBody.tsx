@@ -37,7 +37,7 @@ interface DeviceNodeBodyProps {
     onSidechainSourceChange?: (sourceTrackId: string) => void;
 }
 
-export function DeviceNodeBody({
+export const DeviceNodeBody = React.memo(({
     device,
     showSettings,
     supportsSettingsToggle,
@@ -61,7 +61,7 @@ export function DeviceNodeBody({
     onLoadSample,
     onParamContextMenu,
     onSidechainSourceChange,
-}: DeviceNodeBodyProps) {
+}: DeviceNodeBodyProps) => {
     const showSidechainSelector = device.source === 'vst' || device.pluginId === 'internal://instrument/flow';
     const quickPresets = device.source === 'internal'
         ? (QUICK_PRESETS_BY_EFFECT[device.effectType] ?? [])
@@ -241,4 +241,5 @@ export function DeviceNodeBody({
             )}
         </div>
     );
-}
+});
+DeviceNodeBody.displayName = 'DeviceNodeBody';

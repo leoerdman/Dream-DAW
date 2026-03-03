@@ -5,22 +5,7 @@ import {
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGrid,
-    panelWithOptionalDryWetStyle,
-    pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    readMixSurfaceParam,
-    readSurfaceParam,
-    shouldShowDryWet,
-    PLUGIN_TITLE_MAP,
-    type SurfaceHandlers,
-} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
-import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-import {
-    buildSurfaceKnobParams,
-    formatSurfaceParam,
-    getDevicePluginKey,
+    KnobParamGridMemo,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -58,7 +43,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-c867ff)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -67,7 +52,6 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const satTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Saturator';
     const isDrumBuss = normalizedInternalId === 'internal://effect/drum-buss';
     const isDynamicTube = normalizedInternalId === 'internal://effect/dynamic-tube';
@@ -110,7 +94,7 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

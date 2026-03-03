@@ -1,16 +1,15 @@
-import React from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
-import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
+    DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
+    KnobParamGrid,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
     readMixSurfaceParam,
     readSurfaceParam,
     shouldShowDryWet,

@@ -75,7 +75,7 @@ function PortDot({
     const updatePendingConnection = useFlowSynthStore((s) => s.updatePendingConnection);
 
     const cy = portCenterY(index);
-    const signalType: 'audio' | 'midi' = port.type === 'midi' ? 'midi' : 'audio';
+    const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi' : port.type === 'control' ? 'control' : 'audio';
     const isAudio = port.type === 'audio';
     const isMidi = port.type === 'midi';
 

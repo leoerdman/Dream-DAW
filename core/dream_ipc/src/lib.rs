@@ -21,6 +21,14 @@ pub use rtrb;
 pub mod metering;
 pub mod prealloc_queue;
 
+// ── Flow Synth Graph Descriptors ────────────────────────────────────────
+
+/// A single Flow Synth node: `(node_id, node_type, params[(key, value)])`.
+pub type FlowNodeDescriptor = (u64, String, Vec<(String, String)>);
+
+/// A single Flow Synth connection: `(from_node_id, from_port, to_node_id, to_port)`.
+pub type FlowConnectionDescriptor = (u64, usize, u64, usize);
+
 // ── Engine Commands ─────────────────────────────────────────────────────
 
 /// Commands dispatched from the non-real-time UI thread to the audio callback.
@@ -217,10 +225,8 @@ pub enum EngineCommand {
     /// This is an O(N) operation on the audio thread, use sparingly.
     SyncFlowGraph {
         track_index: u16,
-        // Using a serialized or simplified representation for the command.
-        // For now, let's keep it simple with clear/rebuild.
-        nodes: Vec<(u64, String, Vec<(String, String)>)>, // (id, type, params[k,v])
-        connections: Vec<(u64, usize, u64, usize)>, // (from_id, from_port, to_id, to_port)
+        nodes: Vec<FlowNodeDescriptor>,
+        connections: Vec<FlowConnectionDescriptor>,
     },
 
     /// Update a single parameter on a specific node in the Flow Synth graph.

@@ -1183,21 +1183,20 @@ impl OfflineRenderer {
                     snapshot.dag.graph().node_indices()
                         .find(|ni| snapshot.dag.node(*ni).id.0 == 0)
                 });
-            if let Some(dest_ni) = dest_node_idx {
-                if let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
+            if let Some(dest_ni) = dest_node_idx
+                && let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
                     .find(|e| e.from == node_idx && e.to == dest_ni)
                     .map(|e| e.delay_samples)
-                    && delay_frames > 0
-                {
-                    let delay_buf = &mut ctx.pdc_buffers[track_idx];
-                    if delay_buf.len() != delay_frames as usize {
-                        delay_buf.resize(delay_frames as usize);
-                    }
-                    delay_buf.process_stereo(
-                        &mut slot.buf_left[..frame_count],
-                        &mut slot.buf_right[..frame_count],
-                    );
+                && delay_frames > 0
+            {
+                let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                if delay_buf.len() != delay_frames as usize {
+                    delay_buf.resize(delay_frames as usize);
                 }
+                delay_buf.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                );
             }
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
@@ -1280,7 +1279,7 @@ impl OfflineRenderer {
                 std::sync::atomic::AtomicU32::new(0);
             let ubuf = UBUF_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // Every 50 buffers for first 2000, then every 200 for the rest
-            let should_dump = (ubuf < 2000 && ubuf % 50 == 0) || (ubuf >= 2000 && ubuf % 200 == 0);
+            let should_dump = (ubuf < 2000 && ubuf.is_multiple_of(50)) || (ubuf >= 2000 && ubuf.is_multiple_of(200));
             if should_dump {
                 let playhead_sec = playhead_pos as f64 / sample_rate;
                 let mut summary_parts: Vec<String> = Vec::new();
@@ -2106,15 +2105,15 @@ impl OfflineRenderer {
                 let clips = &track.midi_clips;
                 let mut bounds_str = Vec::new();
                 for (c_idx, c) in clips.iter().enumerate() {
-                    let start_sec = c.position.sample_frame as f64 / project_sr as f64;
-                    let end_sec = (c.position.sample_frame + c.duration.sample_frame) as f64 / project_sr as f64;
+                    let start_sec = c.position.sample_frame as f64 / project_sr;
+                    let end_sec = (c.position.sample_frame + c.duration.sample_frame) as f64 / project_sr;
                     bounds_str.push(format!("C{}[{:.2}s-{:.2}s, {} notes]", c_idx, start_sec, end_sec, c.notes.len()));
                 }
-                let loop_str = loop_region.as_ref().map(|lr| format!("[{:.2}s - {:.2}s]", lr.start as f64 / project_sr as f64, lr.end as f64 / project_sr as f64)).unwrap_or("DISABLED".to_string());
+                let loop_str = loop_region.as_ref().map(|lr| format!("[{:.2}s - {:.2}s]", lr.start as f64 / project_sr, lr.end as f64 / project_sr)).unwrap_or("DISABLED".to_string());
                 log::debug!(
                     "[Bounce-Diag-MIDI] T[{}] '{}': loop={} bounds={} | export={:.2}s - {:.2}s",
                     track_idx, track.name, loop_str, bounds_str.join(","),
-                    self.config.start_frame as f64 / project_sr as f64, self.config.end_frame as f64 / project_sr as f64
+                    self.config.start_frame as f64 / project_sr, self.config.end_frame as f64 / project_sr
                 );
             }
 
@@ -2164,7 +2163,7 @@ impl OfflineRenderer {
             slots.iter().any(|s| s.instance_id.is_some() && !s.is_bypassed)
         });
         let max_tail_frames = if has_any_master_fx || has_any_track_reverb_vst {
-            (project_sr as usize * 1).min(192000) // 1 second max (was 2)
+            (project_sr as usize).min(192000) // 1 second max (was 2)
         } else {
             0 // No effects = no tail needed!
         };

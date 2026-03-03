@@ -81,7 +81,7 @@ fn add_plugin_to_track_impl(
         // Find the flat position of the newly inserted slot by scanning the
         // post-mutation project effects array.
         let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        let flat_idx = project
+        project
             .tracks
             .iter()
             .find(|t| t.id == track_id)
@@ -90,8 +90,7 @@ fn add_plugin_to_track_impl(
                     .iter()
                     .position(|node| node.id() == new_slot_id)
             })
-            .unwrap_or(0);
-        flat_idx
+            .unwrap_or(0)
     };
 
     let mut runtime_add: Option<(u16, u8, u8)> = None;

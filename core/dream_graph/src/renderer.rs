@@ -348,13 +348,10 @@ unsafe fn sum_node_inputs_raw(
         // (i.e., during topology transitions). Log for diagnostics.
         static PDC_FALLBACK_COUNT: std::sync::atomic::AtomicU32 =
             std::sync::atomic::AtomicU32::new(0);
-        let count = PDC_FALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count < 5 || count.is_multiple_of(1000) {
-            log::debug!(
-                "[PDC-DIAG] sum_node_inputs_raw fallback (no edge PDC) for node {} (#{count})",
-                idx
-            );
-        }
+        // AUDIT-A04 FIX: Removed log::debug!() — log backend acquires Mutex,
+        // which is forbidden on the RT audio thread (priority inversion risk).
+        // Atomic counter is RT-safe and sufficient for diagnostics.
+        PDC_FALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         for edge in dag
             .graph()
             .edges_directed(node_idx, petgraph::Direction::Incoming)

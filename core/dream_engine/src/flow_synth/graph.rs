@@ -149,14 +149,12 @@ impl FlowGraph {
 
     pub fn add_connection(&mut self, conn: FlowConnection) {
         // ENTERPRISE: Update incoming cache incrementally when a connection is added.
-        if let Some(&to_idx) = self.node_map.get(&conn.to_node) {
-            if let Some(&from_idx) = self.node_map.get(&conn.from_node) {
-                if conn.from_port < MAX_NODE_PORTS && conn.to_port < MAX_NODE_PORTS {
-                    if to_idx < self.incoming_cache.len() {
-                        self.incoming_cache[to_idx].push((from_idx, conn.from_port, conn.to_port));
-                    }
-                }
-            }
+        if let Some(&to_idx) = self.node_map.get(&conn.to_node)
+            && let Some(&from_idx) = self.node_map.get(&conn.from_node)
+            && conn.from_port < MAX_NODE_PORTS && conn.to_port < MAX_NODE_PORTS
+            && to_idx < self.incoming_cache.len()
+        {
+            self.incoming_cache[to_idx].push((from_idx, conn.from_port, conn.to_port));
         }
         self.connections.push(conn);
     }
@@ -344,12 +342,11 @@ impl FlowGraph {
             return true;
         }
         for &idx in &self.envelope_indices {
-            if let Some(node) = self.nodes.get_mut(idx) {
-                if let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>() {
-                    if !env.is_idle() {
-                        return false;
-                    }
-                }
+            if let Some(node) = self.nodes.get_mut(idx)
+                && let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>()
+                && !env.is_idle()
+            {
+                return false;
             }
         }
         true

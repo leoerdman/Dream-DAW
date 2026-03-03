@@ -667,12 +667,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     // 5. Per-track spectrum feed (enterprise per-track EQ display)
                                     // Push mono-mixed post-FX audio into the per-track ring buffer.
                                     // Only active for tracks with an EQ UI requesting spectrum data.
-                                    if track_idx < render_ctx.per_track_spectrum_producers.len() {
-                                        if let Some(producer) = &mut render_ctx.per_track_spectrum_producers[track_idx] {
-                                            for frame in 0..c {
-                                                let mono = (left[frame] + right[frame]) * 0.5;
-                                                let _ = producer.push(mono); // RT-safe: ignore full buffer
-                                            }
+                                    if track_idx < render_ctx.per_track_spectrum_producers.len()
+                                        && let Some(producer) = &mut render_ctx.per_track_spectrum_producers[track_idx]
+                                    {
+                                        for frame in 0..c {
+                                            let mono = (left[frame] + right[frame]) * 0.5;
+                                            let _ = producer.push(mono); // RT-safe: ignore full buffer
                                         }
                                     }
                                 }

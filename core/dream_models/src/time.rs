@@ -109,6 +109,9 @@ impl AbsoluteTime {
     /// Converts to seconds (tempo-independent, pure division).
     #[inline]
     pub fn to_seconds(self, sample_rate: f64) -> f64 {
+        if sample_rate <= 0.0 || !sample_rate.is_finite() {
+            return 0.0;
+        }
         self.sample_frame as f64 / sample_rate
     }
 
@@ -242,6 +245,9 @@ impl TimePosition {
     /// Converts to seconds at a given BPM.
     #[inline]
     pub fn to_seconds(self, bpm: f64) -> f64 {
+        if bpm <= 0.0 || !bpm.is_finite() {
+            return 0.0;
+        }
         self.beats * (60.0 / bpm)
     }
 
@@ -255,6 +261,9 @@ impl TimePosition {
     /// Creates from sample count at a given BPM and sample rate.
     #[inline]
     pub fn from_samples(samples: i64, bpm: f64, sample_rate: f64) -> Self {
+        if sample_rate <= 0.0 || !sample_rate.is_finite() || !bpm.is_finite() {
+            return Self::ZERO;
+        }
         let seconds = samples as f64 / sample_rate;
         let beats = seconds * (bpm / 60.0);
         Self { beats }

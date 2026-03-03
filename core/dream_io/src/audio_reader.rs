@@ -156,18 +156,18 @@ impl AudioReader {
         let path = path.as_ref();
 
         // Stage 0: Native AIFF reader (symphonia 0.5 lacks AIFF support).
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if crate::aiff_reader::is_aiff_extension(ext) {
-                match crate::aiff_reader::read_aiff(path) {
-                    Ok(buf) => return Ok(buf),
-                    Err(aiff_err) => {
-                        // Fall through to symphonia/system convert for exotic
-                        // AIFF-C codecs that our native reader can't handle.
-                        log::warn!(
-                            "Native AIFF reader failed for '{}': {aiff_err} — trying symphonia",
-                            path.display()
-                        );
-                    }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && crate::aiff_reader::is_aiff_extension(ext)
+        {
+            match crate::aiff_reader::read_aiff(path) {
+                Ok(buf) => return Ok(buf),
+                Err(aiff_err) => {
+                    // Fall through to symphonia/system convert for exotic
+                    // AIFF-C codecs that our native reader can't handle.
+                    log::warn!(
+                        "Native AIFF reader failed for '{}': {aiff_err} — trying symphonia",
+                        path.display()
+                    );
                 }
             }
         }
@@ -471,16 +471,16 @@ impl AudioReader {
         let path = path.as_ref();
 
         // Fast path: native AIFF metadata (symphonia 0.5 lacks AIFF reader).
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if crate::aiff_reader::is_aiff_extension(ext) {
-                match crate::aiff_reader::read_aiff_metadata(path) {
-                    Ok(meta) => return Ok(meta),
-                    Err(e) => {
-                        log::warn!(
-                            "Native AIFF metadata failed for '{}': {e} — trying symphonia",
-                            path.display()
-                        );
-                    }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && crate::aiff_reader::is_aiff_extension(ext)
+        {
+            match crate::aiff_reader::read_aiff_metadata(path) {
+                Ok(meta) => return Ok(meta),
+                Err(e) => {
+                    log::warn!(
+                        "Native AIFF metadata failed for '{}': {e} — trying symphonia",
+                        path.display()
+                    );
                 }
             }
         }

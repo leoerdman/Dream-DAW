@@ -19,7 +19,7 @@ impl FlowNode for AudioOutNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
         // Input 0: Left Audio Signal
         // Input 1: Right Audio Signal
-        let left = inputs.get(0).cloned().unwrap_or(FlowSignal::Audio(0.0));
+        let left = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));
         let right_raw = inputs.get(1).cloned().unwrap_or(FlowSignal::None);
         // ENTERPRISE FIX (#9): Mono→Stereo fallback.
         // If only the left input is connected (right is None), duplicate left to both channels.

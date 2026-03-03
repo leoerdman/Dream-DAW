@@ -132,9 +132,9 @@ impl FlowSynthEngine {
     /// Synchronize the entire graph structure from the UI thread.
     /// This is called from the command handler and replaces all voices' graphs.
     fn topologically_sorted_nodes(
-        nodes: &[(u64, String, Vec<(String, String)>)],
+        nodes: &[dream_ipc::FlowNodeDescriptor],
         connections: &[(u64, usize, u64, usize)],
-    ) -> Vec<(u64, String, Vec<(String, String)>)> {
+    ) -> Vec<dream_ipc::FlowNodeDescriptor> {
         let mut index_by_id = HashMap::with_capacity(nodes.len());
         for (idx, (id, _, _)) in nodes.iter().enumerate() {
             index_by_id.insert(*id, idx);
@@ -220,7 +220,7 @@ impl FlowSynthEngine {
 
     pub fn sync_graph(
         &mut self,
-        nodes: &[(u64, String, Vec<(String, String)>)],
+        nodes: &[dream_ipc::FlowNodeDescriptor],
         connections: &[(u64, usize, u64, usize)],
     ) {
         let ordered_nodes = Self::topologically_sorted_nodes(nodes, connections);

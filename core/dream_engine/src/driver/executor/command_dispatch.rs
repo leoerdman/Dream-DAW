@@ -243,13 +243,13 @@ pub(super) fn apply_all_topology_mutations(
             } => {
                 if track_index == master_track_index {
                     master_device_chain
-                        .set_param(slot_index as usize, param_index as u32, value);
+                        .set_param(slot_index as usize, param_index, value);
                 } else {
                     let idx = track_index as usize;
                     if idx < render_ctx.track_slots.len() {
                         render_ctx.track_slots[idx].device_chain.set_param(
                             slot_index as usize,
-                            param_index as u32,
+                            param_index,
                             value,
                         );
                     }

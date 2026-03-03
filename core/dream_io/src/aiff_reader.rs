@@ -73,15 +73,8 @@ pub fn read_aiff(path: &Path) -> Result<AudioBuffer, AudioReaderError> {
     let mut ssnd_offset: Option<u64> = None;
     let mut ssnd_size: Option<u32> = None;
 
-    loop {
-        let chunk_id = match read_chunk_id(&mut file) {
-            Ok(id) => id,
-            Err(_) => break, // EOF — stop walking
-        };
-        let chunk_size = match read_u32_be(&mut file) {
-            Ok(s) => s,
-            Err(_) => break,
-        };
+    while let Ok(chunk_id) = read_chunk_id(&mut file) {
+        let Ok(chunk_size) = read_u32_be(&mut file) else { break };
 
         match &chunk_id {
             b"COMM" => {
@@ -165,10 +158,10 @@ pub fn read_aiff(path: &Path) -> Result<AudioBuffer, AudioReaderError> {
     let mut channels = vec![Vec::with_capacity(actual_frames); num_channels];
 
     for frame in 0..actual_frames {
-        for ch in 0..num_channels {
+        for (ch, channel) in channels.iter_mut().enumerate() {
             let idx = frame * num_channels + ch;
             let sample = interleaved.get(idx).copied().unwrap_or(0.0);
-            channels[ch].push(if sample.is_finite() { sample } else { 0.0 });
+            channel.push(if sample.is_finite() { sample } else { 0.0 });
         }
     }
 
@@ -220,15 +213,8 @@ pub fn read_aiff_metadata(path: &Path) -> Result<(u32, usize, Option<u64>), Audi
     };
 
     // Walk chunks looking for COMM only (skip SSND entirely)
-    loop {
-        let chunk_id = match read_chunk_id(&mut file) {
-            Ok(id) => id,
-            Err(_) => break,
-        };
-        let chunk_size = match read_u32_be(&mut file) {
-            Ok(s) => s,
-            Err(_) => break,
-        };
+    while let Ok(chunk_id) = read_chunk_id(&mut file) {
+        let Ok(chunk_size) = read_u32_be(&mut file) else { break };
 
         if chunk_id == *b"COMM" {
             let comm = parse_comm(&mut file, chunk_size, is_aifc)?;
@@ -380,7 +366,7 @@ fn decode_pcm_integer(
     bit_depth: u16,
     big_endian: bool,
 ) -> Result<Vec<f32>, AudioReaderError> {
-    let bytes_per_sample = ((bit_depth + 7) / 8) as usize;
+    let bytes_per_sample = (bit_depth.div_ceil(8)) as usize;
     let total_samples = num_channels * num_frames;
     let expected_bytes = total_samples * bytes_per_sample;
 
@@ -466,7 +452,7 @@ fn decode_delta_pcm(
     num_frames: usize,
     bit_depth: u16,
 ) -> Result<Vec<f32>, AudioReaderError> {
-    let bytes_per_sample = ((bit_depth + 7) / 8) as usize;
+    let bytes_per_sample = (bit_depth.div_ceil(8)) as usize;
     let total_samples = num_channels * num_frames;
     let available_samples = raw.len() / bytes_per_sample;
     let sample_count = total_samples.min(available_samples);

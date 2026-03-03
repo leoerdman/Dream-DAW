@@ -464,10 +464,10 @@ impl PluginHost {
     pub fn refresh_all_latencies(&mut self) -> bool {
         let mut any_changed = false;
         for instance_arc in &self.instances {
-            if let Some(mut instance) = instance_arc.try_lock() {
-                if instance.refresh_latency() {
-                    any_changed = true;
-                }
+            if let Some(mut instance) = instance_arc.try_lock()
+                && instance.refresh_latency()
+            {
+                any_changed = true;
             }
             // If try_lock fails, the audio thread is using this instance.
             // We'll catch it on the next polling tick (~500ms).

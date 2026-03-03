@@ -164,7 +164,7 @@ fn set_sample_rack_pad_solo_cmd(
         &handle,
         EngineCommand::SetSampleRackPadSolo {
             track_index: result.track_index,
-            pad_index: pad_index,
+            pad_index,
             soloed,
         },
     )?;

@@ -129,6 +129,7 @@ fn normalize_audio_extension(ext: &str) -> String {
         "aac"   => "mp4".to_string(),
         "oga"   => "ogg".to_string(),
         "opus"  => "ogg".to_string(),
+        "webm"  => "webm".to_string(),
         other   => other.to_string(),
     }
 }
@@ -464,6 +465,22 @@ impl AudioReader {
         path: impl AsRef<Path>,
     ) -> Result<(u32, usize, Option<u64>), AudioReaderError> {
         let path = path.as_ref();
+
+        // Fast path: native AIFF metadata (symphonia 0.5 lacks AIFF reader).
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if crate::aiff_reader::is_aiff_extension(ext) {
+                match crate::aiff_reader::read_aiff_metadata(path) {
+                    Ok(meta) => return Ok(meta),
+                    Err(e) => {
+                        log::warn!(
+                            "Native AIFF metadata failed for '{}': {e} — trying symphonia",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+
         let file = File::open(path)
             .map_err(|e| AudioReaderError::FileNotFound(format!("{}: {e}", path.display())))?;
 

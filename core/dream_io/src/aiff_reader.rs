@@ -193,6 +193,66 @@ pub fn is_aiff_extension(ext: &str) -> bool {
     matches!(ext.to_lowercase().as_str(), "aif" | "aiff" | "aifc")
 }
 
+/// Reads AIFF metadata (sample_rate, channels, num_frames) without decoding
+/// the full audio data. Only reads the COMM chunk — O(1) I/O.
+pub fn read_aiff_metadata(path: &Path) -> Result<(u32, usize, Option<u64>), AudioReaderError> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| AudioReaderError::FileNotFound(format!("{}: {e}", path.display())))?;
+
+    let form_id = read_chunk_id(&mut file)?;
+    if form_id != *b"FORM" {
+        return Err(AudioReaderError::UnsupportedFormat(
+            "Not an AIFF file".into(),
+        ));
+    }
+    let _form_size = read_u32_be(&mut file)?;
+    let form_type = read_chunk_id(&mut file)?;
+
+    let is_aifc = match &form_type {
+        b"AIFF" => false,
+        b"AIFC" => true,
+        _ => {
+            return Err(AudioReaderError::UnsupportedFormat(format!(
+                "Unknown AIFF form type: '{}'",
+                String::from_utf8_lossy(&form_type)
+            )));
+        }
+    };
+
+    // Walk chunks looking for COMM only (skip SSND entirely)
+    loop {
+        let chunk_id = match read_chunk_id(&mut file) {
+            Ok(id) => id,
+            Err(_) => break,
+        };
+        let chunk_size = match read_u32_be(&mut file) {
+            Ok(s) => s,
+            Err(_) => break,
+        };
+
+        if chunk_id == *b"COMM" {
+            let comm = parse_comm(&mut file, chunk_size, is_aifc)?;
+            return Ok((
+                comm.sample_rate,
+                comm.num_channels as usize,
+                Some(comm.num_sample_frames as u64),
+            ));
+        }
+
+        // Skip unknown chunk (IFF chunks padded to even size)
+        let padded = if chunk_size % 2 != 0 {
+            chunk_size + 1
+        } else {
+            chunk_size
+        };
+        file.seek(SeekFrom::Current(padded as i64)).map_err(io_err)?;
+    }
+
+    Err(AudioReaderError::DecodeError(
+        "AIFF: missing COMM chunk".into(),
+    ))
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Internal types and helpers
 // ═══════════════════════════════════════════════════════════════════════════
@@ -598,5 +658,101 @@ mod tests {
         let result = decode_pcm_integer(&raw, 1, 2, 16, false).unwrap();
         assert!((result[0] - 0.5).abs() < 0.001);
         assert!((result[1] - (-0.5)).abs() < 0.001);
+    }
+
+    /// Helper: build a minimal valid AIFF file in memory.
+    fn build_aiff_bytes(channels: u16, frames: u32, bits: u16, sr_exp: u8, sr_mant: [u8; 2], pcm: &[u8]) -> Vec<u8> {
+        let mut comm = Vec::new();
+        comm.extend_from_slice(&channels.to_be_bytes());
+        comm.extend_from_slice(&frames.to_be_bytes());
+        comm.extend_from_slice(&bits.to_be_bytes());
+        // 80-bit extended sample rate
+        comm.extend_from_slice(&[0x40, sr_exp]);
+        comm.extend_from_slice(&sr_mant);
+        comm.extend_from_slice(&[0u8; 6]);
+
+        let ssnd_data_len = 8 + pcm.len();
+
+        let mut body = Vec::new();
+        body.extend_from_slice(b"AIFF");
+        body.extend_from_slice(b"COMM");
+        body.extend_from_slice(&(comm.len() as u32).to_be_bytes());
+        body.extend_from_slice(&comm);
+        body.extend_from_slice(b"SSND");
+        body.extend_from_slice(&(ssnd_data_len as u32).to_be_bytes());
+        body.extend_from_slice(&[0u8; 8]); // offset + blockSize
+        body.extend_from_slice(pcm);
+
+        let mut out = Vec::new();
+        out.extend_from_slice(b"FORM");
+        out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        out.extend_from_slice(&body);
+        out
+    }
+
+    #[test]
+    fn read_real_aiff_16bit_mono() {
+        // Build a 16-bit mono AIFF @ 44100Hz with 10 samples
+        let mut pcm = Vec::new();
+        let samples: &[i16] = &[0, 8192, 16384, 24576, 32767, -32768, -24576, -16384, -8192, 0];
+        for s in samples {
+            pcm.extend_from_slice(&s.to_be_bytes());
+        }
+        let data = build_aiff_bytes(1, 10, 16, 0x0E, [0xAC, 0x44], &pcm);
+
+        let path = std::path::PathBuf::from("/tmp/dream_test_native_16mono.aif");
+        std::fs::write(&path, &data).expect("write test file");
+
+        // Test full decode
+        let buf = read_aiff(&path).expect("read_aiff should succeed");
+        assert_eq!(buf.channels.len(), 1);
+        assert_eq!(buf.num_frames, 10);
+        assert_eq!(buf.sample_rate, 44100);
+        assert!((buf.channels[0][0] - 0.0).abs() < 0.001);
+        assert!((buf.channels[0][4] - 1.0).abs() < 0.001);
+        assert!((buf.channels[0][5] - (-1.0)).abs() < 0.001);
+
+        // Test metadata-only read
+        let (sr, ch, frames) = read_aiff_metadata(&path).expect("metadata should succeed");
+        assert_eq!(sr, 44100);
+        assert_eq!(ch, 1);
+        assert_eq!(frames, Some(10));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn read_real_aiff_24bit_stereo() {
+        // Build a 24-bit stereo AIFF @ 48000Hz with 4 frames
+        let mut pcm = Vec::new();
+        let stereo_samples: &[(i32, i32)] = &[
+            (0, 0),
+            (4194303, -4194303),   // ~half
+            (8388607, -8388607),   // max
+            (0, 0),
+        ];
+        for (l, r) in stereo_samples {
+            // 24-bit big-endian: top 3 bytes of i32 BE
+            let lb = l.to_be_bytes();
+            pcm.extend_from_slice(&lb[1..4]);
+            let rb = r.to_be_bytes();
+            pcm.extend_from_slice(&rb[1..4]);
+        }
+        let data = build_aiff_bytes(2, 4, 24, 0x0E, [0xBB, 0x80], &pcm);
+
+        let path = std::path::PathBuf::from("/tmp/dream_test_native_24stereo.aif");
+        std::fs::write(&path, &data).expect("write test file");
+
+        let buf = read_aiff(&path).expect("read_aiff 24bit stereo");
+        assert_eq!(buf.channels.len(), 2);
+        assert_eq!(buf.num_frames, 4);
+        assert_eq!(buf.sample_rate, 48000);
+        // Channel 0 (left): [0, ~0.5, ~1.0, 0]
+        assert!((buf.channels[0][0] - 0.0).abs() < 0.001);
+        assert!((buf.channels[0][2] - 1.0).abs() < 0.001);
+        // Channel 1 (right): [0, ~-0.5, ~-1.0, 0]
+        assert!((buf.channels[1][2] - (-1.0)).abs() < 0.001);
+
+        std::fs::remove_file(&path).ok();
     }
 }

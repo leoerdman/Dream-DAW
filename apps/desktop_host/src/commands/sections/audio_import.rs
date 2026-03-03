@@ -55,7 +55,18 @@ async fn import_audio_file(
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
-    if !matches!(ext.as_str(), "wav" | "mp3" | "flac" | "aiff" | "aif" | "ogg" | "m4a" | "aac") {
+    if !matches!(
+        ext.as_str(),
+        "wav" | "wave"
+            | "aiff" | "aif" | "aifc"
+            | "mp3"
+            | "flac"
+            | "ogg" | "oga" | "opus"
+            | "m4a" | "mp4" | "aac"
+            | "caf"
+            | "wma"
+            | "webm"
+    ) {
         return Err(format!("Unsupported audio format: .{ext}"));
     }
 

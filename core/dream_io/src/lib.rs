@@ -21,7 +21,7 @@ pub mod project_file;
 pub mod project_manager;
 pub mod wav_writer;
 
-pub use aiff_reader::{is_aiff_extension, read_aiff};
+pub use aiff_reader::{is_aiff_extension, read_aiff, read_aiff_metadata};
 pub use audio_reader::{AudioBuffer, AudioReader};
 pub use mp3_writer::Mp3Writer;
 pub use peak_cache::PeakCache;

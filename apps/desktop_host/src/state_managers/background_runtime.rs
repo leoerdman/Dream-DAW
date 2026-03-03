@@ -177,6 +177,37 @@ pub(crate) fn spawn_background_runtime_threads(
                         }
                     }
                 }
+
+                // ── PDC-FIX: Poll kLatencyChanged and rebuild graph ──
+                // When any VST3 plugin calls restartComponent(kLatencyChanged),
+                // the atomic flag is set. We consume it here, re-query latencies
+                // on all instances, and trigger a full snapshot rebuild so the
+                // audio graph gets updated PDC delay compensation values.
+                if dream_plugins::vst3_host::take_latency_changed() {
+                    log::info!("[PDC] kLatencyChanged detected — refreshing all plugin latencies");
+                    let plugin_host_state: tauri::State<'_, PluginHostState> =
+                        telemetry_app.state();
+                    let latency_changed = {
+                        let mut host = plugin_host_state.host.lock();
+                        host.refresh_all_latencies()
+                    };
+                    if latency_changed {
+                        plugin_host_state.publish_registry();
+                        let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
+                        let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
+                        if let Some(pstate) = registry.get_active_project() {
+                            if let Ok(project) = pstate.project.lock() {
+                                let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                                clip_pool_state.rebuild_external_fx_snapshot(
+                                    &project,
+                                    slot_instance_map.as_ref(),
+                                );
+                                clip_pool_state.rebuild_snapshot(&project);
+                                log::info!("[PDC] Graph rebuilt with updated latency compensation");
+                            }
+                        }
+                    }
+                }
             }
         })
     {

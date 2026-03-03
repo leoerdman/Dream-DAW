@@ -147,7 +147,17 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                         const dotIdx = path.lastIndexOf('.');
                         if (dotIdx < 0) return false;
                         const ext = path.slice(dotIdx).toLowerCase();
-                        return ['.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac'].includes(ext);
+                        return [
+                            '.wav', '.wave',
+                            '.aiff', '.aif', '.aifc',
+                            '.mp3',
+                            '.flac',
+                            '.ogg', '.oga', '.opus',
+                            '.m4a', '.mp4', '.aac',
+                            '.caf',
+                            '.wma',
+                            '.webm',
+                        ].includes(ext);
                     });
                     if (audioFiles.length === 0) {
                         console.warn('[Dream] No supported audio files in drop');

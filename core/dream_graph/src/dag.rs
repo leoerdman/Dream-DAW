@@ -136,6 +136,8 @@ pub enum GraphError {
     NodeNotFound(NodeId),
     /// Attempted to create a connection that would form a cycle.
     ConnectionWouldCycle { from: NodeId, to: NodeId },
+    /// PDC-A11 FIX: Graph depth exceeds safety limit.
+    DepthExceeded { depth: usize, limit: usize },
 }
 
 impl fmt::Display for GraphError {
@@ -149,6 +151,9 @@ impl fmt::Display for GraphError {
             Self::NodeNotFound(id) => write!(f, "Node {:?} not found in graph", id),
             Self::ConnectionWouldCycle { from, to } => {
                 write!(f, "Connection {:?} → {:?} would create a cycle", from, to)
+            }
+            Self::DepthExceeded { depth, limit } => {
+                write!(f, "Graph depth {depth} exceeds limit {limit}")
             }
         }
     }
@@ -383,7 +388,10 @@ impl GraphBuilder {
                     max_depth,
                     MAX_GRAPH_DEPTH
                 );
-                return Err(GraphError::CycleDetected); // Reuse closest error variant
+                return Err(GraphError::DepthExceeded {
+                    depth: max_depth,
+                    limit: MAX_GRAPH_DEPTH,
+                });
             }
         }
 

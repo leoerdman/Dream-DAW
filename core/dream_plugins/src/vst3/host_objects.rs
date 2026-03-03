@@ -15,7 +15,7 @@ use std::ffi::{c_char, c_void};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
-use log::info;
+use log::{debug, info};
 
 use crate::vst3::com_abi::{
     IID_FUNKNOWN, IID_IATTRIBUTE_LIST, IID_ICOMPONENT_HANDLER, IID_ICOMPONENT_HANDLER_2,
@@ -700,9 +700,8 @@ unsafe impl Sync for ParamEditRing {}
 
 static PARAM_EDIT_RING: ParamEditRing = ParamEditRing::new();
 
-// PDC-FIX: Use AtomicU32 counter instead of AtomicBool to prevent
-// loss of concurrent kLatencyChanged events from multiple plugins.
-static LATENCY_CHANGED_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+// Latency-changed flag: set by kLatencyChanged callback, drained by polling.
+static LATENCY_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static PARAM_VALUES_CHANGED: AtomicBool = AtomicBool::new(false);
 static PLUGIN_STATE_DIRTY: AtomicBool = AtomicBool::new(false);
 
@@ -787,7 +786,7 @@ unsafe extern "C" fn handler_release(_this: *mut c_void) -> u32 {
 }
 
 unsafe extern "C" fn handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
-    info!("[VST3-Handler] beginEdit(paramId={})", id);
+    debug!("[VST3-Handler] beginEdit(paramId={})", id);
     K_RESULT_OK
 }
 
@@ -798,7 +797,7 @@ unsafe extern "C" fn handler_perform_edit(_this: *mut c_void, id: u32, value: f6
 }
 
 unsafe extern "C" fn handler_end_edit(_this: *mut c_void, id: u32) -> Tresult {
-    info!("[VST3-Handler] endEdit(paramId={})", id);
+    debug!("[VST3-Handler] endEdit(paramId={})", id);
     K_RESULT_OK
 }
 
@@ -806,7 +805,7 @@ unsafe extern "C" fn handler_restart_component(_this: *mut c_void, flags: i32) -
     info!("[VST3-Handler] restartComponent(flags=0x{:04X})", flags);
     if flags & K_RESTART_LATENCY_CHANGED != 0 {
         info!("[VST3-Handler]   → kLatencyChanged — host should re-query getLatencySamples()");
-        LATENCY_CHANGED_COUNT.fetch_add(1, Ordering::Release);
+        LATENCY_CHANGED.store(true, Ordering::Release);
     }
     if flags & K_RESTART_PARAM_VALUES_CHANGED != 0 {
         info!("[VST3-Handler]   → kParamValuesChanged — host should re-read all parameters");
@@ -903,7 +902,7 @@ pub fn drain_gui_param_edits(f: impl FnMut(u32, f64)) -> usize {
 }
 
 pub fn take_latency_changed() -> bool {
-    LATENCY_CHANGED_COUNT.swap(0, Ordering::AcqRel) > 0
+    LATENCY_CHANGED.swap(false, Ordering::AcqRel)
 }
 
 pub fn take_param_values_changed() -> bool {

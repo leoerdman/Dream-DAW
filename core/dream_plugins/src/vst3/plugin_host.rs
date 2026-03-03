@@ -457,17 +457,20 @@ impl PluginHost {
 
     /// Re-queries latency on ALL active plugin instances.
     ///
-    /// Called by the background runtime when `kLatencyChanged` is detected
-    /// from any VST3 plugin's `restartComponent` callback. Returns `true`
-    /// if any instance's latency actually changed, signaling the host to
-    /// rebuild the audio graph with updated PDC values.
+    /// Called by the background runtime every ~500ms to proactively detect
+    /// latency changes. Uses `try_lock()` to avoid blocking on instances
+    /// that the audio thread is currently processing. Skipped instances
+    /// will be re-checked on the next polling tick.
     pub fn refresh_all_latencies(&mut self) -> bool {
         let mut any_changed = false;
         for instance_arc in &self.instances {
-            let mut instance = instance_arc.lock();
-            if instance.refresh_latency() {
-                any_changed = true;
+            if let Some(mut instance) = instance_arc.try_lock() {
+                if instance.refresh_latency() {
+                    any_changed = true;
+                }
             }
+            // If try_lock fails, the audio thread is using this instance.
+            // We'll catch it on the next polling tick (~500ms).
         }
         if any_changed {
             log::info!(

@@ -141,7 +141,10 @@ impl LiveGraph {
     }
 
     /// Computes an execution plan from a validated DAG.
-    fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
+    ///
+    /// PDC-A13 FIX: Made public so callers can compute plans without creating
+    /// a throwaway `LiveGraph` (ArcSwap + Mutex + generation counter).
+    pub fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
         let processing_order = dag.topological_order()?;
         // GR-013 FIX: Compute source-level PDC (was zeroed, disabling source compensation).
         // GR-014 FIX: Use node_bound() for correct array sizing.

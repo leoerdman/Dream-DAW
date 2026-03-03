@@ -650,59 +650,27 @@ impl PluginInstance for Vst3Instance {
         }
         let processor = self.processor_ptr as *mut IAudioProcessor;
 
-        // ── VST3 Spec-Compliant Latency Refresh ──
-        // Per VST3 spec, when kLatencyChanged is received, the host MUST:
-        //   1. setProcessing(false)
-        //   2. setActive(false)
-        //   3. getLatencySamples()
-        //   4. setActive(true)
-        //   5. setProcessing(true)
-        // This ensures the plugin can safely reconfigure its internal
-        // buffers during the deactivated window.
+        // ENTERPRISE FIX: Read-only latency probe — NO deactivation cycle.
         //
-        // First, probe the new latency without deactivation to check
-        // if it actually changed (avoid unnecessary audio interruption).
+        // getLatencySamples() is safe to call at any time per VST3 spec.
+        // Deactivation (setProcessing(false) + setActive(false)) is only
+        // required if the host wants the plugin to RECONFIGURE its internal
+        // buffers. For simply READING the current latency value, it's not
+        // needed and would race with the audio thread's process() calls,
+        // causing audio dropouts or potential crashes.
+        //
+        // This method is called from the background thread every ~500ms
+        // while the audio thread may be concurrently calling process().
+        // The Mutex ensures we don't call getLatencySamples() and process()
+        // simultaneously, but deactivation would force the audio thread
+        // to skip processing entirely for the duration of this call.
         let new_latency = unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
-        if new_latency == self.latency {
-            return false;
-        }
-
-        log::info!(
-            "[VST3-PDC] '{}' latency changed: {} → {} samples — performing deactivation cycle",
-            self.descriptor.name, self.latency, new_latency
-        );
-
-        // Perform the full deactivation/reactivation cycle per VST3 spec.
-        unsafe {
-            let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
-        }
-        if self.component_ptr != 0 {
-            let component = self.component_ptr as *mut IComponent;
-            unsafe {
-                let _ = ((*(*component).vtbl).set_active)(component, 0);
-            }
-        }
-
-        // Re-query latency in the deactivated state (spec-compliant read point).
-        let confirmed_latency =
-            unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
-
-        if self.component_ptr != 0 {
-            let component = self.component_ptr as *mut IComponent;
-            unsafe {
-                let _ = ((*(*component).vtbl).set_active)(component, 1);
-            }
-        }
-        unsafe {
-            let _ = ((*(*processor).vtbl).set_processing)(processor, 1);
-        }
-
-        if confirmed_latency != self.latency {
+        if new_latency != self.latency {
             log::info!(
-                "[VST3-PDC] '{}' confirmed latency: {} → {} samples",
-                self.descriptor.name, self.latency, confirmed_latency
+                "[VST3-PDC] '{}' latency changed: {} → {} samples",
+                self.descriptor.name, self.latency, new_latency
             );
-            self.latency = confirmed_latency;
+            self.latency = new_latency;
             true
         } else {
             false

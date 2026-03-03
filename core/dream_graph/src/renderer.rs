@@ -5,7 +5,7 @@ const MAX_GRAPH_NODES: usize = 256;
 
 const MAX_BUFFER_FRAMES: usize = 8192;
 
-const MAX_PDC_DELAY_SAMPLES: usize = 32768;
+const MAX_PDC_DELAY_SAMPLES: usize = 65536;
 
 #[inline]
 fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
@@ -95,6 +95,19 @@ unsafe fn mix_in_place_neon(dst: &mut [f32], src: &[f32], count: usize) {
     }
 }
 
+/// PDC-A16 FIX: Centralized NaN/Inf sanitization for audio buffers.
+/// Replaces 4 duplicated inline loops scattered across the renderer.
+/// A single bad plugin returning NaN/Inf would otherwise poison all
+/// downstream nodes via summation.
+#[inline]
+fn sanitize_buffer_nan_inf(left: &mut [f32], right: &mut [f32], n: usize) {
+    let count = n.min(left.len()).min(right.len());
+    for i in 0..count {
+        if !left[i].is_finite() { left[i] = 0.0; }
+        if !right[i].is_finite() { right[i] = 0.0; }
+    }
+}
+
 #[derive(Debug)]
 pub struct NodeBuffer {
     pub left: Vec<f32>,
@@ -153,7 +166,14 @@ impl PdcDelayLine {
     }
 
     pub fn set_delay(&mut self, samples: usize) {
-        self.delay_samples = samples.min(self.capacity - 1);
+        let clamped = samples.min(self.capacity - 1);
+        if clamped < samples {
+            log::warn!(
+                "[PDC] Delay {} samples exceeds capacity {} — clipped to {}",
+                samples, self.capacity, clamped
+            );
+        }
+        self.delay_samples = clamped;
         self.frac_delay = 0.0;
     }
 
@@ -394,7 +414,14 @@ impl GraphRenderer {
 
         self.configure_edge_pdc(&plan.edge_delay_compensation, dag);
 
-        self.reset();
+        // PDC-A04 FIX: Do NOT call self.reset() here. It wipes all PDC delay
+        // line buffers to zero, causing an audible click artifact when the
+        // output jumps from delayed audio to silence. The individual delay
+        // lines are already smoothly updated in configure_edge_pdc() via
+        // set_delay() (PDC-11 fix). Only clear node processing buffers.
+        for buf in &mut self.node_buffers {
+            buf.clear(self.max_frames);
+        }
 
         log::info!(
             "[GraphRenderer] Plan updated: {} bounded nodes, {} stages, {} node-PDC (ignored), {} edge-PDC",
@@ -499,80 +526,18 @@ impl GraphRenderer {
             return;
         }
 
-        if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
-            for &(src_idx, edge_runtime_idx, edge_kind) in &self.edge_inputs_by_dst[idx] {
-                if src_idx >= self.node_buffers.len()
-                    || src_idx == idx
-                    || edge_runtime_idx >= self.edge_pdc_delays.len()
-                {
-                    continue;
-                }
-
-                let copy_n = {
-                    let src = unsafe { &*self.node_buffers.as_ptr().add(src_idx) };
-                    let copy_n = frame_count.min(src.valid_frames);
-
-                    let edge_rt =
-                        unsafe { &mut *self.edge_pdc_delays.as_mut_ptr().add(edge_runtime_idx) };
-                    edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
-                    edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
-
-                    edge_rt.delay.process(
-                        &mut edge_rt.scratch_left[..copy_n],
-                        &mut edge_rt.scratch_right[..copy_n],
-                        copy_n,
-                    );
-                    copy_n
-                };
-
-                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
-                    continue;
-                }
-
-                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
-                let edge_rt = unsafe { &*self.edge_pdc_delays.as_ptr().add(edge_runtime_idx) };
-
-                mix_in_place(
-                    &mut dst.left[..copy_n],
-                    &edge_rt.scratch_left[..copy_n],
-                    copy_n,
-                );
-                mix_in_place(
-                    &mut dst.right[..copy_n],
-                    &edge_rt.scratch_right[..copy_n],
-                    copy_n,
-                );
-            }
-        } else {
-            // PDC-DIAG: This fallback path does NOT apply edge PDC delay lines.
-            // It should only trigger for nodes with no registered edge inputs.
-            static PDC_FALLBACK_COUNT2: std::sync::atomic::AtomicU32 =
-                std::sync::atomic::AtomicU32::new(0);
-            let count = PDC_FALLBACK_COUNT2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count < 5 || count.is_multiple_of(1000) {
-                log::debug!(
-                    "[PDC-DIAG] sum_node_inputs fallback (no edge PDC) for node {} (#{count})",
-                    idx
-                );
-            }
-            for edge in dag
-                .graph()
-                .edges_directed(node_idx, petgraph::Direction::Incoming)
-            {
-                if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
-                    continue;
-                }
-                let src_idx = edge.source().index();
-                if src_idx >= self.node_buffers.len() || src_idx == idx {
-                    continue;
-                }
-
-                let src = unsafe { &*self.node_buffers.as_ptr().add(src_idx) };
-                let copy_n = frame_count.min(src.valid_frames);
-                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
-                mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
-                mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
-            }
+        // PDC-A07 FIX: Delegate to sum_node_inputs_raw to eliminate code
+        // duplication. The safe version previously had ~80 identical lines
+        // of mixing/PDC logic. Now changes only need to be made in one place.
+        unsafe {
+            sum_node_inputs_raw(
+                dag,
+                node_idx,
+                frame_count,
+                self.node_buffers.as_mut_ptr(),
+                self.edge_pdc_delays.as_mut_ptr(),
+                &self.edge_inputs_by_dst,
+            );
         }
     }
 
@@ -654,14 +619,7 @@ impl GraphRenderer {
         // BUF-G06 FIX: Sanitize NaN/Inf after each node processes.
         // A single bad plugin or DSP returning NaN/Inf would otherwise
         // poison ALL downstream nodes via mix_from summation.
-        for i in 0..frame_count {
-            if !buf.left[i].is_finite() {
-                buf.left[i] = 0.0;
-            }
-            if !buf.right[i].is_finite() {
-                buf.right[i] = 0.0;
-            }
-        }
+        sanitize_buffer_nan_inf(&mut buf.left, &mut buf.right, frame_count);
 
         if matches!(&node.kind, NodeKind::MasterOutput) {
             self.copy_master_output(node_idx, output_left, output_right, frame_count);
@@ -726,10 +684,7 @@ impl GraphRenderer {
                         processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
 
                         // BUG-G06b FIX: Sanitize NaN/Inf in parallel path (mirrors process_node).
-                        for i in 0..n {
-                            if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
-                            if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
-                        }
+                        sanitize_buffer_nan_inf(&mut buf.left, &mut buf.right, n);
 
                         if matches!(&node.kind, NodeKind::MasterOutput) {
                             let master_n = n.min(output_left.len()).min(output_right.len());
@@ -767,10 +722,7 @@ impl GraphRenderer {
                         processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
 
                         // BUG-G06b FIX: Sanitize NaN/Inf (multi-node parallel path).
-                        for i in 0..n {
-                            if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
-                            if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
-                        }
+                        sanitize_buffer_nan_inf(&mut buf.left, &mut buf.right, n);
                     }
                 }
             }
@@ -799,10 +751,7 @@ impl GraphRenderer {
                 processor(node, &mut buf.left[..n], &mut buf.right[..n], n, &sidechain_resolver);
 
                 // BUG-G06b FIX: Sanitize NaN/Inf (sequential fallback path).
-                for i in 0..n {
-                    if !buf.left[i].is_finite() { buf.left[i] = 0.0; }
-                    if !buf.right[i].is_finite() { buf.right[i] = 0.0; }
-                }
+                sanitize_buffer_nan_inf(&mut buf.left, &mut buf.right, n);
 
                 if matches!(&node.kind, NodeKind::MasterOutput) {
                     self.copy_master_output(node_idx, output_left, output_right, n);

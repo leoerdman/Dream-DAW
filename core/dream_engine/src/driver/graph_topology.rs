@@ -181,8 +181,7 @@ pub struct PreparedGraphSnapshot {
 impl PreparedGraphSnapshot {
     fn master_only() -> Self {
         let dag = build_master_only_dag();
-        let plan = LiveGraph::from_dag(&dag)
-            .map(|live| (*live.load_full()).clone())
+        let plan = LiveGraph::compute_plan(&dag)
             .unwrap_or_else(|_| ExecutionPlan {
                 processing_order: Vec::new(),
                 delay_compensation: Vec::new(),
@@ -210,8 +209,9 @@ pub fn prepare_graph_snapshot_for_routing(
 ) -> PreparedGraphSnapshot {
     let safe_track_count = track_count.min(MAX_TRACKS);
     let dag = build_dag_for_tracks(safe_track_count, routing, sidechains, per_track_latencies);
-    let plan = LiveGraph::from_dag(&dag)
-        .map(|live| (*live.load_full()).clone())
+    // PDC-A13 FIX: Call compute_plan() directly instead of creating a
+    // throwaway LiveGraph (ArcSwap + Mutex + generation counter).
+    let plan = LiveGraph::compute_plan(&dag)
         .unwrap_or_else(|_| ExecutionPlan {
             processing_order: Vec::new(),
             delay_compensation: Vec::new(),

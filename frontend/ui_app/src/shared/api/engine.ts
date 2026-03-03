@@ -68,73 +68,93 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T
     }
 }
 
-export const play = () => invoke<void>('play');
+/**
+ * Enterprise IPC wrapper: wraps `invoke()` with centralized error logging.
+ * On failure, logs the error to the Rust backend and re-throws so callers
+ * that DO have `.catch()` still receive the error. Unhandled failures are
+ * caught by the global promise rejection handler and logged.
+ */
+function safeInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    const promise = args ? invoke<T>(command, args) : invoke<T>(command);
+    return promise.catch((err) => {
+        // Log to backend — fire-and-forget (don't await, don't recurse)
+        const msg = err instanceof Error ? err.message : String(err);
+        invoke<void>('log_frontend_error', {
+            module: 'ipc',
+            error: `${command}: ${msg}`,
+            stack: err instanceof Error ? err.stack ?? null : null,
+        }).catch(() => { /* avoid infinite recursion */ });
+        throw err; // re-throw for callers that handle errors
+    });
+}
+
+export const play = () => safeInvoke<void>('play');
 /** ENTERPRISE FIX: Atomic seek-and-play — eliminates the 1-buffer stutter
  *  caused by separate togglePlayback() + seekToBeat() IPC calls. */
 export const playFromBeat = (beat: number) =>
-    invoke<void>('play_from_beat', { beat });
-export const stop = () => invoke<void>('stop');
-export const togglePlayback = () => invoke<boolean>('toggle_playback');
+    safeInvoke<void>('play_from_beat', { beat });
+export const stop = () => safeInvoke<void>('stop');
+export const togglePlayback = () => safeInvoke<boolean>('toggle_playback');
 export const seek = (positionFrames: number) =>
-    invoke<void>('seek', { positionFrames });
+    safeInvoke<void>('seek', { positionFrames });
 export const seekSeconds = (seconds: number) =>
-    invoke<void>('seek_seconds', { seconds });
+    safeInvoke<void>('seek_seconds', { seconds });
 export const seekToBeat = (beat: number) =>
-    invoke<void>('seek_to_beat', { beat });
+    safeInvoke<void>('seek_to_beat', { beat });
 // BUG-025 FIX: Clamp BPM at API boundary — prevents NaN/Infinity/0/negative from reaching backend.
 export const setBpm = (bpm: number) => {
     const safe = Number.isFinite(bpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, bpm)) : MIN_BPM;
-    return invoke<void>('set_bpm', { bpm: safe });
+    return safeInvoke<void>('set_bpm', { bpm: safe });
 };
 export const setBpmWithDeltas = (bpm: number) => {
     const safe = Number.isFinite(bpm) ? Math.max(MIN_BPM, Math.min(MAX_BPM, bpm)) : MIN_BPM;
-    return invoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm: safe });
+    return safeInvoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm: safe });
 };
 export const setTimeSignature = (numerator: number, denominator: number) =>
-    invoke<void>('set_time_signature', { numerator, denominator });
+    safeInvoke<void>('set_time_signature', { numerator, denominator });
 export const setTimeSignatureWithDeltas = (numerator: number, denominator: number) =>
-    invoke<DeltaMutationResponse>('set_time_signature_with_deltas', { numerator, denominator });
+    safeInvoke<DeltaMutationResponse>('set_time_signature_with_deltas', { numerator, denominator });
 // BUG-026 FIX: Validate loop frame values at API boundary.
 export const setLoop = (enabled: boolean, startFrames: number, endFrames: number) => {
     const s = Number.isFinite(startFrames) ? Math.max(0, Math.round(startFrames)) : 0;
     const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
-    return invoke<void>('set_loop', { enabled, startFrames: s, endFrames: e });
+    return safeInvoke<void>('set_loop', { enabled, startFrames: s, endFrames: e });
 };
 export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFrames: number) => {
     const s = Number.isFinite(startFrames) ? Math.max(0, Math.round(startFrames)) : 0;
     const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
-    return invoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames: s, endFrames: e });
+    return safeInvoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames: s, endFrames: e });
 };
 export const setTrackVolume = (trackIndex: number, volume: number) =>
-    invoke<void>('set_track_volume', { trackIndex, volume });
+    safeInvoke<void>('set_track_volume', { trackIndex, volume });
 export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) =>
-    invoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume });
+    safeInvoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume });
 export const setTrackPan = (trackIndex: number, pan: number) =>
-    invoke<void>('set_track_pan', { trackIndex, pan });
+    safeInvoke<void>('set_track_pan', { trackIndex, pan });
 export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>
-    invoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
+    safeInvoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
 export const setMasterVolume = (volume: number) =>
-    invoke<void>('set_master_volume', { volume });
+    safeInvoke<void>('set_master_volume', { volume });
 export const setTrackDisabled = (trackIndex: number, disabled: boolean) =>
-    invoke<void>('set_track_disabled', { trackIndex, disabled });
+    safeInvoke<void>('set_track_disabled', { trackIndex, disabled });
 export const setTrackDisabledWithDeltas = (trackIndex: number, disabled: boolean) =>
-    invoke<DeltaMutationResponse>('set_track_disabled_with_deltas', { trackIndex, disabled });
+    safeInvoke<DeltaMutationResponse>('set_track_disabled_with_deltas', { trackIndex, disabled });
 export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
-    invoke<void>('set_track_solo', { trackIndex, soloed });
+    safeInvoke<void>('set_track_solo', { trackIndex, soloed });
 export const setTrackSoloWithDeltas = (trackIndex: number, soloed: boolean) =>
-    invoke<DeltaMutationResponse>('set_track_solo_with_deltas', { trackIndex, soloed });
+    safeInvoke<DeltaMutationResponse>('set_track_solo_with_deltas', { trackIndex, soloed });
 export const setTrackSendLevel = (trackIndex: number, send: 'A' | 'B', value: number) =>
-    invoke<void>('set_track_send_level', { trackIndex, send, value });
+    safeInvoke<void>('set_track_send_level', { trackIndex, send, value });
 export const setTrackSendLevelWithDeltas = (trackIndex: number, send: 'A' | 'B', value: number) =>
-    invoke<DeltaMutationResponse>('set_track_send_level_with_deltas', { trackIndex, send, value });
+    safeInvoke<DeltaMutationResponse>('set_track_send_level_with_deltas', { trackIndex, send, value });
 export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
-    invoke<void>('preview_sampler_note_on_cmd', {
+    safeInvoke<void>('preview_sampler_note_on_cmd', {
         trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: clampMidiPitch(pitch),
         velocity: clampMidiVelocity(velocity),
     });
 export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
-    invoke<void>('preview_sampler_note_off_cmd', {
+    safeInvoke<void>('preview_sampler_note_off_cmd', {
         trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: clampMidiPitch(pitch),
     });

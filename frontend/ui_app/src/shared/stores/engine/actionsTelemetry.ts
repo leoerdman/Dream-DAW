@@ -17,6 +17,9 @@ let pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
 let pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
 let pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
 let telemetryMetersBinaryUnlisten: UnlistenFn | null = null;
+let audioStreamErrorUnlisten: UnlistenFn | null = null;
+let bounceProgressUnlisten: UnlistenFn | null = null;
+let exportResumePlaybackUnlisten: UnlistenFn | null = null;
 
 let bpmPendingUntil = 0;
 let meterFrameCounter = 0;
@@ -36,6 +39,9 @@ export function resetTelemetryModuleState(): void {
     pluginSandboxAutoBypassUnlisten?.(); pluginSandboxAutoBypassUnlisten = null;
     pluginSandboxAutoRecoveredUnlisten?.(); pluginSandboxAutoRecoveredUnlisten = null;
     pluginSandboxReloadedUnlisten?.(); pluginSandboxReloadedUnlisten = null;
+    audioStreamErrorUnlisten?.(); audioStreamErrorUnlisten = null;
+    bounceProgressUnlisten?.(); bounceProgressUnlisten = null;
+    exportResumePlaybackUnlisten?.(); exportResumePlaybackUnlisten = null;
     // 2. Reset lifecycle flag so startTelemetryLoop can re-register.
     telemetryStarted = false;
     // 3. Reset meter state.
@@ -290,6 +296,54 @@ export function createTelemetryActions(
                             enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox });
                         },
                     );
+
+                    // ── P0 FIX: Listen for audio stream errors ───────────────
+                    // Backend emits when cpal audio stream encounters an error
+                    // (device disconnect, sample rate mismatch, buffer overrun).
+                    // Without this, users see silence with no explanation.
+                    audioStreamErrorUnlisten = await listen<{ error: string; at_ms: number }>(
+                        'audio_stream_error',
+                        (event) => {
+                            const msg = `Audio engine error: ${event.payload.error}`;
+                            engine.logFrontendError('telemetry', `audio_stream_error: ${event.payload.error}`);
+                            enqueuePendingStoreUpdate(set, {
+                                lastError: msg,
+                                connected: false,
+                            });
+                        },
+                    );
+
+                    // ── P1 FIX: Listen for bounce/export progress ────────────
+                    // Backend emits during offline bounce with { jobId, progress, phase, status }.
+                    // Stored in EngineStore for UI to display export progress.
+                    bounceProgressUnlisten = await listen<{
+                        jobId: string;
+                        progress: number;
+                        phase: string;
+                        status?: string;
+                    }>(
+                        'bounce_progress',
+                        (event) => {
+                            enqueuePendingStoreUpdate(set, {
+                                exportProgress: {
+                                    jobId: event.payload.jobId,
+                                    progress: event.payload.progress,
+                                    phase: event.payload.phase,
+                                    status: event.payload.status ?? 'running',
+                                },
+                            });
+                        },
+                    );
+
+                    // ── P1 FIX: Resume playback after export ─────────────────
+                    // Backend emits when export completes and playback should resume.
+                    exportResumePlaybackUnlisten = await listen<void>(
+                        'export_resume_playback',
+                        () => {
+                            engine.logFrontendError('telemetry', 'export_resume_playback — resuming');
+                            void engine.play();
+                        },
+                    );
                 } catch (e) {
                     // BUG-010 FIX: Clean up any partially-registered listeners.
                     // Previously only reset flag, leaking listeners registered
@@ -303,6 +357,9 @@ export function createTelemetryActions(
                     pluginSandboxAutoBypassUnlisten?.(); pluginSandboxAutoBypassUnlisten = null;
                     pluginSandboxAutoRecoveredUnlisten?.(); pluginSandboxAutoRecoveredUnlisten = null;
                     pluginSandboxReloadedUnlisten?.(); pluginSandboxReloadedUnlisten = null;
+                    audioStreamErrorUnlisten?.(); audioStreamErrorUnlisten = null;
+                    bounceProgressUnlisten?.(); bounceProgressUnlisten = null;
+                    exportResumePlaybackUnlisten?.(); exportResumePlaybackUnlisten = null;
                     const msg = String(e);
                     if (get().lastError !== msg) {
                         set({ lastError: msg, connected: false, telemetryRunning: false });
@@ -329,6 +386,12 @@ export function createTelemetryActions(
             pluginSandboxReloadedUnlisten = null;
             telemetryMetersBinaryUnlisten?.();
             telemetryMetersBinaryUnlisten = null;
+            audioStreamErrorUnlisten?.();
+            audioStreamErrorUnlisten = null;
+            bounceProgressUnlisten?.();
+            bounceProgressUnlisten = null;
+            exportResumePlaybackUnlisten?.();
+            exportResumePlaybackUnlisten = null;
         },
         reloadCrashedSandboxPlugins: async () => {
             const snapshot = get().pluginSandbox;

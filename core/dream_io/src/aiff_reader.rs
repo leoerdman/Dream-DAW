@@ -836,22 +836,24 @@ mod tests {
 
     #[test]
     fn read_ableton_aifc_able_compression() {
-        // Build FORM/AIFC with 'able' compression (Ableton proprietary codec).
-        // 'able' is a proprietary Ableton lossless codec — SSND data is NOT raw PCM.
-        // Decoding as PCM produces white noise (autocorrelation ≈ 0).
-        // No public decoder exists; CoreAudio and afconvert also cannot decode.
-        let mut pcm = vec![0u8; 18]; // dummy data — 6 samples × 3 bytes
+        // Ableton 'able' codec = delta-encoded 24-bit BE PCM.
+        // Encode a known signal as deltas:
+        // Original signal: [0, 100, 200, 200, 100, 0]
+        // Deltas:          [0, 100, 100,   0, -100, -100]
+        let deltas: &[i32] = &[0, 100, 100, 0, -100, -100];
+        let mut pcm = Vec::new();
+        for &d in deltas {
+            let bytes = d.to_be_bytes();
+            pcm.extend_from_slice(&bytes[1..4]); // 24-bit BE
+        }
 
-        // 80-bit extended: 44100 Hz
         let sr_ext = [0x40u8, 0x0E, 0xAC, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        // FVER chunk
         let mut fver = Vec::new();
         fver.extend_from_slice(b"FVER");
         fver.extend_from_slice(&4u32.to_be_bytes());
         fver.extend_from_slice(&0xA2805140u32.to_be_bytes());
 
-        // COMM chunk with 'able' compression
         let comp_name = b"\x0fAbleton Content\x00";
         let mut comm_data = Vec::new();
         comm_data.extend_from_slice(&1u16.to_be_bytes());
@@ -866,7 +868,6 @@ mod tests {
         comm.extend_from_slice(&(comm_data.len() as u32).to_be_bytes());
         comm.extend_from_slice(&comm_data);
 
-        // SSND chunk
         let ssnd_size = 8 + pcm.len();
         let mut ssnd = Vec::new();
         ssnd.extend_from_slice(b"SSND");
@@ -888,14 +889,24 @@ mod tests {
         let path = std::path::PathBuf::from("/tmp/dream_test_ableton_able.aif");
         std::fs::write(&path, &file_data).expect("write test file");
 
-        // Full decode must FAIL — 'able' is a proprietary codec
-        let result = read_aiff(&path);
-        assert!(result.is_err(), "read_aiff should reject 'able' compression");
-        let err_msg = format!("{}", result.unwrap_err());
-        assert!(
-            err_msg.contains("unsupported compression"),
-            "Error should mention unsupported compression: {err_msg}"
-        );
+        // Delta decoding should reconstruct: [0, 100, 200, 200, 100, 0]
+        // Peak = 200, so normalized: [0.0, 0.5, 1.0, 1.0, 0.5, 0.0]
+        let buf = read_aiff(&path).expect("read_aiff should decode 'able' delta PCM");
+        assert_eq!(buf.channels.len(), 1);
+        assert_eq!(buf.num_frames, 6);
+        assert_eq!(buf.sample_rate, 44100);
+        assert!((buf.channels[0][0] - 0.0).abs() < 0.01);
+        assert!((buf.channels[0][1] - 0.5).abs() < 0.01);
+        assert!((buf.channels[0][2] - 1.0).abs() < 0.01);
+        assert!((buf.channels[0][3] - 1.0).abs() < 0.01);
+        assert!((buf.channels[0][4] - 0.5).abs() < 0.01);
+        assert!((buf.channels[0][5] - 0.0).abs() < 0.01);
+
+        // Metadata should also work
+        let (sr, ch, frames) = read_aiff_metadata(&path).expect("metadata should work");
+        assert_eq!(sr, 44100);
+        assert_eq!(ch, 1);
+        assert_eq!(frames, Some(6));
 
         std::fs::remove_file(&path).ok();
     }

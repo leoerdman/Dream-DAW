@@ -66,6 +66,8 @@ export interface EngineStore {
     masterVolume: number;
     pluginSandbox: PluginSandboxSnapshot | null;
     openEditorsByTrack: Record<string, Set<string>>;
+    /** Export/bounce progress from backend `bounce_progress` events. */
+    exportProgress: { jobId: string; progress: number; phase: string; status: string } | null;
     performance: { cpuUsage: number; ramUsedMb: number; ramTotalMb: number; processMemoryMb: number; dspLoad: number };
     /** BUG-001: Mark the project as having unsaved changes. */
     markDirty: () => void;
@@ -180,6 +182,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
+    exportProgress: null,
     // BUG-003 FIX: Avoid O(N) .find() on every markDirty() call.
     // Uses indexed iteration with early-exit instead of full scan.
     markDirty: () => set((s) => {

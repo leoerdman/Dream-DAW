@@ -75,8 +75,13 @@ pub fn compute_edge_delay_compensation(
     let mut max_to_output = vec![0u32; graph.node_bound()];
 
     for &node_idx in topo_order {
+        // PDC-A08 FIX: Only consider Routing edges for delay compensation.
+        // Sidechain edges enforce topological ordering but do NOT carry audio
+        // signal — including them would inflate compensation on non-sidechain
+        // paths, inserting unnecessary delay.
         let max_input = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
+            .filter(|e| e.weight().kind == crate::dag::AudioEdgeKind::Routing)
             .map(|e| max_to_output[e.source().index()])
             .max()
             .unwrap_or(0);
@@ -85,8 +90,11 @@ pub fn compute_edge_delay_compensation(
 
     let mut edge_delays = Vec::new();
     for dst in graph.node_indices() {
+        // PDC-A08 FIX: Only consider Routing edges for merge-point alignment.
+        // Sidechain edges enforce ordering but don't carry summed audio.
         let incoming: Vec<_> = graph
             .edges_directed(dst, petgraph::Direction::Incoming)
+            .filter(|e| e.weight().kind == crate::dag::AudioEdgeKind::Routing)
             .map(|e| e.source())
             .collect();
         if incoming.is_empty() {

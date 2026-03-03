@@ -92,29 +92,13 @@ impl ClipPoolState {
                     .map(|instance_id| {
                         match registry_map.get(&instance_id) {
                             Some(arc) => {
-                                // PDC-FIX: Retry try_lock up to 3 times with spin_loop
-                                // to reduce intermittent 0-latency reports from contention.
-                                let mut latency = None;
-                                for attempt in 0..3u8 {
-                                    match arc.try_lock() {
-                                        Some(p) => {
-                                            latency = Some(p.latency_samples());
-                                            break;
-                                        }
-                                        None => {
-                                            if attempt < 2 {
-                                                std::hint::spin_loop();
-                                            }
-                                        }
-                                    }
-                                }
-                                latency.unwrap_or_else(|| {
-                                    log::warn!(
-                                        "[PDC] try_lock contention (3 attempts) for instance {:?} on track {} — using 0",
-                                        instance_id, track_idx
-                                    );
-                                    0
-                                })
+                                // ENTERPRISE FIX: Use blocking lock() instead of
+                                // try_lock() retry. This runs on the UI/background
+                                // thread, never on the audio thread. Blocking is
+                                // safe here and guarantees we always get the correct
+                                // latency value — no more intermittent 0 reports.
+                                let p = arc.lock();
+                                p.latency_samples()
                             },
                             None => 0,
                         }
@@ -124,7 +108,7 @@ impl ClipPoolState {
                 0
             };
             if track_latency > 0 {
-                log::info!("[PDC] track[{}] total latency = {} samples", track_idx, track_latency);
+                log::debug!("[PDC] track[{}] total latency = {} samples", track_idx, track_latency);
             }
             latencies.push(track_latency);
         }
@@ -183,6 +167,32 @@ impl ClipPoolState {
     /// Called after any project mutation (import, delete, etc.).
     /// The audio thread will pick up the new snapshot on the next buffer.
     pub fn rebuild_snapshot(&self, project: &Project) {
+        self.rebuild_graph_core(project);
+        // Sync decoded audio data to the lock-free ArcSwap pool
+        // so the audio thread can read it without locks.
+        self.sync_pool_to_arc();
+    }
+
+    /// Routing-only snapshot rebuild for device chain topology changes.
+    ///
+    /// Used by device_rack operations (create rack, add chain, add/remove device,
+    /// load preset) where the effect chain topology changes but no new audio files
+    /// are added or removed.
+    ///
+    /// ~5x faster than full rebuild_snapshot() because it skips:
+    ///   - Pool sync (Mutex lock + decode + Arc swap)
+    ///
+    /// Still rebuilds: clips, routing, sidechains, and audio DAG.
+    pub fn rebuild_routing_only(&self, project: &Project) {
+        self.rebuild_graph_core(project);
+        // NOTE: Deliberately skips sync_pool_to_arc() — device topology changes
+        // don't add/remove audio files from the pool.
+    }
+
+    /// PDC-A06 FIX: Common graph rebuild logic shared by `rebuild_snapshot()`
+    /// and `rebuild_routing_only()`. Previously this was duplicated across both
+    /// methods (~50 lines each), making it easy for bug fixes to diverge.
+    fn rebuild_graph_core(&self, project: &Project) {
         let clips_per_track: Vec<Vec<AudioClip>> = project
             .tracks
             .iter()
@@ -209,86 +219,6 @@ impl ClipPoolState {
             .collect();
         self.routing_snapshot.swap(routing);
         let routing_now = self.routing_snapshot.load();
-        let sidechains: Vec<Vec<Option<usize>>> = project
-            .tracks
-            .iter()
-            .map(|track| {
-                // Collect sidechain sources from ALL plugins on the track.
-                // Instrument (if external) + all effects.
-                let mut sources = Vec::new();
-
-                if let Some(inst) = track.instrument.as_ref() {
-                    Self::collect_sidechain_sources_from_node(inst, project, false, &mut sources);
-                }
-
-                for node in &track.effects {
-                    Self::collect_sidechain_sources_from_node(node, project, false, &mut sources);
-                }
-                sources
-            })
-            .collect();
-
-        // ── ENTERPRISE PDC: Collect per-track plugin latency ──────────────────
-        // Each track's total latency is the sum of latencies reported by all
-        // non-bypassed external plugins on that track. This feeds into the
-        // audio graph so PDC delay compensation lines are correctly sized.
-        let per_track_latencies = self.collect_per_track_latencies(
-            project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
-        );
-
-        // ── ENTERPRISE GRAPH UPDATE: ──
-        // Now that we have the full sidechain map, rebuild the audio graph
-        // so that the processing order is correct.
-        self.prepared_graph_snapshot.rebuild_for_routing(
-            project.tracks.len(),
-            routing_now.as_ref(),
-            &sidechains,
-            &per_track_latencies,
-        );
-
-        self.sidechain_snapshot.swap(sidechains);
-
-        // Sync decoded audio data to the lock-free ArcSwap pool
-        // so the audio thread can read it without locks.
-        self.sync_pool_to_arc();
-    }
-
-    /// Routing-only snapshot rebuild for device chain topology changes.
-    ///
-    /// Used by device_rack operations (create rack, add chain, add/remove device,
-    /// load preset) where the effect chain topology changes but no new audio files
-    /// are added or removed.
-    ///
-    /// ~5x faster than full rebuild_snapshot() because it skips:
-    ///   - Pool sync (Mutex lock + decode + Arc swap)
-    ///
-    /// Still rebuilds: clips, routing, sidechains, and audio DAG.
-    pub fn rebuild_routing_only(&self, project: &Project) {
-        let clips_per_track: Vec<Vec<AudioClip>> = project
-            .tracks
-            .iter()
-            .map(|track| track.clips.clone())
-            .collect();
-        self.snapshot.swap(clips_per_track);
-
-        let id_to_index: std::collections::HashMap<uuid::Uuid, usize> = project
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(i, t)| (t.id, i))
-            .collect();
-
-        let routing: Vec<Option<usize>> = project
-            .tracks
-            .iter()
-            .map(|track| {
-                track
-                    .output_destination_id
-                    .and_then(|dest_id| id_to_index.get(&dest_id).copied())
-            })
-            .collect();
-        self.routing_snapshot.swap(routing);
-        let routing_now = self.routing_snapshot.load();
 
         let sidechains: Vec<Vec<Option<usize>>> = project
             .tracks
@@ -305,7 +235,7 @@ impl ClipPoolState {
             })
             .collect();
 
-        // ── ENTERPRISE PDC: Collect per-track plugin latency ──
+        // Collect per-track plugin latency for PDC.
         let per_track_latencies = self.collect_per_track_latencies(
             project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
         );
@@ -317,8 +247,6 @@ impl ClipPoolState {
             &per_track_latencies,
         );
         self.sidechain_snapshot.swap(sidechains);
-        // NOTE: Deliberately skips sync_pool_to_arc() — device topology changes
-        // don't add/remove audio files from the pool.
     }
 
     /// Lightweight clip-only snapshot rebuild for position/duration changes.
@@ -510,7 +438,7 @@ impl ClipPoolState {
                 .flat_map(|v| v.iter())
                 .filter(|s| s.internal_slot_index.is_some())
                 .count();
-            log::info!(
+            log::debug!(
                 "[ExternalFX] Rebuild snapshot: {} tracks, {} total slots ({} external, {} internal), slot_map has {} entries",
                 external_fx.len(),
                 total_slots,
@@ -523,7 +451,7 @@ impl ClipPoolState {
                     let ext_count = slots.iter().filter(|s| s.instance_id.is_some()).count();
                     let int_count = slots.iter().filter(|s| s.internal_slot_index.is_some()).count();
                     let sc_count = slots.iter().filter(|s| s.sidechain_track_index.is_some()).count();
-                    log::info!(
+                    log::debug!(
                         "[ExternalFX]   track[{}]: {} slots (ext={}, int={}, bypassed={}, sc={})",
                         ti,
                         slots.len(),
@@ -535,7 +463,7 @@ impl ClipPoolState {
                     // Log individual sidechain routing for debugging
                     for (si, rs) in slots.iter().enumerate() {
                         if rs.sidechain_track_index.is_some() {
-                            log::info!(
+                            log::debug!(
                                 "[ExternalFX]     track[{}] slot[{}]: sc_track_idx={:?}, instance={:?}, internal_idx={:?}",
                                 ti, si, rs.sidechain_track_index, rs.instance_id, rs.internal_slot_index
                             );

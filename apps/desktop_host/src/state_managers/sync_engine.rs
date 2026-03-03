@@ -202,12 +202,7 @@ pub fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     } else {
         String::from("undo snapshot")
     };
-    // Need to use pub API on ProjectState to record history if possible,
-    // assuming it exists or we do it inline here. Wait, `record_history` is in lib.rs.
-    // We'll trust `record_history` is available or make it so.
-    let _ = project_state.history_snapshot(None, None); // Hacky proxy
-    let mut history = project_state.history.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    history.push("mutation_snapshot", detail);
+    project_state.record_history("mutation_snapshot", detail)?;
     Ok(())
 }
 

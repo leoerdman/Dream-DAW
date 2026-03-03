@@ -102,6 +102,7 @@ pub(crate) fn invoke_handler()
         preview_sampler_note_off_cmd,
         set_flow_enabled_cmd,
         sync_flow_graph_cmd,
+        update_flow_node_param_cmd,
         save_flow_synth_config_cmd,
         update_track,
         // State Queries

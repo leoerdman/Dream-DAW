@@ -114,7 +114,7 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
             fromNode: 'node-osc-1',
             fromPort: 'audio',
             toNode: 'node-out-1',
-            toPort: 'audio',
+            toPort: 'audioL',
             signalType: 'audio',
         },
     ],
@@ -158,6 +158,58 @@ function _scheduleSyncFlowGraph(get: () => FlowSynthState): void {
         _syncScheduled = false;
         get().syncFlowGraphToEngine();
     });
+}
+
+/**
+ * ENTERPRISE SSOT: Single function to serialize FlowSynth config JSON.
+ * Eliminates duplicate serialization in syncFlowGraphToEngine and _scheduleSaveConfig.
+ */
+function buildFlowConfigJson(state: FlowSynthState): string {
+    return JSON.stringify({
+        nodes: state.nodes.map(n => {
+            const stringifiedData: Record<string, string> = {};
+            if (n.data) {
+                for (const [k, v] of Object.entries(n.data)) {
+                    if (v !== null && v !== undefined) {
+                        stringifiedData[k] = String(v);
+                    }
+                }
+            }
+            return {
+                id: n.id,
+                type: n.type,
+                position_x: n.position.x,
+                position_y: n.position.y,
+                data: stringifiedData
+            };
+        }),
+        connections: state.connections.map(c => ({
+            id: c.id,
+            from_node: c.fromNode,
+            from_port: c.fromPort,
+            to_node: c.toNode,
+            to_port: c.toPort,
+            signal_type: c.signalType ?? 'audio'
+        })),
+        viewport: viewportProxy.getViewport()
+    });
+}
+
+// ENTERPRISE: Aggressively debounced disk-save (1.5 seconds).
+// Separates the fast RT-safe parameter modulation from disk I/O serialization.
+let _saveTimeout: number | null = null;
+function _scheduleSaveConfig(get: () => FlowSynthState): void {
+    if (_saveTimeout !== null) {
+        window.clearTimeout(_saveTimeout);
+    }
+    _saveTimeout = window.setTimeout(async () => {
+        _saveTimeout = null;
+        const state = get();
+        if (!state.activeTrackId) return;
+        const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(state.activeTrackId);
+        if (trackIndex < 0) return;
+        await engine.saveFlowSynthConfig(trackIndex, buildFlowConfigJson(state));
+    }, 1500);
 }
 
 export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
@@ -340,7 +392,35 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     }),
 
     updateNodeData: (id, patch) => {
-        _scheduleSyncFlowGraph(get);
+        // ENTERPRISE: Do not re-sync the entire graph topology!
+        // Just dispatch O(1) parameter updates into the audio engine queue.
+        const state = get();
+        const activeTrackId = state.activeTrackId;
+        if (activeTrackId) {
+            const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(activeTrackId);
+            if (trackIndex >= 0) {
+                // ENTERPRISE FIX: Use the exact same stableNodeNumericId function
+                // as syncFlowGraphToEngine to guarantee matching numeric IDs.
+                // Previously used a different DJB2-style hash which caused
+                // parameter updates to target wrong nodes.
+                const numericIdResult = stableNodeNumericId(id);
+
+                if (numericIdResult > 0) {
+                    for (const [key, val] of Object.entries(patch)) {
+                        if (val !== null && val !== undefined) {
+                            // Instant mutation over IPC
+                            engine.updateFlowNodeParam(trackIndex, numericIdResult, key, String(val)).catch((err: any) => {
+                                console.warn('[FlowSynth] Failed to update param:', err);
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Schedule a slow, delayed write to the project `.dream` JSON file.
+        _scheduleSaveConfig(get);
+
         return set((state) => {
             const nextNodes = state.nodes.map((node) => {
                 if (node.id !== id) return node;
@@ -662,35 +742,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         });
 
         // Phase 7.3: Project Persistence (SSOT)
-        // Send the JSON representation back to the audio engine to save it in `dream_models`
-        const configJson = JSON.stringify({
-            nodes: state.nodes.map(n => {
-                const stringifiedData: Record<string, string> = {};
-                if (n.data) {
-                    for (const [k, v] of Object.entries(n.data)) {
-                        if (v !== null && v !== undefined) {
-                            stringifiedData[k] = String(v);
-                        }
-                    }
-                }
-                return {
-                    id: n.id,
-                    type: n.type,
-                    position_x: n.position.x,
-                    position_y: n.position.y,
-                    data: stringifiedData
-                };
-            }),
-            connections: state.connections.map(c => ({
-                id: c.id,
-                from_node: c.fromNode,
-                from_port: c.fromPort,
-                to_node: c.toNode,
-                to_port: c.toPort,
-                signal_type: c.signalType ?? 'audio'
-            })),
-            viewport: viewportProxy.getViewport()
-        });
+        // ENTERPRISE: Use shared buildFlowConfigJson to avoid divergent serialization.
+        const configJson = buildFlowConfigJson(state);
 
         // ENTERPRISE FIX: Sequential awaits — setFlowEnabled MUST complete before
         // syncFlowGraph. The engine must be enabled before it processes graph data,

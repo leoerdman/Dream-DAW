@@ -448,6 +448,12 @@ pub(super) fn drain_commands(
                     ctx.flow_engines[idx].sync_graph(&nodes, &connections);
                 }
             }
+            EngineCommand::UpdateFlowNodeParam { track_index, node_id, key, value } => {
+                let idx = track_index as usize;
+                if idx < ctx.flow_engines.len() {
+                    ctx.flow_engines[idx].update_node_param(node_id, &key, &value);
+                }
+            }
             // ── Essence Synth Commands ────────────────────────────────
             EngineCommand::SetEssenceEnabled { track_index, enabled } => {
                 let idx = track_index as usize;

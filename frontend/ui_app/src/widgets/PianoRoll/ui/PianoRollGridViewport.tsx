@@ -10,6 +10,7 @@ import {
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { PianoControlLane } from '@/widgets/PianoRoll/ui/PianoControlLane';
 import { ClipEditorRuler } from '@/widgets/ClipEditor/ClipEditorRuler';
+import { PianoRollPlayhead } from '@/widgets/PianoRoll/ui/PianoRollPlayhead';
 
 type SelectionRect = { x1: number; y1: number; x2: number; y2: number } | null;
 type GridLine = { x: number; isBar: boolean; isMainBeat: boolean; label?: string };
@@ -37,7 +38,7 @@ interface PianoRollGridViewportProps {
     hoveredNoteEdge: string | null;
     setHoveredNoteEdge: (value: string | null) => void;
     selectionRect: SelectionRect;
-    playheadBeat?: number;
+    clipStartBeat: number;
     stepInputCursorBeat: number;
     activeLane: PianoLaneType;
     readLaneValue: (note: MidiNote, lane: PianoLaneType) => number;
@@ -73,7 +74,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
     hoveredNoteEdge,
     setHoveredNoteEdge,
     selectionRect,
-    playheadBeat,
+    clipStartBeat,
     stepInputCursorBeat,
     activeLane,
     readLaneValue,
@@ -187,9 +188,12 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     )}
                 </div>
 
-                {playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
-                    <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)', pointerEvents: 'none', boxShadow: 'none' }} />
-                )}
+                <PianoRollPlayhead
+                    clipStartBeat={clipStartBeat}
+                    clipBeats={clipBeats}
+                    pixelsPerBeat={pixelsPerBeat}
+                    canvasHeight={canvasHeight}
+                />
 
                 {stepInputCursorBeat >= 0 && (
                     <div style={{ position: 'absolute', left: stepInputCursorBeat * pixelsPerBeat, top: RULER_HEIGHT, width: 1, height: canvasHeight, background: 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)', zIndex: 'var(--z-ui-overlay)', pointerEvents: 'none' }} />

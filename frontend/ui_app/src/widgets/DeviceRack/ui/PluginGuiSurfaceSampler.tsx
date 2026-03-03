@@ -137,8 +137,8 @@ export function PluginGuiSurfaceSampler({
                 />
                 <svg
                     viewBox="0 0 1000 90"
-                    preserveAspectRatio="none"
-                    style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))' }}
+                    preserveAspectRatio="xMidYMid slice"
+                    style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))' , willChange: 'transform', transform: 'translateZ(0)'}}
                 >
                     <defs>
                         <linearGradient id={`samplerWaveFill-${device.id}`} x1="0" y1="0" x2="0" y2="1">

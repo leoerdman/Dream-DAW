@@ -25,7 +25,7 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-6db3ff)' }}>Auto Pan</div>
-                    <svg viewBox="0 0 300 52" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
+                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1="150" y1="4" x2="150" y2="48" stroke="var(--token-color-rgba-109-179-255-0d2)" strokeWidth="1" />
                         <text x="16" y="14" fill="var(--token-color-rgba-109-179-255-0d45)" fontSize="9" fontFamily="var(--font-role-data)">L</text>
@@ -59,7 +59,7 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-998bff)' }}>{isPhaserFlanger ? 'Phaser-Flanger' : 'Phaser'}</div>
-                    <svg viewBox="0 0 300 52" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
+                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {Array.from({ length: stageCount }).map((_, i) => {
                             const cx = 20 + (i / Math.max(1, stageCount - 1)) * 260;
@@ -100,7 +100,7 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-66b3ff)' }}>{isPhaserFlanger ? 'Phaser-Flanger' : 'Flanger'}</div>
-                    <svg viewBox="0 0 300 52" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
+                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {Array.from({ length: 10 }).map((_, i) => {
                             const x = 16 + i * 28;

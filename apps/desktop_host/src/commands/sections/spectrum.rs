@@ -16,7 +16,9 @@ fn get_spectrum_data(
     }
 
     if drained == 0 {
-        return Ok(inner.last_magnitudes.clone());
+        // ENTERPRISE: Zero-allocation return — move the Vec out,
+        // leaving an empty Vec in its place. The caller owns the data.
+        return Ok(std::mem::take(&mut inner.last_magnitudes));
     }
 
     // Compute FFT and return magnitudes
@@ -24,7 +26,7 @@ fn get_spectrum_data(
         inner.last_magnitudes.clear();
         inner.last_magnitudes.extend_from_slice(&data.magnitudes);
     }
-    Ok(inner.last_magnitudes.clone())
+    Ok(std::mem::take(&mut inner.last_magnitudes))
 }
 
 /// Per-track spectrum data for EQ display.
@@ -48,12 +50,12 @@ fn get_spectrum_data_for_track(
     }
 
     if drained == 0 {
-        return Ok(inner.last_magnitudes.clone());
+        return Ok(std::mem::take(&mut inner.last_magnitudes));
     }
 
     if let Some(data) = inner.analyzer.compute() {
         inner.last_magnitudes.clear();
         inner.last_magnitudes.extend_from_slice(&data.magnitudes);
     }
-    Ok(inner.last_magnitudes.clone())
+    Ok(std::mem::take(&mut inner.last_magnitudes))
 }

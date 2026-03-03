@@ -159,8 +159,8 @@ export function PluginGuiSurfaceEq({
                         width="100%"
                         height="100%"
                         viewBox={`0 0 ${VB_W} ${VB_H}`}
-                        preserveAspectRatio="none"
-                        style={{ cursor: 'crosshair', display: 'block' }}
+                        preserveAspectRatio="xMidYMid slice"
+                        style={{ cursor: 'crosshair', display: 'block' , willChange: 'transform', transform: 'translateZ(0)'}}
                         onMouseDown={handleMouseDown}
                         onDoubleClick={handleDoubleClick}
                         onContextMenu={handleContextMenu}

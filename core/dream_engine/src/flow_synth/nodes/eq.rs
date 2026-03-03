@@ -24,6 +24,7 @@ struct BiquadBand {
     gain_db: f32,
     q: f32,
     dirty: bool,
+    last_sr: f64,
 }
 
 impl BiquadBand {
@@ -31,15 +32,17 @@ impl BiquadBand {
         Self {
             a1: 0.0, a2: 0.0, b0: 1.0, b1: 0.0, b2: 0.0,
             x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0,
-            freq, gain_db, q, dirty: true,
+            freq, gain_db, q, dirty: true, last_sr: -1.0,
         }
     }
 
     fn update_coefficients(&mut self, sample_rate: f64) {
-        if !self.dirty {
+        // ENTERPRISE: Only compute trigonometric math if parameters changed OR sample rate shifted.
+        if !self.dirty && self.last_sr == sample_rate {
             return;
         }
         self.dirty = false;
+        self.last_sr = sample_rate;
 
         if self.gain_db.abs() < 0.05 {
             // Unity pass-through — skip computation

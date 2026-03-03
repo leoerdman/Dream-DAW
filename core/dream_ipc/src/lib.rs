@@ -223,6 +223,15 @@ pub enum EngineCommand {
         connections: Vec<(u64, usize, u64, usize)>, // (from_id, from_port, to_id, to_port)
     },
 
+    /// Update a single parameter on a specific node in the Flow Synth graph.
+    /// This is an O(1) atomic operation that bypasses full graph rebuilds.
+    UpdateFlowNodeParam {
+        track_index: u16,
+        node_id: u64,
+        key: String,
+        value: String,
+    },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

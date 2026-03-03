@@ -33,7 +33,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-limiter)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a4d9d3)' }}>Lookahead Limiter</div>
-                    <svg viewBox="0 0 280 28" preserveAspectRatio="none" style={{ width: '100%', height: 28 }}>
+                    <svg viewBox="0 0 280 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 28 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="280" height="28" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1={14 + (1 + thr / 60) * 240} y1="2" x2={14 + (1 + thr / 60) * 240} y2="26" stroke="var(--token-color-hex-f0a66e)" strokeWidth="1.5" strokeDasharray="3,2" />
                         <line x1={14 + (1 + ceil / 60) * 240} y1="2" x2={14 + (1 + ceil / 60) * 240} y2="26" stroke="var(--token-color-hex-ff6b6b)" strokeWidth="1.5" />
@@ -70,7 +70,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-gate)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8dfad)' }}>Noise Gate</div>
-                    <svg viewBox="0 0 280 48" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
+                    <svg viewBox="0 0 280 48" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="280" height="48" rx="4" fill="var(--token-color-rgba-8-14-8-0d65)" />
                         {Array.from({ length: 14 }).map((_, i) => {
                             const x = 10 + i * 19;
@@ -110,7 +110,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-4cc9d8)' }}>{title}</div>
-                    <svg viewBox="0 0 300 52" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
+                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {isVocoder ? (
                             <>

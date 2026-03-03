@@ -55,6 +55,34 @@ impl SmoothedValue {
         self.target = value;
     }
 
+    #[inline(always)]
+    pub fn get_current(&self) -> f32 {
+        self.current
+    }
+
+    #[inline(always)]
+    pub fn get_target(&self) -> f32 {
+        self.target
+    }
+
+    /// Fast-forwards the smoother by `samples` ticks mathematically in O(1).
+    #[inline]
+    pub fn skip(&mut self, samples: usize) {
+        if samples == 0 {
+            return;
+        }
+        if (self.current - self.target).abs() < 1.0e-6 {
+            self.current = self.target;
+            return;
+        }
+        let c_n = self.coeff.powi(samples as i32);
+        self.current = self.target + (self.current - self.target) * c_n;
+        
+        if self.current.abs() < 1.0e-20 && self.target.abs() < 1.0e-20 {
+            self.current = 0.0;
+        }
+    }
+
     /// Advances the smoother by one sample and returns the current value.
     /// BUG-H17 FIX: Convergence threshold 1e-12 → 1e-6 to avoid thousands
     /// of wasted multiply-adds that produce no audible change.

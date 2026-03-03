@@ -63,9 +63,15 @@ const DEFAULT_ENABLED: [bool; NUM_BANDS] = [
 struct EqBand {
     filter_l: BiquadFilter,
     filter_r: BiquadFilter,
-    freq: f64,
-    gain_db: f64,
-    q: f64,
+    
+    freq_target: f64,
+    gain_target: f64,
+    q_target: f64,
+
+    freq_sm: SmoothedValue,
+    gain_sm: SmoothedValue,
+    q_sm: SmoothedValue,
+    
     enabled: bool,
     filter_type: BiquadType,
 }
@@ -76,21 +82,38 @@ impl EqBand {
         Self {
             filter_l: BiquadFilter::new(coeffs),
             filter_r: BiquadFilter::new(coeffs),
-            freq,
-            gain_db,
-            q,
-            // ENTERPRISE: Default enable state sourced from DEFAULT_ENABLED
-            // constant, keeping Rust DSP and frontend presets
-            // (deviceParamPresets.ts) in perfect sync.
-            //
-            // Only B3 (Peaking@1kHz, gain=0) enabled by default.
+            freq_target: freq,
+            gain_target: gain_db,
+            q_target: q,
+            freq_sm: SmoothedValue::new(sr as f32, 20.0, freq as f32),
+            gain_sm: SmoothedValue::new(sr as f32, 20.0, gain_db as f32),
+            q_sm: SmoothedValue::new(sr as f32, 20.0, q as f32),
             enabled: default_enabled,
             filter_type,
         }
     }
 
     fn update(&mut self, sr: f64) {
-        let coeffs = BiquadCoeffs::new(self.filter_type, self.freq, self.q, sr, self.gain_db);
+        let coeffs = BiquadCoeffs::new(
+            self.filter_type,
+            self.freq_sm.next_value() as f64,
+            self.q_sm.next_value() as f64,
+            sr,
+            self.gain_sm.next_value() as f64,
+        );
+        self.filter_l.update_coefficients(coeffs);
+        self.filter_r.update_coefficients(coeffs);
+    }
+    
+    fn quick_update(&mut self, sr: f64) {
+        // Fast update without advancing smoothers (used for chunk setup)
+        let coeffs = BiquadCoeffs::new(
+            self.filter_type,
+            self.freq_sm.get_current() as f64,
+            self.q_sm.get_current() as f64,
+            sr,
+            self.gain_sm.get_current() as f64,
+        );
         self.filter_l.update_coefficients(coeffs);
         self.filter_r.update_coefficients(coeffs);
     }
@@ -98,6 +121,9 @@ impl EqBand {
     fn reset(&mut self) {
         self.filter_l.reset();
         self.filter_r.reset();
+        self.freq_sm.set_instant(self.freq_target as f32);
+        self.gain_sm.set_instant(self.gain_target as f32);
+        self.q_sm.set_instant(self.q_target as f32);
     }
 }
 
@@ -134,7 +160,10 @@ impl EqProcessor {
             self.sample_rate = sr;
             self.output_gain_sm.set_sample_rate(sr as f32);
             for band in &mut self.bands {
-                band.update(sr);
+                band.freq_sm.set_sample_rate(sr as f32);
+                band.gain_sm.set_sample_rate(sr as f32);
+                band.q_sm.set_sample_rate(sr as f32);
+                band.quick_update(sr);
             }
         }
     }
@@ -146,28 +175,60 @@ impl DspProcessor for EqProcessor {
         let len = left.len().min(right.len());
         let left_buf = &mut left[..len];
         let right_buf = &mut right[..len];
-        // Process each enabled band in series
-        for band in &mut self.bands {
-            if !band.enabled {
-                continue;
+        // BUG-DSP-003 FIX: Chunked processing for parameter smoothing.
+        // Recalculating biquad coefficients per-sample is too expensive,
+        // and instant changes cause zipper noise. Here we advance smoothers
+        // and update coefficients every 32 samples (~0.7ms).
+        const CHUNK_SIZE: usize = 32;
+        let mut idx = 0;
+
+        while idx < len {
+            let chunk = (len - idx).min(CHUNK_SIZE);
+            let chunk_left = &mut left_buf[idx..idx + chunk];
+            let chunk_right = &mut right_buf[idx..idx + chunk];
+
+            for band in &mut self.bands {
+                if !band.enabled {
+                    continue;
+                }
+                
+                band.freq_sm.set_target(band.freq_target as f32);
+                band.gain_sm.set_target(band.gain_target as f32);
+                band.q_sm.set_target(band.q_target as f32);
+                
+                // Skip processing if it's a completely inactive peak band
+                if matches!(band.filter_type, BiquadType::Peaking) 
+                    && band.gain_sm.get_target().abs() < 0.01 
+                    && band.gain_sm.get_current().abs() < 0.01 {
+                    
+                    // Fast-forward the smoothers to stay in sync
+                    band.freq_sm.skip(chunk);
+                    band.gain_sm.skip(chunk);
+                    band.q_sm.skip(chunk);
+                    continue;
+                }
+
+                // Advance smoothers by jumping to the end of the chunk
+                // and calculating coefficients based on that intermediate target
+                band.freq_sm.skip(chunk - 1);
+                band.gain_sm.skip(chunk - 1);
+                band.q_sm.skip(chunk - 1);
+                
+                band.update(self.sample_rate);
+
+                band.filter_l.process_buffer(chunk_left);
+                band.filter_r.process_buffer(chunk_right);
+
+                // Intermediate per-band clamp
+                for s in chunk_left.iter_mut() {
+                    *s = s.clamp(-30.0, 30.0);
+                }
+                for s in chunk_right.iter_mut() {
+                    *s = s.clamp(-30.0, 30.0);
+                }
             }
-            // BUG-026 FIX: Skip flat peaking bands — gain=0dB means no effect.
-            // HP/LP/shelf always process since gain=0 still affects frequency response.
-            if matches!(band.filter_type, BiquadType::Peaking) && band.gain_db.abs() < 0.01 {
-                continue;
-            }
-            band.filter_l.process_buffer(left_buf);
-            band.filter_r.process_buffer(right_buf);
-            // BUG-C08 FIX: Per-band output clamp to prevent cascaded extreme gain
-            // from producing values exceeding ±1000 before the runaway guard.
-            // 8 bands × +18dB = +144dB theoretical — intermediate clamp at ±30.0
-            // prevents inter-band accumulation while remaining transparent in normal use.
-            for s in left_buf.iter_mut() {
-                *s = s.clamp(-30.0, 30.0);
-            }
-            for s in right_buf.iter_mut() {
-                *s = s.clamp(-30.0, 30.0);
-            }
+            
+            idx += chunk;
         }
         // Output gain
         self.output_gain_sm
@@ -245,19 +306,13 @@ impl DspProcessor for EqProcessor {
 
         match param_idx {
             0 => {
-                let new_freq = (value as f64).clamp(20.0, 20000.0);
-                band.freq = new_freq;
-                band.update(sr);
+                band.freq_target = (value as f64).clamp(20.0, 20000.0);
             }
             1 => {
-                let new_gain = (value as f64).clamp(-24.0, 24.0);
-                band.gain_db = new_gain;
-                band.update(sr);
+                band.gain_target = (value as f64).clamp(-24.0, 24.0);
             }
             2 => {
-                let new_q = (value as f64).clamp(0.1, 18.0);
-                band.q = new_q;
-                band.update(sr);
+                band.q_target = (value as f64).clamp(0.1, 18.0);
             }
             3 => {
                 band.enabled = value > 0.5;

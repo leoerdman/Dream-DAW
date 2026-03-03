@@ -271,115 +271,118 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
         handle.addEventListener('lostpointercapture', onUp);
     };
 
-    <div
-        ref={nodeRef}
-        data-flow-node-root="true"
-        onMouseDown={(e) => {
-            if (interactionDisabled) return;
-            e.stopPropagation();
-            selectNode(node.id, e.metaKey || e.ctrlKey || e.shiftKey);
-        }}
-        style={{
-            position: 'absolute',
-            // left / top are handled by transform via NodeMotionProxy & useLayoutEffect
-            left: 0,
-            top: 0,
-            width: FLOW_NODE_WIDTH,
-            background: 'color-mix(in srgb, var(--color-bg-panel) 92%, transparent)',
-            backdropFilter: 'blur(var(--blur-lg))',
-            WebkitBackdropFilter: 'blur(var(--blur-lg))',
-            borderRadius: 'var(--radius-xl)',
-            // ENTERPRISE: Base border always subtle — selection handled via ::after overlay
-            border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
-            pointerEvents: interactionDisabled ? 'none' : 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            // ENTERPRISE: No transition — prevents drag jitter (UDS pattern)
-            zIndex: isSelected ? 50 : 10,
-            overflow: 'visible',
-        }}
-    >
-        {/* ── SELECTION OVERLAY (UDS ::after pattern) ── */}
-        {isSelected && (
-            <div
-                style={{
-                    position: 'absolute',
-                    inset: -2,
-                    borderRadius: 'calc(var(--radius-xl) + 1px)',
-                    border: '2px solid rgba(255, 255, 255, 0.85)',
-                    pointerEvents: 'none',
-                    zIndex: 100,
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
-                }}
-            />
-        )}
-
-        {/* ── HEADER ── */}
+    return (
         <div
-            onPointerDown={handlePointerDown}
+            ref={nodeRef}
+            data-flow-node-root="true"
+            onMouseDown={(e) => {
+                if (interactionDisabled) return;
+                e.stopPropagation();
+                selectNode(node.id, e.metaKey || e.ctrlKey || e.shiftKey);
+            }}
             style={{
-                padding: '0 14px',
-                cursor: interactionDisabled ? 'default' : 'grab',
-                touchAction: 'none',
+                position: 'absolute',
+                // left / top are handled by transform via NodeMotionProxy & useLayoutEffect
+                left: 0,
+                top: 0,
+                width: FLOW_NODE_WIDTH,
+                background: 'color-mix(in srgb, var(--color-bg-panel) 92%, transparent)',
+                backdropFilter: 'blur(var(--blur-lg))',
+                WebkitBackdropFilter: 'blur(var(--blur-lg))',
+                borderRadius: 'var(--radius-xl)',
+                // ENTERPRISE: Base border always subtle — selection handled via ::after overlay
+                border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+                pointerEvents: interactionDisabled ? 'none' : 'auto',
                 display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 5%, transparent), transparent)',
-                borderTopLeftRadius: 'var(--radius-xl)',
-                borderTopRightRadius: 'var(--radius-xl)',
-                height: FLOW_NODE_HEADER_HEIGHT,
-                boxSizing: 'border-box',
-                flexShrink: 0,
+                flexDirection: 'column',
+                // ENTERPRISE: No transition — prevents drag jitter (UDS pattern)
+                zIndex: isSelected ? 50 : 10,
+                overflow: 'visible',
             }}
         >
+            {/* ── SELECTION OVERLAY (UDS ::after pattern) ── */}
+            {
+                isSelected && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: -2,
+                            borderRadius: 'calc(var(--radius-xl) + 1px)',
+                            border: '2px solid rgba(255, 255, 255, 0.85)',
+                            pointerEvents: 'none',
+                            zIndex: 100,
+                            boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
+                        }}
+                    />
+                )
+            }
+
+            {/* ── HEADER ── */}
+            <div
+                onPointerDown={handlePointerDown}
+                style={{
+                    padding: '0 14px',
+                    cursor: interactionDisabled ? 'default' : 'grab',
+                    touchAction: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                    borderBottom: '1px solid var(--color-divider)',
+                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 5%, transparent), transparent)',
+                    borderTopLeftRadius: 'var(--radius-xl)',
+                    borderTopRightRadius: 'var(--radius-xl)',
+                    height: FLOW_NODE_HEADER_HEIGHT,
+                    boxSizing: 'border-box',
+                    flexShrink: 0,
+                }}
+            >
+                <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    backgroundColor: config.color,
+                    boxShadow: `0 0 8px ${config.color}`,
+                    flexShrink: 0,
+                }} />
+                <span style={{
+                    fontWeight: 'var(--font-weight-bold)',
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    fontFamily: 'var(--font-role-data)',
+                    userSelect: 'none',
+                }}>
+                    {config.title}
+                </span>
+            </div>
+
+            {/* ── PORTS ZONE ── */}
             <div style={{
-                width: 8, height: 8, borderRadius: '50%',
-                backgroundColor: config.color,
-                boxShadow: `0 0 8px ${config.color}`,
+                position: 'relative',
+                height: portsHeight,
                 flexShrink: 0,
-            }} />
-            <span style={{
-                fontWeight: 'var(--font-weight-bold)',
-                fontSize: 'var(--font-size-sm)',
-                color: 'var(--color-text-primary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                fontFamily: 'var(--font-role-data)',
-                userSelect: 'none',
             }}>
-                {config.title}
-            </span>
-        </div>
+                {/* Input ports (left) */}
+                {config.inputs.map((port, idx) => (
+                    <React.Fragment key={`in-${port.id}`}>
+                        <PortDot port={port} side="in" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
+                        <PortLabel port={port} side="in" index={idx} />
+                    </React.Fragment>
+                ))}
+                {/* Output ports (right) */}
+                {config.outputs.map((port, idx) => (
+                    <React.Fragment key={`out-${port.id}`}>
+                        <PortDot port={port} side="out" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
+                        <PortLabel port={port} side="out" index={idx} />
+                    </React.Fragment>
+                ))}
+            </div>
 
-        {/* ── PORTS ZONE ── */}
-        <div style={{
-            position: 'relative',
-            height: portsHeight,
-            flexShrink: 0,
-        }}>
-            {/* Input ports (left) */}
-            {config.inputs.map((port, idx) => (
-                <React.Fragment key={`in-${port.id}`}>
-                    <PortDot port={port} side="in" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
-                    <PortLabel port={port} side="in" index={idx} />
-                </React.Fragment>
-            ))}
-            {/* Output ports (right) */}
-            {config.outputs.map((port, idx) => (
-                <React.Fragment key={`out-${port.id}`}>
-                    <PortDot port={port} side="out" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
-                    <PortLabel port={port} side="out" index={idx} />
-                </React.Fragment>
-            ))}
-        </div>
+            {/* ── CONTROLS ── */}
+            <NodeControlsBody node={node} />
 
-        {/* ── CONTROLS ── */}
-        <NodeControlsBody node={node} />
-
-        {/* ── FOOTER PAD ── */}
-        <div style={{ height: FLOW_NODE_BODY_PADDING }} />
-    </div>
+            {/* ── FOOTER PAD ── */}
+            <div style={{ height: FLOW_NODE_BODY_PADDING }} />
+        </div >
     );
 }

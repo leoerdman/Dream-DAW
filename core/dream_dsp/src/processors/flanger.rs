@@ -142,13 +142,24 @@ impl FlangerProcessor {
         }
     }
 
+    /// BUG-DSP-001 FIX: Read with bounds-checked 4-point Hermite interpolation for fractional delays.
+    /// Preserves high frequencies during wide Flanger sweeps.
+    /// Through-Zero mode allows delay < 1.0, which falls back to linear interpolation 
+    /// to avoid reading discontinuous future samples from the ring buffer.
     #[inline]
     fn read_interp(buf: &[f32; MAX_DELAY_SAMPLES], write_pos: usize, delay: f32) -> f32 {
         let int_d = delay as usize;
         let frac = delay - int_d as f32;
         let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) & DELAY_MASK;
         let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) & DELAY_MASK;
-        buf[i0] * (1.0 - frac) + buf[i1] * frac
+        
+        if delay < 1.0 {
+            return buf[i0] * (1.0 - frac) + buf[i1] * frac;
+        }
+        
+        let im1 = (write_pos + MAX_DELAY_SAMPLES - int_d + 1) & DELAY_MASK;
+        let i2 = (write_pos + MAX_DELAY_SAMPLES - int_d - 2) & DELAY_MASK;
+        crate::processors::hermite_interp(buf[im1], buf[i0], buf[i1], buf[i2], frac)
     }
 }
 

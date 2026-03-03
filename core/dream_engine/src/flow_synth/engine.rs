@@ -248,6 +248,15 @@ impl FlowSynthEngine {
         }
     }
 
+    /// ENTERPRISE: Update a single parameter on a specific node across all polyphonic voices.
+    /// Bypasses the expensive O(N) `sync_graph` topological sort and allocation.
+    pub fn update_node_param(&mut self, node_id: u64, key: &str, value: &str) {
+        let param_slice = [(key.to_string(), value.to_string())];
+        for voice in &mut self.voices {
+            voice.graph.set_node_params(node_id, &param_slice);
+        }
+    }
+
     pub fn note_on(&mut self, note: u8, velocity: u8) {
         if velocity == 0 {
             self.note_off(note);

@@ -1420,5 +1420,13 @@ export const syncFlowGraph = (
 ) =>
     safeInvoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });
 
+export const updateFlowNodeParam = (
+    trackIndex: number,
+    nodeId: number,
+    key: string,
+    value: string,
+) =>
+    safeInvoke<void>('update_flow_node_param_cmd', { trackIndex, nodeId, key, value });
+
 export const saveFlowSynthConfig = (trackIndex: number, configJson: string) =>
     safeInvoke<void>('save_flow_synth_config_cmd', { trackIndex, configJson });

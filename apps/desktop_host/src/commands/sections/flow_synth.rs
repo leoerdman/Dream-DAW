@@ -97,3 +97,34 @@ fn save_flow_synth_config_cmd(
         Err("Track not found".to_string())
     }
 }
+
+#[tauri::command]
+fn update_flow_node_param_cmd(
+    track_index: u16,
+    node_id: u64,
+    key: String,
+    value: String,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    let resolved_track_index = {
+        let project = project_state
+            .project
+            .lock()
+            .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        resolve_flow_track_index(&project, track_index)
+    };
+
+    push_command(
+        &handle,
+        EngineCommand::UpdateFlowNodeParam {
+            track_index: resolved_track_index,
+            node_id,
+            key,
+            value,
+        },
+    )?;
+    Ok(())
+}

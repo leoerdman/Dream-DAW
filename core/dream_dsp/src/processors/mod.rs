@@ -137,6 +137,7 @@ pub mod hybrid_reverb;
 pub mod multiband_dynamics;
 pub mod noise_machine;
 pub mod overdrive;
+pub mod oversampling;
 pub mod pedal;
 pub mod phaser;
 pub mod phaser_flanger;

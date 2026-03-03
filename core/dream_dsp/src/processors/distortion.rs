@@ -61,9 +61,16 @@ pub struct DistortionProcessor {
     cached_tone_c: f32,
     cached_hp_freq: f32,
     cached_tone_freq: f32,
-    /// AUD-217 FIX: Cached cab LP coefficient — only recalculated on SR change
     /// or cab_sim toggle, not per-buffer. Eliminates one exp() call per buffer.
     cached_cab_c: f32,
+    // BUG-DSP-002 FIX: Oversamplers for non-linear waveshaping
+    os_l: crate::processors::oversampling::Oversampler2x,
+    os_r: crate::processors::oversampling::Oversampler2x,
+    // BUG-DSP-043 FIX: DC Blocker state (1-pole high-pass) for asymmetrical wavefolds
+    dc_x_l: f32,
+    dc_x_r: f32,
+    dc_y_l: f32,
+    dc_y_r: f32,
 }
 
 impl DistortionProcessor {
@@ -99,6 +106,12 @@ impl DistortionProcessor {
             cached_hp_freq: 275.0,
             cached_tone_freq: 10500.0,
             cached_cab_c: crate::processors::one_pole_lp_coeff(4500.0, sample_rate),
+            os_l: crate::processors::oversampling::Oversampler2x::new(sample_rate),
+            os_r: crate::processors::oversampling::Oversampler2x::new(sample_rate),
+            dc_x_l: 0.0,
+            dc_x_r: 0.0,
+            dc_y_l: 0.0,
+            dc_y_r: 0.0,
         }
     }
 
@@ -161,6 +174,8 @@ impl DspProcessor for DistortionProcessor {
             // tone EQ response after sample rate transitions.
             self.cached_hp_c = crate::processors::one_pole_hp_coeff(self.cached_hp_freq, sr);
             self.cached_tone_c = crate::processors::one_pole_lp_coeff(self.cached_tone_freq, sr);
+            self.os_l.set_sample_rate(sr);
+            self.os_r.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let mode = self.mode;
@@ -210,9 +225,19 @@ impl DspProcessor for DistortionProcessor {
             let hp_l = self.hp_state_l;
             let hp_r = self.hp_state_r;
 
-            // Drive + waveshape
-            let shaped_l = Self::waveshape(hp_l * gain, mode, bias);
-            let shaped_r = Self::waveshape(hp_r * gain, mode, bias);
+            // BUG-DSP-002 FIX: Drive + waveshape with 2x oversampling and anti-alias filtering
+            let raw_shaped_l = self.os_l.process(hp_l * gain, |s| Self::waveshape(s, mode, bias));
+            let raw_shaped_r = self.os_r.process(hp_r * gain, |s| Self::waveshape(s, mode, bias));
+
+            // BUG-DSP-043 FIX: Fast DC tracking block to remove +DC offset from Rectifier modes
+            // Standard 1-pole HP formula: y[n] = x[n] - x[n-1] + R * y[n-1], using R = 0.999 (~20Hz at 44.1k)
+            let dc_r = 0.999f32;
+            let shaped_l = raw_shaped_l - self.dc_x_l + dc_r * self.dc_y_l;
+            let shaped_r = raw_shaped_r - self.dc_x_r + dc_r * self.dc_y_r;
+            self.dc_x_l = raw_shaped_l;
+            self.dc_x_r = raw_shaped_r;
+            self.dc_y_l = shaped_l;
+            self.dc_y_r = shaped_r;
 
             // Tone (LP)
             self.tone_state_l += tone_c * (shaped_l - self.tone_state_l);
@@ -242,6 +267,8 @@ impl DspProcessor for DistortionProcessor {
             crate::processors::flush_denormal!(self.tone_state_r);
             crate::processors::flush_denormal!(self.cab_state_l);
             crate::processors::flush_denormal!(self.cab_state_r);
+            crate::processors::flush_denormal!(self.dc_y_l);
+            crate::processors::flush_denormal!(self.dc_y_r);
         }
     }
 

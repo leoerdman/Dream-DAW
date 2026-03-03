@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, type MouseEvent } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { MAX_PPB, MIN_PPB } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { PianoRollProps } from '@/widgets/PianoRoll/model/pianoRollTypes';
@@ -31,13 +30,10 @@ export function usePianoRollLogic(props: PianoRollProps) {
         color = 'var(--token-color-hex-4a9eff)',
         timeSignature = [4, 4],
         totalBars = 8,
-        playheadBeat: playheadBeatProp,
         clipStartBeat = 0,
         clipLengthBeats,
     } = props;
 
-    const storePositionBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const playheadBeat = playheadBeatProp ?? (storePositionBeats - clipStartBeat);
     const pianoState = usePianoRollState({
         notes,
         clipLengthBeats,
@@ -112,7 +108,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
     const { copySelection, pasteClipboard } = usePianoRollClipboard({
         notes,
         selectedNotes,
-        playheadBeat,
         clipBeats,
         onNotesChange,
         setSelectedNotes,
@@ -270,7 +265,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         activeLane, setActiveLane, ratchetCount, setRatchetCount,
         hoveredNoteEdge, setHoveredNoteEdge,
         zoomOverrideH, setZoomOverrideH,
-        playheadBeat, pixelsPerBeat, totalBeats, clipBeats, canvasWidth, canvasHeight,
+        pixelsPerBeat, totalBeats, clipBeats, canvasWidth, canvasHeight,
         visiblePitches, pitchRowIndex, scaleSet, gridLines, rulerBeatLabels, pianoKeys,
         currentGridInterval, beatsPerBar, clipDurationLabel,
         pitchToY, yToPitch, handleGridClick, handleGridDoubleClick, handleGridMouseDown,

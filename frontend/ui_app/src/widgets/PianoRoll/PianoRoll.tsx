@@ -48,7 +48,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setHoveredNoteEdge,
         zoomOverrideH,
         setZoomOverrideH,
-        playheadBeat,
         pixelsPerBeat,
         clipBeats,
         canvasWidth,
@@ -201,7 +200,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     hoveredNoteEdge={hoveredNoteEdge}
                     setHoveredNoteEdge={setHoveredNoteEdge}
                     selectionRect={selectionRect}
-                    playheadBeat={playheadBeat}
+                    clipStartBeat={clipStartBeat}
                     stepInputCursorBeat={stepInputCursorBeat}
                     activeLane={activeLane}
                     readLaneValue={readLaneValue}

@@ -13,6 +13,7 @@
 import type { TrackColor } from '@bindings/TrackColor';
 import type { DeviceNode } from '@bindings/DeviceNode';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
+import type { FlowSynthConfig } from '@bindings/FlowSynthConfig';
 import { clamp01 } from '@/shared/lib/audioMath';
 import { DEFAULT_TRACK_HEIGHT_PX } from '@/shared/lib/TimelineEngine.types';
 
@@ -123,7 +124,7 @@ export interface ProjectTrack {
     instrument: FlatPluginSlot | null;
     sampler: SamplerState | null;
     sample_rack?: SampleRackConfig | null;
-    flow_synth?: any | null;
+    flow_synth?: FlowSynthConfig | null;
     automation_lanes: Array<{
         param_id: string;
         points: Array<{
@@ -162,7 +163,7 @@ type RawBackendTrack = Record<string, unknown> & {
     instrument?: DeviceNode | null;
     sampler?: SamplerState | null;
     sample_rack?: SampleRackConfig | null;
-    flow_synth?: any | null;
+    flow_synth?: FlowSynthConfig | null;
     automation_lanes?: Array<{
         param_id: string;
         points: Array<{

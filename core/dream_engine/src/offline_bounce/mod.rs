@@ -760,11 +760,6 @@ impl OfflineRenderer {
                                 time_sig_denominator: ctx.time_sig_denominator,
                             };
                             
-                            let mut in_rms = 0.0;
-                            if track_idx == 1 {
-                                 in_rms = (slot.buf_left[..c].iter().chain(slot.buf_right[..c].iter()).map(|s| s*s).sum::<f32>() / (2.0 * c as f32)).sqrt();
-                            }
-                            
                             slot.device_chain.process_slot_with_sidechain_ctx(
                                 internal_idx,
                                 &mut slot.buf_left[..c],
@@ -773,14 +768,6 @@ impl OfflineRenderer {
                                 sc_r,
                                 &pctx,
                             );
-                            
-                            if track_idx == 1 {
-                                 let out_rms: f32 = (slot.buf_left[..c].iter().chain(slot.buf_right[..c].iter()).map(|s| s*s).sum::<f32>() / (2.0 * c as f32)).sqrt();
-                                 static NLOG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                                 if NLOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 1000 {
-                                      log::error!("[Bounce-Native] T[{}] S[{}] (internal {}) | in={:.5} out={:.5}", track_idx, runtime_slot_idx, internal_idx, in_rms, out_rms);
-                                 }
-                            }
 
                             continue;
                         }
@@ -886,7 +873,7 @@ impl OfflineRenderer {
                                             .chain(scratch_right[..c].iter())
                                             .map(|s| s.abs())
                                             .fold(0.0f32, f32::max);
-                                        log::error!(
+                                        log::debug!(
                                             "[Bounce-VST] T[{}]S[{}] inst={} sc={} byp={} | in={:.5} sc={:.5} out={:.5} peak={:.5} midi={}",
                                             track_idx, runtime_slot_idx,
                                             runtime_slot.is_instrument, has_sc, runtime_slot.is_bypassed,
@@ -1234,7 +1221,7 @@ impl OfflineRenderer {
                 let post_strip_rms: f32 = (slot.buf_left[..frame_count].iter().chain(slot.buf_right[..frame_count].iter()).map(|s| s*s).sum::<f32>() / (2.0 * frame_count as f32)).sqrt();
                 static STLOG: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 if STLOG.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 1000 && (pre_strip_rms > 0.0 || post_strip_rms > 0.0) {
-                     log::error!("[Bounce-Strip] T[1] pre={:.5} post={:.5} enabled={}", pre_strip_rms, post_strip_rms, enabled);
+                     log::debug!("[Bounce-Strip] T[1] pre={:.5} post={:.5} enabled={}", pre_strip_rms, post_strip_rms, enabled);
                 }
             }
 
@@ -1328,7 +1315,7 @@ impl OfflineRenderer {
                 let mrms: f32 = (ml[..frame_count].iter()
                     .chain(mr[..frame_count].iter())
                     .map(|s| s * s).sum::<f32>() / (2.0 * frame_count as f32).max(1.0)).sqrt();
-                log::error!(
+                log::debug!(
                     "[Bounce-ALL] buf#{} t={:.2}s MASTER={:.4} | {}",
                     ubuf, playhead_sec, mrms,
                     summary_parts.join(" | ")
@@ -2093,7 +2080,7 @@ impl OfflineRenderer {
         // Log per-track state at bounce start to help identify any
         // divergence between RT playback and offline export.
         // Uses warn! level to ensure visibility in terminal.
-        log::error!(
+        log::info!(
             "[Bounce-Diag] Master: volume={:.3}, device_chain_slots={}, effects_count={}",
             project.master_track.volume,
             master_device_chain.len(),
@@ -2134,14 +2121,14 @@ impl OfflineRenderer {
                     bounds_str.push(format!("C{}[{:.2}s-{:.2}s, {} notes]", c_idx, start_sec, end_sec, c.notes.len()));
                 }
                 let loop_str = loop_region.as_ref().map(|lr| format!("[{:.2}s - {:.2}s]", lr.start as f64 / project_sr as f64, lr.end as f64 / project_sr as f64)).unwrap_or("DISABLED".to_string());
-                log::error!(
+                log::debug!(
                     "[Bounce-Diag-MIDI] T[{}] '{}': loop={} bounds={} | export={:.2}s - {:.2}s",
                     track_idx, track.name, loop_str, bounds_str.join(","),
                     self.config.start_frame as f64 / project_sr as f64, self.config.end_frame as f64 / project_sr as f64
                 );
             }
 
-            log::error!(
+            log::debug!(
                 "[Bounce-Diag] Track[{}] '{}': disabled={}, solo={}, vol={:.3}, pan={:.3}, \
                  internal_fx={}, external_fx_slots={}, is_group={}, \
                  audio_clips={}, midi_clips={}, sidechains=[{}]",
@@ -2166,7 +2153,7 @@ impl OfflineRenderer {
         for (ti, runtime_slots) in external_fx_map.iter().enumerate() {
             for (si, rs) in runtime_slots.iter().enumerate() {
                 if rs.sidechain_track_index.is_some() || rs.instance_id.is_some() {
-                    log::error!(
+                    log::debug!(
                         "[Bounce-Diag] Runtime Track[{}] Slot[{}]: sc_track_idx={:?}, instance_id={:?}, internal_idx={:?}, bypassed={}, is_instrument={}",
                         ti, si, rs.sidechain_track_index, rs.instance_id, rs.internal_slot_index, rs.is_bypassed, rs.is_instrument
                     );
@@ -2192,7 +2179,7 @@ impl OfflineRenderer {
             0 // No effects = no tail needed!
         };
         let total_with_tail = total_frames + max_tail_frames;
-        log::error!(
+        log::info!(
             "[Bounce-Config] tail_frames={} ({:.2}s), master_fx={}, track_vst={}, total_frames={}, export_range=[{}..{}]",
             max_tail_frames, max_tail_frames as f64 / project_sr,
             has_any_master_fx, has_any_track_reverb_vst,
@@ -2613,7 +2600,7 @@ impl OfflineRenderer {
                 .unwrap_or(0);
             let trailing_silence_frames = total_frames.saturating_sub(last_audible + 1);
             let trailing_silence_sec = trailing_silence_frames as f64 / project_sr;
-            log::error!(
+            log::info!(
                 "[Bounce-FINAL] total_frames={} ({:.2}s), tail_frames={} ({:.2}s), \
                  master_gain={:.3}, peak_L={:.5} peak_R={:.5}, rms_L={:.5} rms_R={:.5}, \
                  trailing_silence={} frames ({:.2}s), last_audible_frame={}",

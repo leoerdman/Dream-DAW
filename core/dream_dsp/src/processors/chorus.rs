@@ -125,13 +125,19 @@ impl ChorusProcessor {
         }
     }
 
+    /// BUG-DSP-001 FIX: Read with 4-point Hermite interpolation for fractional delays.
+    /// Preserves high frequencies during wide Chorus modulation sweeps.
     #[inline]
     fn read_delay(buf: &[f32; MAX_DELAY_SAMPLES], write_pos: usize, delay_samples: f32) -> f32 {
         let int_d = delay_samples as usize;
         let frac = delay_samples - int_d as f32;
+        
+        let im1 = (write_pos + MAX_DELAY_SAMPLES - int_d + 1) & DELAY_MASK;
         let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) & DELAY_MASK;
         let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) & DELAY_MASK;
-        buf[i0] * (1.0 - frac) + buf[i1] * frac
+        let i2 = (write_pos + MAX_DELAY_SAMPLES - int_d - 2) & DELAY_MASK;
+        
+        crate::processors::hermite_interp(buf[im1], buf[i0], buf[i1], buf[i2], frac)
     }
 }
 

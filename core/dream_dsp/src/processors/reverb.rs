@@ -73,9 +73,13 @@ impl CombFilter {
         output
     }
 
-    fn set_damp(&mut self, val: f32) {
-        self.damp1 = val;
-        self.damp2 = 1.0 - val;
+    #[inline]
+    fn set_damp(&mut self, cutoff_hz: f32, sr: f32) {
+        // BUG-DSP-037 FIX: Absolute frequency mapping for comb feedback
+        // to maintain exactly the same tone/length across all sample rates.
+        let alpha = (-std::f32::consts::TAU * cutoff_hz / sr).exp();
+        self.damp1 = alpha;
+        self.damp2 = 1.0 - alpha;
     }
 
     fn set_feedback(&mut self, val: f32) {
@@ -346,14 +350,17 @@ impl ReverbProcessor {
             // - at size=100% -> long decay tail
             0.18 + self.room_size.powf(0.6) * 0.80
         };
-        let damp = if self.freeze { 0.0 } else { self.damping };
+        let damp_param = if self.freeze { 0.0 } else { self.damping.clamp(0.0, 1.0) };
+        // Logarithmic map: damping 0 = 20kHz, damping 1 = 2kHz
+        let damp_freq = 20000.0 * (2000.0 / 20000.0f32).powf(damp_param);
+        let sr = self.sample_rate;
         for c in &mut self.combs_l {
             c.set_feedback(fb);
-            c.set_damp(damp);
+            c.set_damp(damp_freq, sr);
         }
         for c in &mut self.combs_r {
             c.set_feedback(fb);
-            c.set_damp(damp);
+            c.set_damp(damp_freq, sr);
         }
 
         // Diffusion controls allpass feedback: lower = clearer taps, higher = denser cloud.
@@ -479,7 +486,9 @@ impl DspProcessor for ReverbProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let low_damp_coeff = self.low_damp_sm.next_value() * 0.5;
+            let ld_val = self.low_damp_sm.next_value().clamp(0.0, 1.0);
+            let ld_freq = 20.0 * (800.0 / 20.0f32).powf(ld_val);
+            let low_damp_coeff = crate::processors::one_pole_lp_coeff(ld_freq, sr);
             let mod_depth = self.mod_depth_sm.next_value();
             let chorus_amt = self.chorus_amount_sm.next_value();
             let density = self.density_sm.next_value();
@@ -596,9 +605,10 @@ impl DspProcessor for ReverbProcessor {
             out_l -= self.low_cut_l;
             out_r -= self.low_cut_r;
 
-            // Musical post-tail HF damping:
-            // damping=0 -> brighter tail, damping=1 -> darker/softer tail.
-            let tail_lp_coeff = 0.02 + (1.0 - self.damping) * 0.22;
+            // Musical post-tail HF damping mapped to absolute frequencies:
+            // damping=0 -> brighter tail (20kHz), damping=1 -> darker tail (3kHz).
+            let tail_freq = 20000.0 * (3000.0 / 20000.0f32).powf(self.damping.clamp(0.0, 1.0));
+            let tail_lp_coeff = crate::processors::one_pole_lp_coeff(tail_freq, sr);
             self.tail_lp_l += tail_lp_coeff * (out_l - self.tail_lp_l);
             self.tail_lp_r += tail_lp_coeff * (out_r - self.tail_lp_r);
             crate::processors::flush_denormal!(self.tail_lp_l);

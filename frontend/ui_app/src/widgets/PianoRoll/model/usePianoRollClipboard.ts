@@ -3,11 +3,11 @@ import {
     genNoteId,
     type MidiNote,
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 interface UsePianoRollClipboardArgs {
     notes: MidiNote[];
     selectedNotes: Set<string>;
-    playheadBeat: number;
     clipBeats: number;
     onNotesChange: (notes: MidiNote[]) => void;
     setSelectedNotes: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -25,7 +25,6 @@ let _moduleClipboard: MidiNote[] = [];
 export function usePianoRollClipboard({
     notes,
     selectedNotes,
-    playheadBeat,
     clipBeats,
     onNotesChange,
     setSelectedNotes,
@@ -48,7 +47,10 @@ export function usePianoRollClipboard({
             if (end > maxEnd) maxEnd = end;
         }
 
-        const pasteAt = playheadBeat != null
+        const storePositionBeats = useEngineStore.getState().transport.position_beats;
+        const playheadBeat = storePositionBeats ?? -1;
+
+        const pasteAt = playheadBeat >= 0
             ? playheadBeat
             : Math.max(0, ...notes.map((note) => note.startBeat + note.durationBeats));
         let offset = pasteAt - minBeat;
@@ -66,7 +68,7 @@ export function usePianoRollClipboard({
 
         onNotesChange(enforceNoOverlap([...notes, ...pasted], new Set(pasted.map((note: MidiNote) => note.id))));
         setSelectedNotes(new Set(pasted.map((note: MidiNote) => note.id)));
-    }, [clipBeats, enforceNoOverlap, notes, onNotesChange, playheadBeat, setSelectedNotes]);
+    }, [clipBeats, enforceNoOverlap, notes, onNotesChange, setSelectedNotes]);
 
     return { copySelection, pasteClipboard };
 }

@@ -555,87 +555,15 @@ impl PluginSandboxSupervisor {
                             continue;
                         }
 
-                        if instance.restart_count < max_auto_restarts
-                            && let Some(cfg) = self.config.as_ref()
-                        {
-                            let _ = child.kill();
-                            let _ = child.wait();
-                            let _ = fs::write(&instance.heartbeat_file, b"0");
-                            let spawn_spec = DaemonSpawnSpec {
-                                instance_id: *id,
-                                plugin_path: &instance.descriptor.path,
-                                heartbeat_file: &instance.heartbeat_file,
-                                shared_region_file: std::path::Path::new(
-                                    &instance.shared_region.map_name,
-                                ),
-                                num_inputs: instance.shared_region.num_inputs,
-                                num_outputs: instance.shared_region.num_outputs,
-                                max_frames: instance.shared_region.max_frames,
-                            };
-                            match Self::spawn_daemon_process(cfg, &spawn_spec) {
-                                Ok(mut new_child) => {
-                                    instance.control_stdin = new_child.stdin.take();
-                                    instance.event_rx = if let (Some(stdout), Some(stderr)) =
-                                        (new_child.stdout.take(), new_child.stderr.take())
-                                    {
-                                        Some(Self::spawn_event_reader(stdout, stderr))
-                                    } else {
-                                        None
-                                    };
-                                    instance.heartbeat_seq = 0;
-                                    instance.heartbeat_seen = false;
-                                    instance.process = Some(new_child);
-                                    instance.status = PluginSandboxStatus::Spawning;
-                                    instance.restart_count =
-                                        instance.restart_count.saturating_add(1);
-                                    instance.spawned_at = SystemTime::now();
-                                    // Keep bypass active until we receive Ready.
-                                    instance.bypass_requested = true;
-                                    instance.last_error = Some(format!(
-                                        "Recovered after heartbeat timeout ({}ms)",
-                                        timeout.as_millis()
-                                    ));
-                                    let _ = Self::prime_instance_protocol(*id, instance);
-                                    // LAZARUS: Restore cached state after timeout restart
-                                    if let Some(ref state_blob) = instance.last_known_state_blob
-                                        && let Some(ref mut stdin) = instance.control_stdin
-                                    {
-                                        let _ = Self::send_control_message(
-                                            stdin,
-                                            &PluginHostControlMessage::RestoreState {
-                                                instance_id: *id,
-                                                state_blob_b64: state_blob.clone(),
-                                            },
-                                        );
-                                        log::info!(
-                                            "[Lazarus] Restored state for '{}' after timeout restart #{}",
-                                            instance.descriptor.name,
-                                            instance.restart_count
-                                        );
-                                    }
-                                    self.crash_events.push(PluginCrashEvent {
-                                        instance_id: *id,
-                                        plugin_name: instance.descriptor.name.clone(),
-                                        plugin_path: instance
-                                            .descriptor
-                                            .path
-                                            .to_string_lossy()
-                                            .to_string(),
-                                        reason: instance
-                                            .last_error
-                                            .clone()
-                                            .unwrap_or_else(|| "heartbeat timeout".to_string()),
-                                        crash_count: instance.crash_count,
-                                        auto_restarted: true,
-                                    });
-                                    continue;
-                                }
-                                Err(err) => {
-                                    instance.last_error =
-                                        Some(format!("Restart after timeout failed: {err}"));
-                                }
-                            }
-                        }
+                        // ENTERPRISE: Do NOT auto-restart hanging daemons.
+                        // If the daemon process is alive but never sent a heartbeat,
+                        // it means the VST3 plugin hanged during initialization
+                        // (e.g., needs Cocoa/NSApplication that the daemon lacks).
+                        // Restarting would just produce the same hang. Kill it
+                        // immediately and let the session auto-disable fall back
+                        // to in-process loading.
+                        let _ = child.kill();
+                        let _ = child.wait();
                         instance.status = PluginSandboxStatus::TimedOut;
                         instance.bypass_requested = true;
                         // LAZARUS: Signal timeout to audio thread.

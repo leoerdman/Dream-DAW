@@ -105,27 +105,24 @@ impl PluginSandboxConfig {
     }
 
     fn discover_default_host_binary() -> Option<PathBuf> {
-        // 1) Beside current executable (packaged app)
+        // Only auto-discover daemon inside packaged macOS .app bundles.
+        // In dev builds, the daemon binary sits beside desktop_host in
+        // the same target/ directory but lacks proper Cocoa/NSApplication
+        // initialization needed to load VST3 plugins on macOS.
+        // Use DREAM_DAW_PLUGIN_HOST_BIN env var for explicit override.
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent()
         {
-            let candidate = dir.join("plugin_host_daemon");
-            if candidate.exists() {
-                return Some(candidate);
+            let dir_str = dir.to_string_lossy();
+            let is_app_bundle = dir_str.contains(".app/Contents/MacOS")
+                || dir_str.contains(".app/Contents/Frameworks");
+            if is_app_bundle {
+                let candidate = dir.join("plugin_host_daemon");
+                if candidate.exists() {
+                    return Some(candidate);
+                }
             }
         }
-        // 2) Dev workspace target output
-        let dev_candidate = PathBuf::from("target/debug/plugin_host_daemon");
-        if dev_candidate.exists() {
-            return Some(dev_candidate);
-        }
-        // 3) Common temp target dirs used in local dev tooling
-        let tmp_candidates = [
-            PathBuf::from("/tmp/dreamdaw-target/debug/plugin_host_daemon"),
-            PathBuf::from("/tmp/dream-daw-target/debug/plugin_host_daemon"),
-        ];
-        tmp_candidates
-            .into_iter()
-            .find(|candidate| candidate.exists())
+        None
     }
 }

@@ -1,4 +1,4 @@
-import { EQ_BAND_COLORS, EQ_RANDOM_POINT_COLORS, MARGIN_L, PLOT_W, freqToX } from '@/widgets/DeviceRack/lib/eqMath';
+import { EQ_BAND_COLORS, MARGIN_L, PLOT_W, freqToX } from '@/widgets/DeviceRack/lib/eqMath';
 
 const EQ_BAND_COLOR_CACHE = new Map<string, string[]>();
 const EQ_BAND_COUNT = 8;
@@ -6,18 +6,6 @@ const EQ_PRIMARY_ACCENT = 'var(--color-accent-primary)';
 export { EQ_PRIMARY_ACCENT };
 
 type EqGradientStop = { offsetPct: number; color: string };
-
-function pickRandomBandColor(exclude?: string): string {
-    const colorPool: readonly string[] = EQ_RANDOM_POINT_COLORS;
-    const poolSize = colorPool.length;
-    if (poolSize <= 0) return 'var(--color-effect-eq)';
-    if (poolSize === 1) return colorPool[0] ?? 'var(--color-effect-eq)';
-    let next = colorPool[Math.floor(Math.random() * poolSize)] ?? 'var(--color-effect-eq)';
-    if (exclude && next === exclude) {
-        next = colorPool[(Math.floor(Math.random() * (poolSize - 1)) + 1) % poolSize] ?? next;
-    }
-    return next;
-}
 
 export function buildInitialEqBandColors(deviceId: string): string[] {
     const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
@@ -29,7 +17,10 @@ export function buildInitialEqBandColors(deviceId: string): string[] {
 
 export function assignNextEqBandColor(deviceId: string, bandIdx: number, prev: string[]): string[] {
     const next = [...prev];
-    next[bandIdx] = pickRandomBandColor(prev[bandIdx] ?? EQ_BAND_COLORS[bandIdx]);
+    // BUG-EQ02 FIX: Use the stable palette color for this band index.
+    // Only pick a different color if the default is already used by another enabled band.
+    const defaultColor = EQ_BAND_COLORS[bandIdx] ?? EQ_BAND_COLORS[0];
+    next[bandIdx] = defaultColor;
     EQ_BAND_COLOR_CACHE.set(deviceId, next);
     return next;
 }

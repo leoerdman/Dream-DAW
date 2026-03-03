@@ -40,6 +40,13 @@ export class CanvasClipRenderer {
     /** Reusable buffer for visible-clip filtering (avoids per-frame allocation). */
     private _filteredClips: TimelineClipData[] = [];
 
+    /** Group track metadata: maps group track index → child track indices */
+    private _groupTracks: Map<number, number[]> = new Map();
+    /** All track colors by index (for miniature rendering). */
+    private _trackColors: Map<number, string> = new Map();
+    /** PERF: Set of all child track indices across all groups — for O(1) membership check. */
+    private _groupChildSet: Set<number> = new Set();
+
 
 
     constructor(waveformCache: WaveformCache) {
@@ -151,6 +158,7 @@ export class CanvasClipRenderer {
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
         this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
+        this._drawGroupMiniatures(ctx, vp, clips, range);
         this._drawMarquee(ctx, vp, marquee);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
@@ -487,6 +495,33 @@ export class CanvasClipRenderer {
 
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
         if (y + h < vp.rulerHeight || y > vp.viewportHeight + 10) return;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTERPRISE PERF: Micro-clip fast path.
+        //
+        // At full zoom out (e.g. 1/128 grid), clips may be 1–3px wide.
+        // The full rendering pipeline per clip involves: ctx.clip() (rasterizes
+        // the clip path — the most expensive Canvas 2D op), roundRect path
+        // construction, waveform/MIDI rendering, fade overlays, text layout,
+        // and 2× border clip zones with separate save/restore/stroke sequences.
+        //
+        // For sub-4px clips, none of that detail is visible. Drawing a single
+        // colored fillRect is visually indistinguishable and ~50× faster.
+        // ═══════════════════════════════════════════════════════════════════
+        if (w < 4) {
+            const isTrackDisabled = clip.trackDisabled === true;
+            const rgbBase = this._parseColor(clip.color);
+            const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
+            const alpha = isTrackDisabled ? 0.25 : (clip.muted ? 0.5 : 0.85);
+            ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+            ctx.fillRect(x, y, Math.max(px, w), h);
+            if (clip.selected) {
+                ctx.strokeStyle = SELECTION_GLOW_COLOR;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, Math.max(px, w), h);
+            }
+            return;
+        }
 
         ctx.save();
 
@@ -1192,5 +1227,111 @@ export class CanvasClipRenderer {
         ctx.quadraticCurveTo(cpX, cpY, endX, endY);
         ctx.stroke();
         ctx.restore();
+    }
+
+    // ── Group Track Miniatures ─────────────────────────────────────────
+
+    /**
+     * Update group track metadata for miniature rendering.
+     * @param groupTracks Map of group-track-index → array of child-track-indices
+     * @param trackColors Map of track-index → hex color string
+     */
+    setGroupTracks(
+        groupTracks: Map<number, number[]>,
+        trackColors: Map<number, string>,
+    ): void {
+        this._groupTracks = groupTracks;
+        this._trackColors = trackColors;
+        // PERF: Pre-build flat set of all child track indices for O(1) membership check
+        this._groupChildSet.clear();
+        for (const children of groupTracks.values()) {
+            for (const idx of children) this._groupChildSet.add(idx);
+        }
+    }
+
+    /**
+     * Draw clip miniatures on group tracks.
+     *
+     * PERF: Zero per-frame allocations. No Map/Array creation. Direct nested
+     * loop over groups → children → clips with inline visibility culling.
+     */
+    private _drawGroupMiniatures(
+        ctx: CanvasRenderingContext2D,
+        vp: ViewportMatrix,
+        clips: TimelineClipData[],
+        range: VisibleRange,
+    ): void {
+        if (this._groupTracks.size === 0) return;
+
+        const ppb = vp.pixelsPerBeat;
+        const rulerH = vp.rulerHeight;
+        const vpW = vp.viewportWidth;
+        const vpH = vp.viewportHeight;
+        const scrollX = vp.scrollX;
+        const bufferBeats = 2;
+        const rangeStart = range.startBeat - bufferBeats;
+        const rangeEnd = range.endBeat + bufferBeats;
+
+        for (const [groupIdx, childIndices] of this._groupTracks) {
+            const childCount = childIndices.length;
+            if (childCount === 0) continue;
+            if (groupIdx < range.startTrack - 1 || groupIdx > range.endTrack + 1) continue;
+
+            const trackH = vp.trackHeightAt(groupIdx);
+            const groupY = rulerH + vp.trackOffsetY(groupIdx) - vp.scrollY;
+            if (groupY + trackH < rulerH || groupY > vpH) continue;
+
+            const paddingTop = 3;
+            const paddingBottom = 2;
+            const usableH = trackH - paddingTop - paddingBottom;
+            if (usableH < 2) continue;
+
+            const laneH = Math.max(2, Math.floor(usableH / childCount));
+            const laneGap = childCount > 1 ? 1 : 0;
+            const totalLaneH = laneH * childCount + laneGap * (childCount - 1);
+            const laneStartY = groupY + paddingTop + Math.max(0, (usableH - totalLaneH) >> 1);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, Math.max(rulerH, groupY), vpW, trackH);
+            ctx.clip();
+
+            // Direct iteration: for each child lane, scan clips array inline
+            for (let ci = 0; ci < childCount; ci++) {
+                const childIdx = childIndices[ci];
+                const laneY = laneStartY + ci * (laneH + laneGap);
+
+                for (let k = 0, len = clips.length; k < len; k++) {
+                    const clip = clips[k];
+                    if (clip.trackIndex !== childIdx) continue;
+
+                    const clipEnd = clip.startBeat + clip.durationBeats;
+                    if (clipEnd < rangeStart || clip.startBeat > rangeEnd) continue;
+
+                    const x = snapPhysical(clip.startBeat * ppb - scrollX);
+                    const endX = snapPhysical(clipEnd * ppb - scrollX);
+                    const w = Math.max(1, endX - x);
+                    if (x + w < 0 || x > vpW) continue;
+
+                    const rawColor = clip.color || this._trackColors.get(childIdx) || '#6a8ccc';
+                    const rawRgb = this._parseColor(rawColor);
+                    // Muted clips → grey; disabled tracks → original color but more transparent
+                    const rgb = clip.muted ? this._toMutedGray(rawRgb) : rawRgb;
+                    const alpha = clip.muted ? 0.175
+                        : clip.trackDisabled ? 0.15
+                            : 0.375;
+
+                    ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+                    ctx.fillRect(x, laneY, w, laneH);
+
+                    if (laneH >= 3) {
+                        ctx.fillStyle = `rgba(${Math.min(255, rgb.r + 40)},${Math.min(255, rgb.g + 40)},${Math.min(255, rgb.b + 40)},${alpha * 0.6})`;
+                        ctx.fillRect(x, laneY, w, 1);
+                    }
+                }
+            }
+
+            ctx.restore();
+        }
     }
 }

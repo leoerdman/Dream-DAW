@@ -34,13 +34,10 @@ export function useEqBandDragEffect({
             rafId = null;
             const e = latestEvent;
             if (!e) return;
-            // ENTERPRISE PERF: Throttle flush to ~24fps to reduce IPC + re-render load.
-            // Each update triggers backend IPC + full SVG curve rebuild + Zustand store update.
-            // 24fps (42ms) is perceptually smooth for parameter drag and reduces CPU by 40%
-            // compared to 30fps (32ms). The local drag overlay provides instant visual feedback.
+            // PERF: 16ms (60fps) throttle for smooth drag. The local overlay
+            // provides instant visual feedback; this throttle only limits IPC calls.
             const now = performance.now();
-            if (now - lastFlushAt < 42) {
-                // Re-schedule for next frame if too fast
+            if (now - lastFlushAt < 16) {
                 rafId = window.requestAnimationFrame(flushMove);
                 return;
             }
@@ -57,12 +54,9 @@ export function useEqBandDragEffect({
             const maxF = Math.log10(20000);
             const freq = Math.pow(10, minF + freqNorm * (maxF - minF));
             const roundedFreq = Math.round(freq);
-            // ENTERPRISE PERF: Logarithmic frequency delta threshold.
-            // Only send IPC when frequency changes by ≥0.5% on log scale.
-            // This prevents micro-jitter updates during slow drags while
-            // maintaining full precision for intentional movements.
+            // Log-scale frequency delta: send when ≥0.1% change on log scale
             const freqChangedEnough = Number.isNaN(lastFreq) ||
-                Math.abs(Math.log10(roundedFreq) - Math.log10(lastFreq)) >= 0.002;
+                Math.abs(Math.log10(roundedFreq) - Math.log10(lastFreq)) >= 0.001;
             if (roundedFreq !== lastFreq && freqChangedEnough) {
                 lastFreq = roundedFreq;
                 onParamChange(`B${bandIdx}Freq`, roundedFreq);
@@ -73,9 +67,10 @@ export function useEqBandDragEffect({
                 const qNorm = ((VB_H - 10) - svgY) / (VB_H - 20);
                 const clampedQNorm = clamp01(qNorm);
                 const q = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
-                const roundedQ = Math.round(q * 10) / 10;
-                const qChangedEnough = Number.isNaN(lastQ) || Math.abs(roundedQ - lastQ) >= 0.2;
-                const qSendWindowOpen = now - lastQSentAt >= 80;
+                const roundedQ = Math.round(q * 100) / 100;
+                // Lower Q threshold for smooth drag
+                const qChangedEnough = Number.isNaN(lastQ) || Math.abs(roundedQ - lastQ) >= 0.05;
+                const qSendWindowOpen = now - lastQSentAt >= 32;
                 if (roundedQ !== lastQ && (qChangedEnough || qSendWindowOpen)) {
                     lastQ = roundedQ;
                     lastQSentAt = now;
@@ -86,10 +81,9 @@ export function useEqBandDragEffect({
             const gainValue = ((VB_H / 2 - svgY) / (VB_H / 2 - 10)) * 24;
             const roundedGain = clampEqGainDb(gainValue);
             const quantizedGain = Math.round(roundedGain * 10) / 10;
-            // ENTERPRISE PERF: Gain delta threshold — only send when ≥0.3dB change.
-            // Sub-0.3dB changes are inaudible and create unnecessary IPC traffic.
+            // 0.1dB threshold for smooth, precise gain drag
             const gainChangedEnough = Number.isNaN(lastGain) ||
-                Math.abs(quantizedGain - lastGain) >= 0.3;
+                Math.abs(quantizedGain - lastGain) >= 0.1;
             if (quantizedGain !== lastGain && gainChangedEnough) {
                 lastGain = quantizedGain;
                 onParamChange(`B${bandIdx}Gain`, quantizedGain);

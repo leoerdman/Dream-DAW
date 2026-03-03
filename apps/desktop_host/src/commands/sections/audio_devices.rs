@@ -165,8 +165,13 @@ fn restart_audio_engine_impl(
 
     // Re-apply per-track mixer state (volume, pan, mute, solo) + master volume.
     // Without this, the new audio thread starts with all tracks unmuted.
+    // ENTERPRISE FIX: Rebuild device chains FIRST so the new audio thread has
+    // plugins inserted into per-track processing chains. Without this, external
+    // plugins (Serum, etc.) remain silent after device switch because the new
+    // thread's chains are empty — plugins are registered but not wired.
     {
         let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        rebuild_runtime_device_chains_from_project(&project, &handle)?;
         sync_track_mix_state_from_project(&project, &handle)?;
     }
 

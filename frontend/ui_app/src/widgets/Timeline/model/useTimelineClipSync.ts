@@ -68,4 +68,60 @@ export function useTimelineClipSync({
         engine.setClips(clipData);
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates, selectedClipIdsRef]);
+
+    // ── Group track miniature metadata ────────────────────────────────
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+
+        const groupTracks = new Map<number, number[]>();
+        const trackColors = new Map<number, string>();
+        const orderedTracks = tracksAllIds
+            .map((id) => tracksByIdRef[id])
+            .filter((track): track is NonNullable<typeof track> => Boolean(track));
+
+        // Build ID → index lookup for O(1) resolution
+        const idToIndex = new Map<string, number>();
+        for (let i = 0; i < tracksAllIds.length; i++) {
+            idToIndex.set(tracksAllIds[i], i);
+        }
+
+        // Recursive helper: collect all descendant track indices (flattens subgroups)
+        const collectChildIndices = (childIds: string[], visited: Set<number>): number[] => {
+            const result: number[] = [];
+            for (const childId of childIds) {
+                const childIdx = idToIndex.get(childId);
+                if (childIdx === undefined || childIdx < 0) continue;
+                if (visited.has(childIdx)) continue; // cycle protection
+                visited.add(childIdx);
+
+                const childTrack = orderedTracks[childIdx];
+                if (childTrack?.track_type === 'Group' && childTrack.child_track_ids?.length) {
+                    // Subgroup: recursively include its children (not the group track itself)
+                    const subChildren = collectChildIndices(childTrack.child_track_ids, visited);
+                    result.push(...subChildren);
+                } else {
+                    // Leaf track: include directly
+                    result.push(childIdx);
+                }
+            }
+            return result;
+        };
+
+        for (let i = 0; i < orderedTracks.length; i++) {
+            const track = orderedTracks[i];
+            if (track.color) {
+                trackColors.set(i, track.color);
+            }
+            if (track.track_type === 'Group' && track.child_track_ids && track.child_track_ids.length > 0) {
+                const visited = new Set<number>([i]); // prevent self-reference
+                const childIndices = collectChildIndices(track.child_track_ids, visited);
+                if (childIndices.length > 0) {
+                    groupTracks.set(i, childIndices);
+                }
+            }
+        }
+
+        engine.setTrackMeta(groupTracks, trackColors);
+    }, [tracksAllIds, tracksByIdRef, engineRef]);
 }

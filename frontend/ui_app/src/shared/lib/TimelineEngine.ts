@@ -408,6 +408,19 @@ export class TimelineEngine {
         this._requestRedraw();
     }
 
+    /**
+     * Update group track metadata for miniature rendering.
+     * @param groupTracks Map of group-track-index → array of child-track-indices
+     * @param trackColors Map of track-index → hex color string
+     */
+    setTrackMeta(
+        groupTracks: Map<number, number[]>,
+        trackColors: Map<number, string>,
+    ): void {
+        this._renderer.setGroupTracks(groupTracks, trackColors);
+        this._requestRedraw();
+    }
+
     setConfig(config: Partial<TimelineEngineConfig>): void {
         if (config.beatsPerBar !== undefined) this._beatsPerBar = config.beatsPerBar;
         if (config.bpm !== undefined) this._bpm = config.bpm;

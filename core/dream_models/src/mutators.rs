@@ -1,6 +1,6 @@
 // Project mutators: deterministic timeline operations on `Project`.
 use crate::midi::MidiClip;
-use crate::project::{AudioClip, Project};
+use crate::project::{AudioClip, Project, TrackType};
 use crate::time::AbsoluteTime;
 use uuid::Uuid;
 mod mutators_helpers;
@@ -33,6 +33,10 @@ pub enum MutatorError {
         clip_id: Uuid,
         position: i64,
     },
+    /// The requested operation is invalid for the target track type.
+    InvalidOperation {
+        reason: String,
+    },
 }
 impl std::fmt::Display for MutatorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,6 +65,7 @@ impl std::fmt::Display for MutatorError {
                 f,
                 "Clip {clip_id} position cannot be negative: {position}"
             ),
+            Self::InvalidOperation { reason } => write!(f, "Invalid operation: {reason}"),
         }
     }
 }
@@ -114,6 +119,11 @@ pub fn move_clip(
             available: project.tracks.len(),
         });
     }
+    if project.tracks[new_track_index].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
+        });
+    }
     // Find and remove the clip from its current track
     let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
     // Update position
@@ -144,6 +154,11 @@ pub fn move_clip_protected(
         return Err(MutatorError::TrackOutOfRange {
             requested: new_track_index,
             available: project.tracks.len(),
+        });
+    }
+    if project.tracks[new_track_index].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
         });
     }
     // ENTERPRISE FIX: Clamp negative positions to frame 0 instead of erroring.
@@ -512,6 +527,11 @@ pub fn duplicate_clip(
     if target_idx >= project.tracks.len() {
         return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
     }
+    if project.tracks[target_idx].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
+        });
+    }
     let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
     handle_overlaps(track, &dup, &[]);
@@ -549,6 +569,11 @@ pub fn duplicate_clip_protected(
     if target_idx >= project.tracks.len() {
         return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
     }
+    if project.tracks[target_idx].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
+        });
+    }
     let track = &mut project.tracks[target_idx];
     handle_overlaps(track, &dup, protected_ids);
     let insert_pos = track
@@ -582,6 +607,11 @@ pub fn duplicate_midi_clip(
     let target_idx = target_track_idx.unwrap_or(track_idx);
     if target_idx >= project.tracks.len() {
         return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
+    }
+    if project.tracks[target_idx].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
+        });
     }
     let track = &mut project.tracks[target_idx];
     // Handle overlaps before final insertion
@@ -619,6 +649,11 @@ pub fn duplicate_midi_clip_protected(
         return Err(MutatorError::TrackOutOfRange { requested: target_idx, available: project.tracks.len() });
     }
     let track = &mut project.tracks[target_idx];
+    if track.track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
+        });
+    }
     handle_midi_overlaps(track, &dup, protected_ids);
     let insert_pos = track
         .midi_clips
@@ -644,6 +679,11 @@ pub fn move_midi_clip(
         return Err(MutatorError::TrackOutOfRange {
             requested: new_track_index,
             available: project.tracks.len(),
+        });
+    }
+    if project.tracks[new_track_index].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
         });
     }
     // Find and remove the MIDI clip from its current track
@@ -680,6 +720,11 @@ pub fn move_midi_clip_protected(
         return Err(MutatorError::TrackOutOfRange {
             requested: new_track_index,
             available: project.tracks.len(),
+        });
+    }
+    if project.tracks[new_track_index].track_type == TrackType::Group {
+        return Err(MutatorError::InvalidOperation {
+            reason: "Cannot place clips on a group track".into(),
         });
     }
     let mut extracted = None;

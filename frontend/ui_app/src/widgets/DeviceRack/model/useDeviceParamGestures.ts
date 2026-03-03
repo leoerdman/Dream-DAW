@@ -102,17 +102,25 @@ export function useDeviceParamGestures(
                 return;
             }
             const MASTER_TRACK_INDEX = 65535;
-            const trackIdx = isMaster
-                ? MASTER_TRACK_INDEX
-                : (trackIndexById.get(selectedTrack.id) ?? -1);
-            const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             const pushPluginParam = (paramIndex: number, paramValue: number): boolean => {
-                if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return false;
+                // BUG-EQ06 FIX: Compute trackIdx/effectSlotIdx at call time, NOT at sender
+                // creation time. This prevents stale closure issues when effects are reordered.
+                const currentTrackIdx = isMaster
+                    ? MASTER_TRACK_INDEX
+                    : (trackIndexById.get(selectedTrack.id) ?? -1);
+                const currentEffectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
+                if ((!isMaster && currentTrackIdx < 0) || currentEffectSlotIdx < 0) return false;
                 const runtimeKey = `${selectedTrack.id}:${device.id}:runtime-slot`;
                 let sender = throttledRuntimeSlotSendsRef.current.get(runtimeKey);
                 if (!sender) {
                     sender = createAdaptiveRuntimeBatchSender(async (updates) => {
-                        await engineApi.setDeviceParamsRuntime(trackIdx, effectSlotIdx, updates);
+                        // BUG-EQ06 FIX: Re-resolve indices at flush time to avoid stale closures
+                        const flushTrackIdx = isMaster
+                            ? MASTER_TRACK_INDEX
+                            : (trackIndexById.get(selectedTrack.id) ?? -1);
+                        const flushEffectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
+                        if ((!isMaster && flushTrackIdx < 0) || flushEffectSlotIdx < 0) return;
+                        await engineApi.setDeviceParamsRuntime(flushTrackIdx, flushEffectSlotIdx, updates);
                     });
                     throttledRuntimeSlotSendsRef.current.set(runtimeKey, sender);
                 }

@@ -41,10 +41,21 @@ export function PluginGuiSurfaceEqBandStrip({
                         fontSize: 'var(--font-size-2xs)',
                         fontWeight: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 700 : 400,
                         transition: 'all 0.15s ease',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
                     }}
                     onClick={() => setSelectedEqBand(band.idx)}
                     onDoubleClick={() => onParamChange(`B${band.idx}En`, 0)}
                 >
+                    <span style={{
+                        display: 'inline-block',
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: band.color || 'var(--color-accent-primary)',
+                        flexShrink: 0,
+                    }} />
                     {band.freq >= 1000 ? `${(band.freq / 1000).toFixed(1)}k` : band.freq.toFixed(0)}
                 </span>
             ))}

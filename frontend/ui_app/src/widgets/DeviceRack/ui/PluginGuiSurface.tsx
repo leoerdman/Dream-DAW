@@ -152,13 +152,17 @@ export const PluginGuiSurface = ({
     }
     prevDragBandRef.current = dragEqBand;
 
+    // BUG-EQ01 FIX: Use ref for dragEqBand so the callback identity is stable
+    // and the useEqBandDragEffect always has the latest callback.
+    const dragEqBandRef = useRef(dragEqBand);
+    dragEqBandRef.current = dragEqBand;
     const onParamChangeLocal = useCallback((paramName: string, value: number) => {
-        if (dragEqBand !== null) {
+        if (dragEqBandRef.current !== null) {
             pendingDragOverrides.current.set(paramName.toLowerCase(), value);
             setDragRenderTick((t) => t + 1);
         }
         onParamChange(paramName, value);
-    }, [dragEqBand, onParamChange]);
+    }, [onParamChange]);
 
     // Merge device.params with local drag overrides for instant curve feedback.
     const mergedEqParams = useMemo(() => {
@@ -178,11 +182,18 @@ export const PluginGuiSurface = ({
         setDragEqBand,
     });
 
+    // BUG-EQ03 FIX: Use 'pointerdown' with rAF delay so the context menu item's
+    // onClick fires before the portal is removed from the DOM.
     useEffect(() => {
         if (!eqContextMenu) return;
-        const handler = () => setEqContextMenu(null);
-        window.addEventListener('mousedown', handler);
-        return () => window.removeEventListener('mousedown', handler);
+        const handler = (e: PointerEvent) => {
+            // Don't dismiss if clicking inside the context menu itself
+            const target = e.target as HTMLElement;
+            if (target.closest?.('[data-eq-context-menu]')) return;
+            requestAnimationFrame(() => setEqContextMenu(null));
+        };
+        window.addEventListener('pointerdown', handler);
+        return () => window.removeEventListener('pointerdown', handler);
     }, [eqContextMenu]);
 
     if (device.effectType === 'waveSynth') {

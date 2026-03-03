@@ -66,7 +66,7 @@ export function PluginGuiSurfaceEqControls({
                     compact
                 />
             )}
-            {activeBandIsFilterOnly && qParam && (
+            {qParam && (
                 <PluginKnob
                     key={`q-${qParam.name}`}
                     param={qParam}

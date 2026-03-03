@@ -180,6 +180,7 @@ export function EqBandContextMenu({
                 overflowY: 'auto',
             }}
             onMouseDown={(e) => e.stopPropagation()}
+            data-eq-context-menu
         >
             {Object.entries(EQ_FILTER_LABELS).map(([type, label]) => (
                 <div

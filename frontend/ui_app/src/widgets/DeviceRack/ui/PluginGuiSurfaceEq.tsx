@@ -94,7 +94,7 @@ export function PluginGuiSurfaceEq({
         // PERF-FIX: Reduce curve resolution to 80 steps during drag for 60% fewer
         // biquad evaluations per frame. 80 is visually indistinguishable during
         // fast mouse movement. Full 200-step resolution restores on drag end.
-        () => buildEqCurvePaths(bands, projectSampleRate, isDragging ? 80 : 200),
+        () => buildEqCurvePaths(bands, projectSampleRate, isDragging ? 140 : 200),
         [bands, projectSampleRate, isDragging],
     );
 
@@ -194,8 +194,8 @@ export function PluginGuiSurfaceEq({
                         ))}
                         <defs>
                             <linearGradient id={`specGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 18%, transparent)" />
-                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
+                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 42%, transparent)" />
+                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 12%, transparent)" />
                             </linearGradient>
                         </defs>
                         <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} isDragging={isDragging} />
@@ -236,7 +236,7 @@ export function PluginGuiSurfaceEq({
                         </svg>
                     </div>
                     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                        {[-18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
+                        {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                             <div key={`dblabel-${db}`} style={{
                                 position: 'absolute', left: `${((MARGIN_L + 2) / VB_W) * 100}%`, top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
                                 fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-role-body)',
@@ -336,11 +336,10 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
                     try {
                         // Enterprise: per-track spectrum when track index is valid,
                         // fallback to master spectrum otherwise.
-                        // PERF: Skip spectrum poll entirely during band drag to
-                        // eliminate IPC contention with drag parameter updates.
+                        // PERF: During drag, poll at reduced rate (60ms) instead of skipping
+                        // entirely — keeps spectrum visible but avoids IPC contention.
                         if (isDraggingRef.current) {
-                            await new Promise(r => setTimeout(r, 100));
-                            continue;
+                            await new Promise(r => setTimeout(r, 60));
                         }
                         const data = trackIndex >= 0
                             ? await invoke<number[]>('get_spectrum_data_for_track', { trackIndex })
@@ -350,7 +349,8 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
                         if (Array.isArray(data) && data.length > 0) {
                             const prev = lastSpectrumRef.current;
                             if (prev && prev.length === data.length) {
-                                const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
+                                // Higher smoothing (0.82) = less flicker between frames
+                                const smoothed = data.map((v, i) => prev[i] * 0.82 + v * 0.18);
                                 lastSpectrumRef.current = smoothed;
                                 setSpectrumPath(buildSpectrumPath(smoothed));
                             } else {
@@ -384,6 +384,6 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
     // ENTERPRISE: Gradient is defined once in the parent SVG <defs> (line ~193).
     // No duplicate <defs> here — just reference the parent's gradient by ID.
     return (
-        <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.36" />
+        <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.72" />
     );
 });

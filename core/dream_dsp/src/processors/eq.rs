@@ -246,36 +246,18 @@ impl DspProcessor for EqProcessor {
         match param_idx {
             0 => {
                 let new_freq = (value as f64).clamp(20.0, 20000.0);
-                // ENTERPRISE: Only auto-enable when frequency actually changes.
-                // Telemetry sync re-sends unchanged values — without this guard,
-                // disabling a band gets immediately re-enabled by the next sync tick.
-                let freq_changed = (new_freq - band.freq).abs() > 0.01;
                 band.freq = new_freq;
                 band.update(sr);
-                if freq_changed && !band.enabled {
-                    band.enabled = true;
-                }
             }
             1 => {
                 let new_gain = (value as f64).clamp(-24.0, 24.0);
-                let gain_changed = (new_gain - band.gain_db).abs() > 0.001;
                 band.gain_db = new_gain;
                 band.update(sr);
-                // ENTERPRISE: Auto-enable on gain change only when gain is non-zero
-                // AND the value actually changed. This is the primary "EQ works" fix.
-                if gain_changed && !band.enabled && band.gain_db.abs() > 0.01 {
-                    band.enabled = true;
-                }
             }
             2 => {
                 let new_q = (value as f64).clamp(0.1, 18.0);
-                let q_changed = (new_q - band.q).abs() > 0.001;
                 band.q = new_q;
                 band.update(sr);
-                // ENTERPRISE: Only auto-enable when Q actually changes.
-                if q_changed && !band.enabled {
-                    band.enabled = true;
-                }
             }
             3 => {
                 band.enabled = value > 0.5;

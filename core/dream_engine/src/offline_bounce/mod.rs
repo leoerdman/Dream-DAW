@@ -1958,6 +1958,73 @@ impl OfflineRenderer {
             &project.master_track.effects,
         );
 
+        // ── ENTERPRISE: Export parity diagnostics ──────────────────
+        // Log per-track state at bounce start to help identify any
+        // divergence between RT playback and offline export.
+        // Uses warn! level to ensure visibility in terminal.
+        log::error!(
+            "[Bounce-Diag] Master: volume={:.3}, device_chain_slots={}, effects_count={}",
+            project.master_track.volume,
+            master_device_chain.len(),
+            project.master_track.effects.len(),
+        );
+        for (track_idx, track) in project.tracks.iter().enumerate() {
+            let chain_len = if track_idx < render_ctx.track_slots.len() {
+                render_ctx.track_slots[track_idx].device_chain.len()
+            } else {
+                0
+            };
+            let ext_fx_count = external_fx_map
+                .get(track_idx)
+                .map(|slots| slots.len())
+                .unwrap_or(0);
+            let is_group = !track.child_track_ids.is_empty();
+            // Also log sidechain sources for this track
+            let sc_sources: Vec<String> = track.effects.iter().flat_map(|node| {
+                node.collect_plugin_slots().into_iter().filter_map(|slot| {
+                    slot.sidechain_source_track_id.as_ref().map(|sc_id| {
+                        format!("slot='{}' sc_src={} bypassed={}", slot.name, sc_id, slot.is_bypassed)
+                    })
+                }).collect::<Vec<_>>()
+            }).collect();
+            let sc_info = if sc_sources.is_empty() {
+                String::from("none")
+            } else {
+                sc_sources.join("; ")
+            };
+            log::error!(
+                "[Bounce-Diag] Track[{}] '{}': disabled={}, solo={}, vol={:.3}, pan={:.3}, \
+                 internal_fx={}, external_fx_slots={}, is_group={}, \
+                 audio_clips={}, midi_clips={}, sidechains=[{}]",
+                track_idx,
+                track.name,
+                track.is_disabled,
+                track.is_solo,
+                track.volume,
+                track.pan,
+                chain_len,
+                ext_fx_count,
+                is_group,
+                track.clips.len(),
+                track.midi_clips.len(),
+                sc_info,
+            );
+        }
+
+        // ── ENTERPRISE: Log RUNTIME sidechain_track_index from external_fx_snapshot ──
+        // This shows the actual resolved numeric indices used by the bounce render loop,
+        // confirming whether ShaperBox/etc. receive the correct sidechain source buffer.
+        for (ti, runtime_slots) in external_fx_map.iter().enumerate() {
+            for (si, rs) in runtime_slots.iter().enumerate() {
+                if rs.sidechain_track_index.is_some() || rs.instance_id.is_some() {
+                    log::error!(
+                        "[Bounce-Diag] Runtime Track[{}] Slot[{}]: sc_track_idx={:?}, instance_id={:?}, internal_idx={:?}, bypassed={}, is_instrument={}",
+                        ti, si, rs.sidechain_track_index, rs.instance_id, rs.internal_slot_index, rs.is_bypassed, rs.is_instrument
+                    );
+                }
+            }
+        }
+
         // BUF-M05 FIX: Allocate extra tail frames for reverb/delay decay.
         // 2 seconds of extra processing at project SR, capped to avoid OOM.
         let max_tail_frames = (project_sr as usize * 2).min(384000);

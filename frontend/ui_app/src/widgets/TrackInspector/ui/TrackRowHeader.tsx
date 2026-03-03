@@ -63,10 +63,14 @@ export const TrackRowHeader = memo(({
         headerContrast === 'black'
             ? 'var(--glass-bg)'
             : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
-    const indentW = !isMaster && depth > 0 ? Math.min(layout.maxIndentPx, depth * layout.indentStepPx) : 0;
+    // ENTERPRISE: indentW is no longer added to basePaddingLeft.
+    // The colored ancestor stripes (rendered below) already provide visual
+    // nesting hierarchy. Adding extra pixel padding per depth level caused
+    // deeply nested tracks to have 2-3× wider offsets than top-level tracks.
+    // All track headers now have identical text alignment, matching industry-standard DAWs.
     const stripeW = !isMaster && depth > 0 ? layout.groupStripeWidthPx : 0;
     // Master gets extra base padding to visually align text with other tracks
-    const basePaddingLeft = (mixerFocusMode ? 5 : 4) + indentW + (isMaster ? 4 : 0);
+    const basePaddingLeft = (mixerFocusMode ? 5 : 4) + (isMaster ? 4 : 0);
 
     return (
         <div

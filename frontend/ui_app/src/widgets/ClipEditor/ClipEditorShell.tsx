@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export const CLIP_EDITOR_SIDEBAR_WIDTH = 182;
+export const CLIP_EDITOR_SIDEBAR_WIDTH = 224;
 
 export const ClipEditorShell = ({
     sidebar,

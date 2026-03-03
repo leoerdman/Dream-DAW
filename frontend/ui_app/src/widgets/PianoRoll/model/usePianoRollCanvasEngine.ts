@@ -100,23 +100,14 @@ export function usePianoRollCanvasEngine({
             ctx.fillRect(x + 1, y, w - 2, 1);
 
             // Always-visible outline: gray normally, white on selection.
+            // BUG-PR05 FIX: Single stroke pass — no double-render for selected notes.
             const isSelected = selectedNotes.has(note.id);
-            ctx.globalAlpha = isSelected ? 0.98 : 0.72;
+            ctx.globalAlpha = isSelected ? 1 : 0.72;
             ctx.strokeStyle = isSelected ? noteStrokeSelectedColor : noteStrokeDefaultColor;
             ctx.lineWidth = isSelected ? 1.6 : 1.0;
             ctx.beginPath();
             ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
             ctx.stroke();
-
-            // Selection outline
-            if (isSelected) {
-                ctx.globalAlpha = 1;
-                ctx.strokeStyle = noteStrokeSelectedColor;
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
-                ctx.stroke();
-            }
         }
         ctx.globalAlpha = 1;
     }, [notes, ghostNotes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY, disabled]);

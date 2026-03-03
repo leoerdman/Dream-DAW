@@ -6,6 +6,7 @@ import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR, MIN_BPM, MAX_BPM } from '@/shared/lib/audioMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
+import { ClipEditorToolbar } from '@/widgets/ClipEditor/ClipEditorToolbar';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
 
@@ -187,17 +188,8 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     }, []);
 
     return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)', outline: 'none' }}>
-            <div style={{
-                height: 'var(--daw-transport-height)',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0 var(--space-2)',
-                gap: 'var(--space-1)',
-                background: 'var(--color-bg-elevated)',
-                borderBottom: 'var(--space-px) solid var(--color-divider)',
-                flexShrink: 0,
-            }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-base)', outline: 'none' }}>
+            <ClipEditorToolbar>
                 <span style={{
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-primary)',
@@ -222,7 +214,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 }}>
                     Length: {formatBeatsAsBBS(clipDurationBeats, beatsPerBar)}
                 </div>
-            </div>
+            </ClipEditorToolbar>
 
             <ClipEditorShell sidebar={<SampleClipEditorSidebar
                 clipDurationBeats={clipDurationBeats}

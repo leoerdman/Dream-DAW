@@ -321,11 +321,12 @@ pub fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
         .and_then(parse_i64_value)
 }
 
-// ── Legacy Track Value Parsers (desktop_host compatibility) ───────────
+// ── Broad Track Value Parsers (ALS import compatibility) ──────────────
 
-/// Legacy-compatible bool parser used by desktop_host ALS importer.
-/// Reads direct child `<Tag Value="...">` first, then any descendant.
-pub fn parse_track_bool_flag_legacy(
+/// Broad descendant-search bool parser for ALS import.
+/// Searches direct child `<Tag Value="...">` first, then any descendant.
+/// Use this for ALS import where XML structure varies across versions.
+pub fn parse_track_bool_flag_broad(
     track_node: roxmltree::Node<'_, '_>,
     tag: &str,
 ) -> Option<bool> {
@@ -341,8 +342,8 @@ pub fn parse_track_bool_flag_legacy(
         .and_then(parse_bool_value)
 }
 
-/// Legacy-compatible key note parser used by desktop_host ALS importer.
-pub fn parse_track_key_note_target_legacy(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
+/// Broad descendant-search key note parser for ALS import.
+pub fn parse_track_key_note_target_broad(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
     node_child_value(track_node, "KeyNoteTarget")
         .or_else(|| {
             track_node
@@ -356,8 +357,8 @@ pub fn parse_track_key_note_target_legacy(track_node: roxmltree::Node<'_, '_>) -
         .map(|v| v.clamp(0, 127) as u8)
 }
 
-/// Legacy-compatible i64 parser used by desktop_host ALS importer.
-pub fn parse_track_i64_value_legacy(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
+/// Broad descendant-search i64 parser for ALS import.
+pub fn parse_track_i64_value_broad(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
     node_child_value(track_node, tag)
         .or_else(|| {
             track_node

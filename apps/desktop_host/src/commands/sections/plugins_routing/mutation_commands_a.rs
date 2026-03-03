@@ -71,10 +71,27 @@ fn add_plugin_to_track_impl(
     let new_slot_id = cmd_result.slot_id;
     let use_instrument = cmd_result.placed_as_instrument;
     let track_index = cmd_result.track_index as u16;
+    // BUG-1 FIX: slot_index for PluginAdded delta must be the FLAT effect
+    // array position (including both internal and external plugins), NOT the
+    // runtime-internal-only index. The frontend uses this index to splice into
+    // track.effects[] which is a flat array of all effect slots.
     let slot_index = if use_instrument {
         0
     } else {
-        usize::from(cmd_result.runtime_effect_slot_index.unwrap_or(0))
+        // Find the flat position of the newly inserted slot by scanning the
+        // post-mutation project effects array.
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        let flat_idx = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_id)
+            .and_then(|t| {
+                t.effects
+                    .iter()
+                    .position(|node| node.id() == new_slot_id)
+            })
+            .unwrap_or(0);
+        flat_idx
     };
 
     let mut runtime_add: Option<(u16, u8, u8)> = None;

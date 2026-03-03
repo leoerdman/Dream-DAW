@@ -89,9 +89,19 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
 
     // SAMPLER-DRONE-FIX: Global safety net — kill all active preview notes
     // on mouseup/blur so rapid click-drag can never leave dangling note-ons.
+    // BUG-PR06 FIX: Only kill notes on global mouseup after a grace period (150ms)
+    // so click-triggered auditions (120ms) don't get immediately killed.
+    const lastAuditionTriggerRef = useRef(0);
+    const originalAuditionNote = auditionNote;
+    const guardedAuditionNote = useCallback((pitch: number, velocity = 100, durationMs = 120) => {
+        lastAuditionTriggerRef.current = Date.now();
+        originalAuditionNote(pitch, velocity, durationMs);
+    }, [originalAuditionNote]);
     useEffect(() => {
         const handleGlobalRelease = () => {
             if (activePitchesRef.current.size === 0) return;
+            // Don't kill notes that were just triggered (within 150ms grace)
+            if (Date.now() - lastAuditionTriggerRef.current < 150) return;
             stopAllAudition();
         };
         window.addEventListener('mouseup', handleGlobalRelease);
@@ -108,5 +118,5 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         stopAllAudition();
     }, [enabled, trackIndex, stopAllAudition]);
 
-    return { auditionNote, stopAudition, stopAllAudition };
+    return { auditionNote: guardedAuditionNote, stopAudition, stopAllAudition };
 }

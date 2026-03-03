@@ -91,13 +91,14 @@ fn set_sample_rack_pad_mute_cmd(
     .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    // Engine doesn't have a distinct mute state per pad, so we sync volume = 0 if muted.
+    // Enterprise: Send the proper engine mute command now that
+    // SampleRackEngine supports native per-pad mute.
     push_command(
         &handle,
-        EngineCommand::SetSampleRackPadVolume {
+        EngineCommand::SetSampleRackPadMute {
             track_index: result.track_index,
             pad_index: result.pad_index,
-            volume: result.effective_volume,
+            muted,
         },
     )?;
 
@@ -157,17 +158,16 @@ fn set_sample_rack_pad_solo_cmd(
     .map_err(|e| e.to_string())?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    for (i, vol_for_engine) in result.effective_pad_volumes.iter().enumerate() {
-        push_command(
-            &handle,
-            EngineCommand::SetSampleRackPadVolume {
-                track_index: result.track_index,
-                pad_index: i as u8,
-                volume: *vol_for_engine,
-            },
-        )
-        .unwrap_or_else(|e| log::error!("Failed sending pad volume cmd: {}", e));
-    }
+    // Enterprise: Send the proper engine solo command now that
+    // SampleRackEngine supports native per-pad solo via bitmask.
+    push_command(
+        &handle,
+        EngineCommand::SetSampleRackPadSolo {
+            track_index: result.track_index,
+            pad_index: pad_index,
+            soloed,
+        },
+    )?;
 
     let project_name = {
         let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;

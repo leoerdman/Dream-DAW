@@ -29,19 +29,34 @@ use crate::processors::{db_to_linear, sanitize_sample_rate};
 const NUM_BANDS: usize = 8;
 
 /// Default frequencies for 8 bands (log-spaced).
+/// Band 3 centered at 1kHz — the default enabled band (flat line).
 const DEFAULT_FREQS: [f64; NUM_BANDS] =
-    [30.0, 100.0, 250.0, 800.0, 2500.0, 6000.0, 12000.0, 18000.0];
+    [30.0, 100.0, 250.0, 1000.0, 2500.0, 6000.0, 12000.0, 18000.0];
 
 /// Default filter types per band.
 const DEFAULT_TYPES: [BiquadType; NUM_BANDS] = [
     BiquadType::Highpass,  // Band 0: Low cut
     BiquadType::LowShelf,  // Band 1: Low shelf
     BiquadType::Peaking,   // Band 2: Bell
-    BiquadType::Peaking,   // Band 3: Bell
+    BiquadType::Peaking,   // Band 3: Bell (default enabled)
     BiquadType::Peaking,   // Band 4: Bell
     BiquadType::Peaking,   // Band 5: Bell
     BiquadType::HighShelf, // Band 6: High shelf
     BiquadType::Lowpass,   // Band 7: High cut
+];
+
+/// Default enabled state per band.
+/// Only Band 3 (Peaking at 1kHz, gain=0) is enabled — gives a single
+/// centered point on a flat line. User double-clicks to add more.
+const DEFAULT_ENABLED: [bool; NUM_BANDS] = [
+    false, // B0: HP off
+    false, // B1: Low shelf off
+    false, // B2: Bell off
+    true,  // B3: Bell ON (centered at 1kHz, gain=0 = flat)
+    false, // B4: Bell off
+    false, // B5: Bell off
+    false, // B6: High shelf off
+    false, // B7: LP off
 ];
 
 /// Per-band state.
@@ -56,7 +71,7 @@ struct EqBand {
 }
 
 impl EqBand {
-    fn new(freq: f64, gain_db: f64, q: f64, filter_type: BiquadType, sr: f64) -> Self {
+    fn new(freq: f64, gain_db: f64, q: f64, filter_type: BiquadType, sr: f64, default_enabled: bool) -> Self {
         let coeffs = BiquadCoeffs::new(filter_type, freq, q, sr, gain_db);
         Self {
             filter_l: BiquadFilter::new(coeffs),
@@ -64,15 +79,12 @@ impl EqBand {
             freq,
             gain_db,
             q,
-            // CRITICAL FIX: Default enable state MUST match frontend presets
-            // (deviceParamPresets.ts) to avoid silent mismatch — no initial
-            // param sync occurs when a device is first created.
+            // ENTERPRISE: Default enable state sourced from DEFAULT_ENABLED
+            // constant, keeping Rust DSP and frontend presets
+            // (deviceParamPresets.ts) in perfect sync.
             //
-            // Frontend defaults: B0En=1 (HP on), B1-6En=0 (off), B7En=1 (LP on).
-            // Previous code had these INVERTED: HP/LP off, parametric bands on.
-            // Result: user sees HP/LP as "active" in UI but backend filter is
-            // disabled → EQ has zero effect on audio.
-            enabled: matches!(filter_type, BiquadType::Highpass | BiquadType::Lowpass),
+            // Only B3 (Peaking@1kHz, gain=0) enabled by default.
+            enabled: default_enabled,
             filter_type,
         }
     }
@@ -104,7 +116,7 @@ impl EqProcessor {
         let safe_sr = sanitize_sample_rate(sample_rate as f32) as f64;
         let bands = std::array::from_fn(|i| {
             let gain = 0.0;
-            EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], safe_sr)
+            EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], safe_sr, DEFAULT_ENABLED[i])
         });
         Self {
             bands,
@@ -233,30 +245,35 @@ impl DspProcessor for EqProcessor {
 
         match param_idx {
             0 => {
-                band.freq = (value as f64).clamp(20.0, 20000.0);
+                let new_freq = (value as f64).clamp(20.0, 20000.0);
+                // ENTERPRISE: Only auto-enable when frequency actually changes.
+                // Telemetry sync re-sends unchanged values — without this guard,
+                // disabling a band gets immediately re-enabled by the next sync tick.
+                let freq_changed = (new_freq - band.freq).abs() > 0.01;
+                band.freq = new_freq;
                 band.update(sr);
-                // EQ-FIX: Auto-enable band when user adjusts frequency.
-                // Matches Ableton Live behavior: touching any band param activates it.
-                if !band.enabled {
+                if freq_changed && !band.enabled {
                     band.enabled = true;
                 }
             }
             1 => {
-                band.gain_db = (value as f64).clamp(-24.0, 24.0);
+                let new_gain = (value as f64).clamp(-24.0, 24.0);
+                let gain_changed = (new_gain - band.gain_db).abs() > 0.001;
+                band.gain_db = new_gain;
                 band.update(sr);
-                // EQ-FIX: Auto-enable band when user adjusts gain.
-                // This is the primary fix for "EQ doesn't work" — without this,
-                // bands 1-6 default to disabled and the user sees curves in the UI
-                // but hears no audio change because the backend band is disabled.
-                if !band.enabled && band.gain_db.abs() > 0.01 {
+                // ENTERPRISE: Auto-enable on gain change only when gain is non-zero
+                // AND the value actually changed. This is the primary "EQ works" fix.
+                if gain_changed && !band.enabled && band.gain_db.abs() > 0.01 {
                     band.enabled = true;
                 }
             }
             2 => {
-                band.q = (value as f64).clamp(0.1, 18.0);
+                let new_q = (value as f64).clamp(0.1, 18.0);
+                let q_changed = (new_q - band.q).abs() > 0.001;
+                band.q = new_q;
                 band.update(sr);
-                // EQ-FIX: Auto-enable band when user adjusts Q.
-                if !band.enabled {
+                // ENTERPRISE: Only auto-enable when Q actually changes.
+                if q_changed && !band.enabled {
                     band.enabled = true;
                 }
             }

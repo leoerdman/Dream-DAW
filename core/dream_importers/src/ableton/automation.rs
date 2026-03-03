@@ -15,7 +15,7 @@ use crate::ableton::routing::{
 use crate::ableton::xml_helpers::{
     ableton_volume_to_linear_gain, collect_track_devices, maybe_parse_bool_manual,
     maybe_parse_f64_manual, node_child_value, parse_bool_value, parse_f64_value, parse_i64_value,
-    parse_track_bool_flag_legacy,
+    parse_track_bool_flag_broad,
 };
 use dream_models::project::{AutomationLane, AutomationPoint, Track, TrackType};
 
@@ -98,13 +98,13 @@ pub fn build_main_track_mixer_snapshot(
         }
     }
 
-    if let Some(v) = parse_track_bool_flag_legacy(main_track_node, "IsAutoSelectEnabled") {
+    if let Some(v) = parse_track_bool_flag_broad(main_track_node, "IsAutoSelectEnabled") {
         static_mixer_values.push((
             "mixer.is_auto_select_enabled".to_string(),
             if v { 1.0 } else { 0.0 },
         ));
     }
-    if let Some(v) = parse_track_bool_flag_legacy(main_track_node, "KeepRecordMonitoringLatency") {
+    if let Some(v) = parse_track_bool_flag_broad(main_track_node, "KeepRecordMonitoringLatency") {
         static_mixer_values.push((
             "mixer.keep_record_monitoring_latency".to_string(),
             if v { 1.0 } else { 0.0 },

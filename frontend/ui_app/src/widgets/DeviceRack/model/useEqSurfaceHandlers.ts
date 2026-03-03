@@ -26,17 +26,9 @@ export function useEqSurfaceHandlers({
     setEqContextMenu,
     onBandCreated,
 }: Args) {
-    const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-        // Do not cancel right-button mousedown: cancelling here suppresses
-        // subsequent contextmenu on some platforms/browsers.
-        if (e.button === 2) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const svg = eqSurfaceRef.current;
-        if (!svg) return;
-        const rect = svg.getBoundingClientRect();
-        const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-        const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
+    // ENTERPRISE DRY: Shared nearest-band lookup used by all 3 mouse handlers.
+    // Eliminates 3× duplicated distance calculation.
+    const findNearestEnabledBand = useCallback((svgX: number, svgY: number, maxDist: number): EqBand8 | null => {
         let nearest: EqBand8 | null = null;
         let nearestDist = Infinity;
         for (const band of bands) {
@@ -49,33 +41,41 @@ export function useEqSurfaceHandlers({
                 nearest = band;
             }
         }
-        if (!nearest || nearestDist >= 25) return;
+        return nearest && nearestDist < maxDist ? nearest : null;
+    }, [bands]);
+
+    // ENTERPRISE: SVG coordinate resolver — used by all handlers.
+    const resolveSvgCoords = useCallback((e: React.MouseEvent<SVGSVGElement>): { svgX: number; svgY: number } | null => {
+        const svg = eqSurfaceRef.current;
+        if (!svg) return null;
+        const rect = svg.getBoundingClientRect();
+        return {
+            svgX: ((e.clientX - rect.left) / rect.width) * VB_W,
+            svgY: ((e.clientY - rect.top) / rect.height) * VB_H,
+        };
+    }, [eqSurfaceRef]);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+        if (e.button === 2) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const coords = resolveSvgCoords(e);
+        if (!coords) return;
+        const nearest = findNearestEnabledBand(coords.svgX, coords.svgY, 25);
+        if (!nearest) return;
         setSelectedEqBand(nearest.idx);
         beginEqBandGesture(nearest.idx);
         setDragEqBand(nearest.idx);
-    }, [bands, beginEqBandGesture, eqSurfaceRef, setDragEqBand, setSelectedEqBand]);
+    }, [findNearestEnabledBand, resolveSvgCoords, beginEqBandGesture, setDragEqBand, setSelectedEqBand]);
 
     const handleDoubleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        const svg = eqSurfaceRef.current;
-        if (!svg) return;
-        const rect = svg.getBoundingClientRect();
-        const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-        const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-        let clickedBand: EqBand8 | null = null;
-        let clickedDist = Infinity;
-        for (const band of bands) {
-            if (!band.enabled) continue;
-            const bx = freqToX(band.freq);
-            const by = bandDotY(band);
-            const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-            if (dist < clickedDist) {
-                clickedDist = dist;
-                clickedBand = band;
-            }
-        }
-        if (clickedBand && clickedDist < 20) {
+        const coords = resolveSvgCoords(e);
+        if (!coords) return;
+        const { svgX, svgY } = coords;
+        const clickedBand = findNearestEnabledBand(svgX, svgY, 20);
+        if (clickedBand) {
             onParamChange(`B${clickedBand.idx}En`, 0);
             return;
         }
@@ -107,32 +107,18 @@ export function useEqSurfaceHandlers({
         onBandCreated(bestBand.idx);
         onParamChange(`B${bestBand.idx}En`, 1);
         setSelectedEqBand(bestBand.idx);
-    }, [bands, eqBandFilterTypes, eqSurfaceRef, onBandCreated, onParamChange, setSelectedEqBand]);
+    }, [bands, eqBandFilterTypes, findNearestEnabledBand, resolveSvgCoords, onBandCreated, onParamChange, setSelectedEqBand]);
 
     const handleContextMenu = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        const svg = eqSurfaceRef.current;
-        if (!svg) return;
-        const rect = svg.getBoundingClientRect();
-        const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-        const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-        let nearest: EqBand8 | null = null;
-        let nearestDist = Infinity;
-        for (const band of bands) {
-            if (!band.enabled) continue;
-            const bx = freqToX(band.freq);
-            const by = bandDotY(band);
-            const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-            if (dist < nearestDist) {
-                nearestDist = dist;
-                nearest = band;
-            }
-        }
-        if (nearest && nearestDist < 30) {
+        const coords = resolveSvgCoords(e);
+        if (!coords) return;
+        const nearest = findNearestEnabledBand(coords.svgX, coords.svgY, 30);
+        if (nearest) {
             setEqContextMenu({ x: e.clientX, y: e.clientY, bandIdx: nearest.idx });
         }
-    }, [bands, eqSurfaceRef, setEqContextMenu]);
+    }, [findNearestEnabledBand, resolveSvgCoords, setEqContextMenu]);
 
     return { handleMouseDown, handleDoubleClick, handleContextMenu };
 }

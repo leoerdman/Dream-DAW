@@ -346,9 +346,9 @@ pub fn rebuild_runtime_device_chains_from_project(
 
         if is_phaser || is_flanger {
             let (is_flanger_device, index_center_or_delay, index_mix) = if is_flanger {
-                (true, 3u8, 4u8)
+                (true, 3u32, 4u32)
             } else {
-                (false, 4u8, 5u8)
+                (false, 4u32, 5u32)
             };
             if let Some(v) = first_lane_value(
                 track,
@@ -729,7 +729,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         EngineCommand::SetDeviceParam {
                             track_index: ti,
                             slot_index: si,
-                            param_index: param_idx.min(u8::MAX as usize) as u8,
+                            param_index: param_idx as u32,
                             value,
                         },
                     )?;
@@ -835,7 +835,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         EngineCommand::SetDeviceParam {
                             track_index: MASTER_TRACK_INDEX,
                             slot_index: slot_index.min(u8::MAX as usize) as u8,
-                            param_index: param_idx.min(u8::MAX as usize) as u8,
+                            param_index: param_idx as u32,
                             value,
                         },
                     )?;

@@ -391,15 +391,23 @@ pub(super) fn drain_commands(
                 }
             }
             EngineCommand::SetSampleRackPadMute {
-                track_index: _,
-                pad_index: _,
-                muted: _,
-            } => {}
+                track_index,
+                pad_index,
+                muted,
+            } => {
+                if let Some(engine) = ctx.sample_rack_engines.get_mut(track_index as usize) {
+                    engine.set_pad_muted(pad_index as usize, muted);
+                }
+            }
             EngineCommand::SetSampleRackPadSolo {
-                track_index: _,
-                pad_index: _,
-                soloed: _,
-            } => {}
+                track_index,
+                pad_index,
+                soloed,
+            } => {
+                if let Some(engine) = ctx.sample_rack_engines.get_mut(track_index as usize) {
+                    engine.set_pad_solo(pad_index as usize, soloed);
+                }
+            }
             EngineCommand::SetSampleRackPadAdsr {
                 track_index,
                 pad_index,

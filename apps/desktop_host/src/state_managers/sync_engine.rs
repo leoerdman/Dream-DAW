@@ -27,7 +27,7 @@ pub use sampler_snapshot::rebuild_sampler_snapshot_from_project;
 /// Public helper for persisting a device param to the project model's slot.params.
 /// Used by `set_device_param_runtime_cmd` to ensure runtime-only param changes
 /// survive device chain rebuilds (triggered by track move, group, undo/redo).
-pub fn persist_param_to_slot_pub(slot: &mut dream_models::project::PluginSlot, param_index: u8, value: f32) {
+pub fn persist_param_to_slot_pub(slot: &mut dream_models::project::PluginSlot, param_index: u32, value: f32) {
     if slot.params.is_none() {
         slot.params = Some(vec![0.0; 32]);
     }

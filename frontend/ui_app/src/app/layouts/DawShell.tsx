@@ -584,7 +584,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 toggleGroupCollapse={toggleGroupCollapse}
                 timelineProps={timelineProps}
                 bottomPanelMode={bottomPanelMode}
-                hasResizableClipEditor={false}
+                hasResizableClipEditor={bottomPanelMode === 'clip'}
                 bottomPanelHeightPx={bottomPanelHeightPx}
                 setBottomPanelHeightPx={setBottomPanelHeightPx}
                 beginBottomPanelResize={beginBottomPanelResize}

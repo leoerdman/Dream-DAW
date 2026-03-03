@@ -205,6 +205,22 @@ export function useTrackInspectorDerivedState({
 
     const getDepth = useCallback((track: TrackData): number => depthByTrackId.get(track.id) ?? 0, [depthByTrackId]);
 
+    // NESTED-GROUP FIX: Compute ancestor color chain for multi-level stripe rendering.
+    // Returns colors from outermost ancestor → innermost parent.
+    const getGroupAncestorColors = useCallback((track: TrackData): string[] => {
+        const colors: string[] = [];
+        let groupId = track.groupId;
+        while (groupId) {
+            const parent = trackById.get(groupId);
+            if (!parent) break;
+            colors.push(parent.color);
+            groupId = parent.groupId;
+        }
+        // Reverse so outermost ancestor color is first (leftmost stripe)
+        colors.reverse();
+        return colors;
+    }, [trackById]);
+
     const rowLayout = useMemo<TrackRowLayoutMetrics>(() => {
         const maxDepth = visibleTracks.reduce((acc, t) => Math.max(acc, getDepth(t)), 0);
         const headerColWidth = mixerFocusMode ? 112 : 100;
@@ -252,6 +268,7 @@ export function useTrackInspectorDerivedState({
         visibleTracks,
         visibleTrackIndexById,
         getDepth,
+        getGroupAncestorColors,
         rowLayout,
     };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LOWEST_PITCH, MIN_NOTE_BEATS, TOTAL_KEYS, type MidiNote, type PianoRollTool } from './pianoRollConfig';
+import { LOWEST_PITCH, MIN_NOTE_BEATS, TOTAL_KEYS, genNoteId, type MidiNote, type PianoRollTool } from './pianoRollConfig';
 
 interface UsePianoRollNoteInteractionsArgs {
     tool: PianoRollTool;
@@ -134,8 +134,38 @@ export function usePianoRollNoteInteractions({
         const mode = localX >= targetRect.width - edgeThreshold ? 'resize-right' : localX <= edgeThreshold ? 'resize-left' : 'move';
         const selectedIds = selectedNotes.has(noteId) ? new Set(selectedNotes) : new Set([noteId]);
         if (!selectedNotes.has(noteId)) setSelectedNotes(new Set([noteId]));
+
+        // ALT+DRAG COPY: When Alt (Option on Mac) is held at drag start,
+        // clone selected notes and drag the clones — originals stay in place.
+        const isAltCopy = event.altKey;
+        let cloneMap: Map<string, string> | null = null; // originalId → cloneId
+        if (isAltCopy && mode === 'move') {
+            cloneMap = new Map();
+            const clones: MidiNote[] = [];
+            for (const n of notesAtStart) {
+                if (!selectedIds.has(n.id)) continue;
+                const cloneId = genNoteId();
+                cloneMap.set(n.id, cloneId);
+                clones.push({ ...n, id: cloneId });
+            }
+            // Insert clones into the note array immediately
+            const merged = [...notesAtStart, ...clones];
+            onNotesChange(merged);
+            // Replace selectedIds with clone IDs — drag will move clones, not originals
+            selectedIds.clear();
+            const cloneIds = new Set<string>();
+            for (const [, cloneId] of cloneMap) {
+                selectedIds.add(cloneId);
+                cloneIds.add(cloneId);
+            }
+            setSelectedNotes(cloneIds);
+        }
+
         const startStates = new Map(
-            notesAtStart
+            (isAltCopy ? [...notesAtStart, ...(cloneMap ? Array.from(cloneMap.entries()).map(([origId, cloneId]) => {
+                const orig = notesAtStart.find(n => n.id === origId);
+                return orig ? { ...orig, id: cloneId } : null;
+            }).filter(Boolean) as MidiNote[] : [])] : notesAtStart)
                 .filter((n) => selectedIds.has(n.id))
                 .map((n) => [n.id, { startBeat: n.startBeat, pitch: n.pitch, durationBeats: n.durationBeats }] as const),
         );

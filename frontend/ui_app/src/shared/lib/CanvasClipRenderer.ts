@@ -561,7 +561,9 @@ export class CanvasClipRenderer {
 
         const showFadeUi = Boolean(clip.hovered);
 
-        if (showFadeUi && clip.fadeIn && clip.fadeIn > 0) {
+        // FADE-VIS FIX: Always draw fade overlay + curve when values > 0.
+        // The handles and curve-point dots remain hover-only below (line ~662).
+        if (clip.fadeIn && clip.fadeIn > 0) {
             this._drawFade(
                 ctx,
                 x,
@@ -570,9 +572,10 @@ export class CanvasClipRenderer {
                 bodyH,
                 'in',
                 clip.fadeInCurve ?? 0.5,
+                showFadeUi,
             );
         }
-        if (showFadeUi && clip.fadeOut && clip.fadeOut > 0) {
+        if (clip.fadeOut && clip.fadeOut > 0) {
             this._drawFade(
                 ctx,
                 x + w - w * clip.fadeOut,
@@ -581,6 +584,7 @@ export class CanvasClipRenderer {
                 bodyH,
                 'out',
                 clip.fadeOutCurve ?? 0.5,
+                showFadeUi,
             );
         }
 
@@ -1143,11 +1147,18 @@ export class CanvasClipRenderer {
         x: number, y: number, w: number, h: number,
         direction: 'in' | 'out',
         curve: number,
+        isHovered: boolean = true,
     ): void {
         if (w <= 0 || h <= 0) return;
         const t = Math.max(0.05, Math.min(0.95, curve));
 
+        // FADE-VIS: Gradient overlay opacity adapts to hover state.
+        // Always visible, but subtle when not hovered.
+        const gradientAlpha = isHovered ? 1.0 : 0.55;
+        const curveAlpha = isHovered ? 0.96 : 0.50;
+
         ctx.save();
+        ctx.globalAlpha *= gradientAlpha;
         const gradient = ctx.createLinearGradient(x, y, x + w, y);
         if (direction === 'in') {
             gradient.addColorStop(0, rgba(0, 0, 0, 0.58));
@@ -1160,22 +1171,26 @@ export class CanvasClipRenderer {
         }
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
+        ctx.restore();
 
+        // Bezier fade curve line
+        ctx.save();
         const startX = x;
         const endX = x + w;
         const startY = direction === 'in' ? y + h : y;
         const endY = direction === 'in' ? y : y + h;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
         const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
-        ctx.strokeStyle = rgba(255, 193, 92, 0.96);
-        ctx.shadowColor = rgba(255, 190, 85, 0.32);
-        ctx.shadowBlur = 3;
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = rgba(255, 193, 92, curveAlpha);
+        if (isHovered) {
+            ctx.shadowColor = rgba(255, 190, 85, 0.32);
+            ctx.shadowBlur = 3;
+        }
+        ctx.lineWidth = isHovered ? 1.5 : 1.0;
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.quadraticCurveTo(cpX, cpY, endX, endY);
         ctx.stroke();
-
         ctx.restore();
     }
 }

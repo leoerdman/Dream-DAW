@@ -99,9 +99,22 @@ pub struct SpectrumStateInner {
     pub last_magnitudes: Vec<f32>,
 }
 
+/// Per-track spectrum analyzer inner state.
+pub struct TrackSpectrumInner {
+    /// Lock-free consumer of per-track mono post-FX audio
+    pub consumer: rtrb::Consumer<f32>,
+    /// Per-track FFT analyzer
+    pub analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer,
+    /// Cached last magnitudes
+    pub last_magnitudes: Vec<f32>,
+}
+
 /// Thread-safe Tauri managed state for the real-time spectrum analyzer.
+/// Supports both master spectrum and per-track spectrum for EQ display.
 pub struct SpectrumState {
     pub inner: Mutex<SpectrumStateInner>,
+    /// Per-track spectrum analyzers (index = track index).
+    pub tracks: Vec<Mutex<TrackSpectrumInner>>,
 }
 
 impl AudioEngineHandle {

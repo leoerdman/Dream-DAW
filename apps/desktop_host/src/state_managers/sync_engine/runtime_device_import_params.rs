@@ -141,7 +141,7 @@ pub fn try_apply_primary_imported_params(
                 },
             )?;
         }
-        for band in 0..8u8 {
+        for band in 0..8u32 {
             if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.freq")]) {
                 push_command(
                     handle,

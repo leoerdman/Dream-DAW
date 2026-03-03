@@ -14,20 +14,14 @@ export const EQ_BAND_COLORS = [
     hex(74, 192, 255),
 ] as const;
 
-/** Randomized point color pool for newly created EQ bands. */
-export const EQ_RANDOM_POINT_COLORS = [
-    hex(46, 204, 113),
-    hex(242, 222, 114),
-    hex(255, 181, 122),
-    hex(255, 150, 94),
-    hex(255, 100, 100),
-    hex(200, 103, 255),
-    hex(142, 203, 124),
-    hex(74, 192, 255),
-] as const;
+/** Randomized point color pool for newly created EQ bands.
+ * ENTERPRISE: Re-exports EQ_BAND_COLORS as the pool — DRY single source. */
+export const EQ_RANDOM_POINT_COLORS = EQ_BAND_COLORS;
 
-/** Default EQ band center frequencies (Hz) */
-export const DEFAULT_BAND_FREQS = [30, 100, 250, 800, 2500, 6000, 12000, 18000] as const;
+/** Default EQ band center frequencies (Hz).
+ * SSOT: Must match Rust DEFAULT_FREQS in dream_dsp/src/processors/eq.rs
+ * and deviceParamPresets.ts B{i}Freq values. */
+export const DEFAULT_BAND_FREQS = [30, 100, 250, 1000, 2500, 6000, 12000, 18000] as const;
 
 /** Filter type display labels */
 export const EQ_FILTER_LABELS: Readonly<Record<string, string>> = {
@@ -76,7 +70,21 @@ export const FREQ_LABELS = [
     { freq: 10000, label: '10k' }, { freq: 20000, label: '20k' },
 ] as const;
 
-/** Sub-gridline frequencies */
+/** Sub-gridline frequencies — Pro-Q3 style sub-octave divisions.
+ * SSOT: This is the canonical list; Canvas imports from here. */
 export const FREQ_SUB_LINES = [
-    40, 60, 80, 150, 300, 400, 700, 800, 1500, 3000, 4000, 7000, 8000, 15000,
+    // 20-100: per-10 Hz steps
+    40, 60, 70, 80, 90,
+    // 100-200: per-10 Hz (sub-decade)
+    110, 120, 130, 140, 150, 160, 170, 180, 190,
+    // 200-1000: per-100 Hz
+    300, 400, 600, 700, 800, 900,
+    // 1k-10k: per-1kHz
+    1500, 3000, 4000, 6000, 7000, 8000, 9000,
+    // 10k-20k: per-1kHz
+    11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000,
 ] as const;
+
+/** Enterprise dB grid: includes ±3dB intermediate lines for precise gain reference.
+ * SSOT: This is the canonical grid line list used by both rendering paths. */
+export const DB_GRID_LINES = [-24, -18, -12, -6, -3, 0, 3, 6, 12, 18, 24] as const;

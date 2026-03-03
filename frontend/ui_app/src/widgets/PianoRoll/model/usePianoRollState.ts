@@ -81,7 +81,9 @@ export function usePianoRollState({
     }, [selectedNoteIds, selectedNotes]);
 
     const setSelectedNotes = useCallback<Dispatch<SetStateAction<Set<string>>>>((next) => {
-        const noteIdSet = new Set(notes.map((note) => note.id));
+        // BUG-PR03 FIX: Read notes from ref, not stale closure, so newly created
+        // note IDs are not filtered out during rapid paint/paste operations.
+        const noteIdSet = new Set(notesRef.current.map((note) => note.id));
         setSelectedNoteIds((prev) => {
             const candidate = typeof next === 'function'
                 ? (next as (value: Set<string>) => Set<string>)(prev)
@@ -90,7 +92,7 @@ export function usePianoRollState({
             for (const id of candidate) if (noteIdSet.has(id)) normalized.add(id);
             return normalized;
         });
-    }, [notes]);
+    }, [notesRef]);
 
     return {
         tool, setTool,

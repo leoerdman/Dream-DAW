@@ -47,7 +47,7 @@ pub(super) enum DeferredDeviceChainCmd {
     SetParam {
         track_index: u16,
         slot_index: u8,
-        param_index: u8,
+        param_index: u32,
         value: f32,
     },
     /// BUG-UNDO-FX-001 FIX: Deferred bypass set (same ordering issue as SetParam).

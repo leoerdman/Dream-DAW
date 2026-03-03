@@ -247,6 +247,9 @@ pub struct SamplerEngine {
     /// Master volume (0.0–2.0).
     pub volume: f32,
 
+    /// Per-pad mute state. When true, this pad produces silence.
+    pub muted: bool,
+
     /// Voice pool (pre-allocated, fixed size).
     voices: [SamplerVoice; MAX_VOICES],
 
@@ -274,6 +277,7 @@ impl SamplerEngine {
             sample: None,
             root_note: DEFAULT_ROOT_NOTE,
             volume: 1.0,
+            muted: false,
             voices,
             adsr_params: AdsrParams::default(),
             device_sample_rate: sample_rate,
@@ -458,6 +462,9 @@ pub struct SampleRackEngine {
     pads: [SamplerEngine; 16],
     /// Master volume (0.0–2.0).
     pub volume: f32,
+    /// Bitmask of soloed pads (bit N = pad N soloed).
+    /// When non-zero, only soloed pads produce sound.
+    solo_mask: u16,
     _device_sample_rate: f64,
 }
 
@@ -467,6 +474,7 @@ impl SampleRackEngine {
         Self {
             pads: std::array::from_fn(|_| SamplerEngine::new(sample_rate)),
             volume: 1.0,
+            solo_mask: 0,
             _device_sample_rate: sample_rate,
         }
     }
@@ -519,27 +527,47 @@ impl SampleRackEngine {
         }
     }
 
+    /// Set mute state for a specific pad.
+    ///
+    /// Muted pads produce silence regardless of solo state.
+    #[inline]
+    pub fn set_pad_muted(&mut self, pad_index: usize, muted: bool) {
+        if let Some(pad) = self.pads.get_mut(pad_index) {
+            pad.muted = muted;
+        }
+    }
+
+    /// Set solo state for a specific pad.
+    ///
+    /// When any pad is soloed, only soloed pads produce sound.
+    /// Standard DAW solo behavior: multiple pads can be soloed simultaneously.
+    #[inline]
+    pub fn set_pad_solo(&mut self, pad_index: usize, soloed: bool) {
+        if pad_index < 16 {
+            if soloed {
+                self.solo_mask |= 1 << pad_index;
+            } else {
+                self.solo_mask &= !(1 << pad_index);
+            }
+        }
+    }
+
+
     /// Render all active pads into stereo output buffers.
     #[inline]
     pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
-        // BUG-C01 FIX (Enterprise): Compute combined volume locally and pass it
-        // to each voice's render() via the master_vol parameter.
-        //
-        // PREVIOUS PATTERN (UNSAFE):
-        //   let saved = pad.volume;
-        //   pad.volume = combined_vol;   // ← mutates shared state
-        //   pad.render(...);
-        //   pad.volume = saved;          // ← restore may never execute if preempted
-        //
-        // NEW PATTERN: Use the existing master_vol parameter path that already flows
-        // through SamplerEngine::render() → SamplerVoice::render(master_vol).
-        // pad.volume is never modified, eliminating the preemption race entirely.
         let rack_vol = self.volume;
-        for pad in &mut self.pads {
+        let solo_mask = self.solo_mask;
+        for (pad_index, pad) in self.pads.iter_mut().enumerate() {
             if pad.is_active() {
+                // Enterprise mute/solo: check silenced state per-pad
+                let is_muted = pad.muted;
+                let is_silenced_by_solo = solo_mask != 0 && (solo_mask & (1 << pad_index)) == 0;
+                if is_muted || is_silenced_by_solo {
+                    continue;
+                }
+
                 let combined_vol = pad.volume * rack_vol;
-                // Render voices with combined volume as master_vol.
-                // This avoids mutating pad.volume which was the race condition.
                 if let Some(sample) = &pad.sample {
                     let sample_left = sample.left();
                     let sample_right = sample.right();

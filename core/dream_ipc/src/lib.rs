@@ -257,10 +257,14 @@ pub enum EngineCommand {
     },
 
     /// Set a parameter on a device in a track's insert chain.
+    ///
+    /// `param_index` is u32 to support VST3 plugins with 1000+ parameters.
+    /// The DeviceChain layer already uses u32 — this removes the IPC bottleneck
+    /// that previously truncated indices above 255.
     SetDeviceParam {
         track_index: u16,
         slot_index: u8,
-        param_index: u8,
+        param_index: u32,
         value: f32,
     },
 

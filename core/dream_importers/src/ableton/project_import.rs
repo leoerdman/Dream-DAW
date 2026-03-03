@@ -42,9 +42,9 @@ use crate::ableton::routing::{
 use crate::ableton::xml_helpers::{
     ableton_volume_to_linear_gain, maybe_parse_bool_manual, maybe_parse_f64_manual,
     node_child_value, parse_bool_value, parse_i64_value,
-    parse_track_bool_flag_legacy as parse_track_bool_flag,
-    parse_track_i64_value_legacy as parse_track_i64_value,
-    parse_track_key_note_target_legacy as parse_track_key_note_target,
+    parse_track_bool_flag_broad as parse_track_bool_flag,
+    parse_track_i64_value_broad as parse_track_i64_value,
+    parse_track_key_note_target_broad as parse_track_key_note_target,
     parse_track_send_manual_values,
 };
 

@@ -5,11 +5,12 @@ import {
 } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useEqSurfaceHandlers } from '@/widgets/DeviceRack/model/useEqSurfaceHandlers';
 import { EqBandContextMenu, EqBandOverlays, type EqContextMenu } from './PluginGuiSurfaceEqOverlays';
 import { PluginGuiSurfaceEqControls } from './PluginGuiSurfaceEqControls';
 import { PluginGuiSurfaceEqBandStrip } from './PluginGuiSurfaceEqBandStrip';
-import { EQ_FREQ_LABELS, EQ_FREQ_SUB_LINES, pluginPanelCardBaseStyle, pluginPanelMetaStyle } from './PluginGuiSurfaceEqLayout';
+import { EQ_FREQ_LABELS, EQ_FREQ_SUB_LINES, DB_GRID_LINES, pluginPanelCardBaseStyle, pluginPanelMetaStyle } from './PluginGuiSurfaceEqLayout';
 import {
     assignNextEqBandColor,
     buildEqGradientStops,
@@ -87,12 +88,14 @@ export function PluginGuiSurfaceEq({
 
     const out = effectiveParams.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
+    // ENTERPRISE: Extract boolean before useMemo for stable dependency identity.
+    const isDragging = dragEqBand !== null;
     const { curvePath, fillPath } = useMemo(
         // PERF-FIX: Reduce curve resolution to 80 steps during drag for 60% fewer
         // biquad evaluations per frame. 80 is visually indistinguishable during
         // fast mouse movement. Full 200-step resolution restores on drag end.
-        () => buildEqCurvePaths(bands, projectSampleRate, dragEqBand !== null ? 80 : 200),
-        [bands, projectSampleRate, dragEqBand !== null],
+        () => buildEqCurvePaths(bands, projectSampleRate, isDragging ? 80 : 200),
+        [bands, projectSampleRate, isDragging],
     );
 
     const bi = activeBandIdx;
@@ -180,8 +183,8 @@ export function PluginGuiSurfaceEq({
                             </filter>
                         </defs>
                         <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, var(--color-bg-app) 40%, transparent)" />
-                        {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
-                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 46%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 14%, transparent)'} strokeWidth={db === 0 ? 1.1 : 0.5} />
+                        {DB_GRID_LINES.map((db) => (
+                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 46%, transparent)' : (Math.abs(db) === 3 ? 'color-mix(in srgb, var(--color-text-primary) 8%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 14%, transparent)')} strokeWidth={db === 0 ? 1.1 : 0.5} />
                         ))}
                         {EQ_FREQ_LABELS.map((fl) => (
                             <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="0.5" />
@@ -195,7 +198,7 @@ export function PluginGuiSurfaceEq({
                                 <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
                             </linearGradient>
                         </defs>
-                        <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} />
+                        <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} isDragging={isDragging} />
                         {enabledBands.length > 0 && (
                             <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
                         )}
@@ -296,9 +299,27 @@ export function PluginGuiSurfaceEq({
     );
 }
 
-const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { deviceId: string; eqSpectrumEnabled: boolean }) => {
+const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDragging }: { deviceId: string; eqSpectrumEnabled: boolean; isDragging: boolean }) => {
     const [spectrumPath, setSpectrumPath] = useState<string | null>(null);
     const lastSpectrumRef = React.useRef<number[] | null>(null);
+    // ENTERPRISE: Use ref for drag state so the long-running async poll
+    // always reads the latest value without restarting the useEffect.
+    const isDraggingRef = React.useRef(isDragging);
+    isDraggingRef.current = isDragging;
+
+    // Enterprise: resolve track index from Zustand store for per-track spectrum.
+    // The device's id is used to find which track the EQ belongs to.
+    const trackIndex = useEngineStore((s) => {
+        const allIds = s.tracks.allIds;
+        for (let i = 0; i < allIds.length; i++) {
+            const track = s.tracks.byId[allIds[i]];
+            if (!track) continue;
+            if (track.effects?.some((fx: { id: string }) => fx.id === deviceId)) {
+                return i;
+            }
+        }
+        return -1;
+    });
 
     useEffect(() => {
         if (!eqSpectrumEnabled) {
@@ -313,7 +334,17 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
                 while (active) {
                     if (!active) break;
                     try {
-                        const data = await invoke<number[]>('get_spectrum_data');
+                        // Enterprise: per-track spectrum when track index is valid,
+                        // fallback to master spectrum otherwise.
+                        // PERF: Skip spectrum poll entirely during band drag to
+                        // eliminate IPC contention with drag parameter updates.
+                        if (isDraggingRef.current) {
+                            await new Promise(r => setTimeout(r, 100));
+                            continue;
+                        }
+                        const data = trackIndex >= 0
+                            ? await invoke<number[]>('get_spectrum_data_for_track', { trackIndex })
+                            : await invoke<number[]>('get_spectrum_data');
                         if (!active) break;
                         errorBackoff = 50;
                         if (Array.isArray(data) && data.length > 0) {
@@ -346,19 +377,13 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { d
             active = false;
             lastSpectrumRef.current = null;
         };
-    }, [eqSpectrumEnabled]);
+    }, [eqSpectrumEnabled, trackIndex]);
 
     if (!eqSpectrumEnabled || !spectrumPath) return null;
 
+    // ENTERPRISE: Gradient is defined once in the parent SVG <defs> (line ~193).
+    // No duplicate <defs> here — just reference the parent's gradient by ID.
     return (
-        <>
-            <defs>
-                <linearGradient id={`specGrad-${deviceId}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 18%, transparent)" />
-                    <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
-                </linearGradient>
-            </defs>
-            <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.36" />
-        </>
+        <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.36" />
     );
 });

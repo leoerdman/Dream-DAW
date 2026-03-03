@@ -9,6 +9,7 @@ export {
     DEFAULT_EQ_FILTER_TYPE_INDEX,
     FREQ_LABELS,
     FREQ_SUB_LINES,
+    DB_GRID_LINES,
     eqFilterTypeFromIndex,
 } from './eqConstants';
 import { DEFAULT_BAND_FREQS, EQ_BAND_COLORS, eqFilterTypeFromIndex } from './eqConstants';
@@ -230,7 +231,7 @@ export function parseBandsFromParams(
     eqBandFilterTypes: string[],
     bandColors?: readonly string[],
 ): EqBand8[] {
-    const DEFAULT_BAND_ENABLED = [1, 0, 0, 0, 0, 0, 0, 1] as const;
+    const DEFAULT_BAND_ENABLED = [0, 0, 0, 1, 0, 0, 0, 0] as const;
     const resolvedTypes = deriveEqBandFilterTypes(params, eqBandFilterTypes);
     const bands: EqBand8[] = [];
     for (let i = 0; i < 8; i++) {

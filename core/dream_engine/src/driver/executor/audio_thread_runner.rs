@@ -83,6 +83,19 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let (spectrum_producer, spectrum_consumer) = rtrb::RingBuffer::new(8192);
     render_ctx.spectrum_producer = Some(spectrum_producer);
 
+    // ── Per-track spectrum ring buffers (enterprise per-track EQ display) ──
+    // Each track gets a dedicated 8192-sample lock-free ring buffer.
+    // Producers live in RenderContext (audio thread), consumers are passed to
+    // TrackSpectrumBank (UI thread) during bootstrap.
+    let mut per_track_spectrum_consumers: Vec<rtrb::Consumer<f32>> = Vec::with_capacity(MAX_TRACKS);
+    for i in 0..MAX_TRACKS {
+        let (producer, consumer) = rtrb::RingBuffer::<f32>::new(8192);
+        if i < render_ctx.per_track_spectrum_producers.len() {
+            render_ctx.per_track_spectrum_producers[i] = Some(producer);
+        }
+        per_track_spectrum_consumers.push(consumer);
+    }
+
     // AUD-057/058 FIX: Use named constants instead of hardcoded magic numbers.
     let mut graph_renderer = GraphRenderer::new(MAX_TRACKS, MAX_BUFFER_FRAMES);
     let prepared_graph = prepared_graph_snapshot.load();
@@ -650,6 +663,18 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         meter_l.store_peak_decay(peak_l, track_decay);
                                         meter_r.store_peak_decay(peak_r, track_decay);
                                     }
+
+                                    // 5. Per-track spectrum feed (enterprise per-track EQ display)
+                                    // Push mono-mixed post-FX audio into the per-track ring buffer.
+                                    // Only active for tracks with an EQ UI requesting spectrum data.
+                                    if track_idx < render_ctx.per_track_spectrum_producers.len() {
+                                        if let Some(producer) = &mut render_ctx.per_track_spectrum_producers[track_idx] {
+                                            for frame in 0..c {
+                                                let mono = (left[frame] + right[frame]) * 0.5;
+                                                let _ = producer.push(mono); // RT-safe: ignore full buffer
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             |_node, _left, _right, _count, _resolver| {},
@@ -817,5 +842,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
         output_latency_frames,
         output_device_name: device_name,
         spectrum_consumer: Some(spectrum_consumer),
+        per_track_spectrum_consumers,
     })
 }

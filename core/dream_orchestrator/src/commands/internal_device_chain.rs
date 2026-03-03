@@ -72,7 +72,7 @@ fn raw_slot_to_internal_device_index_master(project: &Project, raw_slot_index: u
     }
 }
 
-fn persist_param_to_slot(slot: &mut PluginSlot, param_index: u8, value: f32) {
+fn persist_param_to_slot(slot: &mut PluginSlot, param_index: u32, value: f32) {
     if slot.params.is_none() {
         slot.params = Some(vec![0.0; 32]);
     }
@@ -162,7 +162,7 @@ pub struct SetInternalDeviceParamResult {
 pub struct SetInternalDeviceParamByTrackIndexCommand {
     pub track_index: u16,
     pub slot_index: u8,
-    pub param_index: u8,
+    pub param_index: u32,
     pub value: f32,
 }
 

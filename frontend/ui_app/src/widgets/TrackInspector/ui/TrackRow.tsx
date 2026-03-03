@@ -39,7 +39,7 @@ interface TrackRowProps {
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
     isGroupDropTarget?: boolean;
-    groupStripeColor?: string;
+    groupAncestorColors?: string[];
     layout: TrackRowLayoutMetrics;
     isResizing?: boolean;
     onResizeStart?: (startY: number) => void;
@@ -79,7 +79,7 @@ export const TrackRow = memo(({
     onHeaderPointerDown,
     onHeaderClick,
     isGroupDropTarget = false,
-    groupStripeColor,
+    groupAncestorColors,
     layout,
     isResizing = false,
     onResizeStart,
@@ -132,10 +132,10 @@ export const TrackRow = memo(({
     const isGroup = track.type === 'group';
     const isNestedGroup = isGroup && depth > 0;
     const groupRailColor = isNestedGroup
-        ? (groupStripeColor || track.color)
+        ? (groupAncestorColors?.[groupAncestorColors.length - 1] || track.color)
         : isGroup
             ? track.color
-            : (groupStripeColor || track.color);
+            : (groupAncestorColors?.[groupAncestorColors.length - 1] || track.color);
 
     const heightLevel = getTrackHeightLevel(trackHeight);
 
@@ -183,6 +183,7 @@ export const TrackRow = memo(({
                 renameValue={renameValue}
                 depth={depth}
                 groupRailColor={groupRailColor}
+                groupAncestorColors={groupAncestorColors ?? []}
                 layout={layout}
                 mixerFocusMode={mixerFocusMode}
                 isActive={isActive}

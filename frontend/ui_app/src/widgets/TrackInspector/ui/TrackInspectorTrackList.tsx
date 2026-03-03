@@ -294,7 +294,7 @@ export function TrackInspectorTrackList({
                                 }}
                                 onHeaderPointerDown={(e) => logic.beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={logic.groupDropTargetId === track.id}
-                                groupStripeColor={track.groupId ? (logic.trackById.get(track.groupId)?.color ?? track.color) : track.color}
+                                groupAncestorColors={logic.getGroupAncestorColors(track)}
                                 layout={logic.rowLayout}
                                 isResizing={logic.resizingTrackId === track.id}
                                 onResizeStart={(startY) => logic.beginRowResize(track.id, resolvedRowHeight, startY)}

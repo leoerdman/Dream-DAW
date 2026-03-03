@@ -62,21 +62,31 @@ export function getContrastColor(hexColor: string): 'black' | 'white' {
     if (!rgb) return 'black';
 
     const { r, g, b } = rgb;
+    // WCAG-inspired perceived luminance
     const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
-    if (luminance > 145) {
+    // CONTRAST-FIX: Raised from 145 → 155 to correctly classify bright
+    // saturated colors (purple, magenta, lime) as "light" → black text.
+    if (luminance > 155) {
         return 'black';
     }
 
-    if (luminance < 80) {
+    // Very dark colors always get white text
+    if (luminance < 70) {
         return 'white';
     }
 
+    // Mid-range: consider saturation — only truly dark AND saturated
+    // colors (like deep blue, dark red) deserve white text.
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const saturation = max === 0 ? 0 : (max - min) / max;
 
-    if (luminance < 120 && saturation > 0.5) {
+    // CONTRAST-FIX: Lowered threshold from 120 → 95 so bright saturated
+    // colors (purple #9b59b6, luminance ~121) are correctly classified
+    // as "light enough for black text". Only colors luminance < 95
+    // with high saturation get white.
+    if (luminance < 95 && saturation > 0.4) {
         return 'white';
     }
 

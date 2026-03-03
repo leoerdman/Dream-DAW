@@ -9,7 +9,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'B0Freq', value: 30, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B0Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B0Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B0En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B0En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 1: Low Shelf
         { name: 'B1Freq', value: 100, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B1Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
@@ -20,11 +20,11 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'B2Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B2Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
         { name: 'B2En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
-        // Band 3: Peaking
-        { name: 'B3Freq', value: 800, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        // Band 3: Peaking — enabled by default (centered flat line)
+        { name: 'B3Freq', value: 1000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B3Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B3Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B3En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B3En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
         // Band 4: Peaking
         { name: 'B4Freq', value: 2500, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B4Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
@@ -44,7 +44,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'B7Freq', value: 18000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B7Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B7Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B7En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B7En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Output gain
         { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         // Legacy aliases (for backward compat)

@@ -107,6 +107,11 @@ pub struct AudioStreamHandle {
     /// The audio thread pushes master mono output samples into the paired producer.
     /// The Tauri host reads from this consumer to compute FFT for the EQ display.
     pub spectrum_consumer: Option<rtrb::Consumer<f32>>,
+
+    /// Per-track spectrum consumers (enterprise per-track EQ display).
+    /// Each index corresponds to a track index. The audio thread pushes
+    /// per-track post-FX mono audio into per-track ring buffers.
+    pub per_track_spectrum_consumers: Vec<rtrb::Consumer<f32>>,
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────

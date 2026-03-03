@@ -343,6 +343,7 @@ pub(crate) fn invoke_handler()
         set_project_notes,
         // Spectrum Analyzer
         get_spectrum_data,
+        get_spectrum_data_for_track,
         // Sample Rack
         set_sample_rack_pad_volume_cmd,
         set_sample_rack_pad_volume_with_deltas_cmd,

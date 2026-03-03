@@ -9,7 +9,7 @@ use dream_models::PlaybackState;
 use crate::settings::SettingsState;
 use crate::state_managers::{
     AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState,
-    ProjectRegistry, ProjectState, RecordingRuntime, SpectrumState, SpectrumStateInner,
+    ProjectRegistry, ProjectState, RecordingRuntime, SpectrumState, SpectrumStateInner, TrackSpectrumInner,
 };
 
 pub(crate) struct RuntimeBootstrap {
@@ -178,6 +178,25 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     }
 
     let spectrum_consumer = stream.spectrum_consumer.take();
+    let per_track_consumers = std::mem::take(&mut stream.per_track_spectrum_consumers);
+
+    // Build per-track spectrum analyzers from per-track consumers
+    let track_analyzers: Vec<Mutex<TrackSpectrumInner>> = per_track_consumers
+        .into_iter()
+        .map(|consumer| {
+            Mutex::new(TrackSpectrumInner {
+                consumer,
+                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(
+                    stream.sample_rate_hz as f32,
+                ),
+                last_magnitudes: vec![
+                    dream_dsp::spectrum_analyzer::FLOOR_DB;
+                    dream_dsp::spectrum_analyzer::OUTPUT_BINS
+                ],
+            })
+        })
+        .collect();
+
     let spectrum_state = if let Some(consumer) = spectrum_consumer {
         SpectrumState {
             inner: Mutex::new(SpectrumStateInner {
@@ -190,6 +209,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
                     dream_dsp::spectrum_analyzer::OUTPUT_BINS
                 ],
             }),
+            tracks: track_analyzers,
         }
     } else {
         let (_producer, consumer) = rtrb::RingBuffer::<f32>::new(64);
@@ -204,6 +224,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
                     dream_dsp::spectrum_analyzer::OUTPUT_BINS
                 ],
             }),
+            tracks: track_analyzers,
         }
     };
 

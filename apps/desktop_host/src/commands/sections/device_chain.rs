@@ -4,7 +4,7 @@ const MASTER_TRACK_INDEX: u16 = u16::MAX;
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeParamUpdate {
-    param_index: u8,
+    param_index: u32,
     value: f32,
 }
 
@@ -237,7 +237,7 @@ fn bypass_device_cmd(
 fn set_device_param_cmd(
     track_index: u16,
     slot_index: u8,
-    param_index: u8,
+    param_index: u32,
     value: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
@@ -293,7 +293,7 @@ fn set_device_param_cmd(
 fn set_device_param_runtime_cmd(
     track_index: u16,
     slot_index: u8,
-    param_index: u8,
+    param_index: u32,
     value: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,

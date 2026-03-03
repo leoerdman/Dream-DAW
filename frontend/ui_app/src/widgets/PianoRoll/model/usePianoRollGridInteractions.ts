@@ -194,7 +194,9 @@ export function usePianoRollGridInteractions({
                 const maxY = Math.max(current.y1, current.y2);
                 if (Math.abs(maxX - minX) < 6 && Math.abs(maxY - minY) < 6) return null;
                 const hits = new Set<string>();
-                for (const note of notes) {
+                // BUG-PR02 FIX: Read fresh notes from ref instead of stale closure.
+                const currentNotes = notesRef.current;
+                for (const note of currentNotes) {
                     const nx = note.startBeat * pixelsPerBeat;
                     const rawNy = pitchToY(note.pitch);
                     if (rawNy < 0) continue;

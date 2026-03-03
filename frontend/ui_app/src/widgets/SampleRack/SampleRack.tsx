@@ -68,15 +68,23 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
         void engineApi.setSampleRackPadFilterCutoffCmd?.(trackId, selectedPad, cutoff)
             ?.catch((err) => reportRackError('failed to set filter cutoff', err));
     }, [trackId, selectedPad, reportRackError]);
-    const toggleDisabled = useCallback(() => {
+    const toggleDisabled = useCallback(async () => {
         if (!pad) return;
-        void engineApi.setSampleRackPadMuteCmd?.(trackId, selectedPad, !pad.is_disabled)
-            ?.catch((err) => reportRackError('failed to toggle mute', err));
+        try {
+            const response = await engineApi.setSampleRackPadMuteWithDeltasCmd(trackId, selectedPad, !pad.is_disabled);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:toggle-mute');
+        } catch (err) {
+            reportRackError('failed to toggle mute', err);
+        }
     }, [trackId, selectedPad, pad, reportRackError]);
-    const toggleSolo = useCallback(() => {
+    const toggleSolo = useCallback(async () => {
         if (!pad) return;
-        void engineApi.setSampleRackPadSoloCmd?.(trackId, selectedPad, !pad.is_soloed)
-            ?.catch((err) => reportRackError('failed to toggle solo', err));
+        try {
+            const response = await engineApi.setSampleRackPadSoloWithDeltasCmd(trackId, selectedPad, !pad.is_soloed);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:toggle-solo');
+        } catch (err) {
+            reportRackError('failed to toggle solo', err);
+        }
     }, [trackId, selectedPad, pad, reportRackError]);
     return (
         <div style={{
@@ -139,17 +147,17 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             }}>
                                 {i + 1}
                             </span>
-                            {/* Mute/Solo indicators */}
+                            {/* Disable/Solo indicators */}
                             {p?.is_disabled && (
                                 <span style={{
                                     position: 'absolute', top: 2, right: 3,
-                                    fontSize: 7, color: 'var(--token-color-hex-ff5c5c)', fontWeight: 700,
-                                }}>M</span>
+                                    fontSize: 7, color: 'var(--token-color-rgba-255-255-255-0d35)', fontWeight: 700,
+                                }}>OFF</span>
                             )}
                             {p?.is_soloed && (
                                 <span style={{
-                                    position: 'absolute', top: 2, right: p?.is_disabled ? 12 : 3,
-                                    fontSize: 7, color: 'var(--token-color-hex-f0c430)', fontWeight: 700,
+                                    position: 'absolute', top: 2, right: p?.is_disabled ? 18 : 3,
+                                    fontSize: 7, color: 'var(--token-color-hex-5caeff)', fontWeight: 700,
                                 }}>S</span>
                             )}
                             {/* Waveform or pad name */}
@@ -251,18 +259,34 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 compact onChange={(_, v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, pad.sustain ?? 1, v)} />
                             <PluginKnob param={{ name: 'Cutoff', value: pad.filter_cutoff ?? 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 }}
                                 compact onChange={(_, v) => setFilterCutoff(v)} />
-                            {/* Mute/Solo */}
+                            {/* Enable/Disable + Solo */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleDisabled} style={{
-                                    width: 32, height: 20, border: pad.is_disabled ? 'var(--space-px) solid var(--token-color-hex-ff5c5c)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
-                                    borderRadius: 4, background: pad.is_disabled ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
-                                    color: pad.is_disabled ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
+                                    width: 32, height: 20,
+                                    border: !pad.is_disabled
+                                        ? 'var(--space-px) solid var(--token-color-hex-5ce0a6)'
+                                        : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
+                                    borderRadius: 4,
+                                    background: !pad.is_disabled
+                                        ? 'var(--token-color-rgba-92-224-166-0d2)'
+                                        : 'var(--token-color-rgba-0-0-0-0d2)',
+                                    color: !pad.is_disabled
+                                        ? 'var(--token-color-hex-5ce0a6)'
+                                        : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
-                                }}>MUTE</button>
+                                }}>{selectedPad + 1}</button>
                                 <button onClick={toggleSolo} style={{
-                                    width: 32, height: 20, border: pad.is_soloed ? 'var(--space-px) solid var(--token-color-hex-f0c430)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
-                                    borderRadius: 4, background: pad.is_soloed ? 'var(--token-color-rgba-240-196-48-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
-                                    color: pad.is_soloed ? 'var(--token-color-hex-f0c430)' : 'var(--token-color-rgba-255-255-255-0d4)',
+                                    width: 32, height: 20,
+                                    border: pad.is_soloed
+                                        ? 'var(--space-px) solid var(--token-color-hex-5caeff)'
+                                        : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
+                                    borderRadius: 4,
+                                    background: pad.is_soloed
+                                        ? 'var(--token-color-rgba-92-174-255-0d2)'
+                                        : 'var(--token-color-rgba-0-0-0-0d2)',
+                                    color: pad.is_soloed
+                                        ? 'var(--token-color-hex-5caeff)'
+                                        : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
                                 }}>SOLO</button>
                             </div>

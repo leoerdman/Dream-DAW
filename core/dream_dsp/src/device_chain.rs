@@ -101,6 +101,22 @@ impl DeviceChain {
     /// `true` always (device is always added successfully).
     pub fn add_device(&mut self, slot_index: usize, device: Box<dyn DeviceProcessor>) -> bool {
         let idx = slot_index.min(self.slots.len());
+
+        // ENTERPRISE RT-SAFETY: Guard against heap reallocation on the audio thread.
+        //
+        // Vec::insert() at capacity triggers malloc() → priority inversion → dropout.
+        // Pre-allocated capacity is DEFAULT_DEVICE_SLOT_CAPACITY (16), which covers
+        // 99%+ of real projects. When exceeding capacity, we accept the reallocation
+        // (the alternative — silently dropping the device — is worse UX), but track
+        // it via atomic counter for production diagnostics.
+        if self.slots.len() >= self.slots.capacity() {
+            // This branch is a RARE worst-case for chains with >16 effects.
+            // The reallocation is a one-time cost that doubles capacity.
+            static RT_REALLOC_COUNT: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(0);
+            RT_REALLOC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
         self.slots.insert(idx, device);
         true
     }

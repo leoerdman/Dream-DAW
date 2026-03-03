@@ -120,7 +120,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
     if (delta.kind === 'SampleRackPadMuteChanged') {
         patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
-            is_muted: delta.data.muted,
+            is_disabled: delta.data.muted,
         });
         return true;
     }

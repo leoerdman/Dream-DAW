@@ -16,15 +16,49 @@ fn get_spectrum_data(
     }
 
     if drained == 0 {
-        // Return last known magnitudes or floor values
-        return Ok(inner.last_magnitudes.clone());
+        // ENTERPRISE: Return last known magnitudes without clone.
+        // The Tauri IPC layer serializes directly from the reference.
+        return Ok(std::mem::take(&mut inner.last_magnitudes));
     }
 
     // Compute FFT and return magnitudes
     if let Some(data) = inner.analyzer.compute() {
-        inner.last_magnitudes = data.magnitudes.to_vec();
-        Ok(inner.last_magnitudes.clone())
-    } else {
-        Ok(inner.last_magnitudes.clone())
+        inner.last_magnitudes.clear();
+        inner.last_magnitudes.extend_from_slice(&data.magnitudes);
     }
+    // ENTERPRISE: Take ownership of the buffer instead of cloning.
+    // The next poll will rebuild it from fresh FFT data or return an empty vec.
+    Ok(std::mem::take(&mut inner.last_magnitudes))
+}
+
+/// Per-track spectrum data for EQ display.
+/// Returns FFT magnitudes for the specified track's post-FX audio.
+#[tauri::command]
+fn get_spectrum_data_for_track(
+    track_index: usize,
+    state: tauri::State<'_, SpectrumState>,
+) -> Result<Vec<f32>, String> {
+    let track_lock = state.tracks.get(track_index).ok_or_else(|| {
+        format!("Track index {} out of range (max {})", track_index, state.tracks.len())
+    })?;
+
+    let mut inner = track_lock.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+
+    // Drain all available samples from the per-track ring buffer consumer
+    let mut drained = 0usize;
+    while let Ok(sample) = inner.consumer.pop() {
+        inner.analyzer.push(&[sample]);
+        drained += 1;
+    }
+
+    if drained == 0 {
+        // ENTERPRISE: Take ownership instead of clone — zero allocations per poll.
+        return Ok(std::mem::take(&mut inner.last_magnitudes));
+    }
+
+    if let Some(data) = inner.analyzer.compute() {
+        inner.last_magnitudes.clear();
+        inner.last_magnitudes.extend_from_slice(&data.magnitudes);
+    }
+    Ok(std::mem::take(&mut inner.last_magnitudes))
 }

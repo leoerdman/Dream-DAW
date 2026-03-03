@@ -15,6 +15,7 @@ interface TrackRowHeaderProps {
     renameValue: string;
     depth: number;
     groupRailColor: string;
+    groupAncestorColors: string[];
     layout: TrackRowLayoutMetrics;
     mixerFocusMode: boolean;
     isActive: boolean;
@@ -36,6 +37,7 @@ export const TrackRowHeader = memo(({
     renameValue,
     depth,
     groupRailColor,
+    groupAncestorColors,
     layout,
     mixerFocusMode,
     isActive,
@@ -84,14 +86,30 @@ export const TrackRowHeader = memo(({
                 transition: 'opacity var(--transition-linear)',
             }}
         >
-            {stripeW > 0 && (
+            {/* NESTED-GROUP: Render N stripes for N-level nesting, each colored by its ancestor group */}
+            {groupAncestorColors.length > 0 && groupAncestorColors.map((color, i) => (
+                <div
+                    key={i}
+                    aria-hidden
+                    style={{
+                        width: stripeW,
+                        minWidth: stripeW,
+                        background: color,
+                        borderRight: '1px solid var(--token-color-rgba-0-0-0-0d65)',
+                        boxSizing: 'border-box',
+                    }}
+                />
+            ))}
+            {/* Fallback: single stripe if no ancestor colors but depth > 0 */}
+            {groupAncestorColors.length === 0 && stripeW > 0 && (
                 <div
                     aria-hidden
                     style={{
                         width: stripeW,
                         minWidth: stripeW,
-                        background: `color-mix(in srgb, ${groupRailColor} 70%, var(--token-color-hex-000000))`,
-                        opacity: 1,
+                        background: groupRailColor,
+                        borderRight: '1px solid var(--token-color-rgba-0-0-0-0d65)',
+                        boxSizing: 'border-box',
                     }}
                 />
             )}

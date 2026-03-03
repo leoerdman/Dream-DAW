@@ -144,6 +144,7 @@ export function useTrackInspectorLogic({
         visibleTracks,
         visibleTrackIndexById,
         getDepth,
+        getGroupAncestorColors,
         rowLayout,
     } = useTrackInspectorDerivedState({
         trackIds,
@@ -304,6 +305,7 @@ export function useTrackInspectorLogic({
         rowLayout,
         getTrackIndex,
         getDepth,
+        getGroupAncestorColors,
         applySelection,
         applyHeaderSelection,
         clearHeaderSelection,

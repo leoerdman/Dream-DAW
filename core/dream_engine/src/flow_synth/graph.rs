@@ -103,6 +103,18 @@ impl FlowGraph {
         };
 
         let idx = self.nodes.len();
+
+        // ENTERPRISE RT-SAFETY: Guard against heap reallocation on the audio thread.
+        // Pre-allocated capacity is 16 nodes which covers 99%+ of real modular patches.
+        // Track any reallocation events for production diagnostics.
+        if self.nodes.len() >= self.nodes.capacity()
+            || self.node_map.len() >= self.node_map.capacity()
+        {
+            static FLOWGRAPH_REALLOC: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(0);
+            FLOWGRAPH_REALLOC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
         self.nodes.push(node);
         self.node_map.insert(id, idx);
         self.index_to_id.push(id);

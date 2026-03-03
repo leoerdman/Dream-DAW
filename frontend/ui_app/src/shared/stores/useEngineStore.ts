@@ -138,6 +138,8 @@ function shouldApplyViewportRestore(reason: string): boolean {
 
     // Allow-list: ONLY restore viewport when actively loading or initializing a project.
     // Normal actions like edit, drag, copy/paste, undo, duplicate should NEVER jump the viewport.
+    // ENTERPRISE FIX: Removed 'keyboard-undo', 'keyboard-redo', 'undo', 'redo' —
+    // undo/redo restores project STATE but must NOT reset zoom/scroll position.
     const loadPrefixes = [
         'native-menu:new',
         'native-menu:open',
@@ -146,10 +148,6 @@ function shouldApplyViewportRestore(reason: string): boolean {
         'project-manager:open',
         'engine:init',
         'engine:open',
-        'keyboard-undo',
-        'keyboard-redo',
-        'undo',
-        'redo',
         'auto-recovery:apply',
         'auto-recovery:resync'
     ];

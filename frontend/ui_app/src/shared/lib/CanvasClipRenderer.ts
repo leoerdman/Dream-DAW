@@ -747,8 +747,15 @@ export class CanvasClipRenderer {
         // This produces perfectly stable waveform height during zoom
         // transitions — identical to Ableton Live's rendering approach.
         // ═══════════════════════════════════════════════════════════════════
+        // ENTERPRISE FIX: Ghost clips (Cmd+Drag) have IDs like `__ghost_<clipId>`.
+        // The waveform cache is keyed by original clip ID. Resolve ghost prefix
+        // so ghost clips render the source clip's waveform during drag.
+        const waveformLookupId = clip.id.startsWith('__ghost_')
+            ? clip.id.slice(8) // strip '__ghost_' prefix (8 chars)
+            : clip.id;
+
         const blendedData = this._waveformCache.getBlendedDrawData(
-            clip.id,
+            waveformLookupId,
             samplesPerPixel,
             clip.sourceOffset ?? 0,
             sourceWindowSamples,

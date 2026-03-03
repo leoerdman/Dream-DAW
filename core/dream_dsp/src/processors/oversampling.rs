@@ -72,10 +72,9 @@ impl Oversampler2x {
         // 3. Anti-Alias Filter (4th-order IIR running at 2x rate)
         // We must evaluate both to update the continuous IIR filter state!
         let _filtered0 = self.aa_stage2.process_f32(self.aa_stage1.process_f32(shaped0));
-        let filtered1 = self.aa_stage2.process_f32(self.aa_stage1.process_f32(shaped1));
 
         // 4. Downsample (Discard sub0, keep sub1)
-        filtered1
+        self.aa_stage2.process_f32(self.aa_stage1.process_f32(shaped1))
     }
 
     pub fn reset(&mut self) {

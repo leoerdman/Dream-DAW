@@ -281,6 +281,12 @@ impl DspProcessor for AutoFilterProcessor {
             if self.env_follower < 1.0e-20 {
                 self.env_follower = 0.0;
             }
+            // BUG-AUDIT-002: Flush denormals in cutoff IIR smoother state.
+            // When cutoff target is constant for long periods, the smoother's
+            // error term (target - current) goes subnormal → x86 CPU spike.
+            if (self.cutoff_smooth_hz - self.cutoff_target_hz).abs() < 1.0e-10 {
+                self.cutoff_smooth_hz = self.cutoff_target_hz;
+            }
         }
     }
 

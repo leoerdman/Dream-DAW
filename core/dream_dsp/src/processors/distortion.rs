@@ -311,6 +311,15 @@ impl DspProcessor for DistortionProcessor {
         let tone_freq = 1000.0 + self.tone * 19000.0;
         self.cached_tone_c = crate::processors::one_pole_lp_coeff(tone_freq, self.sample_rate);
         self.cached_tone_freq = tone_freq;
+        // BUG-AUDIT-003: Reset oversampler biquad state — without this, residual
+        // AA filter state from previous processing diverges from a fresh processor.
+        self.os_l.reset();
+        self.os_r.reset();
+        // BUG-AUDIT-003: Reset DC blocker state.
+        self.dc_x_l = 0.0;
+        self.dc_x_r = 0.0;
+        self.dc_y_l = 0.0;
+        self.dc_y_r = 0.0;
     }
 }
 

@@ -149,6 +149,10 @@ static PARAM_EDIT_RING: ParamEditRing = ParamEditRing::new();
 /// Set when any VST2 plugin signals a state change
 static PLUGIN_STATE_DIRTY: AtomicBool = AtomicBool::new(false);
 
+/// PDC-FIX: Set when a VST2 plugin calls audioMasterIOChanged,
+/// signaling that its IO layout (and potentially latency) has changed.
+static VST2_LATENCY_CHANGED: AtomicBool = AtomicBool::new(false);
+
 /// Public API: Drain pending GUI parameter edits.
 pub fn drain_gui_param_edits(f: impl FnMut(u32, f64)) -> usize {
     PARAM_EDIT_RING.drain(f)
@@ -157,6 +161,12 @@ pub fn drain_gui_param_edits(f: impl FnMut(u32, f64)) -> usize {
 /// Public API: Check and clear the plugin-state-dirty flag.
 pub fn take_plugin_state_dirty() -> bool {
     PLUGIN_STATE_DIRTY.swap(false, Ordering::AcqRel)
+}
+
+/// PDC-FIX: Public API for VST2 latency change detection.
+/// Returns true if any VST2 plugin signaled audioMasterIOChanged since last poll.
+pub fn take_latency_changed() -> bool {
+    VST2_LATENCY_CHANGED.swap(false, Ordering::AcqRel)
 }
 
 thread_local! {
@@ -285,8 +295,12 @@ unsafe extern "C" fn audio_master_callback(
         // Parameter edit begin/end — acknowledge
         AUDIO_MASTER_BEGIN_EDIT | AUDIO_MASTER_END_EDIT => 0,
 
-        // IO changed — acknowledge
-        AUDIO_MASTER_IO_CHANGED => 1,
+        // IO changed — latency may have changed, signal graph rebuild
+        AUDIO_MASTER_IO_CHANGED => {
+            log::info!("[VST2-Handler] audioMasterIOChanged — signaling latency re-query");
+            VST2_LATENCY_CHANGED.store(true, Ordering::Release);
+            1
+        }
 
         // Size window — acknowledge
         AUDIO_MASTER_SIZE_WINDOW => 1,

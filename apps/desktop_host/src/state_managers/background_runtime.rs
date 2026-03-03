@@ -169,22 +169,42 @@ pub(crate) fn spawn_background_runtime_threads(
                         telemetry_app.state();
                     let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
                     plugin_host_state.publish_registry();
+
+                    // ── PDC-FIX: Proactive latency polling ──
+                    // Major DAWs do not rely solely on kLatencyChanged callbacks.
+                    // We proactively re-query get_latency_samples() on all active
+                    // instances every ~500ms. If any latency changed, we trigger
+                    // a full snapshot rebuild so the audio graph gets updated PDC.
+                    let latency_changed = {
+                        let mut host = plugin_host_state.host.lock();
+                        host.refresh_all_latencies()
+                    };
+
                     if let Some(pstate) = registry.get_active_project() {
                         if let Ok(project) = pstate.project.lock() {
                             let slot_instance_map = plugin_host_state.slot_instance_snapshot();
                             clip_pool_state
                                 .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+
+                            if latency_changed {
+                                clip_pool_state.rebuild_snapshot(&project);
+                                log::info!("[PDC] Latency change detected via polling — graph rebuilt with updated PDC");
+                            }
                         }
                     }
                 }
 
-                // ── PDC-FIX: Poll kLatencyChanged and rebuild graph ──
-                // When any VST3 plugin calls restartComponent(kLatencyChanged),
-                // the atomic flag is set. We consume it here, re-query latencies
-                // on all instances, and trigger a full snapshot rebuild so the
-                // audio graph gets updated PDC delay compensation values.
-                if dream_plugins::vst3_host::take_latency_changed() {
-                    log::info!("[PDC] kLatencyChanged detected — refreshing all plugin latencies");
+                // ── PDC-FIX: Poll kLatencyChanged (VST3) and audioMasterIOChanged (VST2) ──
+                // When any plugin signals a latency change, we consume the flag,
+                // re-query latencies on all instances, and trigger a full snapshot
+                // rebuild so the audio graph gets updated PDC delay compensation values.
+                let vst3_latency = dream_plugins::vst3_host::take_latency_changed();
+                let vst2_latency = dream_plugins::vst2_host::take_latency_changed();
+                if vst3_latency || vst2_latency {
+                    log::info!(
+                        "[PDC] Latency change detected (VST3={}, VST2={}) — refreshing all plugin latencies",
+                        vst3_latency, vst2_latency
+                    );
                     let plugin_host_state: tauri::State<'_, PluginHostState> =
                         telemetry_app.state();
                     let latency_changed = {

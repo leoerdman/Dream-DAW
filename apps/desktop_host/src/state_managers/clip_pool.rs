@@ -91,17 +91,30 @@ impl ClipPoolState {
                     .filter_map(|slot| slot.instance_id)
                     .map(|instance_id| {
                         match registry_map.get(&instance_id) {
-                            Some(arc) => match arc.try_lock() {
-                                Some(p) => p.latency_samples(),
-                                None => {
-                                    // PDC-DIAG: Log contention so we can diagnose intermittent
-                                    // PDC failures. The graph will self-correct on next rebuild.
-                                    log::debug!(
-                                        "[PDC] try_lock contention for instance {:?} on track {} — using 0",
+                            Some(arc) => {
+                                // PDC-FIX: Retry try_lock up to 3 times with spin_loop
+                                // to reduce intermittent 0-latency reports from contention.
+                                let mut latency = None;
+                                for attempt in 0..3u8 {
+                                    match arc.try_lock() {
+                                        Some(p) => {
+                                            latency = Some(p.latency_samples());
+                                            break;
+                                        }
+                                        None => {
+                                            if attempt < 2 {
+                                                std::hint::spin_loop();
+                                            }
+                                        }
+                                    }
+                                }
+                                latency.unwrap_or_else(|| {
+                                    log::warn!(
+                                        "[PDC] try_lock contention (3 attempts) for instance {:?} on track {} — using 0",
                                         instance_id, track_idx
                                     );
                                     0
-                                }
+                                })
                             },
                             None => 0,
                         }

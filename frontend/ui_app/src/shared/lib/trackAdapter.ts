@@ -123,6 +123,7 @@ export interface ProjectTrack {
     instrument: FlatPluginSlot | null;
     sampler: SamplerState | null;
     sample_rack?: SampleRackConfig | null;
+    flow_synth?: any | null;
     automation_lanes: Array<{
         param_id: string;
         points: Array<{
@@ -161,6 +162,7 @@ type RawBackendTrack = Record<string, unknown> & {
     instrument?: DeviceNode | null;
     sampler?: SamplerState | null;
     sample_rack?: SampleRackConfig | null;
+    flow_synth?: any | null;
     automation_lanes?: Array<{
         param_id: string;
         points: Array<{
@@ -245,6 +247,7 @@ export function adaptTrack(raw: unknown): ProjectTrack {
         instrument,
         sampler: raw.sampler ?? null,
         sample_rack: raw.sample_rack ?? null,
+        flow_synth: raw.flow_synth ?? null,
         automation_lanes: automationLanes,
     };
 }

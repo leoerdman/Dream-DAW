@@ -195,10 +195,11 @@ export function useDeviceParamGestures(
         if (pending && pending.size > 0) {
             const entries = Array.from(pending.values());
             pendingGestureCommitsRef.current.delete(commitKey);
-            // BUG-#6 FIX: Sequential commit to avoid IPC race condition.
-            // Previously all entries were committed in parallel via forEach,
-            // making the undo push order non-deterministic.
+            // BUG-I02 FIX: Batch internal parameter gesture commits into one IPC call.
             void (async () => {
+                const internalUpdatesByDevice = new Map<string, { trackId: string, updates: engineApi.InternalPluginParamUpdate[] }>();
+                let pushedUndo = false;
+
                 for (let index = 0; index < entries.length; index++) {
                     const entry = entries[index];
                     try {
@@ -206,23 +207,38 @@ export function useDeviceParamGestures(
                             if (entry.paramIndex == null) continue;
                             const response = await engineApi.setExternalPluginParamForSlotWithDeltas(
                                 entry.trackId, entry.deviceId, entry.paramIndex, entry.value,
-                                { pushUndoStep: index === 0 },
+                                { pushUndoStep: !pushedUndo },
                             );
+                            pushedUndo = true;
                             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-commit');
                         } else {
                             const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
                             if (effectType == null) continue;
                             const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
-                            const response = await engineApi.setInternalPluginParamWithDeltas(
-                                entry.trackId, entry.deviceId, scopedParamId, entry.value,
-                                { pushUndoStep: index === 0 },
-                            );
-                            if (response.deltas.length > 0) {
-                                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
+
+                            let deviceBatch = internalUpdatesByDevice.get(entry.deviceId);
+                            if (!deviceBatch) {
+                                deviceBatch = { trackId: entry.trackId, updates: [] };
+                                internalUpdatesByDevice.set(entry.deviceId, deviceBatch);
                             }
+                            deviceBatch.updates.push({ paramId: scopedParamId, value: entry.value });
                         }
                     } catch (err) {
                         console.error('[Dream] gesture commit failed:', err);
+                    }
+                }
+
+                for (const [deviceId, batch] of internalUpdatesByDevice.entries()) {
+                    try {
+                        const response = await engineApi.setInternalPluginParamBatchWithDeltas(
+                            batch.trackId, deviceId, batch.updates, { pushUndoStep: !pushedUndo }
+                        );
+                        pushedUndo = true;
+                        if (response.deltas.length > 0) {
+                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
+                        }
+                    } catch (err) {
+                        console.error('[Dream] internal gesture batch commit failed:', err);
                     }
                 }
             })();
@@ -254,9 +270,27 @@ export function useDeviceParamGestures(
             }
             return next;
         });
-        normalizedEntries.forEach((entry, idx) => {
-            sendInternalParam(device, entry.paramName, entry.value, { forcePushUndo: idx === 0 });
-        });
+        // BUG-I04 FIX: Batch IPC call
+        if (device.source !== 'vst' && device.source !== 'missing') {
+            const effectType = device.effectType;
+            if (effectType) {
+                const updates = normalizedEntries.map(entry => ({
+                    paramId: `slot:${device.id}:${internalParamIdForControl(effectType, entry.paramName)}`,
+                    value: entry.value
+                }));
+                void engineApi.setInternalPluginParamBatchWithDeltas(
+                    selectedTrack.id, device.id, updates, { pushUndoStep: true }
+                )
+                    .then(response => {
+                        useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-batch');
+                    })
+                    .catch(err => console.error('[Dream] applyParamBatch internal gesture batch commit failed:', err));
+            }
+        } else {
+            normalizedEntries.forEach((entry, idx) => {
+                sendInternalParam(device, entry.paramName, entry.value, { forcePushUndo: idx === 0 });
+            });
+        }
     }, [selectedTrack, sendInternalParam, setLocalParams]);
     const cleanupGestures = useCallback(() => {
         throttledParamSendsRef.current.forEach((s) => s.cancel());

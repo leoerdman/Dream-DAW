@@ -521,3 +521,54 @@ fn set_internal_plugin_param_with_deltas_cmd(
 
     Ok(PluginMutationDeltaResponse { deltas })
 }
+
+#[tauri::command]
+fn set_internal_plugin_param_batch_with_deltas_cmd(
+    payload: crate::commands::payloads::InternalPluginParamBatchPayload,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+
+    let mut deltas = Vec::new();
+    let should_commit = payload.push_undo_step.unwrap_or(true);
+    let mut is_first = true;
+
+    for update in payload.updates {
+        let scoped_param_id = normalize_scoped_internal_param_id(slot_uuid, &update.param_id)?;
+        let param_id = scoped_param_id.clone();
+        let value = update.value;
+
+        set_internal_plugin_param_cmd(
+            InternalPluginParamPayload {
+                track_id: payload.track_id.clone(),
+                slot_id: payload.slot_id.clone(),
+                param_id: scoped_param_id,
+                value,
+                push_undo_step: Some(is_first && should_commit),
+            },
+            project_registry.clone(),
+            clip_pool_state.clone(),
+            automation_runtime.clone(),
+            handle.clone(),
+            app.clone(),
+        )?;
+
+        is_first = false;
+
+        deltas.push(dream_models::delta::ProjectDelta::InternalPluginParamChanged {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            param_id,
+            value,
+        });
+    }
+
+    Ok(PluginMutationDeltaResponse { deltas })
+}

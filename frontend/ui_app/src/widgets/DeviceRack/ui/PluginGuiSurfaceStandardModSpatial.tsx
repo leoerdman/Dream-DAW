@@ -1,11 +1,11 @@
+import React from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
-    buildSurfaceKnobParams,
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGrid,
+    KnobParamGridMemo,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -16,9 +16,7 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 1, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
     const depthNorm = clamp01(modDepth.value / 100);
@@ -43,17 +41,15 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-6db3ff)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
 
 function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 0.5, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 60, '%');
     const stages = readSurfaceParam(device, 'stages', 6, '');
@@ -86,17 +82,15 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-998bff)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
 
 function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 0.3, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
     const fb = readSurfaceParam(device, ['fb', 'feedback'], 40, '%');
@@ -128,7 +122,7 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-66b3ff)" show={showDryWet} />
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

@@ -321,7 +321,8 @@ impl FlowSynthEngine {
 
         for i in 0..frame_count {
             let vol = self.volume.next();
-            let mut mixed_sample = 0.0_f32;
+            let mut mixed_left = 0.0_f32;
+            let mut mixed_right = 0.0_f32;
             let mut rendering_voice_count = 0_u32;
             let ext_in = if i < left_out.len() && i < right_out.len() {
                 0.5 * (left_out[i] + right_out[i])
@@ -343,7 +344,9 @@ impl FlowSynthEngine {
                 }
 
                 voice.graph.set_audio_in_sample(ext_in);
-                mixed_sample += Self::sanitize(voice.graph.process_sample(self.sample_rate));
+                let (vl, vr) = voice.graph.process_sample(self.sample_rate);
+                mixed_left += Self::sanitize(vl);
+                mixed_right += Self::sanitize(vr);
                 rendering_voice_count += 1;
             }
 
@@ -355,9 +358,10 @@ impl FlowSynthEngine {
 
             // Perceptually stable gain for polyphonic summing.
             let poly_norm = 1.0 / (rendering_voice_count as f32).sqrt();
-            let final_out = Self::soft_limit(Self::sanitize(mixed_sample) * poly_norm * vol);
-            left_out[i] += final_out;
-            right_out[i] += final_out;
+            let final_left = Self::soft_limit(mixed_left * poly_norm * vol);
+            let final_right = Self::soft_limit(mixed_right * poly_norm * vol);
+            left_out[i] += final_left;
+            right_out[i] += final_right;
         }
 
         self.frame_counter += frame_count as u64;

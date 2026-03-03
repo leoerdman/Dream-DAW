@@ -2095,6 +2095,24 @@ impl OfflineRenderer {
             } else {
                 sc_sources.join("; ")
             };
+            
+            // ── ENTERPRISE DIAGNOSTIC: Deep MIDI Clip Analysis ──
+            if track_idx == 1 || track_idx == 2 || track_idx == 9 {
+                let clips = &track.midi_clips;
+                let mut bounds_str = Vec::new();
+                for (c_idx, c) in clips.iter().enumerate() {
+                    let start_sec = c.position.sample_frame as f64 / project_sr as f64;
+                    let end_sec = (c.position.sample_frame + c.duration.sample_frame) as f64 / project_sr as f64;
+                    bounds_str.push(format!("C{}[{:.2}s-{:.2}s, {} notes]", c_idx, start_sec, end_sec, c.notes.len()));
+                }
+                let loop_str = loop_region.as_ref().map(|lr| format!("[{:.2}s - {:.2}s]", lr.start as f64 / project_sr as f64, lr.end as f64 / project_sr as f64)).unwrap_or("DISABLED".to_string());
+                log::error!(
+                    "[Bounce-Diag-MIDI] T[{}] '{}': loop={} bounds={} | export={:.2}s - {:.2}s",
+                    track_idx, track.name, loop_str, bounds_str.join(","),
+                    self.config.start_frame as f64 / project_sr as f64, self.config.end_frame as f64 / project_sr as f64
+                );
+            }
+
             log::error!(
                 "[Bounce-Diag] Track[{}] '{}': disabled={}, solo={}, vol={:.3}, pan={:.3}, \
                  internal_fx={}, external_fx_slots={}, is_group={}, \

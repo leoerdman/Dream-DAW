@@ -120,6 +120,71 @@ pub struct ProjectScene {
     pub follow_chance_b: Option<f64>,
 }
 
+// ── Flow Synthesizer Configuration ─────────────────────────────────────
+
+/// Serialized layout for the Flow Synth graph editor viewport.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FlowViewportConfig {
+    pub x: f64,
+    pub y: f64,
+    pub zoom: f64,
+}
+
+impl Default for FlowViewportConfig {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            zoom: 1.0,
+        }
+    }
+}
+
+/// Serialized parameters and metadata for a single Flow Synth node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FlowNodeConfig {
+    /// Unique node identifier (e.g., "node-osc-1").
+    pub id: String,
+    /// Node type identifier (e.g., "oscillator").
+    #[serde(rename = "type")]
+    pub node_type: String,
+    /// Viewport X position.
+    pub position_x: f64,
+    /// Viewport Y position.
+    pub position_y: f64,
+    /// Key-value pairs for internal parameters (e.g., "waveform" -> "0").
+    #[serde(default)]
+    pub data: std::collections::HashMap<String, String>,
+}
+
+/// Serialized patch cable connecting two Flow Synth nodes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FlowConnectionConfig {
+    /// Unique connection identifier.
+    pub id: String,
+    pub from_node: String,
+    pub from_port: String,
+    pub to_node: String,
+    pub to_port: String,
+    /// Audio, Midi, or Control signal tag.
+    #[serde(default)]
+    #[serde(rename = "signalType")]
+    pub signal_type: Option<String>,
+}
+
+/// The entire Flow Synthesizer state attached to a Track.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FlowSynthConfig {
+    pub nodes: Vec<FlowNodeConfig>,
+    pub connections: Vec<FlowConnectionConfig>,
+    #[serde(default)]
+    pub viewport: FlowViewportConfig,
+}
+
 /// UI state for a MIDI editor lane model from ALS.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -1331,6 +1396,11 @@ pub struct Track {
     /// 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
     pub sample_rack: Option<SampleRackConfig>,
 
+    // ── Flow Synth ────────────────────────────────────────────────────
+    /// The standalone Flow Synthesizer configuration for this track.
+    #[serde(default)]
+    pub flow_synth: Option<FlowSynthConfig>,
+
     // ── Automation ────────────────────────────────────────────────────
     /// Automation lanes for this track (volume/pan/plugin params).
     #[serde(default)]
@@ -1364,6 +1434,7 @@ impl Track {
             midi_clips: Vec::new(),
             sampler: None,
             sample_rack: None,
+            flow_synth: None,
             automation_lanes: Vec::new(),
         }
     }

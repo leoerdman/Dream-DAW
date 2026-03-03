@@ -69,3 +69,31 @@ fn sync_flow_graph_cmd(
     )?;
     Ok(())
 }
+
+#[tauri::command]
+fn save_flow_synth_config_cmd(
+    track_index: u16,
+    config_json: String,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<(), String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    
+    let mut project = project_state
+        .project
+        .lock()
+        .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        
+    let resolved_track_index = resolve_flow_track_index(&project, track_index);
+    
+    let config: dream_models::project::FlowSynthConfig = serde_json::from_str(&config_json)
+        .map_err(|e| format!("Invalid FlowSynthConfig JSON: {}", e))?;
+        
+    if let Some(track) = project.tracks.get_mut(resolved_track_index as usize) {
+        track.flow_synth = Some(config);
+        let _ = project_state.mark_dirty(&project.name, None);
+        Ok(())
+    } else {
+        Err("Track not found".to_string())
+    }
+}

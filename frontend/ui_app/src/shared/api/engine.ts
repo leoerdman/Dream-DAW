@@ -1086,6 +1086,26 @@ export const setInternalPluginParamWithDeltas = (
             pushUndoStep: options?.pushUndoStep,
         },
     });
+
+export interface InternalPluginParamUpdate {
+    paramId: string;
+    value: number;
+}
+
+export const setInternalPluginParamBatchWithDeltas = (
+    trackId: string,
+    slotId: string,
+    updates: InternalPluginParamUpdate[],
+    options?: { pushUndoStep?: boolean },
+) =>
+    safeInvoke<DeltaMutationResponse>('set_internal_plugin_param_batch_with_deltas_cmd', {
+        payload: {
+            trackId,
+            slotId,
+            updates,
+            pushUndoStep: options?.pushUndoStep,
+        },
+    });
 export const setExternalPluginParam = (
     pluginId: string,
     paramIndex: number,
@@ -1399,3 +1419,6 @@ export const syncFlowGraph = (
     connections: [number, number, number, number][],
 ) =>
     safeInvoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });
+
+export const saveFlowSynthConfig = (trackIndex: number, configJson: string) =>
+    safeInvoke<void>('save_flow_synth_config_cmd', { trackIndex, configJson });

@@ -177,7 +177,37 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     graphsByDeviceId: {},
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
-        const graph = state.graphsByDeviceId[deviceId] ?? cloneDefaultGraph();
+        let graph = state.graphsByDeviceId[deviceId];
+        if (!graph) {
+            // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
+            const track = useEngineStore.getState().tracks.byId[trackId];
+            if (track?.flow_synth) {
+                graph = {
+                    nodes: track.flow_synth.nodes.map((n: any) => ({
+                        id: n.id,
+                        type: n.type as SynthNodeType,
+                        position: { x: n.position_x, y: n.position_y },
+                        data: n.data ?? {}
+                    })),
+                    connections: track.flow_synth.connections.map((c: any) => ({
+                        id: c.id,
+                        fromNode: c.from_node,
+                        fromPort: c.from_port,
+                        toNode: c.to_node,
+                        toPort: c.to_port,
+                        signalType: c.signal_type ?? 'audio'
+                    })),
+                    viewport: {
+                        x: track.flow_synth.viewport?.x ?? 0,
+                        y: track.flow_synth.viewport?.y ?? 0,
+                        zoom: track.flow_synth.viewport?.zoom ?? 1
+                    }
+                };
+            } else {
+                graph = cloneDefaultGraph();
+            }
+        }
+
         viewportProxy.setViewport(graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
 
         // CRITICAL: Sync graph to engine on editor open so the Rust backend
@@ -546,6 +576,13 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
     pulseFromNode: (nodeId, signalType = 'audio') => set((state) => {
         const now = Date.now();
+        const nextPulseById = { ...state.connectionPulseById };
+
+        // Phase 9.2: Memory Leak Garbage Collection
+        Object.keys(nextPulseById).forEach((key) => {
+            if (now - nextPulseById[key] > 1000) delete nextPulseById[key];
+        });
+
         const pulsePatch: Record<string, number> = {};
         for (const conn of state.connections) {
             if (conn.fromNode !== nodeId) continue;
@@ -553,16 +590,22 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             if (connSignal !== signalType) continue;
             pulsePatch[conn.id] = now;
         }
-        if (Object.keys(pulsePatch).length === 0) return {};
-        return { connectionPulseById: { ...state.connectionPulseById, ...pulsePatch } };
+        if (Object.keys(pulsePatch).length === 0) return { connectionPulseById: nextPulseById };
+        return { connectionPulseById: { ...nextPulseById, ...pulsePatch } };
     }),
 
-    pulseConnection: (connectionId) => set((state) => ({
-        connectionPulseById: {
-            ...state.connectionPulseById,
-            [connectionId]: Date.now(),
-        },
-    })),
+    pulseConnection: (connectionId) => set((state) => {
+        const now = Date.now();
+        const nextPulseById = { ...state.connectionPulseById };
+
+        // Phase 9.2: Memory Leak Garbage Collection
+        Object.keys(nextPulseById).forEach((key) => {
+            if (now - nextPulseById[key] > 1000) delete nextPulseById[key];
+        });
+
+        nextPulseById[connectionId] = now;
+        return { connectionPulseById: nextPulseById };
+    }),
 
     syncFlowGraphToEngine: async () => {
         const state = useFlowSynthStore.getState();
@@ -618,11 +661,35 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             ];
         });
 
+        // Phase 7.3: Project Persistence (SSOT)
+        // Send the JSON representation back to the audio engine to save it in `dream_models`
+        const configJson = JSON.stringify({
+            nodes: state.nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                position_x: n.position.x,
+                position_y: n.position.y,
+                data: n.data
+            })),
+            connections: state.connections.map(c => ({
+                id: c.id,
+                from_node: c.fromNode,
+                from_port: c.fromPort,
+                to_node: c.toNode,
+                to_port: c.toPort,
+                signal_type: c.signalType ?? 'audio'
+            })),
+            viewport: viewportProxy.getViewport()
+        });
+
         // ENTERPRISE FIX: Sequential awaits — setFlowEnabled MUST complete before
         // syncFlowGraph. The engine must be enabled before it processes graph data,
         // otherwise the graph sync arrives while the engine is still in disabled
         // state and may be silently dropped or cause state inconsistency.
         await engine.setFlowEnabled(trackIndex, true);
-        await engine.syncFlowGraph(trackIndex, nodes, connections);
+        await Promise.all([
+            engine.syncFlowGraph(trackIndex, nodes, connections),
+            engine.saveFlowSynthConfig(trackIndex, configJson)
+        ]);
     },
 }));

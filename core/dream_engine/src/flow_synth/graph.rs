@@ -371,7 +371,7 @@ impl FlowGraph {
     ///
     /// ENTERPRISE: Uses pre-computed incoming_cache for O(edges_to_node) per node
     /// instead of the previous O(all_connections) scan.
-    pub fn process_sample(&mut self, sample_rate: f64) -> f32 {
+    pub fn process_sample(&mut self, sample_rate: f64) -> (f32, f32) {
         let node_count = self.nodes.len();
         // 1. Gather inputs for each node from the incoming cache and execute.
         for i in 0..node_count {
@@ -396,16 +396,18 @@ impl FlowGraph {
 
         // 2. Return the output of the AudioOut node specifically.
         if let Some(out_idx) = self.audio_out_index {
-            let sig = self.signal_buffer[out_idx * MAX_NODE_PORTS];
-            sig.as_float().unwrap_or(0.0)
+            let left = self.signal_buffer[out_idx * MAX_NODE_PORTS].as_float().unwrap_or(0.0);
+            let right = self.signal_buffer[out_idx * MAX_NODE_PORTS + 1].as_float().unwrap_or(0.0);
+            (left, right)
         } else if !self.nodes.is_empty() {
-            // Fallback: return last node's first output.
+            // Fallback: return last node's first output for both channels.
             let last_idx = node_count - 1;
-            self.signal_buffer[last_idx * MAX_NODE_PORTS]
+            let mono = self.signal_buffer[last_idx * MAX_NODE_PORTS]
                 .as_float()
-                .unwrap_or(0.0)
+                .unwrap_or(0.0);
+            (mono, mono)
         } else {
-            0.0
+            (0.0, 0.0)
         }
     }
 }
@@ -426,7 +428,9 @@ mod tests {
     fn render(graph: &mut FlowGraph, sample_rate: f64, frames: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(frames);
         for _ in 0..frames {
-            out.push(graph.process_sample(sample_rate));
+            // Unpack stereo tuple and use left channel for assertions
+            let (l, _r) = graph.process_sample(sample_rate);
+            out.push(l);
         }
         out
     }
@@ -519,7 +523,7 @@ mod tests {
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         g.set_audio_in_sample(0.37);
-        let out = g.process_sample(44_100.0);
+        let (out, _) = g.process_sample(44_100.0);
         assert!((out - 0.37).abs() < 0.01, "expected injected sample pass-through, got {out}");
     }
 

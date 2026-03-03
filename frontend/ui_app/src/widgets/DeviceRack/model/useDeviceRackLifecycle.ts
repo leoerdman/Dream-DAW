@@ -57,20 +57,31 @@ export function useDeviceRackLifecycle({
 
         const prevSlots = openEditorsByTrack[prevId];
         if (prevSlots && prevSlots.size > 0 && prevId) {
-            for (const slotId of prevSlots) {
-                engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
-                    console.warn('[Dream] close editor on track leave failed:', err),
-                );
-            }
-            useEngineStore.setState((s) => ({
-                openEditorsByTrack: { ...s.openEditorsByTrack, [prevId]: new Set<string>() },
-            }));
+            // BUG-S06 FIX: Wait for backend to actually close before removing from UI state
+            // to prevent race conditions where user opens plugin while close is in flight.
+            Promise.all(
+                Array.from(prevSlots).map((slotId) =>
+                    engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
+                        console.warn('[Dream] close editor on track leave failed:', err),
+                    ),
+                ),
+            ).finally(() => {
+                useEngineStore.setState((s) => {
+                    const next = { ...s.openEditorsByTrack };
+                    next[prevId] = new Set<string>();
+                    return { openEditorsByTrack: next };
+                });
+            });
         }
     }, [selectedTrackId, openEditorsByTrack, prevTrackIdRef]);
 
     // BUG-S05 FIX: Cleanup gestures ONLY after track changes — not on every render.
     // This prevents losing pending gesture commits.
+    // BUG-I01 FIX: Return cleanup function to clear maps on unmount.
     useEffect(() => {
         cleanupGestures();
+        return () => {
+            cleanupGestures();
+        };
     }, [selectedTrackId, cleanupGestures]);
 }

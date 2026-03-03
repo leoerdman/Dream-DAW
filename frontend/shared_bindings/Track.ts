@@ -2,6 +2,7 @@
 import type { AudioClip } from "./AudioClip";
 import type { AutomationLane } from "./AutomationLane";
 import type { DeviceNode } from "./DeviceNode";
+import type { FlowSynthConfig } from "./FlowSynthConfig";
 import type { MidiClip } from "./MidiClip";
 import type { SampleRackConfig } from "./SampleRackConfig";
 import type { SamplerConfig } from "./SamplerConfig";
@@ -116,6 +117,10 @@ sampler: SamplerConfig | null,
  * 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
  */
 sample_rack: SampleRackConfig | null, 
+/**
+ * The standalone Flow Synthesizer configuration for this track.
+ */
+flow_synth: FlowSynthConfig | null, 
 /**
  * Automation lanes for this track (volume/pan/plugin params).
  */

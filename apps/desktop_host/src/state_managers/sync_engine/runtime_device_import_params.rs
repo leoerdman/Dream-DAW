@@ -50,10 +50,13 @@ pub fn try_apply_primary_imported_params(
             | "internal://effect/auto-shift"
             | "internal://effect/shifter"
     );
-    let is_eq = matches!(
+    let is_eq_eight = matches!(
         pid.as_str(),
         "internal://effect/eq-eight"
-            | "internal://effect/channel-eq"
+    );
+    let is_channel_eq = matches!(
+        pid.as_str(),
+        "internal://effect/channel-eq"
             | "internal://effect/eq-three"
     );
     let is_auto_filter = matches!(
@@ -129,8 +132,8 @@ pub fn try_apply_primary_imported_params(
         return Ok(true);
     }
 
-    if is_eq {
-        if let Some(out_gain) = first_lane_value(track, &["effect.eq.global_gain"]) {
+    if is_eq_eight {
+        if let Some(out_gain) = first_lane_value(track, &["eq.out", "effect.eq.global_gain"]) {
             push_command(
                 handle,
                 EngineCommand::SetDeviceParam {
@@ -142,7 +145,7 @@ pub fn try_apply_primary_imported_params(
             )?;
         }
         for band in 0..8u32 {
-            if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.freq")]) {
+            if let Some(v) = first_lane_value(track, &[&format!("eq.b{band}freq"), &format!("effect.eq.band{band}.freq")]) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -153,7 +156,7 @@ pub fn try_apply_primary_imported_params(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.gain")]) {
+            if let Some(v) = first_lane_value(track, &[&format!("eq.b{band}gain"), &format!("effect.eq.band{band}.gain")]) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -164,7 +167,7 @@ pub fn try_apply_primary_imported_params(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.q")]) {
+            if let Some(v) = first_lane_value(track, &[&format!("eq.b{band}q"), &format!("effect.eq.band{band}.q")]) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -175,7 +178,7 @@ pub fn try_apply_primary_imported_params(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.on")]) {
+            if let Some(v) = first_lane_value(track, &[&format!("eq.b{band}en"), &format!("effect.eq.band{band}.on")]) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -186,6 +189,75 @@ pub fn try_apply_primary_imported_params(
                     },
                 )?;
             }
+            if let Some(v) = first_lane_value(track, &[&format!("eq.b{band}type")]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 33 + band, // 33..=40
+                        value: v.clamp(0.0, 5.0),
+                    },
+                )?;
+            }
+        }
+        return Ok(true);
+    }
+
+    if is_channel_eq {
+        if let Some(v) = first_lane_value(track, &["bandeq.low", "effect.channel_eq.low"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 0, value: v.clamp(-24.0, 24.0) },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.mid", "effect.channel_eq.mid"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 1, value: v.clamp(-24.0, 24.0) },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.high", "effect.channel_eq.high"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 2, value: v.clamp(-24.0, 24.0) },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.lowfreq", "effect.channel_eq.lowfreq"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 3, value: v.clamp(20.0, 5000.0) },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.highfreq", "effect.channel_eq.highfreq"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 4, value: v.clamp(500.0, 20_000.0) },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.lowkill", "effect.channel_eq.lowkill"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 5, value: if v >= 0.5 { 1.0 } else { 0.0 } },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.midkill", "effect.channel_eq.midkill"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 6, value: if v >= 0.5 { 1.0 } else { 0.0 } },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.highkill", "effect.channel_eq.highkill"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 7, value: if v >= 0.5 { 1.0 } else { 0.0 } },
+            )?;
+        }
+        if let Some(v) = first_lane_value(track, &["bandeq.out", "effect.channel_eq.out"]) {
+            push_command(
+                handle,
+                EngineCommand::SetDeviceParam { track_index, slot_index, param_index: 8, value: v.clamp(-24.0, 24.0) },
+            )?;
         }
         return Ok(true);
     }

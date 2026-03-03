@@ -2,10 +2,13 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { DeviceSlot, QuickPreset } from '../model/types';
 import { resolveQuickPresetParams, randomParamValue, defaultParamForReset } from '../model/presets';
 
+// BUG-S01 FIX: Persist snapshots in a global module variable to survive DeviceRack unmounts
+const globalSnapshotStorage: Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }> = {};
+
 export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries: Array<{ paramName: string, value: number }>) => void) {
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
-    >({});
+    >(globalSnapshotStorage);
 
     const snapshotsRef = useRef(paramSnapshotsByDevice);
     useEffect(() => {
@@ -15,10 +18,14 @@ export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries
     const storeParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
         const snapshot: Record<string, number> = {};
         for (const p of device.params) snapshot[p.name] = p.value;
-        setParamSnapshotsByDevice((prev) => ({
-            ...prev,
-            [device.id]: { ...(prev[device.id] ?? {}), [slot]: snapshot, active: slot },
-        }));
+        setParamSnapshotsByDevice((prev) => {
+            const next = {
+                ...prev,
+                [device.id]: { ...(prev[device.id] ?? {}), [slot]: snapshot, active: slot },
+            };
+            Object.assign(globalSnapshotStorage, next);
+            return next;
+        });
     }, []);
 
     const recallParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
@@ -27,10 +34,11 @@ export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries
         if (!snapshot) return;
         const entries = Object.entries(snapshot).map(([paramName, value]) => ({ paramName, value: value as number }));
         applyParamBatch(device, entries);
-        setParamSnapshotsByDevice((prev) => ({
-            ...prev,
-            [device.id]: { ...(prev[device.id] ?? {}), active: slot },
-        }));
+        setParamSnapshotsByDevice((prev) => {
+            const next = { ...prev, [device.id]: { ...(prev[device.id] ?? {}), active: slot } };
+            Object.assign(globalSnapshotStorage, next);
+            return next;
+        });
     }, [applyParamBatch]);
 
     const toggleParamSnapshot = useCallback((device: DeviceSlot) => {

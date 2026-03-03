@@ -1,22 +1,8 @@
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
-    buildSurfaceKnobParams,
     formatSurfaceParam,
     getDevicePluginKey,
     KnobParamGrid,
-    pluginPanelCardBaseStyle,
-    pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
-    readSurfaceParam,
-    safeParamValue,
-    PLUGIN_TITLE_MAP,
-    type SurfaceHandlers,
-} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
-import {
-    buildSurfaceKnobParams,
-    formatSurfaceParam,
-    getDevicePluginKey,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -37,8 +23,6 @@ export function renderStandardAnalyzerMidiSurface(
     device: DeviceSlot,
     handlers: SurfaceHandlers,
 ): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
-    const knobParams = buildSurfaceKnobParams(device);
     const normalizedInternalId = getDevicePluginKey(device);
 
     // BUG-76 FIX: Include all MIDI effect types including new ones (chord, noteLength, ccControl, expressionControl, arpeggiator).
@@ -82,9 +66,9 @@ export function renderStandardAnalyzerMidiSurface(
     const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const activeRoot = Math.max(0, Math.min(11, Math.round(root) % 12));
 
-    // BUG-P18 FIX: NaN-safe VU levels
-    const safeVuL = Number.isFinite(device.vuLevelL) ? device.vuLevelL : -100;
-    const safeVuR = Number.isFinite(device.vuLevelR) ? device.vuLevelR : -100;
+    // BUG-P18 FIX: NaN-safe VU levels fallback
+    const safeVuL = -100;
+    const safeVuR = -100;
 
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
@@ -221,7 +205,7 @@ export function renderStandardAnalyzerMidiSurface(
                     </span>
                 </div>
             </div>
-            <KnobParamGrid params={knobParams} handlers={handlers} maxCols={4} minCols={2} />
+            <KnobParamGrid device={device} handlers={handlers} maxCols={4} minCols={2} />
         </div>
     );
 }

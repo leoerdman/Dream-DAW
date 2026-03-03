@@ -17,9 +17,10 @@ impl Default for AudioOutNode {
 
 impl FlowNode for AudioOutNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
-        // Input 0: Audio Signal
-        // Master summing happens in the engine, this node just marks the end of the chain.
-        outputs[0] = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));
+        // Input 0: Left Audio Signal
+        // Input 1: Right Audio Signal
+        outputs[0] = inputs.get(0).cloned().unwrap_or(FlowSignal::Audio(0.0));
+        outputs[1] = inputs.get(1).cloned().unwrap_or(FlowSignal::Audio(0.0));
     }
 
     fn reset(&mut self) {}

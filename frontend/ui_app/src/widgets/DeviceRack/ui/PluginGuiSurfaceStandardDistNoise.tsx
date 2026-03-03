@@ -5,7 +5,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
-    buildSurfaceKnobParams,
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
@@ -28,7 +27,6 @@ export function renderStandardDistNoiseSurface(
     device: DeviceSlot,
     handlers: SurfaceHandlers,
 ): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
 
     /* ═════════════════════════════════════════════════════════════════ */
@@ -36,7 +34,6 @@ export function renderStandardDistNoiseSurface(
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'distortion' || device.effectType === 'bitcrusher') {
         const showDryWet = shouldShowDryWet(device);
-        const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const title = device.effectType === 'bitcrusher'
             ? 'Bitcrusher'
             : (PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Distortion');
@@ -148,24 +145,9 @@ export function renderStandardDistNoiseSurface(
                             <span>Tone {formatSurfaceParam(tone)}</span>
                         </div>
                     </div>
-                    {showDryWet && (
-                        <DryWetKnob
-                            device={device}
-                            onChange={onParamChange}
-                            onGestureStart={onParamGestureStart}
-                            onGestureEnd={onParamGestureEnd}
-                            onContextMenu={onParamContextMenu}
-                            accent={device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)'}
-                        />
-                    )}
+                    <DryWetSection device={device} handlers={handlers} accent={device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)'} show={showDryWet} />
                 </div>
-                {knobParams.length > 0 && (
-                    <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
-                        ))}
-                    </div>
-                )}
+                <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
             </div>
         );
     }
@@ -174,7 +156,6 @@ export function renderStandardDistNoiseSurface(
     /* NOISE MACHINE — Generator (no Dry/Wet applicable)                */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'noiseMachine') {
-        const knobParams = buildSurfaceKnobParams(device);
         const type = Math.round(safeParamValue(device, 'type', 0));
         const level = readSurfaceParam(device, 'level', -30, 'dB');
         const stereo = readSurfaceParam(device, 'stereo', 0.5, '%');
@@ -197,13 +178,7 @@ export function renderStandardDistNoiseSurface(
                         <span>Stereo {formatSurfaceParam(stereo)}</span>
                     </div>
                 </div>
-                {knobParams.length > 0 && (
-                    <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
-                        ))}
-                    </div>
-                )}
+                <KnobParamGrid device={device} handlers={handlers} />
             </div>
         );
     }

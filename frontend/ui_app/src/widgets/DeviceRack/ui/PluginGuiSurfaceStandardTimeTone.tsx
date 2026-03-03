@@ -5,7 +5,7 @@ import {
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGridMemo,
+    KnobParamGrid,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -43,7 +43,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-c867ff)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -94,7 +94,7 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

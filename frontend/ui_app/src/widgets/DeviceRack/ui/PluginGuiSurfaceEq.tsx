@@ -15,7 +15,6 @@ import {
     assignNextEqBandColor,
     buildEqGradientStops,
     buildInitialEqBandColors,
-    EQ_PRIMARY_ACCENT,
 } from './PluginGuiSurfaceEq.utils';
 
 type Props = {
@@ -167,17 +166,6 @@ export function PluginGuiSurfaceEq({
                         onContextMenu={handleContextMenu}
                     >
                         <defs>
-                            <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                {curveStops.map((stop, idx) => (
-                                    <stop
-                                        key={`eqfill-${idx}-${stop.offsetPct}`}
-                                        offset={`${stop.offsetPct}%`}
-                                        stopColor={stop.color}
-                                        stopOpacity="0.22"
-                                    />
-                                ))}
-                                <stop offset="100%" stopColor={curveStops[curveStops.length - 1]?.color ?? EQ_PRIMARY_ACCENT} stopOpacity="0" />
-                            </linearGradient>
                             <linearGradient id={`eqCurveStroke-${device.id}`} x1="0" y1="0" x2="1" y2="0">
                                 {curveStops.map((stop, idx) => (
                                     <stop key={`eqcurve-${idx}-${stop.offsetPct}`} offset={`${stop.offsetPct}%`} stopColor={stop.color} />
@@ -203,7 +191,7 @@ export function PluginGuiSurfaceEq({
                         ))}
                         <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} isDragging={isDragging} />
                         {enabledBands.length > 0 && (
-                            <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
+                            <path d={fillPath} fill="color-mix(in srgb, var(--color-accent-primary) 12%, transparent)" />
                         )}
                         <path
                             d={curvePath}
@@ -348,9 +336,23 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
                             if (pathRef.current) {
                                 pathRef.current.setAttribute('d', path);
                             }
-                        } else {
-                            lastSpectrumRef.current = null;
-                            if (pathRef.current) pathRef.current.setAttribute('d', '');
+                        } else if (lastSpectrumRef.current) {
+                            // Backend returned empty array (maybe buffer under-run or silence).
+                            // Smoothly decay to zero instead of instantly vanishing and blinking!
+                            let allZero = true;
+                            const decayed = lastSpectrumRef.current.map(v => {
+                                const newVal = v * 0.82;
+                                if (newVal > 0.1) allZero = false;
+                                return newVal;
+                            });
+                            if (allZero) {
+                                lastSpectrumRef.current = null;
+                                if (pathRef.current) pathRef.current.setAttribute('d', '');
+                            } else {
+                                lastSpectrumRef.current = decayed;
+                                const path = buildSpectrumPath(decayed);
+                                if (pathRef.current) pathRef.current.setAttribute('d', path);
+                            }
                         }
                         // Wait for next animation frame before polling again
                         await new Promise(r => requestAnimationFrame(r));

@@ -125,7 +125,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'Output',
         color: 'var(--color-synth-out)',
         inputs: [
-            { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'audioL', label: 'L', type: 'audio' },
+            { id: 'audioR', label: 'R', type: 'audio' },
         ],
         outputs: [],
     },

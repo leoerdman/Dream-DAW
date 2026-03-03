@@ -144,6 +144,7 @@ export const PluginGuiSurface = React.memo(({
     // zero-latency visual feedback. The IPC call still fires normally.
     const pendingDragOverrides = useRef<Map<string, number>>(new Map());
     const [dragRenderTick, setDragRenderTick] = useState(0);
+    const dragRenderRafRef = useRef<number | null>(null);
 
     // When drag ends, clear local overrides (store state will have caught up).
     const prevDragBandRef = useRef<number | null>(null);
@@ -159,7 +160,12 @@ export const PluginGuiSurface = React.memo(({
     const onParamChangeLocal = useCallback((paramName: string, value: number) => {
         if (dragEqBandRef.current !== null) {
             pendingDragOverrides.current.set(paramName.toLowerCase(), value);
-            setDragRenderTick((t) => t + 1);
+            if (dragRenderRafRef.current === null) {
+                dragRenderRafRef.current = requestAnimationFrame(() => {
+                    setDragRenderTick((t) => t + 1);
+                    dragRenderRafRef.current = null;
+                });
+            }
         }
         onParamChange(paramName, value);
     }, [onParamChange]);
@@ -312,6 +318,7 @@ export const PluginGuiSurface = React.memo(({
             onParamGestureStart={onParamGestureStart}
             onParamGestureEnd={onParamGestureEnd}
             onParamContextMenu={onParamContextMenu}
+        />
     );
 });
 PluginGuiSurface.displayName = 'PluginGuiSurface';

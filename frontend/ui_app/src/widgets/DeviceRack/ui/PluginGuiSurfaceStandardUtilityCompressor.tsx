@@ -156,32 +156,11 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     )}
                     {showDryWet && (
                         <div style={{ gridColumn: '3', gridRow: '1 / -1', justifySelf: 'end', alignSelf: 'center' }}>
-                            <DryWetKnob
-                                device={device}
-                                onChange={onParamChange}
-                                onGestureStart={onParamGestureStart}
-                                onGestureEnd={onParamGestureEnd}
-                                onContextMenu={onParamContextMenu}
-                                accent="var(--token-color-hex-7ab6ff)"
-                            />
+                            <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />
                         </div>
                     )}
                 </div>
-                {knobParams.length > 0 && (
-                    <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => (
-                            <PluginKnob
-                                key={p.name}
-                                param={p}
-                                onChange={onParamChange}
-                                onGestureStart={onParamGestureStart}
-                                onGestureEnd={onParamGestureEnd}
-                                onContextMenu={onParamContextMenu}
-                                compact
-                            />
-                        ))}
-                    </div>
-                )}
+                <KnobParamGrid params={knobParams} handlers={handlers} />
             </div>
         );
     }
@@ -196,8 +175,8 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const ratioParam = readSurfaceParam(device, 'ratio', 4, ':1');
         const thr = thrParam.value;
         const ratio = ratioParam.value;
-        // BUG-P8 FIX: Use real VU level for GR meter when available, fallback to static formula.
-        const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel) : 0;
+        const _vuLevel = (device as any).vuLevel;
+        const rawGr = Number.isFinite(_vuLevel) ? Math.abs(_vuLevel) : 0;
         const pseudoGr = rawGr > 0 ? Math.max(0, Math.min(24, rawGr)) : Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
         const atkParam = readSurfaceParam(device, ['atk', 'attack'], 10, 'ms');
         const relParam = readSurfaceParam(device, ['rel', 'release'], 80, 'ms');
@@ -261,16 +240,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             transition: 'height 60ms linear',
                         }} />
                     </div>
-                    {showDryWet && (
-                        <DryWetKnob
-                            device={device}
-                            onChange={onParamChange}
-                            onGestureStart={onParamGestureStart}
-                            onGestureEnd={onParamGestureEnd}
-                            onContextMenu={onParamContextMenu}
-                            accent="var(--token-color-hex-6ac3ff)"
-                        />
-                    )}
+                    <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-6ac3ff)" show={showDryWet} />
                     {!isTransientShaper && (
                         <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
                             <span>{compressorTitle}</span>
@@ -281,21 +251,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         </div>
                     )}
                 </div>
-                {knobParams.length > 0 && (
-                    <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                        {knobParams.map((p) => (
-                            <PluginKnob
-                                key={p.name}
-                                param={p}
-                                onChange={onParamChange}
-                                onGestureStart={onParamGestureStart}
-                                onGestureEnd={onParamGestureEnd}
-                                onContextMenu={onParamContextMenu}
-                                compact
-                            />
-                        ))}
-                    </div>
-                )}
+                <KnobParamGrid params={knobParams} handlers={handlers} />
             </div>
         );
     }

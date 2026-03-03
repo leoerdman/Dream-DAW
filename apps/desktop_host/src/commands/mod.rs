@@ -102,6 +102,7 @@ pub(crate) fn invoke_handler()
         preview_sampler_note_off_cmd,
         set_flow_enabled_cmd,
         sync_flow_graph_cmd,
+        save_flow_synth_config_cmd,
         update_track,
         // State Queries
         get_state,
@@ -304,6 +305,7 @@ pub(crate) fn invoke_handler()
         remove_plugin_from_track_with_deltas_cmd,
         set_internal_plugin_param_cmd,
         set_internal_plugin_param_with_deltas_cmd,
+        set_internal_plugin_param_batch_with_deltas_cmd,
         set_external_plugin_param_cmd,
         set_external_plugin_param_for_slot_cmd,
         set_external_plugin_param_for_slot_runtime_cmd,

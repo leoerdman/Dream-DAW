@@ -92,6 +92,23 @@ pub struct InternalPluginParamPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InternalPluginParamUpdate {
+    pub param_id: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InternalPluginParamBatchPayload {
+    pub track_id: String,
+    pub slot_id: String,
+    pub updates: Vec<InternalPluginParamUpdate>,
+    #[serde(default)]
+    pub push_undo_step: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetSamplerSamplePayload {
     pub track_id: String,
     pub sample_path: String,

@@ -1,10 +1,8 @@
-import type React from 'react';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
+import React from 'react';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import {
-    buildSurfaceKnobParams,
+    DryWetSection,
+    KnobParamGridMemo,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -42,7 +40,6 @@ export function PluginGuiSurfaceFallback({
     ] as const;
     const accent = palette[Math.abs(hash) % palette.length];
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const bars = Array.from({ length: 24 }, (_, i) => {
         const phase = (Math.abs(hash) % 17) * 0.12;
         const h = 8 + Math.abs(Math.sin(i * 0.55 + phase)) * 30;
@@ -81,35 +78,12 @@ export function PluginGuiSurfaceFallback({
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{device.effectType}</span>
-                        <span>{knobParams.length} params</span>
+                        <span>{device.params.length} params</span>
                     </div>
                 </div>
-                {showDryWet && (
-                    <DryWetKnob
-                        device={device}
-                        onChange={onParamChange}
-                        onGestureStart={onParamGestureStart}
-                        onGestureEnd={onParamGestureEnd}
-                        onContextMenu={onParamContextMenu}
-                        accent={accent}
-                    />
-                )}
+                <DryWetSection device={device} handlers={{ onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu }} accent={accent} show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(2, knobParams.length || 2))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => (
-                        <PluginKnob
-                            key={p.name}
-                            param={p}
-                            onChange={onParamChange}
-                            onGestureStart={onParamGestureStart}
-                            onGestureEnd={onParamGestureEnd}
-                            onContextMenu={onParamContextMenu}
-                            compact
-                        />
-                    ))}
-                </div>
-            )}
+            <KnobParamGrid device={device} handlers={{ onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu }} options={{ omitMixWhenDryWet: showDryWet }} maxCols={4} minCols={2} />
         </div>
     );
 }

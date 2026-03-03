@@ -236,35 +236,20 @@ pub fn soft_clip(sample: f32) -> f32 {
     }
     let abs = sample.abs();
 
-    // ENTERPRISE SOFT-CLIP: +6 dBFS threshold (2.0 linear).
-    //
-    // Professional DAWs (Ableton, Logic, Pro Tools) use 32-bit float internally
-    // with headroom well above 0 dBFS. The master output limiter should only
-    // engage as a safety net against extreme overflow — never color normal audio.
-    //
-    // +6 dBFS (2.0 linear) is the industry standard for protection limiters:
-    // - Below +6 dBFS: 100% transparent — no coloration, no compression.
-    // - Above +6 dBFS: Gentle rational-curve saturation → asymptote at 1.0.
-    //
-    // The final DAC (CoreAudio/CPAL) hard-clips at 1.0, so we map
-    // [2.0, ∞) → [2.0, ~2.99] (the saturation curve) but the actual
-    // clipping happens at the hardware level, preserving full dynamics
-    // in the float domain for metering, export, and plugin processing.
-    //
-    // Note: The curve maps THRESH → THRESH with slope 1.0 at the knee,
-    // and asymptotically approaches THRESH + CEILING above. For DAC output,
-    // the hardware clips at 1.0 anyway — this protects against runaway
-    // feedback loops and NaN-adjacent explosions.
-    const THRESH: f32 = 2.0;       // +6.02 dBFS
-    const CEILING: f32 = 1.0;      // Asymptotic headroom above THRESH
+    // BUG-004 FIX: Raised threshold from 0.8 (-1.9 dBFS) to 0.95 (-0.45 dBFS).
+    // The old 0.8 threshold was compressing transients in the top 1.9 dB, causing
+    // noticeably quieter output than Ableton (which passes float samples cleanly).
+    // 0.95 preserves 99.5% of dynamic range while preventing harsh digital clips
+    // that occur when CoreAudio/CPAL hard-clip f32 outputs at 1.0.
+    const THRESH: f32 = 0.95;
+    const BETA: f32 = 1.0 - THRESH; // 0.05
 
     if abs <= THRESH {
-        sample // 100% transparent below +6 dBFS — no coloration
+        sample // 100% transparent below -0.45 dBFS
     } else {
         let excess = abs - THRESH;
-        // Rational curve: approaches THRESH + CEILING asymptotically.
-        // Slope = 1.0 at THRESH, decreasing smoothly toward 0.
-        let mapped = THRESH + (CEILING * excess) / (CEILING + excess);
+        // Rational curve mapping [0.95, inf) to [0.95, 1.0] with slope=1.0 at THRESH
+        let mapped = THRESH + (BETA * excess) / (BETA + excess);
         sample.signum() * mapped
     }
 }

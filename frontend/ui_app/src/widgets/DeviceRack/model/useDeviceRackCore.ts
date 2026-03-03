@@ -1,10 +1,9 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { DeviceSlot } from '../model/types';
 import { getInternalPluginById, normalizeInternalPluginId, waveformIndexFromSamplePath } from '@/shared/lib/internalPlugins';
 import { getEffectTypeByPluginId } from '@/shared/config/pluginManifest';
-import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
 import type { PluginParam } from '../model/types';
 import { normalizeStaticLaneValueForUi } from './useDeviceRackParamNormalize';
@@ -34,16 +33,50 @@ type SelectedTrackModel = {
     instrument?: DeviceNodeModel | null;
     effects?: DeviceNodeModel[];
 } | null;
+// BUG-M02 FIX: Custom equality to avoid recreating DeviceSlot objects blindly
+function isDeviceSlotEqual(a: DeviceSlot, b: DeviceSlot): boolean {
+    if (a === b) return true;
+    if (a.id !== b.id || a.isBypassed !== b.isBypassed || a.isEnabled !== b.isEnabled) return false;
+    if (a.name !== b.name || a.pluginId !== b.pluginId || a.effectType !== b.effectType) return false;
+    if (a.samplePath !== b.samplePath || a.supportsSidechain !== b.supportsSidechain || a.sidechainSourceTrackId !== b.sidechainSourceTrackId) return false;
+    if (a.params.length !== b.params.length) return false;
+    for (let i = 0; i < a.params.length; i++) {
+        if (a.params[i].name !== b.params[i].name || Math.abs(a.params[i].value - b.params[i].value) > 1e-6) return false;
+    }
+    return true;
+}
+
 export function useDeviceRackCore(selectedTrackId: string) {
+    const prevSlotsRef = useRef<Record<string, DeviceSlot>>({});
     const [localBypassByTrack, setLocalBypassByTrack] = useState<Record<string, Record<string, boolean>>>({});
     const [localParamsByTrack, setLocalParamsByTrack] = useState<Record<string, Record<string, number>>>({});
     const [selectedDeviceIdsByTrack, setSelectedDeviceIdsByTrack] = useState<Record<string, string[]>>({});
     const [inlineSettingsOpenByTrack, setInlineSettingsOpenByTrack] = useState<Record<string, Record<string, boolean>>>({});
-    const { tracksById, trackIds, meters } = useEngineStore(useShallow((s) => ({
+    const { tracksById, trackIds } = useEngineStore(useShallow((s) => ({
         tracksById: s.tracks.byId,
         trackIds: s.tracks.allIds,
-        meters: s.meters,
     })));
+
+    // BUG-S02-S04 FIX: Prune state for deleted tracks to prevent dictionary memory leaks.
+    useEffect(() => {
+        const activeIds = new Set(trackIds);
+        const prune = <T,>(prev: Record<string, T>): Record<string, T> => {
+            let changed = false;
+            const next = { ...prev };
+            for (const key of Object.keys(next)) {
+                if (key !== 'master' && !activeIds.has(key)) {
+                    delete next[key];
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        };
+        setLocalBypassByTrack(prune);
+        setLocalParamsByTrack(prune);
+        setSelectedDeviceIdsByTrack(prune);
+        setInlineSettingsOpenByTrack(prune);
+    }, [trackIds]);
+
     const localBypass = useMemo(
         () => localBypassByTrack[selectedTrackId] ?? {},
         [localBypassByTrack, selectedTrackId],
@@ -101,17 +134,6 @@ export function useDeviceRackCore(selectedTrackId: string) {
         });
     }, [selectedTrackId]);
     const isMaster = selectedTrackId === 'master';
-    const trackIndex = trackIds.indexOf(selectedTrackId);
-    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] ?? null : null);
-    const inLevelL = isMaster
-        ? dbToMeterNorm(meters.master_left.peak)
-        : meterPair ? dbToMeterNorm(meterPair[0].peak) : 0;
-    const inLevelR = isMaster
-        ? dbToMeterNorm(meters.master_right.peak)
-        : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
-    const outLevelL = inLevelL;
-    const outLevelR = inLevelR;
-    const outLevel = Math.max(outLevelL, outLevelR);
     const masterProjectTrack = useMemo(
         () => trackIds.map((id) => tracksById[id]).find((t) => t?.track_type === 'Master') ?? null,
         [trackIds, tracksById],
@@ -148,7 +170,8 @@ export function useDeviceRackCore(selectedTrackId: string) {
             ...(!selectedTrack.sample_rack && selectedTrack.instrument ? [selectedTrack.instrument] : []),
             ...(selectedTrack.effects ?? []),
         ];
-        return nodes.map((node): DeviceSlot | null => {
+        const nextSlots: Record<string, DeviceSlot> = {};
+        const chain = nodes.map((node): DeviceSlot | null => {
             const id = (node.id ?? '').trim();
             const name = node.name ?? 'Unknown';
             const pluginId = (node.plugin_id ?? '').trim();
@@ -204,9 +227,6 @@ export function useDeviceRackCore(selectedTrackId: string) {
                     });
                 }
             }
-            const vuLevel = isEnabled ? outLevel : 0;
-            const vuLevelL = isEnabled ? outLevelL : 0;
-            const vuLevelR = isEnabled ? outLevelR : 0;
             let displayName = name;
             if (internalPlugin) displayName = internalPlugin.name ?? name;
             const sidechainSourceTrackId = node.sidechain_source_track_id ?? null;
@@ -232,7 +252,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
             if (samplePath) {
                 waveformIndex = waveformIndexFromSamplePath(samplePath);
             }
-            return {
+            const rawSlot: DeviceSlot = {
                 id,
                 name: displayName,
                 pluginId,
@@ -243,24 +263,28 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 effectType,
                 source,
                 params,
-                vuLevel,
-                vuLevelL,
-                vuLevelR,
                 sidechainSourceTrackId,
                 supportsSidechain,
                 waveformIndex,
                 samplePath,
                 sampleRackConfig: node.sampleRackConfig,
             };
+
+            const prevSlot = prevSlotsRef.current[id];
+            if (prevSlot && isDeviceSlotEqual(prevSlot, rawSlot)) {
+                nextSlots[id] = prevSlot;
+                return prevSlot;
+            }
+            nextSlots[id] = rawSlot;
+            return rawSlot;
         }).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR]);
+
+        prevSlotsRef.current = nextSlots;
+        return chain;
+    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId]);
     return {
         selectedTrack,
         isMaster,
-        inLevelL,
-        inLevelR,
-        outLevelL,
-        outLevelR,
         localBypass,
         setLocalBypass,
         localParams,

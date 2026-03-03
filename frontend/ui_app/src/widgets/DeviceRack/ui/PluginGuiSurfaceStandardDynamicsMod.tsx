@@ -5,7 +5,7 @@ import {
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGridMemo,
+    KnobParamGrid,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -52,7 +52,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-56d4c8)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -89,7 +89,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-8ec77c)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
@@ -137,7 +137,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-4cc9d8)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

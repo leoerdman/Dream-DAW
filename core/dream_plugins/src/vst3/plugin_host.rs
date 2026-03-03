@@ -455,6 +455,28 @@ impl PluginHost {
         Ok(instance.latency_samples())
     }
 
+    /// Re-queries latency on ALL active plugin instances.
+    ///
+    /// Called by the background runtime when `kLatencyChanged` is detected
+    /// from any VST3 plugin's `restartComponent` callback. Returns `true`
+    /// if any instance's latency actually changed, signaling the host to
+    /// rebuild the audio graph with updated PDC values.
+    pub fn refresh_all_latencies(&mut self) -> bool {
+        let mut any_changed = false;
+        for instance_arc in &self.instances {
+            let mut instance = instance_arc.lock();
+            if instance.refresh_latency() {
+                any_changed = true;
+            }
+        }
+        if any_changed {
+            log::info!(
+                "[PluginHost] refresh_all_latencies: latency changed on one or more plugins — graph rebuild needed"
+            );
+        }
+        any_changed
+    }
+
     pub fn load_state_blob(
         &mut self,
         id: Uuid,

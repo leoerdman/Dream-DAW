@@ -165,7 +165,7 @@ export const TrackRowMixer = memo(({
                         title="Arm for recording"
                         style={{
                             width: layout.armColWidth,
-                            height: layout.armColWidth,
+                            height: compactControlHeight,
                             borderRadius: 'var(--radius-xs)',
                             border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                             background: track.isArmed ? 'color-mix(in srgb, var(--color-status-record) 55%, transparent)' : 'var(--surface-elevated)',
@@ -191,14 +191,14 @@ export const TrackRowMixer = memo(({
                         />
                     </button>
                     {showSecondArmRow && (
-                        <div aria-hidden style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 10%, transparent)', background: 'var(--surface-elevated)' }} />
+                        <div aria-hidden style={{ width: layout.armColWidth, height: compactControlHeight, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 10%, transparent)', background: 'var(--surface-elevated)' }} />
                     )}
                 </div>
             ) : (
                 <div aria-hidden style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.armColWidth, minWidth: layout.armColWidth }}>
-                    <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
+                    <div style={{ width: layout.armColWidth, height: compactControlHeight, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
                     {showSecondArmRow && (
-                        <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
+                        <div style={{ width: layout.armColWidth, height: compactControlHeight, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
                     )}
                 </div>
             )}

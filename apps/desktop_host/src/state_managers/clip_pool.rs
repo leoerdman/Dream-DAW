@@ -90,16 +90,29 @@ impl ClipPoolState {
                     .filter(|slot| !slot.is_bypassed)
                     .filter_map(|slot| slot.instance_id)
                     .map(|instance_id| {
-                        registry_map
-                            .get(&instance_id)
-                            .and_then(|arc| arc.try_lock())
-                            .map(|p| p.latency_samples())
-                            .unwrap_or(0)
+                        match registry_map.get(&instance_id) {
+                            Some(arc) => match arc.try_lock() {
+                                Some(p) => p.latency_samples(),
+                                None => {
+                                    // PDC-DIAG: Log contention so we can diagnose intermittent
+                                    // PDC failures. The graph will self-correct on next rebuild.
+                                    log::debug!(
+                                        "[PDC] try_lock contention for instance {:?} on track {} — using 0",
+                                        instance_id, track_idx
+                                    );
+                                    0
+                                }
+                            },
+                            None => 0,
+                        }
                     })
                     .sum::<u32>()
             } else {
                 0
             };
+            if track_latency > 0 {
+                log::info!("[PDC] track[{}] total latency = {} samples", track_idx, track_latency);
+            }
             latencies.push(track_latency);
         }
         latencies

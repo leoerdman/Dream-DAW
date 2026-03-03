@@ -146,7 +146,12 @@ pub(crate) fn spawn_background_runtime_threads(
                     build_meters_binary_packet(&handle),
                 );
 
-                if dream_plugins::vst3_host::take_plugin_state_dirty() {
+                // ENTERPRISE: Check BOTH VST3 and VST2 dirty flags.
+                // VST3: IComponentHandler.performEdit / setDirty / restartComponent
+                // VST2: audioMasterAutomate / audioMasterUpdateDisplay
+                let vst3_dirty = dream_plugins::vst3_host::take_plugin_state_dirty();
+                let vst2_dirty = dream_plugins::vst2_host::take_plugin_state_dirty();
+                if vst3_dirty || vst2_dirty {
                     let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
                     if let Some(pstate) = registry.get_active_project() {
                         if let Ok(project) = pstate.project.lock() {

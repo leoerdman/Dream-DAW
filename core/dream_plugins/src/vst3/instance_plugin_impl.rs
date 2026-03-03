@@ -636,6 +636,25 @@ impl PluginInstance for Vst3Instance {
         self.latency
     }
 
+    fn refresh_latency(&mut self) -> bool {
+        if !self.com_initialized || self.processor_ptr == 0 {
+            return false;
+        }
+        let processor = self.processor_ptr as *mut IAudioProcessor;
+        // SAFETY: processor pointer is valid while plugin is active and com_initialized.
+        let new_latency = unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
+        if new_latency != self.latency {
+            log::info!(
+                "[VST3-PDC] '{}' latency changed: {} → {} samples",
+                self.descriptor.name, self.latency, new_latency
+            );
+            self.latency = new_latency;
+            true
+        } else {
+            false
+        }
+    }
+
     fn tail_samples(&self) -> u32 {
         // BUG-A1 FIX: Query the plugin's actual tail length via IAudioProcessor::getTailSamples().
         // Previously hardcoded to 0, cutting off reverb/delay tails immediately.

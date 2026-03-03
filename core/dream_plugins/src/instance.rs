@@ -261,6 +261,19 @@ pub trait PluginInstance: Send {
     /// Used by the PDC engine to compensate parallel paths.
     fn latency_samples(&self) -> u32;
 
+    /// Re-queries the plugin's latency from the underlying format API.
+    ///
+    /// Called by the host when the plugin reports a latency change
+    /// (e.g., VST3 `kLatencyChanged` via `restartComponent`).
+    /// Returns `true` if the latency actually changed, so the host
+    /// can decide whether to rebuild the audio graph.
+    ///
+    /// Default: no-op (returns `false`) — built-in DSP effects have
+    /// static latency that doesn't change at runtime.
+    fn refresh_latency(&mut self) -> bool {
+        false
+    }
+
     /// Returns the plugin's tail length in samples.
     ///
     /// Used to determine how long to render after playback stops

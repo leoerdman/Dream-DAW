@@ -3,11 +3,11 @@ import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -85,7 +85,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                             const aboveThreshold = (h / 42) > thrNorm * 0.8;
                             return <rect key={i} x={x} y={42 - h} width="12" height={h} rx="2" fill={aboveThreshold ? 'var(--token-color-hex-8ec77c)' : 'var(--token-color-rgba-140-200-120-0d25)'} stroke={aboveThreshold ? 'none' : 'var(--token-color-rgba-140-200-120-0d15)'} strokeWidth="0.5" />;
                         })}
-                        <line x1="4" y1={42 - thrNorm * 36} x2="276" y2={42 - thrNorm * 36} stroke="var(--token-color-hex-e6c36e)" strokeWidth="1.2" strokeDasharray="4,3" />
+                        <line x1="4" y1={42 - thrNorm * 36} x2="276" y2={42 - thrNorm * 36} stroke="var(--token-color-hex-ffcc58)" strokeWidth="1.8" strokeDasharray="5,3" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>Thr {formatSurfaceParam(thrParam)}</span>
@@ -109,7 +109,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
     const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Auto Filter';
     const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
     const modRate = readSurfaceParam(device, 'rate', 0, 'Hz');

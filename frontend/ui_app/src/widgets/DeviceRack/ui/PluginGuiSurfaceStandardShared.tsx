@@ -147,23 +147,25 @@ export function resolveMixParam(device: DeviceSlot): DeviceSlot['params'][number
     return resolveSurfaceParam(device, MIX_PARAM_ALIASES);
 }
 
+// Hoisted to module level — avoids new Set() allocation on every render (Bug #2)
+const NON_MIX_DEVICE_TYPES: ReadonlySet<DeviceSlot['effectType']> = new Set([
+    'instrument',
+    'sampler',
+    'sample_rack',
+    'waveSynth',
+    'midiPitch',
+    'midiScale',
+    'midiVelocity',
+    'midiRandom',
+    'midiChord',
+    'midiNoteLength',
+    'midiCcControl',
+    'midiExpressionControl',
+    'midiArpeggiator',
+]);
+
 export function shouldShowDryWet(device: DeviceSlot): boolean {
-    const nonMixDeviceTypes: ReadonlySet<DeviceSlot['effectType']> = new Set([
-        'instrument',
-        'sampler',
-        'sample_rack',
-        'waveSynth',
-        'midiPitch',
-        'midiScale',
-        'midiVelocity',
-        'midiRandom',
-        'midiChord',
-        'midiNoteLength',
-        'midiCcControl',
-        'midiExpressionControl',
-        'midiArpeggiator',
-    ]);
-    if (nonMixDeviceTypes.has(device.effectType)) return false;
+    if (NON_MIX_DEVICE_TYPES.has(device.effectType)) return false;
     return resolveMixParam(device) != null;
 }
 
@@ -281,3 +283,16 @@ export const panelWithOptionalDryWetStyle = (showDryWet: boolean): React.CSSProp
     ...panelWithDryWetStyle,
     gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
 });
+
+/* ── Phase B: Shared helpers to eliminate 12x duplication ── */
+
+/**
+ * Compute the normalized internal plugin key for a device — used by ALL surfaces.
+ * Eliminates the identical `normalizeInternalPluginId(device.pluginId || ...)` pattern
+ * that was copy-pasted into every surface render function.
+ */
+export function getDevicePluginKey(device: DeviceSlot): string {
+    return normalizeInternalPluginId(
+        device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase(),
+    );
+}

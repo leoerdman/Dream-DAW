@@ -3,11 +3,11 @@ import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -30,7 +30,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-chorus)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-12-11-18-0d65)" />
                         <path d={`M 0 26 C 35 ${26 - 16 * depthNorm}, 70 ${26 + 16 * depthNorm}, 105 26 C 140 ${26 - 16 * depthNorm}, 175 ${26 + 16 * depthNorm}, 210 26 C 245 ${26 - 16 * depthNorm}, 280 ${26 + 16 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-c867ff)" strokeWidth="2.2" />
                         <path d={`M 0 26 C 35 ${26 + 14 * depthNorm}, 70 ${26 - 14 * depthNorm}, 105 26 C 140 ${26 + 14 * depthNorm}, 175 ${26 - 14 * depthNorm}, 210 26 C 245 ${26 + 14 * depthNorm}, 280 ${26 - 14 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-4ac0ff)" strokeWidth="2.2" opacity="0.9" />
@@ -56,7 +56,7 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 
 function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const satTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Saturator';
@@ -71,7 +71,7 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-saturator)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-20-13-9-0d7)" />
                         {!isDrumBuss && !isDynamicTube && (
                             <>

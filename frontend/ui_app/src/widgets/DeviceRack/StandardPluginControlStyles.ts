@@ -44,7 +44,7 @@ export const knobParamNameStyle: CSSProperties = {
     color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.1,
-    textTransform: 'uppercase',
+    textTransform: 'capitalize',
     letterSpacing: '0.03em',
     maxWidth: 74,
     overflow: 'hidden',
@@ -73,6 +73,8 @@ export const knobValueStyle = (compact: boolean): CSSProperties => ({
     background: 'transparent',
     padding: '0 var(--space-0-5)',
     borderRadius: 'var(--radius-xs)',
+    borderBottom: 'var(--space-px) dashed transparent',
+    transition: 'border-color 150ms ease',
 });
 
 export const knobValueInputStyle = (compact: boolean): CSSProperties => ({
@@ -103,5 +105,6 @@ export const knobDragValueBadgeStyle: CSSProperties = {
     padding: 'var(--space-px) var(--space-1)',
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
+    zIndex: 100,
 };
 

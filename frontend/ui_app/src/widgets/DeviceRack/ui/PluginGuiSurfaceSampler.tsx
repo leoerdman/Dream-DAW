@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
@@ -27,6 +28,7 @@ export function PluginGuiSurfaceSampler({
 }: PluginGuiSurfaceSamplerProps) {
     const otherSamplerParams = buildSurfaceKnobParams(device);
     const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
+    const [isDragOver, setIsDragOver] = useState(false);
     const normalizeDroppedPath = (raw: string): string | null => {
         const trimmed = raw.trim();
         if (!trimmed) return null;
@@ -81,11 +83,15 @@ export function PluginGuiSurfaceSampler({
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = 'copy';
+        setIsDragOver(true);
     };
+
+    const handleDragLeave = () => setIsDragOver(false);
 
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
+        setIsDragOver(false);
         const directPath = extractPathFromDataTransfer(e.dataTransfer);
         if (directPath) {
             onDropSample?.(directPath);
@@ -99,9 +105,11 @@ export function PluginGuiSurfaceSampler({
         <div
             data-no-drag
             onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onMouseUpCapture={commitDropFromStore}
             onMouseUp={commitDropFromStore}
+            className={isDragOver ? 'sampler-drop-active' : undefined}
             style={{
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',
@@ -190,17 +198,11 @@ export function PluginGuiSurfaceSampler({
                 <button
                     type="button"
                     onClick={() => onLoadSample?.()}
+                    className="sampler-load-btn"
                     style={{
                         position: 'absolute',
                         right: 8,
                         top: 4,
-                        border: 'var(--space-px) solid var(--color-overlay-light)',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--surface-tab-inactive)',
-                        color: 'var(--token-color-hex-dce9ff)',
-                        fontSize: 'var(--font-size-2xs)',
-                        padding: 'var(--token-size-px-3) var(--token-size-px-7)',
-                        cursor: 'pointer',
                     }}
                 >
                     Load

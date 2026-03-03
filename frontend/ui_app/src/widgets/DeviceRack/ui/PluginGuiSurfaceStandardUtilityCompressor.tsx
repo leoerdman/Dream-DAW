@@ -3,11 +3,11 @@ import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     getParamValue,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
@@ -21,7 +21,7 @@ import {
 
 export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onApplyUtilityScene, onParamContextMenu } = handlers;
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
 
     if (device.effectType === 'utility') {
         const utilityTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Utility';
@@ -87,17 +87,17 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('center')}
-                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
+                                    className="utility-scene-btn"
                                 >Center</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('mono')}
-                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
+                                    className={`utility-scene-btn${mono ? ' active' : ''}`}
                                 >Mono</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('wide')}
-                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
+                                    className="utility-scene-btn"
                                 >Wide</button>
                             </div>
                         </>
@@ -252,8 +252,16 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             <line x1="14" y1="70" x2="260" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
                         </svg>
                     )}
-                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: 'var(--space-px) solid var(--color-divider)', padding: 3 }}>
-                        <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'var(--color-error)', borderRadius: 2 }} />
+                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: 'var(--space-px) solid var(--color-divider)', padding: 3, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                        <div style={{
+                            width: '100%',
+                            height: `${(pseudoGr / 24) * 100}%`,
+                            background: pseudoGr > 12 ? 'linear-gradient(to top, var(--color-error), var(--color-warning))'
+                                : pseudoGr > 4 ? 'linear-gradient(to top, var(--color-warning), var(--color-success))'
+                                    : 'var(--color-success)',
+                            borderRadius: 2,
+                            transition: 'height 60ms linear',
+                        }} />
                     </div>
                     {showDryWet && (
                         <DryWetKnob

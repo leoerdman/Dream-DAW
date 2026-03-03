@@ -7,11 +7,11 @@ import React from 'react';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -31,7 +31,7 @@ export function renderStandardDistNoiseSurface(
     handlers: SurfaceHandlers,
 ): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
 
     /* ═════════════════════════════════════════════════════════════════ */
     /* DISTORTION / BITCRUSHER                                          */

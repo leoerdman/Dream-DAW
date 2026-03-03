@@ -4,7 +4,7 @@ import {
     sliderTextStyle,
     sliderValueStyle,
 } from './StandardPluginControlStyles';
-import { formatPluginParamValue } from './StandardPluginControlUtils';
+import { defaultParamValue, formatPluginParamValue } from './StandardPluginControlUtils';
 import type { PluginParam } from './StandardPluginControlTypes';
 
 export const PluginSlider = ({
@@ -33,6 +33,8 @@ export const PluginSlider = ({
             onPointerDown={() => onGestureStart?.(param.name)}
             onPointerUp={() => onGestureEnd?.(param.name)}
             onChange={(e) => onChange(param.name, Number(e.target.value))}
+            onDoubleClick={() => onChange(param.name, defaultParamValue(param))}
+            className="plugin-slider-input"
             style={sliderInputStyle}
         />
     </label>

@@ -195,32 +195,37 @@ export function useDeviceParamGestures(
         if (pending && pending.size > 0) {
             const entries = Array.from(pending.values());
             pendingGestureCommitsRef.current.delete(commitKey);
-            entries.forEach((entry, index) => {
-                if (entry.source === 'vst') {
-                    if (entry.paramIndex == null) return;
-                    void engineApi.setExternalPluginParamForSlotWithDeltas(
-                        entry.trackId, entry.deviceId, entry.paramIndex, entry.value,
-                        { pushUndoStep: index === 0 },
-                    ).then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-commit'))
-                        .catch((err) => {
-                            console.error('[Dream] setExternalPluginParam(commit) failed:', err);
-                        });
-                    return;
-                }
-                const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
-                if (effectType == null) return;
-                const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
-                void engineApi.setInternalPluginParamWithDeltas(
-                    entry.trackId, entry.deviceId, scopedParamId, entry.value,
-                    { pushUndoStep: index === 0 },
-                ).then(async (response) => {
-                    if (response.deltas.length > 0) {
-                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
+            // BUG-#6 FIX: Sequential commit to avoid IPC race condition.
+            // Previously all entries were committed in parallel via forEach,
+            // making the undo push order non-deterministic.
+            void (async () => {
+                for (let index = 0; index < entries.length; index++) {
+                    const entry = entries[index];
+                    try {
+                        if (entry.source === 'vst') {
+                            if (entry.paramIndex == null) continue;
+                            const response = await engineApi.setExternalPluginParamForSlotWithDeltas(
+                                entry.trackId, entry.deviceId, entry.paramIndex, entry.value,
+                                { pushUndoStep: index === 0 },
+                            );
+                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-commit');
+                        } else {
+                            const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
+                            if (effectType == null) continue;
+                            const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
+                            const response = await engineApi.setInternalPluginParamWithDeltas(
+                                entry.trackId, entry.deviceId, scopedParamId, entry.value,
+                                { pushUndoStep: index === 0 },
+                            );
+                            if (response.deltas.length > 0) {
+                                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Dream] gesture commit failed:', err);
                     }
-                }).catch((err) => {
-                    console.error('[Dream] setInternalPluginParamWithDeltas(commit) failed:', err);
-                });
-            });
+                }
+            })();
         }
         activeParamGesturesRef.current.delete(gestureKey);
         pushedUndoForGestureRef.current.delete(gestureKey);

@@ -181,6 +181,8 @@ export const PluginKnob = ({
                         viewBox={40}
                         radius={14}
                         strokeWidth={4}
+                        glow={isDragging || pct > 0.02}
+                        glowFilterId={`knob-glow-${param.name.replace(/\W/g, '_')}`}
                     />
                 </div>
                 {isDragging && <span style={knobDragValueBadgeStyle}>{formatPluginParamValue(param)}</span>}

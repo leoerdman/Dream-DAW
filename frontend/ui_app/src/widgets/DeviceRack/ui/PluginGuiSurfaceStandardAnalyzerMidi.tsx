@@ -1,11 +1,11 @@
 import React from 'react';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -16,16 +16,21 @@ import {
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
+// Hoisted to module level — avoids new Set() allocation on every render (Bug #3)
+const ANALYZER_MIDI_TYPES: ReadonlySet<string> = new Set([
+    'analyzer', 'spectrum', 'midiPitch', 'midiScale', 'midiVelocity', 'midiRandom',
+    'midiChord', 'midiNoteLength', 'midiCcControl', 'midiExpressionControl', 'midiArpeggiator',
+]);
+
 export function renderStandardAnalyzerMidiSurface(
     device: DeviceSlot,
     handlers: SurfaceHandlers,
 ): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const knobParams = buildSurfaceKnobParams(device);
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
 
     // BUG-76 FIX: Include all MIDI effect types including new ones (chord, noteLength, ccControl, expressionControl, arpeggiator).
-    const ANALYZER_MIDI_TYPES = new Set(['analyzer', 'spectrum', 'midiPitch', 'midiScale', 'midiVelocity', 'midiRandom', 'midiChord', 'midiNoteLength', 'midiCcControl', 'midiExpressionControl', 'midiArpeggiator']);
     if (!ANALYZER_MIDI_TYPES.has(device.effectType)) {
         return null;
     }
@@ -214,6 +219,7 @@ export function renderStandardAnalyzerMidiSurface(
                             onChange={onParamChange}
                             onGestureStart={onParamGestureStart}
                             onGestureEnd={onParamGestureEnd}
+                            onContextMenu={onParamContextMenu}
                             compact
                         />
                     ))}

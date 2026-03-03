@@ -744,15 +744,19 @@ export class CanvasClipRenderer {
                 if (isTrackDisabled) ctx.globalAlpha = 0.25;
                 ctx.lineWidth = bw;
 
-                // Header border — simple rect stroke (no clip needed)
-                ctx.strokeStyle = hdrColor;
-                ctx.strokeRect(x + inset, y + inset, w - bw, Math.min(headerH, h - bw));
+                // Step 1: Full roundRect stroke with body color (no clip needed)
+                ctx.strokeStyle = bdyColor;
+                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
+                ctx.stroke();
 
-                // Body border — simple rect stroke (no clip needed)
-                if (bodyH > 0) {
-                    ctx.strokeStyle = bdyColor;
-                    ctx.strokeRect(x + inset, y + headerH, w - bw, h - headerH - inset);
-                }
+                // Step 2: Overdraw header portion with header color (1 clip — was 2)
+                ctx.beginPath();
+                ctx.rect(x - 1, y - 1, w + 2, headerH + 2);
+                ctx.clip();
+                ctx.strokeStyle = hdrColor;
+                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
+                ctx.stroke();
+
                 ctx.restore();
             }
         }

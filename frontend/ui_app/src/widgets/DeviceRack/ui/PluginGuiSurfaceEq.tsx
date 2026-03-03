@@ -138,6 +138,8 @@ export function PluginGuiSurfaceEq({
                 onParamChange={onParamChange}
                 onParamGestureStart={onParamGestureStart}
                 onParamGestureEnd={onParamGestureEnd}
+                eqSpectrumEnabled={eqSpectrumEnabled}
+                setEqSpectrumEnabled={setEqSpectrumEnabled}
             />
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -199,12 +201,6 @@ export function PluginGuiSurfaceEq({
                         {EQ_FREQ_SUB_LINES.map((f) => (
                             <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="var(--token-color-rgba-255-255-255-0d06)" strokeWidth="0.3" />
                         ))}
-                        <defs>
-                            <linearGradient id={`specGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 42%, transparent)" />
-                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 12%, transparent)" />
-                            </linearGradient>
-                        </defs>
                         <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} isDragging={isDragging} />
                         {enabledBands.length > 0 && (
                             <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
@@ -227,21 +223,7 @@ export function PluginGuiSurfaceEq({
                             </text>
                         )}
                     </svg>
-                    <div
-                        style={{
-                            position: 'absolute', top: 4, right: 6, zIndex: 'var(--z-local-raised, 10)', cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d12)' : 'var(--token-color-rgba-255-255-255-0d07)',
-                            border: `var(--space-px) solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d34)' : 'var(--token-color-rgba-255-255-255-0d18)'}`,
-                            transition: 'all 0.2s ease',
-                        }}
-                        title={eqSpectrumEnabled ? 'Hide Spectrum' : 'Show Spectrum'}
-                        onClick={() => setEqSpectrumEnabled(!eqSpectrumEnabled)}
-                    >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                            <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'var(--token-color-rgba-245-245-245-0d92)' : 'var(--token-color-rgba-220-220-220-0d6)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                    </div>
+                    {/* Spectrum toggle moved to left controls panel */}
                     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                         {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                             <div key={`dblabel-${db}`} style={{
@@ -396,7 +378,7 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
         <path
             ref={pathRef}
             d=""
-            fill={`url(#specGrad-${deviceId})`}
+            fill="color-mix(in srgb, var(--color-text-primary) 40%, transparent)"
             opacity="0.72"
         />
     );

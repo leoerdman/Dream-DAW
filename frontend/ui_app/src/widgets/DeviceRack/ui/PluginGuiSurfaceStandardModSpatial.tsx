@@ -3,11 +3,11 @@ import { clamp01 } from '@/shared/lib/audioMath';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
+    getDevicePluginKey,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -60,7 +60,7 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 
 function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
@@ -111,7 +111,7 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 
 function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
-    const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const normalizedInternalId = getDevicePluginKey(device);
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });

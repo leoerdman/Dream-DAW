@@ -824,24 +824,6 @@ impl OfflineRenderer {
                                 let sc_pair =
                                     source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
 
-                                // ── NUCLEAR DIAGNOSTIC: Pre-process snapshot ──
-                                static SLOT_DIAG_COUNTER: std::sync::atomic::AtomicU32 =
-                                    std::sync::atomic::AtomicU32::new(0);
-                                let slot_diag_n = SLOT_DIAG_COUNTER.load(std::sync::atomic::Ordering::Relaxed);
-                                let should_diag = slot_diag_n < 200; // First 200 slot-buffer events
-                                let input_rms = if should_diag {
-                                    let sum: f32 = main_inputs[0].iter().chain(main_inputs[1].iter())
-                                        .map(|s| s * s).sum::<f32>();
-                                    (sum / (2.0 * c as f32)).sqrt()
-                                } else { 0.0 };
-                                let sc_rms = if should_diag {
-                                    sc_pair.as_ref().map(|pair| {
-                                        let sum: f32 = pair[0].iter().chain(pair[1].iter())
-                                            .map(|s| s * s).sum::<f32>();
-                                        (sum / (2.0 * c as f32)).sqrt()
-                                    }).unwrap_or(-1.0)
-                                } else { 0.0 };
-
                                 if let Err(proc_err) = host.process_with_sidechain(
                                     &main_inputs,
                                     sc_pair.as_ref().map(|pair| pair.as_slice()),
@@ -849,10 +831,6 @@ impl OfflineRenderer {
                                     c,
                                     use_midi,
                                 ) {
-                                    // ENTERPRISE FIX (BUG-R01): Rate-limit plugin error logging.
-                                    // Previously logged on every buffer — thousands of msgs/sec if
-                                    // a plugin errors persistently. Now log only the first failure
-                                    // per instance to avoid flooding the log backend Mutex.
                                     static LOGGED_INSTANCES: std::sync::atomic::AtomicU64 =
                                         std::sync::atomic::AtomicU64::new(0);
                                     let prev = LOGGED_INSTANCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -864,24 +842,42 @@ impl OfflineRenderer {
                                     }
                                 }
 
-                                // ── NUCLEAR DIAGNOSTIC: Post-process analysis ──
-                                if should_diag {
+                                // ── ULTIMATE VST SLOT DIAGNOSTIC ──
+                                // Logs EVERY slot interaction for ALL buffers (no limit).
+                                // Smart: only logs when something interesting happens.
+                                {
                                     let out_rms: f32 = (scratch_left[..c].iter()
                                         .chain(scratch_right[..c].iter())
                                         .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
-                                    let out_peak: f32 = scratch_left[..c].iter()
-                                        .chain(scratch_right[..c].iter())
-                                        .map(|s| s.abs())
-                                        .fold(0.0f32, f32::max);
+                                    let in_rms: f32 = (main_inputs[0].iter().chain(main_inputs[1].iter())
+                                        .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
                                     let midi_sent = use_midi.len();
-                                    let is_inst = runtime_slot.is_instrument;
                                     let has_sc = sc_pair.is_some();
-                                    log::error!(
-                                        "[Bounce-SLOT] Track[{}] Slot[{}] inst={} sc={} | in_rms={:.6} sc_rms={:.6} out_rms={:.6} out_peak={:.6} midi={} byp={}",
-                                        track_idx, runtime_slot_idx, is_inst, has_sc,
-                                        input_rms, sc_rms, out_rms, out_peak, midi_sent, runtime_slot.is_bypassed
-                                    );
-                                    SLOT_DIAG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    let sc_rms = sc_pair.as_ref().map(|pair| {
+                                        (pair[0].iter().chain(pair[1].iter())
+                                            .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt()
+                                    }).unwrap_or(-1.0);
+                                    // Log when: (a) non-zero output, (b) sidechain active,
+                                    // (c) MIDI sent, (d) instrument slot — always interesting
+                                    let interesting = out_rms > 0.0001 || midi_sent > 0
+                                        || (has_sc && sc_rms > 0.0001)
+                                        || runtime_slot.is_instrument;
+                                    static SLOT_LOG_COUNT: std::sync::atomic::AtomicU32 =
+                                        std::sync::atomic::AtomicU32::new(0);
+                                    let sl_n = SLOT_LOG_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+                                    if interesting && sl_n < 3000 {
+                                        let out_peak: f32 = scratch_left[..c].iter()
+                                            .chain(scratch_right[..c].iter())
+                                            .map(|s| s.abs())
+                                            .fold(0.0f32, f32::max);
+                                        log::error!(
+                                            "[Bounce-VST] T[{}]S[{}] inst={} sc={} byp={} | in={:.5} sc={:.5} out={:.5} peak={:.5} midi={}",
+                                            track_idx, runtime_slot_idx,
+                                            runtime_slot.is_instrument, has_sc, runtime_slot.is_bypassed,
+                                            in_rms, sc_rms, out_rms, out_peak, midi_sent
+                                        );
+                                        SLOT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
                                 }
 
                                 // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
@@ -1163,36 +1159,7 @@ impl OfflineRenderer {
                 ctx.bounce_scratch_right,
             );
 
-            // ── ENTERPRISE DIAGNOSTIC: Per-buffer RMS for key tracks ──
-            // Log post-FX RMS for the first 10 buffers to verify signal flow.
-            // This confirms (a) Kick VST instrument produces audio,
-            // (b) BASS group receives summed child audio + ShaperBox processes it.
-            {
-                static DIAG_BUFFER_COUNT: std::sync::atomic::AtomicU32 =
-                    std::sync::atomic::AtomicU32::new(0);
-                let buf_num = DIAG_BUFFER_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-                // Log first 10 buffers, then every 100th buffer
-                let should_log = buf_num < 10 || (buf_num % 100 == 0 && buf_num < 500);
-                if should_log && (track_idx <= 1 || track_idx == 9 || track_idx == 10) {
-                    let rms_l: f32 = (slot.buf_left[..frame_count].iter()
-                        .map(|s| s * s).sum::<f32>() / frame_count as f32).sqrt();
-                    let rms_r: f32 = (slot.buf_right[..frame_count].iter()
-                        .map(|s| s * s).sum::<f32>() / frame_count as f32).sqrt();
-                    let peak = slot.buf_left[..frame_count].iter()
-                        .chain(slot.buf_right[..frame_count].iter())
-                        .map(|s| s.abs())
-                        .fold(0.0f32, f32::max);
-                    let midi_count = ctx.bounce_midi_events.len();
-                    log::error!(
-                        "[Bounce-RMS] buf#{} Track[{}] post-FX: rms_l={:.6}, rms_r={:.6}, peak={:.6}, active={}, midi_events={}",
-                        buf_num, track_idx, rms_l, rms_r, peak, slot.active, midi_count
-                    );
-                }
-                // Increment only once per buffer (when processing Track[0])
-                if track_idx == 0 {
-                    DIAG_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
+            // Post-FX RMS is captured in the per-buffer digest below (Phase 3.5)
 
             // ── PDC (Plugin Delay Compensation) ──
             // PDC-7 FIX: Match the exact routing edge (from→to) instead of just
@@ -1297,7 +1264,48 @@ impl OfflineRenderer {
             }
         }
 
-        // Phase 4.5: Process master internal FX (EQ, compressor, etc.) + VSTs
+        // ── ULTIMATE DIAGNOSTIC: Comprehensive per-buffer all-track dump ──
+        // Every 50 buffers (covering ~0.58s at 512 frames/44100Hz), log
+        // COMPLETE signal state for ALL tracks. No limits — runs for entire export.
+        // Shows post-strip RMS, enabled, active, device chain length.
+        // This single diagnostic replaces all scattered [Bounce-RMS] and [Bounce-DIGEST].
+        {
+            static UBUF_COUNT: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(0);
+            let ubuf = UBUF_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // Every 50 buffers for first 2000, then every 200 for the rest
+            let should_dump = (ubuf < 2000 && ubuf % 50 == 0) || (ubuf >= 2000 && ubuf % 200 == 0);
+            if should_dump {
+                let playhead_sec = playhead_pos as f64 / sample_rate;
+                let mut summary_parts: Vec<String> = Vec::new();
+                for ti in 0..track_slots_len.min(render_ctx.track_slots.len()) {
+                    let ts = &render_ctx.track_slots[ti];
+                    let rms: f32 = (ts.buf_left[..frame_count].iter()
+                        .chain(ts.buf_right[..frame_count].iter())
+                        .map(|s| s * s).sum::<f32>() / (2.0 * frame_count as f32).max(1.0)).sqrt();
+                    let en = ts.strip.is_output_enabled();
+                    let ac = ts.active;
+                    let cl = ts.device_chain.len();
+                    // Always show track if: has audio, is disabled (anomaly), or is key track
+                    if rms > 0.0001 || !en || ti <= 3 || ti == 9 || ti == 10 {
+                        summary_parts.push(format!(
+                            "T[{}]:rms={:.4},en={},ac={},fx={}",
+                            ti, rms, en as u8, ac as u8, cl
+                        ));
+                    }
+                }
+                // Master bus
+                let (ml, mr) = render_ctx.master_bus.left_right_mut();
+                let mrms: f32 = (ml[..frame_count].iter()
+                    .chain(mr[..frame_count].iter())
+                    .map(|s| s * s).sum::<f32>() / (2.0 * frame_count as f32).max(1.0)).sqrt();
+                log::error!(
+                    "[Bounce-ALL] buf#{} t={:.2}s MASTER={:.4} | {}",
+                    ubuf, playhead_sec, mrms,
+                    summary_parts.join(" | ")
+                );
+            }
+        }
         // This mirrors the real-time driver's combined internal/external master FX loop.
         let master_fx_idx = render_ctx.track_slots.len();
         let master_slots_opt =
@@ -2097,9 +2105,29 @@ impl OfflineRenderer {
         }
 
         // BUF-M05 FIX: Allocate extra tail frames for reverb/delay decay.
-        // 2 seconds of extra processing at project SR, capped to avoid OOM.
-        let max_tail_frames = (project_sr as usize * 2).min(384000);
+        // Only add tail if there are master effects that could produce decay.
+        // Without effects, tail is just silence — the user's reported "3 seconds
+        // of empty space" at end of export was caused by this unnecessary tail.
+        let has_any_master_fx = !master_device_chain.is_empty()
+            || external_fx_map.get(render_ctx.track_slots.len())
+                .map(|slots| slots.iter().any(|s| s.instance_id.is_some() && !s.is_bypassed))
+                .unwrap_or(false);
+        // Also check if any track has reverb/delay VSTs that could produce tail
+        let has_any_track_reverb_vst = external_fx_map.iter().any(|slots| {
+            slots.iter().any(|s| s.instance_id.is_some() && !s.is_bypassed)
+        });
+        let max_tail_frames = if has_any_master_fx || has_any_track_reverb_vst {
+            (project_sr as usize * 1).min(192000) // 1 second max (was 2)
+        } else {
+            0 // No effects = no tail needed!
+        };
         let total_with_tail = total_frames + max_tail_frames;
+        log::error!(
+            "[Bounce-Config] tail_frames={} ({:.2}s), master_fx={}, track_vst={}, total_frames={}, export_range=[{}..{}]",
+            max_tail_frames, max_tail_frames as f64 / project_sr,
+            has_any_master_fx, has_any_track_reverb_vst,
+            total_frames, self.config.start_frame, self.config.end_frame
+        );
 
         // EXP-PDC FIX: Compute track latencies for PDC during export
         let track_slots_len = render_ctx.track_slots.len();
@@ -2499,8 +2527,32 @@ impl OfflineRenderer {
 
         // Update effective total with actual tail length
         let total_frames = total_frames + tail_rendered;
-        if tail_rendered > 0 {
-            info!("[Bounce] Rendered {} tail frames ({:.2}s)", tail_rendered, tail_rendered as f64 / project_sr);
+
+        // ── ULTIMATE END-OF-BOUNCE SUMMARY ──
+        // Single log line with everything needed to verify the export
+        {
+            let final_peak_l: f32 = mix_l[..total_frames].iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            let final_peak_r: f32 = mix_r[..total_frames].iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            let final_rms_l: f32 = (mix_l[..total_frames].iter().map(|s| s * s).sum::<f32>() / total_frames as f32).sqrt();
+            let final_rms_r: f32 = (mix_r[..total_frames].iter().map(|s| s * s).sum::<f32>() / total_frames as f32).sqrt();
+            // Scan for silence at the end — find last non-silent frame
+            let silence_th = 1e-5f32;
+            let last_audible = mix_l[..total_frames].iter()
+                .zip(mix_r[..total_frames].iter())
+                .rposition(|(l, r)| l.abs() > silence_th || r.abs() > silence_th)
+                .unwrap_or(0);
+            let trailing_silence_frames = total_frames.saturating_sub(last_audible + 1);
+            let trailing_silence_sec = trailing_silence_frames as f64 / project_sr;
+            log::error!(
+                "[Bounce-FINAL] total_frames={} ({:.2}s), tail_frames={} ({:.2}s), \
+                 master_gain={:.3}, peak_L={:.5} peak_R={:.5}, rms_L={:.5} rms_R={:.5}, \
+                 trailing_silence={} frames ({:.2}s), last_audible_frame={}",
+                total_frames, total_frames as f64 / project_sr,
+                tail_rendered, tail_rendered as f64 / project_sr,
+                master_gain,
+                final_peak_l, final_peak_r, final_rms_l, final_rms_r,
+                trailing_silence_frames, trailing_silence_sec, last_audible
+            );
         }
 
         info!("[Bounce] Phase 2: Gain / Normalization");

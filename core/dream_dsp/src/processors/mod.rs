@@ -91,6 +91,21 @@ pub(crate) fn envelope_coeff(time_ms: f32, sample_rate: f32) -> f32 {
     }
 }
 
+/// SSOT: 4-point, 3rd-order Hermite interpolation for fractional delay lines.
+/// Gives significantly better high-frequency preservation and less distortion than linear interpolation.
+/// `frac` must be in [0.0, 1.0) and interpolates between `y0` and `y1`.
+/// `ym1` is the newer sample, `y2` is the older sample.
+#[inline(always)]
+pub(crate) fn hermite_interp(ym1: f32, y0: f32, y1: f32, y2: f32, frac: f32) -> f32 {
+    let c = (y1 - ym1) * 0.5;
+    let v = y0 - y1;
+    let w = c + v;
+    let a = w + v + (y2 - y0) * 0.5;
+    let b_neg = w + a;
+    
+    (((a * frac) - b_neg) * frac + c) * frac + y0
+}
+
 pub mod chorus;
 pub mod compressor;
 pub mod delay;

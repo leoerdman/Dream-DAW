@@ -47,6 +47,9 @@ export interface DeviceSlot {
     isMissing?: boolean;
     params: PluginParam[];
     sampleRackConfig?: unknown;
+    vuLevel?: number;
+    vuLevelL?: number;
+    vuLevelR?: number;
     pluginId: string;
     isVst: boolean;
     source: 'internal' | 'vst' | 'missing' | 'unknown';

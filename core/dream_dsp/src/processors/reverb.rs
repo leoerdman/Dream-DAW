@@ -371,6 +371,8 @@ impl ReverbProcessor {
             ((self.predelay_ms * 0.001 * self.sample_rate) as usize).min(MAX_PREDELAY_SAMPLES - 1);
     }
 
+    /// BUG-DSP-001 FIX: Read with 4-point Hermite interpolation for ER/Predelay fractional taps.
+    /// Eliminates high-frequency smearing and artifacts of linear interpolation.
     #[inline]
     fn read_delay_frac(buf: &[f32], write_pos: usize, delay_samples: f32) -> f32 {
         let len = buf.len();
@@ -378,16 +380,18 @@ impl ReverbProcessor {
             return 0.0;
         }
         let len_f = len as f32;
-        let delay = delay_samples.clamp(0.0, (len - 1) as f32);
+        let delay = delay_samples.clamp(1.0, (len - 3) as f32);
         let mut read_pos = (write_pos as f32 - delay).rem_euclid(len_f);
         if read_pos >= len_f {
             read_pos = 0.0;
         }
         let base = read_pos.floor();
         let i0 = base as usize;
+        let im1 = (i0 + len - 1) % len;
         let i1 = (i0 + 1) % len;
+        let i2 = (i0 + 2) % len;
         let frac = read_pos - base;
-        buf[i0] * (1.0 - frac) + buf[i1] * frac
+        crate::processors::hermite_interp(buf[im1], buf[i0], buf[i1], buf[i2], frac)
     }
 
     #[inline]

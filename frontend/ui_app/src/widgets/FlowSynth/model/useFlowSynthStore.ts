@@ -664,13 +664,23 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // Phase 7.3: Project Persistence (SSOT)
         // Send the JSON representation back to the audio engine to save it in `dream_models`
         const configJson = JSON.stringify({
-            nodes: state.nodes.map(n => ({
-                id: n.id,
-                type: n.type,
-                position_x: n.position.x,
-                position_y: n.position.y,
-                data: n.data
-            })),
+            nodes: state.nodes.map(n => {
+                const stringifiedData: Record<string, string> = {};
+                if (n.data) {
+                    for (const [k, v] of Object.entries(n.data)) {
+                        if (v !== null && v !== undefined) {
+                            stringifiedData[k] = String(v);
+                        }
+                    }
+                }
+                return {
+                    id: n.id,
+                    type: n.type,
+                    position_x: n.position.x,
+                    position_y: n.position.y,
+                    data: stringifiedData
+                };
+            }),
             connections: state.connections.map(c => ({
                 id: c.id,
                 from_node: c.fromNode,

@@ -759,6 +759,12 @@ impl OfflineRenderer {
                                 time_sig_numerator: ctx.time_sig_numerator,
                                 time_sig_denominator: ctx.time_sig_denominator,
                             };
+                            
+                            let mut in_rms = 0.0;
+                            if track_idx == 1 {
+                                 in_rms = (slot.buf_left[..c].iter().chain(slot.buf_right[..c].iter()).map(|s| s*s).sum::<f32>() / (2.0 * c as f32)).sqrt();
+                            }
+                            
                             slot.device_chain.process_slot_with_sidechain_ctx(
                                 internal_idx,
                                 &mut slot.buf_left[..c],
@@ -767,6 +773,15 @@ impl OfflineRenderer {
                                 sc_r,
                                 &pctx,
                             );
+                            
+                            if track_idx == 1 {
+                                 let out_rms: f32 = (slot.buf_left[..c].iter().chain(slot.buf_right[..c].iter()).map(|s| s*s).sum::<f32>() / (2.0 * c as f32)).sqrt();
+                                 static NLOG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                 if NLOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 1000 {
+                                      log::error!("[Bounce-Native] T[{}] S[{}] (internal {}) | in={:.5} out={:.5}", track_idx, runtime_slot_idx, internal_idx, in_rms, out_rms);
+                                 }
+                            }
+
                             continue;
                         }
 
@@ -1200,6 +1215,11 @@ impl OfflineRenderer {
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
+            let mut pre_strip_rms = 0.0;
+            if track_idx == 1 {
+                pre_strip_rms = (slot.buf_left[..frame_count].iter().chain(slot.buf_right[..frame_count].iter()).map(|s| s*s).sum::<f32>() / (2.0 * frame_count as f32)).sqrt();
+            }
+            
             if enabled {
                 slot.strip.process_stereo(
                     &mut slot.buf_left[..frame_count],
@@ -1208,6 +1228,14 @@ impl OfflineRenderer {
             } else {
                 slot.buf_left[..frame_count].fill(0.0);
                 slot.buf_right[..frame_count].fill(0.0);
+            }
+            
+            if track_idx == 1 {
+                let post_strip_rms: f32 = (slot.buf_left[..frame_count].iter().chain(slot.buf_right[..frame_count].iter()).map(|s| s*s).sum::<f32>() / (2.0 * frame_count as f32)).sqrt();
+                static STLOG: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                if STLOG.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 1000 && (pre_strip_rms > 0.0 || post_strip_rms > 0.0) {
+                     log::error!("[Bounce-Strip] T[1] pre={:.5} post={:.5} enabled={}", pre_strip_rms, post_strip_rms, enabled);
+                }
             }
 
             // BOUNCE-AUTOMATION-FIX: Apply track mixer automation (volume/pan

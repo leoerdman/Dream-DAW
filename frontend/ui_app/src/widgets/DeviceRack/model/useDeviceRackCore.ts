@@ -5,6 +5,7 @@ import type { DeviceSlot } from '../model/types';
 import { getInternalPluginById, normalizeInternalPluginId, waveformIndexFromSamplePath } from '@/shared/lib/internalPlugins';
 import { getEffectTypeByPluginId } from '@/shared/config/pluginManifest';
 import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import type { PluginParam } from '../model/types';
 import { normalizeStaticLaneValueForUi } from './useDeviceRackParamNormalize';
 type AutomationLanePoint = { value?: number };
@@ -52,9 +53,10 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const [localParamsByTrack, setLocalParamsByTrack] = useState<Record<string, Record<string, number>>>({});
     const [selectedDeviceIdsByTrack, setSelectedDeviceIdsByTrack] = useState<Record<string, string[]>>({});
     const [inlineSettingsOpenByTrack, setInlineSettingsOpenByTrack] = useState<Record<string, Record<string, boolean>>>({});
-    const { tracksById, trackIds } = useEngineStore(useShallow((s) => ({
+    const { tracksById, trackIds, meters } = useEngineStore(useShallow((s) => ({
         tracksById: s.tracks.byId,
         trackIds: s.tracks.allIds,
+        meters: s.meters,
     })));
 
     // BUG-S02-S04 FIX: Prune state for deleted tracks to prevent dictionary memory leaks.
@@ -134,6 +136,17 @@ export function useDeviceRackCore(selectedTrackId: string) {
         });
     }, [selectedTrackId]);
     const isMaster = selectedTrackId === 'master';
+    const trackIndex = trackIds.indexOf(selectedTrackId);
+    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] ?? null : null);
+    const inLevelL = isMaster
+        ? dbToMeterNorm(meters.master_left.peak)
+        : meterPair ? dbToMeterNorm(meterPair[0].peak) : 0;
+    const inLevelR = isMaster
+        ? dbToMeterNorm(meters.master_right.peak)
+        : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
+    const outLevelL = inLevelL;
+    const outLevelR = inLevelR;
+    const outLevel = Math.max(outLevelL, outLevelR);
     const masterProjectTrack = useMemo(
         () => trackIds.map((id) => tracksById[id]).find((t) => t?.track_type === 'Master') ?? null,
         [trackIds, tracksById],
@@ -268,6 +281,9 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 waveformIndex,
                 samplePath,
                 sampleRackConfig: node.sampleRackConfig,
+                vuLevel: isEnabled ? outLevel : 0,
+                vuLevelL: isEnabled ? outLevelL : 0,
+                vuLevelR: isEnabled ? outLevelR : 0,
             };
 
             const prevSlot = prevSlotsRef.current[id];
@@ -281,10 +297,14 @@ export function useDeviceRackCore(selectedTrackId: string) {
 
         prevSlotsRef.current = nextSlots;
         return chain;
-    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId]);
+    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR]);
     return {
         selectedTrack,
         isMaster,
+        inLevelL,
+        inLevelR,
+        outLevelL,
+        outLevelR,
         localBypass,
         setLocalBypass,
         localParams,

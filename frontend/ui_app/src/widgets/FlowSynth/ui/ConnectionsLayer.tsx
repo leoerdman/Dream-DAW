@@ -23,6 +23,7 @@ export function ConnectionsLayer() {
     const connectionPulseById = useFlowSynthStore((state) => state.connectionPulseById);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
     const selectConnection = useFlowSynthStore((state) => state.selectConnection);
+    const deleteConnection = useFlowSynthStore((state) => state.deleteConnection);
     const layerRef = useRef<SVGSVGElement>(null);
     const [now, setNow] = useState(() => Date.now());
 
@@ -126,8 +127,9 @@ export function ConnectionsLayer() {
                             d={pathData}
                             fill="none"
                             stroke="transparent"
-                            strokeWidth={20}
+                            strokeWidth={24}
                             pointerEvents="stroke"
+                            style={{ cursor: 'pointer' }}
                             onPointerDown={(e) => {
                                 e.stopPropagation();
                                 selectConnection(conn.id);
@@ -138,10 +140,10 @@ export function ConnectionsLayer() {
                             d={pathData}
                             fill="none"
                             stroke={glowColor}
-                            strokeWidth={isSelected ? 6 : 4}
-                            opacity={isSelected ? 0.28 : 0.14}
+                            strokeWidth={isSelected ? 8 : 4}
+                            opacity={isSelected ? 0.35 : 0.14}
                             pointerEvents="none"
-                            style={{ filter: 'none' }}
+                            style={{ filter: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
                         />
                         {/* Core path */}
                         <path
@@ -177,6 +179,31 @@ export function ConnectionsLayer() {
                                 pointerEvents="none"
                             />
                         )}
+                        {/* 100x UX: Inline Delete Button (appears on selection) */}
+                        {isSelected && (() => {
+                            const midX = cubicBezierAt(0.5, start.x, c1x, c2x, end.x);
+                            const midY = cubicBezierAt(0.5, start.y, c1y, c2y, end.y);
+                            return (
+                                <g
+                                    transform={`translate(${midX}, ${midY})`}
+                                    style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+                                    onPointerDown={(e) => {
+                                        e.stopPropagation();
+                                        deleteConnection(conn.id);
+                                    }}
+                                >
+                                    <circle cx="0" cy="0" r="14" fill="var(--color-bg-elevated)" stroke={baseColor} strokeWidth="1.5" />
+                                    <path
+                                        d="M-4 -4 L4 4 M4 -4 L-4 4"
+                                        stroke="var(--color-text-primary)"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                    />
+                                    {/* Additional hit area to make it easier to click */}
+                                    <circle cx="0" cy="0" r="20" fill="transparent" />
+                                </g>
+                            );
+                        })()}
                     </g>
                 );
             })}
@@ -184,9 +211,11 @@ export function ConnectionsLayer() {
                 const start = { x: pendingConnection.startX, y: pendingConnection.startY };
                 const end = { x: pendingConnection.currentX, y: pendingConnection.currentY };
                 const dx = Math.abs(end.x - start.x);
-                const c1x = start.x + Math.max(dx / 2, 50);
+                const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
+                const cpOffset = Math.min(250, Math.max(50, distance / 2.5));
+                const c1x = start.x + cpOffset;
                 const c1y = start.y;
-                const c2x = end.x - Math.max(dx / 2, 50);
+                const c2x = end.x - cpOffset;
                 const c2y = end.y;
                 const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
                 const baseColor = pendingConnection.signalType === 'midi'

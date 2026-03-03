@@ -16,9 +16,7 @@ fn get_spectrum_data(
     }
 
     if drained == 0 {
-        // ENTERPRISE: Return last known magnitudes without clone.
-        // The Tauri IPC layer serializes directly from the reference.
-        return Ok(std::mem::take(&mut inner.last_magnitudes));
+        return Ok(inner.last_magnitudes.clone());
     }
 
     // Compute FFT and return magnitudes
@@ -26,9 +24,7 @@ fn get_spectrum_data(
         inner.last_magnitudes.clear();
         inner.last_magnitudes.extend_from_slice(&data.magnitudes);
     }
-    // ENTERPRISE: Take ownership of the buffer instead of cloning.
-    // The next poll will rebuild it from fresh FFT data or return an empty vec.
-    Ok(std::mem::take(&mut inner.last_magnitudes))
+    Ok(inner.last_magnitudes.clone())
 }
 
 /// Per-track spectrum data for EQ display.
@@ -52,13 +48,12 @@ fn get_spectrum_data_for_track(
     }
 
     if drained == 0 {
-        // ENTERPRISE: Take ownership instead of clone — zero allocations per poll.
-        return Ok(std::mem::take(&mut inner.last_magnitudes));
+        return Ok(inner.last_magnitudes.clone());
     }
 
     if let Some(data) = inner.analyzer.compute() {
         inner.last_magnitudes.clear();
         inner.last_magnitudes.extend_from_slice(&data.magnitudes);
     }
-    Ok(std::mem::take(&mut inner.last_magnitudes))
+    Ok(inner.last_magnitudes.clone())
 }

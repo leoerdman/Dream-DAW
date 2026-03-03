@@ -172,12 +172,15 @@ impl DelayProcessor {
         }
     }
 
-    /// Read with linear interpolation for fractional delays.
-    /// BUG-033 FIX: Uses bitwise AND instead of modulo for ring buffer indices
-    /// (eliminates 2 DIV instructions per sample → ~2x faster index computation).
+    /// Read with 4-point Hermite interpolation for fractional delays.
+    /// BUG-001 FIX: Upgraded from linear to 3rd-order Hermite interpolation.
+    /// Prevents high-frequency smearing and harmonic distortion during
+    /// LFO modulation (chorus/flanger modes).
+    /// Uses bitwise AND instead of modulo for ring buffer indices.
     #[inline]
     fn read_interp(buf: &[f32], write_pos: usize, delay: f32, buf_size: usize) -> f32 {
-        let max_delay = (buf_size.saturating_sub(2)) as f32;
+        // Need +2 margin for Hermite (up to int_d + 2)
+        let max_delay = (buf_size.saturating_sub(3)) as f32;
         let safe_delay = if delay.is_finite() {
             delay.clamp(1.0, max_delay)
         } else {
@@ -186,9 +189,13 @@ impl DelayProcessor {
         let int_d = safe_delay.floor() as usize;
         let frac = safe_delay - int_d as f32;
         let mask = buf_size - 1; // buf_size is always power-of-2 aligned
+        
+        let im1 = (write_pos + buf_size - int_d + 1) & mask;
         let i0 = (write_pos + buf_size - int_d) & mask;
         let i1 = (write_pos + buf_size - int_d - 1) & mask;
-        buf[i0] * (1.0 - frac) + buf[i1] * frac
+        let i2 = (write_pos + buf_size - int_d - 2) & mask;
+        
+        crate::processors::hermite_interp(buf[im1], buf[i0], buf[i1], buf[i2], frac)
     }
 }
 

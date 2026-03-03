@@ -68,6 +68,8 @@ export function useDeviceRackLifecycle({
         }
     }, [selectedTrackId, openEditorsByTrack, prevTrackIdRef]);
 
+    // BUG-S05 FIX: Cleanup gestures ONLY after track changes — not on every render.
+    // This prevents losing pending gesture commits.
     useEffect(() => {
         cleanupGestures();
     }, [selectedTrackId, cleanupGestures]);

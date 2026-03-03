@@ -58,11 +58,14 @@ export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries
 
     const applyQuickUtilityScene = useCallback((device: DeviceSlot, scene: 'center' | 'mono' | 'wide') => {
         if (device.effectType !== 'utility') return;
+        // BUG-U08 FIX: Resolve canonical param names from device.params (case-insensitive).
+        const byLower = new Map(device.params.map((p) => [p.name.toLowerCase(), p.name]));
+        const resolve = (name: string) => byLower.get(name.toLowerCase()) ?? name;
         const values = scene === 'mono'
-            ? [{ paramName: 'Pan', value: 0 }, { paramName: 'Width', value: 0 }, { paramName: 'Mono', value: 1 }]
+            ? [{ paramName: resolve('Pan'), value: 0 }, { paramName: resolve('Width'), value: 0 }, { paramName: resolve('Mono'), value: 1 }]
             : scene === 'wide'
-                ? [{ paramName: 'Pan', value: 0 }, { paramName: 'Width', value: 150 }, { paramName: 'Mono', value: 0 }]
-                : [{ paramName: 'Pan', value: 0 }, { paramName: 'Width', value: 100 }, { paramName: 'Mono', value: 0 }];
+                ? [{ paramName: resolve('Pan'), value: 0 }, { paramName: resolve('Width'), value: 150 }, { paramName: resolve('Mono'), value: 0 }]
+                : [{ paramName: resolve('Pan'), value: 0 }, { paramName: resolve('Width'), value: 100 }, { paramName: resolve('Mono'), value: 0 }];
         applyParamBatch(device, values);
     }, [applyParamBatch]);
 

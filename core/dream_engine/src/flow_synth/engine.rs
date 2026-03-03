@@ -2,14 +2,20 @@ use crate::instrument_core::MAX_VOICES;
 use crate::flow_synth::graph::{FlowGraph, FlowConnection};
 use crate::flow_synth::nodes::MidiInNode;
 use crate::oscillator::ParameterSmoother;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// A single polyphonic voice in the Flow Synth.
 pub struct FlowVoice {
     pub active: bool,
+    /// True when the voice has received note_off but is still in release phase.
+    /// The voice renders until the envelope reaches idle, then transitions to inactive.
+    pub releasing: bool,
     pub note: u8,
     pub velocity: u8,
     pub graph: FlowGraph,
+    /// Monotonic frame counter when this voice was activated via note_on.
+    /// Used for oldest-voice stealing strategy.
+    pub start_frame: u64,
     /// Index of the MidiInNode inside the graph (if present).
     midi_in_index: Option<usize>,
 }
@@ -25,17 +31,21 @@ impl FlowVoice {
     pub fn new() -> Self {
         Self {
             active: false,
+            releasing: false,
             note: 0,
             velocity: 0,
             graph: FlowGraph::new(),
+            start_frame: 0,
             midi_in_index: None,
         }
     }
 
     pub fn reset(&mut self) {
         self.active = false;
+        self.releasing = false;
         self.note = 0;
         self.velocity = 0;
+        self.start_frame = 0;
         self.graph.reset();
     }
 
@@ -57,6 +67,8 @@ pub struct FlowSynthEngine {
     pub volume: ParameterSmoother,
     sample_rate: f64,
     enabled: bool,
+    /// Monotonic frame counter for voice-age tracking (voice stealing).
+    frame_counter: u64,
 }
 
 impl FlowSynthEngine {
@@ -65,10 +77,22 @@ impl FlowSynthEngine {
         if sample.is_finite() { sample } else { 0.0 }
     }
 
+    /// ENTERPRISE: Threshold-based soft limiter that preserves dynamics in the
+    /// linear region (below threshold) and applies smooth saturation above.
+    /// Previous implementation `(sample * 0.95).tanh()` ate ~26% of headroom
+    /// at normal levels (tanh(0.95) ≈ 0.74).
     #[inline]
     fn soft_limit(sample: f32) -> f32 {
-        // Gentle saturation with predictable ceiling and no hard digital clipping.
-        (sample * 0.95).tanh()
+        let threshold = 0.8_f32;
+        let abs = sample.abs();
+        if abs <= threshold {
+            sample // Linear pass-through — no headroom loss
+        } else {
+            // Smooth saturation: maps [threshold..∞) → [threshold..1.0)
+            let excess = abs - threshold;
+            let saturated = threshold + (1.0 - threshold) * (excess / (excess + (1.0 - threshold)));
+            saturated.copysign(sample)
+        }
     }
 
     pub fn new(sample_rate: f64) -> Self {
@@ -78,6 +102,7 @@ impl FlowSynthEngine {
             volume: ParameterSmoother::new(0.8, sample_rate, 10.0),
             sample_rate,
             enabled: false,
+            frame_counter: 0,
         }
     }
 
@@ -137,30 +162,44 @@ impl FlowSynthEngine {
             }
         }
 
-        let mut ready: Vec<u64> = indegree
+        // ENTERPRISE: Use VecDeque for efficient O(1) pop_front instead of Vec::remove(0).
+        let mut ready: VecDeque<u64> = indegree
             .iter()
             .filter_map(|(id, &d)| if d == 0 { Some(*id) } else { None })
             .collect();
-        ready.sort_by_key(|id| index_by_id.get(id).copied().unwrap_or(usize::MAX));
+        // Sort initial ready set deterministically by original index.
+        let mut ready_vec: Vec<u64> = ready.drain(..).collect();
+        ready_vec.sort_by_key(|id| index_by_id.get(id).copied().unwrap_or(usize::MAX));
+        ready = ready_vec.into();
 
         let mut ordered_ids = Vec::with_capacity(nodes.len());
-        while !ready.is_empty() {
-            let id = ready.remove(0);
+        while let Some(id) = ready.pop_front() {
             ordered_ids.push(id);
             if let Some(neighbors) = outgoing.get(&id) {
+                let mut new_ready = Vec::new();
                 for &n in neighbors {
                     if let Some(d) = indegree.get_mut(&n) {
                         *d = d.saturating_sub(1);
                         if *d == 0 {
-                            ready.push(n);
+                            new_ready.push(n);
                         }
                     }
                 }
-                ready.sort_by_key(|nid| index_by_id.get(nid).copied().unwrap_or(usize::MAX));
+                // Sort newly ready nodes by original index for deterministic ordering.
+                new_ready.sort_by_key(|nid| index_by_id.get(nid).copied().unwrap_or(usize::MAX));
+                ready.extend(new_ready);
             }
         }
 
+        // ENTERPRISE: Detect feedback loops — if some nodes weren't reached by topo sort,
+        // they form a cycle. Log a warning and append them (best-effort processing).
         if ordered_ids.len() < nodes.len() {
+            let cycle_count = nodes.len() - ordered_ids.len();
+            log::warn!(
+                "[FlowSynth] Feedback loop detected: {} node(s) form a cycle. \
+                 Sound may not render correctly. Consider breaking the loop.",
+                cycle_count
+            );
             for (id, _, _) in nodes {
                 if !ordered_ids.iter().any(|v| v == id) {
                     ordered_ids.push(*id);
@@ -215,31 +254,53 @@ impl FlowSynthEngine {
             return;
         }
 
-        // 1. Find idle voice
-        let voice = self.voices.iter_mut().find(|v| !v.active);
+        // 1. Find idle voice (not active at all)
+        let idle_idx = self.voices.iter().position(|v| !v.active);
 
-        let voice = if let Some(v) = voice {
-            v
+        // 2. If no idle voice, find a releasing voice to steal (prefer oldest releasing)
+        let voice_idx = if let Some(idx) = idle_idx {
+            idx
         } else {
-            // 2. Voice stealing: steal the oldest active voice (index 0)
-            &mut self.voices[0]
+            // ENTERPRISE: Steal the oldest active voice by start_frame (not always voice[0]).
+            // Prefer releasing voices first (they've already had their note_off).
+            let releasing_oldest = self.voices
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.releasing)
+                .min_by_key(|(_, v)| v.start_frame)
+                .map(|(i, _)| i);
+
+            if let Some(idx) = releasing_oldest {
+                idx
+            } else {
+                // All voices are actively held — steal the oldest active one.
+                self.voices
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, v)| v.start_frame)
+                    .map(|(i, _)| i)
+                    .unwrap_or(0)
+            }
         };
 
+        let voice = &mut self.voices[voice_idx];
         voice.active = true;
+        voice.releasing = false;
         voice.note = note;
         voice.velocity = velocity;
+        voice.start_frame = self.frame_counter;
+        voice.graph.reset();
         voice.set_midi_state(note, velocity, true);
     }
 
     pub fn note_off(&mut self, note: u8) {
         for voice in &mut self.voices {
-            if voice.active && voice.note == note {
-                // Set gate to 0 — the envelope handles the release phase.
+            if voice.active && !voice.releasing && voice.note == note {
+                // ENTERPRISE: Set gate to 0 but keep voice ACTIVE in releasing state.
+                // The envelope handles the release phase. The render loop checks
+                // for idle envelopes and deactivates voices when release finishes.
                 voice.set_midi_state(note, 0, false);
-                // Mark voice as inactive immediately.
-                // In a proper modular synth with release tails, we'd defer this
-                // until the envelope signals idle. For now, immediate deactivation.
-                voice.active = false;
+                voice.releasing = true;
             }
         }
     }
@@ -248,7 +309,7 @@ impl FlowSynthEngine {
         for voice in &mut self.voices {
             if voice.active {
                 voice.set_midi_state(voice.note, 0, false);
-                voice.active = false;
+                voice.releasing = true;
             }
         }
     }
@@ -258,44 +319,48 @@ impl FlowSynthEngine {
             return;
         }
 
-        let has_active_voices = self.voices.iter().any(|v| v.active);
-        let active_voice_count = self.voices.iter().filter(|v| v.active).count().max(1) as f32;
-        let poly_norm = if has_active_voices {
-            // Perceptually stable gain for polyphonic summing.
-            1.0 / active_voice_count.sqrt()
-        } else {
-            1.0
-        };
-        // Free-run mode: when there are no active MIDI voices, still render voice 0
-        // continuously so oscillator patches always produce signal.
-        let free_run_without_midi = !has_active_voices;
-
         for i in 0..frame_count {
             let vol = self.volume.next();
-            let mut mixed_sample = 0.0;
+            let mut mixed_sample = 0.0_f32;
+            let mut rendering_voice_count = 0_u32;
             let ext_in = if i < left_out.len() && i < right_out.len() {
                 0.5 * (left_out[i] + right_out[i])
             } else {
                 0.0
             };
 
-            if has_active_voices {
-                for voice in &mut self.voices {
-                    if !voice.active {
-                        continue;
-                    }
-                    voice.graph.set_audio_in_sample(ext_in);
-                    mixed_sample += Self::sanitize(voice.graph.process_sample(self.sample_rate));
+            for voice in &mut self.voices {
+                if !voice.active {
+                    continue;
                 }
-            } else if free_run_without_midi {
-                self.voices[0].graph.set_audio_in_sample(ext_in);
-                mixed_sample = Self::sanitize(self.voices[0].graph.process_sample(self.sample_rate));
+
+                // Check if a releasing voice has finished its envelope release.
+                // Deactivate it to free the voice for future note_on events.
+                if voice.releasing && voice.graph.is_envelope_idle() {
+                    voice.active = false;
+                    voice.releasing = false;
+                    continue;
+                }
+
+                voice.graph.set_audio_in_sample(ext_in);
+                mixed_sample += Self::sanitize(voice.graph.process_sample(self.sample_rate));
+                rendering_voice_count += 1;
             }
 
+            // No voices rendering (either none active or all just deactivated) — silence.
+            if rendering_voice_count == 0 {
+                self.frame_counter += 1;
+                continue;
+            }
+
+            // Perceptually stable gain for polyphonic summing.
+            let poly_norm = 1.0 / (rendering_voice_count as f32).sqrt();
             let final_out = Self::soft_limit(Self::sanitize(mixed_sample) * poly_norm * vol);
             left_out[i] += final_out;
             right_out[i] += final_out;
         }
+
+        self.frame_counter += frame_count as u64;
     }
 }
 
@@ -323,6 +388,9 @@ mod tests {
             ],
         );
 
+        // Need note_on for voice to be active (no more free-run mode)
+        engine.note_on(60, 100);
+
         let mut l = vec![0.0_f32; 4096];
         let mut r = vec![0.0_f32; 4096];
         engine.render(&mut l, &mut r, 4096);
@@ -331,5 +399,130 @@ mod tests {
         assert!(r.iter().all(|s| s.is_finite()), "right contains non-finite sample");
         let peak = l.iter().chain(r.iter()).fold(0.0_f32, |m, &v| m.max(v.abs()));
         assert!(peak <= 1.0, "expected soft-limited peak <= 1.0, got {peak}");
+    }
+
+    #[test]
+    fn note_off_keeps_voice_active_during_release() {
+        let mut engine = FlowSynthEngine::new(44_100.0);
+        engine.set_enabled(true);
+        engine.sync_graph(
+            &[
+                (1, "midiIn".to_string(), vec![]),
+                (2, "oscillator".to_string(), vec![]),
+                (3, "envelope".to_string(), vec![
+                    ("attack".to_string(), "0.005".to_string()),
+                    ("decay".to_string(), "0.01".to_string()),
+                    ("sustain".to_string(), "0.8".to_string()),
+                    ("release".to_string(), "0.1".to_string()),
+                ]),
+                (4, "output".to_string(), vec![]),
+            ],
+            &[
+                (1, 0, 2, 0), // freq -> osc
+                (1, 2, 3, 0), // gate -> envelope
+                (2, 0, 4, 0), // osc -> output
+            ],
+        );
+
+        engine.note_on(60, 100);
+        let mut l = vec![0.0_f32; 512];
+        let mut r = vec![0.0_f32; 512];
+        engine.render(&mut l, &mut r, 512);
+
+        // After note_off, voice should still be active (releasing)
+        engine.note_off(60);
+        assert!(engine.has_active_voices(), "voice should remain active in release phase");
+
+        // Render the release — should produce non-zero audio
+        let mut l2 = vec![0.0_f32; 512];
+        let mut r2 = vec![0.0_f32; 512];
+        engine.render(&mut l2, &mut r2, 512);
+        let release_rms: f32 = (l2.iter().map(|s| s * s).sum::<f32>() / 512.0).sqrt();
+        assert!(release_rms > 0.0001, "expected audible release tail, got rms={release_rms}");
+    }
+
+    #[test]
+    fn voice_stealing_targets_oldest_voice() {
+        let mut engine = FlowSynthEngine::new(44_100.0);
+        engine.set_enabled(true);
+        engine.sync_graph(
+            &[
+                (1, "midiIn".to_string(), vec![]),
+                (2, "oscillator".to_string(), vec![]),
+                (3, "output".to_string(), vec![]),
+            ],
+            &[
+                (1, 0, 2, 0),
+                (2, 0, 3, 0),
+            ],
+        );
+
+        // Fill all voices
+        for i in 0..MAX_VOICES {
+            engine.note_on(60 + i as u8, 100);
+            // Render a bit so frame_counter advances
+            let mut l = vec![0.0_f32; 16];
+            let mut r = vec![0.0_f32; 16];
+            engine.render(&mut l, &mut r, 16);
+        }
+
+        // All voices should be active
+        assert_eq!(engine.voices.iter().filter(|v| v.active).count(), MAX_VOICES);
+
+        // Record which voice is oldest (has lowest start_frame)
+        let oldest_idx = engine.voices
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, v)| v.start_frame)
+            .map(|(i, _)| i)
+            .unwrap();
+        let oldest_note = engine.voices[oldest_idx].note;
+
+        // Trigger one more — should steal the oldest
+        engine.note_on(100, 100);
+        assert_eq!(engine.voices[oldest_idx].note, 100,
+            "expected oldest voice (note={oldest_note}) to be stolen, but voice at idx={oldest_idx} has note={}",
+            engine.voices[oldest_idx].note);
+    }
+
+    #[test]
+    fn no_free_run_background_tone() {
+        let mut engine = FlowSynthEngine::new(44_100.0);
+        engine.set_enabled(true);
+        engine.sync_graph(
+            &[
+                (1, "oscillator".to_string(), vec![]),
+                (2, "output".to_string(), vec![]),
+            ],
+            &[
+                (1, 0, 2, 0),
+            ],
+        );
+
+        // No note_on — just render
+        let mut l = vec![0.0_f32; 512];
+        let mut r = vec![0.0_f32; 512];
+        engine.render(&mut l, &mut r, 512);
+
+        let peak = l.iter().chain(r.iter()).fold(0.0_f32, |m, &v| m.max(v.abs()));
+        assert!(peak < 0.0001, "expected silence without note_on, got peak={peak}");
+    }
+
+    #[test]
+    fn soft_limit_preserves_dynamics() {
+        // Linear region: should preserve the signal
+        assert!((FlowSynthEngine::soft_limit(0.5) - 0.5).abs() < 0.001,
+            "expected ~0.5, got {}", FlowSynthEngine::soft_limit(0.5));
+        assert!((FlowSynthEngine::soft_limit(0.0)).abs() < 0.001);
+
+        // Just at threshold
+        assert!((FlowSynthEngine::soft_limit(0.8) - 0.8).abs() < 0.001);
+
+        // Above threshold — saturated but never exceeds 1.0
+        let heavy = FlowSynthEngine::soft_limit(5.0);
+        assert!(heavy > 0.8 && heavy < 1.0, "expected saturated output in (0.8, 1.0), got {heavy}");
+
+        // Negative values
+        assert!((FlowSynthEngine::soft_limit(-0.5) + 0.5).abs() < 0.001);
     }
 }

@@ -1,7 +1,20 @@
-import React from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
+import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import {
+    buildSurfaceKnobParams,
+    DryWetSection,
+    formatSurfaceParam,
+    getDevicePluginKey,
+    KnobParamGrid,
+    panelWithOptionalDryWetStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    readMixSurfaceParam,
+    readSurfaceParam,
+    shouldShowDryWet,
+    PLUGIN_TITLE_MAP,
+    type SurfaceHandlers,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
@@ -43,13 +56,9 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                         <span>Mix {formatSurfaceParam(mix)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-c867ff)" />}
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-c867ff)" show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} />
         </div>
     );
 }
@@ -99,13 +108,9 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                         <span>Mix {formatSurfaceParam(mix)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-ffac59)" />}
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} />
         </div>
     );
 }

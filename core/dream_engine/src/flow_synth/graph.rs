@@ -62,6 +62,11 @@ pub struct FlowGraph {
     audio_out_index: Option<usize>,
     /// Indices of AudioIn nodes for per-sample external input injection.
     audio_in_indices: Vec<usize>,
+    /// ENTERPRISE: Pre-computed incoming connections per node for O(1) lookup.
+    /// Each entry: (source_node_index, from_port, to_port)
+    incoming_cache: Vec<Vec<(usize, usize, usize)>>,
+    /// Indices of EnvelopeNode(s) in the graph for idle-state queries.
+    envelope_indices: Vec<usize>,
 }
 
 impl FlowGraph {
@@ -74,6 +79,8 @@ impl FlowGraph {
             signal_buffer: vec![FlowSignal::default(); 16 * MAX_NODE_PORTS],
             audio_out_index: None,
             audio_in_indices: Vec::new(),
+            incoming_cache: Vec::with_capacity(16),
+            envelope_indices: Vec::new(),
         }
     }
 }
@@ -88,6 +95,7 @@ impl FlowGraph {
     pub fn add_node(&mut self, id: NodeId, node_type: &str) {
         let is_audio_out = node_type == "audio_out" || node_type == "output";
         let is_audio_in = node_type == "audioIn" || node_type == "audio_in";
+        let is_envelope = node_type == "envelope";
 
         let node: Box<dyn FlowNode> = match node_type {
             "oscillator" => Box::new(OscillatorNode::new()),
@@ -125,15 +133,31 @@ impl FlowGraph {
         if is_audio_in {
             self.audio_in_indices.push(idx);
         }
+        if is_envelope {
+            self.envelope_indices.push(idx);
+        }
 
         // Ensure signal buffer is large enough
         let required = (idx + 1) * MAX_NODE_PORTS;
         if self.signal_buffer.len() < required {
             self.signal_buffer.resize(required, FlowSignal::default());
         }
+
+        // Extend incoming cache for this node (will be populated by rebuild_incoming_cache)
+        self.incoming_cache.push(Vec::new());
     }
 
     pub fn add_connection(&mut self, conn: FlowConnection) {
+        // ENTERPRISE: Update incoming cache incrementally when a connection is added.
+        if let Some(&to_idx) = self.node_map.get(&conn.to_node) {
+            if let Some(&from_idx) = self.node_map.get(&conn.from_node) {
+                if conn.from_port < MAX_NODE_PORTS && conn.to_port < MAX_NODE_PORTS {
+                    if to_idx < self.incoming_cache.len() {
+                        self.incoming_cache[to_idx].push((from_idx, conn.from_port, conn.to_port));
+                    }
+                }
+            }
+        }
         self.connections.push(conn);
     }
 
@@ -301,6 +325,8 @@ impl FlowGraph {
         self.signal_buffer.fill(FlowSignal::default());
         self.audio_out_index = None;
         self.audio_in_indices.clear();
+        self.incoming_cache.clear();
+        self.envelope_indices.clear();
     }
 
     /// Resets all nodes in the graph.
@@ -308,6 +334,25 @@ impl FlowGraph {
         for node in &mut self.nodes {
             node.reset();
         }
+    }
+
+    /// Returns true if ALL envelope nodes in this graph are in idle state
+    /// (completed release phase). If no envelope nodes exist, returns true.
+    /// Used by the engine to determine when a releasing voice can be freed.
+    pub fn is_envelope_idle(&mut self) -> bool {
+        if self.envelope_indices.is_empty() {
+            return true;
+        }
+        for &idx in &self.envelope_indices {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                if let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>() {
+                    if !env.is_idle() {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// Returns a mutable reference to a specific node by its index.
@@ -323,24 +368,20 @@ impl FlowGraph {
 
     /// Processes one sample through the entire graph.
     /// Topological order must be maintained in the `nodes` vector.
+    ///
+    /// ENTERPRISE: Uses pre-computed incoming_cache for O(edges_to_node) per node
+    /// instead of the previous O(all_connections) scan.
     pub fn process_sample(&mut self, sample_rate: f64) -> f32 {
-        // 1. Gather inputs for each node from the signal buffer and execute.
-        for i in 0..self.nodes.len() {
-            // Temporary input buffer for this node.
+        let node_count = self.nodes.len();
+        // 1. Gather inputs for each node from the incoming cache and execute.
+        for i in 0..node_count {
             let mut inputs = [FlowSignal::default(); MAX_NODE_PORTS];
 
-            // Get the NodeId for this index to match connections correctly.
-            let this_node_id = self.index_to_id[i];
-
-            // Fill inputs based on connections.
-            for conn in &self.connections {
-                if conn.to_node == this_node_id
-                    && let Some(&from_idx) = self.node_map.get(&conn.from_node)
-                    && conn.from_port < MAX_NODE_PORTS
-                    && conn.to_port < MAX_NODE_PORTS
-                {
-                    let source_signal = self.signal_buffer[from_idx * MAX_NODE_PORTS + conn.from_port];
-                    inputs[conn.to_port] = source_signal;
+            // Fill inputs from pre-computed incoming connections (O(k) where k = incoming edges).
+            if i < self.incoming_cache.len() {
+                for &(from_idx, from_port, to_port) in &self.incoming_cache[i] {
+                    let source_signal = self.signal_buffer[from_idx * MAX_NODE_PORTS + from_port];
+                    inputs[to_port] = source_signal;
                 }
             }
 
@@ -359,7 +400,7 @@ impl FlowGraph {
             sig.as_float().unwrap_or(0.0)
         } else if !self.nodes.is_empty() {
             // Fallback: return last node's first output.
-            let last_idx = self.nodes.len() - 1;
+            let last_idx = node_count - 1;
             self.signal_buffer[last_idx * MAX_NODE_PORTS]
                 .as_float()
                 .unwrap_or(0.0)

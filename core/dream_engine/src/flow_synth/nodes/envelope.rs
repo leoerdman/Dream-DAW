@@ -2,13 +2,16 @@ use std::any::Any;
 use crate::flow_synth::graph::{FlowNode, FlowSignal};
 use crate::instrument_core::{AdsrEnvelope, AdsrParams};
 
-/// Default sample rate used when the EnvelopeNode is created without context.
+/// Default sample rate used when the EnvelopeNode is first created.
+/// Overridden on the first `process()` call with the actual runtime SR.
 const DEFAULT_SAMPLE_RATE: f64 = 44100.0;
 
 pub struct EnvelopeNode {
     envelope: AdsrEnvelope,
     last_gate: f32,
     params: AdsrParams,
+    /// Tracks the last sample rate used, so we can detect SR changes.
+    current_sample_rate: f64,
 }
 
 impl Default for EnvelopeNode {
@@ -19,8 +22,7 @@ impl Default for EnvelopeNode {
 
 impl EnvelopeNode {
     /// Create with default sample rate. The audio thread will call process
-    /// with the actual sample rate, but the envelope time constants are set
-    /// here as a starting point.
+    /// with the actual sample rate, and we update the envelope accordingly.
     pub fn new() -> Self {
         let params = AdsrParams::default();
         let mut envelope = AdsrEnvelope::new(DEFAULT_SAMPLE_RATE);
@@ -29,7 +31,14 @@ impl EnvelopeNode {
             envelope,
             last_gate: 0.0,
             params,
+            current_sample_rate: DEFAULT_SAMPLE_RATE,
         }
+    }
+
+    /// Returns true when the envelope has fully completed its release phase
+    /// and is producing zero output. Used by the engine for voice lifecycle.
+    pub fn is_idle(&self) -> bool {
+        self.envelope.is_idle()
     }
 
     pub fn set_attack(&mut self, attack: f64) {
@@ -54,12 +63,20 @@ impl EnvelopeNode {
 }
 
 impl FlowNode for EnvelopeNode {
-    fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
+    fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64) {
         // Input 0: Gate Signal (trigger when > 0.1)
         // Input 1: Attack (seconds)
         // Input 2: Decay (seconds)
         // Input 3: Sustain (level 0..1)
         // Input 4: Release (seconds)
+
+        // ENTERPRISE FIX: Use the runtime sample rate instead of the hardcoded default.
+        // Detect SR changes and rebuild the envelope with the correct rate.
+        if (sample_rate - self.current_sample_rate).abs() > 0.5 {
+            self.current_sample_rate = sample_rate;
+            self.envelope = AdsrEnvelope::new(sample_rate);
+            self.envelope.set_params(&self.params);
+        }
 
         let gate = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
         let control_or_default = |idx: usize, default: f64| -> f64 {

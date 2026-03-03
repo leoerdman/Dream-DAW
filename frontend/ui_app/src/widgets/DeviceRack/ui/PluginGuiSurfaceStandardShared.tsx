@@ -188,9 +188,7 @@ export function buildSurfaceKnobParams(
 ): DeviceSlot['params'] {
     const { omitMixWhenDryWet = false } = options;
     const isInternal = device.source === 'internal';
-    const normalizedInternalId = normalizeInternalPluginId(
-        device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase(),
-    );
+    const normalizedInternalId = getDevicePluginKey(device);
     if (isInternal && HIDE_ALL_PARAMS_INTERNAL_IDS.has(normalizedInternalId)) {
         return [];
     }
@@ -279,10 +277,17 @@ export const panelWithDryWetStyle: React.CSSProperties = {
 };
 
 /** Dynamic layout: show grid split only when DryWet knob is visible. */
-export const panelWithOptionalDryWetStyle = (showDryWet: boolean): React.CSSProperties => ({
+// Cached instances to avoid new object creation on every render
+const _panelWithDryWetActive: React.CSSProperties = {
     ...panelWithDryWetStyle,
-    gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
-});
+    gridTemplateColumns: '1fr auto',
+};
+const _panelWithDryWetInactive: React.CSSProperties = {
+    ...panelWithDryWetStyle,
+    gridTemplateColumns: '1fr',
+};
+export const panelWithOptionalDryWetStyle = (showDryWet: boolean): React.CSSProperties =>
+    showDryWet ? _panelWithDryWetActive : _panelWithDryWetInactive;
 
 /* ── Phase B: Shared helpers to eliminate 12x duplication ── */
 
@@ -294,5 +299,75 @@ export const panelWithOptionalDryWetStyle = (showDryWet: boolean): React.CSSProp
 export function getDevicePluginKey(device: DeviceSlot): string {
     return normalizeInternalPluginId(
         device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase(),
+    );
+}
+
+/* ── Phase C: Shared rendering components ── */
+
+import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
+import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
+import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
+
+/**
+ * Shared knob parameter grid — renders a row of PluginKnobs from pre-filtered params.
+ * Eliminates the identical `{knobParams.length > 0 && <div style={pluginPanelKnobGrid(...)}>...map...</div>}`
+ * pattern that was duplicated in 12 surfaces.
+ */
+export function KnobParamGrid({
+    params,
+    handlers,
+    maxCols = 8,
+    minCols = 3,
+}: {
+    params: DeviceSlot['params'];
+    handlers: SurfaceHandlers;
+    maxCols?: number;
+    minCols?: number;
+}): React.ReactNode {
+    if (params.length === 0) return null;
+    const cols = Math.min(maxCols, Math.max(minCols, params.length));
+    return (
+        <div style={pluginPanelKnobGrid(`repeat(${cols}, minmax(0, 1fr))`)}>
+            {params.map((p) => (
+                <PluginKnob
+                    key={p.name}
+                    param={p}
+                    onChange={handlers.onParamChange}
+                    onGestureStart={handlers.onParamGestureStart}
+                    onGestureEnd={handlers.onParamGestureEnd}
+                    onContextMenu={handlers.onParamContextMenu}
+                    compact
+                />
+            ))}
+        </div>
+    );
+}
+
+/**
+ * Shared DryWet knob section — conditionally renders the DryWet knob.
+ * Eliminates the identical `{showDryWet && <DryWetKnob .../>}` pattern
+ * that was duplicated in 12 surfaces.
+ */
+export function DryWetSection({
+    device,
+    handlers,
+    accent,
+    show,
+}: {
+    device: DeviceSlot;
+    handlers: SurfaceHandlers;
+    accent: string;
+    show: boolean;
+}): React.ReactNode {
+    if (!show) return null;
+    return (
+        <DryWetKnob
+            device={device}
+            onChange={handlers.onParamChange}
+            onGestureStart={handlers.onParamGestureStart}
+            onGestureEnd={handlers.onParamGestureEnd}
+            onContextMenu={handlers.onParamContextMenu}
+            accent={accent}
+        />
     );
 }

@@ -69,6 +69,10 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-env)',
         inputs: [
             { id: 'gate', label: 'Gate', type: 'control' },
+            { id: 'attack', label: 'Atk', type: 'control' },
+            { id: 'decay', label: 'Dec', type: 'control' },
+            { id: 'sustain', label: 'Sus', type: 'control' },
+            { id: 'release', label: 'Rel', type: 'control' },
         ],
         outputs: [
             { id: 'cv', label: 'CV', type: 'control' },
@@ -89,6 +93,11 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-filter)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'cutoff', label: 'Cut', type: 'control' },
+            { id: 'resonance', label: 'Res', type: 'control' },
+            { id: 'rate', label: 'Rate', type: 'control' },
+            { id: 'depth', label: 'Depth', type: 'control' },
+            { id: 'envFollow', label: 'Env', type: 'control' },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },

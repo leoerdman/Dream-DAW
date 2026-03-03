@@ -13,7 +13,7 @@ interface TrackLike {
 interface DeviceLike {
     id: string;
     isEnabled?: boolean;
-    source?: 'internal' | 'external';
+    source?: 'internal' | 'vst' | 'missing' | 'unknown';
 }
 
 interface RuntimeBySlot {
@@ -59,10 +59,13 @@ export function useDeviceRackSlotActions({
                 return track.id;
             }
         }
-        return selectedTrack?.id ?? null;
+        // BUG-I07 FIX: Return null instead of selectedTrack fallback — prevents wrong-track bypass.
+        return null;
     }, [selectedTrack, trackIds, tracksById]);
 
     const toggleDevice = useCallback((device: DeviceLike) => {
+        // BUG-M06 FIX: Don't toggle missing/unknown plugins — they have no backend.
+        if (device.source === 'missing' || device.source === 'unknown') return;
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
         const nextBypassed = !currentBypassed;
         setLocalBypass((prev) => ({ ...prev, [device.id]: nextBypassed }));

@@ -15,12 +15,15 @@ pub struct ReverseNode {
 }
 
 impl ReverseNode {
+    /// ENTERPRISE: Pre-allocate for 2 seconds at the maximum supported sample rate (96kHz).
+    /// This avoids audio-thread allocations when sample rate changes.
+    const MAX_BUFFER_SIZE: usize = 96_000 * 2;
+
     pub fn new() -> Self {
-        let buffer_size = 44100 * 2; // 2 seconds at 44.1k
         Self {
-            buffer: vec![0.0; buffer_size],
+            buffer: vec![0.0; Self::MAX_BUFFER_SIZE],
             write_pos: 0,
-            buffer_size,
+            buffer_size: Self::MAX_BUFFER_SIZE,
             window_ms: 200.0,
             feedback: 0.0,
             mix: 1.0,

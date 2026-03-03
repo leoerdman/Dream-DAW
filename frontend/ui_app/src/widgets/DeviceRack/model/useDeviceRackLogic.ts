@@ -101,10 +101,14 @@ export function useDeviceRackLogic(
 
     // --- Core Data ---
     const core = useDeviceRackCore(selectedTrackId);
-    const trackEffectRefs = (core.selectedTrack?.effects ?? [])
-        .map((fx) => fx.id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-        .map((id) => ({ id }));
+    // BUG-M05 FIX: Memoize trackEffectRefs to prevent new array ref on every render.
+    const trackEffectRefs = useMemo(
+        () => (core.selectedTrack?.effects ?? [])
+            .map((fx) => fx.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+            .map((id) => ({ id })),
+        [core.selectedTrack?.effects],
+    );
     const trackForOps = core.selectedTrack
         ? {
             id: core.selectedTrack.id,
@@ -243,7 +247,7 @@ export function useDeviceRackLogic(
         toggleDevice({
             id: device.id,
             isEnabled: device.isEnabled,
-            source: device.source === 'internal' ? 'internal' : 'external',
+            source: device.source as 'internal' | 'vst' | 'missing' | 'unknown',
         });
     }, [toggleDevice]);
 

@@ -1,8 +1,20 @@
-import React from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
-import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
-import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
-import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
+import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import {
+    buildSurfaceKnobParams,
+    DryWetSection,
+    formatSurfaceParam,
+    getDevicePluginKey,
+    KnobParamGrid,
+    panelWithOptionalDryWetStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
+    readSurfaceParam,
+    shouldShowDryWet,
+    PLUGIN_TITLE_MAP,
+    type SurfaceHandlers,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
@@ -52,13 +64,9 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                         <span>Ceil {formatSurfaceParam(ceilParam)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-56d4c8)" />}
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-56d4c8)" show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} />
         </div>
     );
 }
@@ -94,13 +102,9 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                         <span>Rel {formatSurfaceParam(gateRelParam)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-8ec77c)" />}
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-8ec77c)" show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} />
         </div>
     );
 }
@@ -147,13 +151,9 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                         <span>Freq {formatSurfaceParam(modFreq)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-4cc9d8)" />}
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-4cc9d8)" show={showDryWet} />
             </div>
-            {knobParams.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
-                </div>
-            )}
+            <KnobParamGrid params={knobParams} handlers={handlers} />
         </div>
     );
 }

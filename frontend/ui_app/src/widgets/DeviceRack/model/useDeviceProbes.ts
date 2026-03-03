@@ -32,26 +32,30 @@ export function useDeviceProbes(
         const missing = vstDevices.filter((d) => capabilityRef.current[d.id] == null);
         if (missing.length === 0) return;
 
-        (async () => {
-            const results = await Promise.all(
-                missing.map(async (device) => {
-                    try {
-                        const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrackId, device.id);
-                        return [device.id, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
-                    } catch (err) {
-                        console.error('[Dream] Capability probe failed:', err);
-                        return [device.id, { supported: false, reason: 'Capability check failed.' }] as const;
-                    }
-                }),
-            );
+        // BUG-I09+I10 FIX: Debounce probe fetches to prevent IPC flooding on rapid track switching.
+        const timer = window.setTimeout(() => {
             if (cancelled) return;
-            setPluginCapability((prev) => {
-                const next = { ...prev };
-                for (const [id, cap] of results) next[id] = cap;
-                return next;
-            });
-        })();
-        return () => { cancelled = true; };
+            (async () => {
+                const results = await Promise.all(
+                    missing.map(async (device) => {
+                        try {
+                            const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrackId, device.id);
+                            return [device.id, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
+                        } catch (err) {
+                            console.error('[Dream] Capability probe failed:', err);
+                            return [device.id, { supported: false, reason: 'Capability check failed.' }] as const;
+                        }
+                    }),
+                );
+                if (cancelled) return;
+                setPluginCapability((prev) => {
+                    const next = { ...prev };
+                    for (const [id, cap] of results) next[id] = cap;
+                    return next;
+                });
+            })();
+        }, 80);
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [chain, selectedTrackId]);
 
     // ── VST runtime status probes ──
@@ -61,29 +65,32 @@ export function useDeviceProbes(
         const targets = chain.filter((d) => d.isVst);
         if (targets.length === 0) return;
 
-        (async () => {
-            const entries = await Promise.all(
-                targets.map(async (device) => {
-                    try {
-                        const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrackId, device.id);
-                        return [device.id, status] as const;
-                    } catch (err) {
-                        console.error('[Dream] getPluginSlotRuntimeStatus failed:', err);
-                        return [device.id, {
-                            loaded: false, editorSupported: true, runtime: 'unknown',
-                            sidechainReady: false, message: 'Runtime status unavailable',
-                        } as engineApi.PluginSlotRuntimeStatus] as const;
-                    }
-                }),
-            );
+        const timer = window.setTimeout(() => {
             if (cancelled) return;
-            setPluginRuntimeBySlot((prev) => {
-                const next = { ...prev };
-                for (const [slotId, status] of entries) next[slotId] = status;
-                return next;
-            });
-        })();
-        return () => { cancelled = true; };
+            (async () => {
+                const entries = await Promise.all(
+                    targets.map(async (device) => {
+                        try {
+                            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrackId, device.id);
+                            return [device.id, status] as const;
+                        } catch (err) {
+                            console.error('[Dream] getPluginSlotRuntimeStatus failed:', err);
+                            return [device.id, {
+                                loaded: false, editorSupported: true, runtime: 'unknown',
+                                sidechainReady: false, message: 'Runtime status unavailable',
+                            } as engineApi.PluginSlotRuntimeStatus] as const;
+                        }
+                    }),
+                );
+                if (cancelled) return;
+                setPluginRuntimeBySlot((prev) => {
+                    const next = { ...prev };
+                    for (const [slotId, status] of entries) next[slotId] = status;
+                    return next;
+                });
+            })();
+        }, 80);
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [chain, selectedTrackId]);
 
     // ── External param fetch ──
@@ -94,34 +101,37 @@ export function useDeviceProbes(
         const missing = vstDevices.filter((d) => !externalParamsRef.current[d.id]);
         if (missing.length === 0) return;
 
-        (async () => {
-            const results = await Promise.all(
-                missing.map(async (device) => {
-                    try {
-                        const params = await engineApi.getExternalPluginParamsForSlot(selectedTrackId, device.id);
-                        const mapped: PluginParam[] = params.map((p) => ({
-                            name: p.name, min: p.min, max: p.max, step: p.step,
-                            suffix: '',
-                            value: p.value,
-                            defaultValue: Number.isFinite(p.defaultValue ?? Number.NaN)
-                                ? (p.defaultValue as number)
-                                : (Number.isFinite(p.value) ? p.value : (p.min + p.max) * 0.5),
-                        }));
-                        return [device.id, mapped] as const;
-                    } catch (err) {
-                        console.error('[Dream] getExternalPluginParamsForSlot failed:', err);
-                        return [device.id, [] as PluginParam[]] as const;
-                    }
-                }),
-            );
+        const timer = window.setTimeout(() => {
             if (cancelled) return;
-            setExternalParamsBySlotId((prev) => {
-                const next = { ...prev };
-                for (const [slotId, params] of results) next[slotId] = params;
-                return next;
-            });
-        })();
-        return () => { cancelled = true; };
+            (async () => {
+                const results = await Promise.all(
+                    missing.map(async (device) => {
+                        try {
+                            const params = await engineApi.getExternalPluginParamsForSlot(selectedTrackId, device.id);
+                            const mapped: PluginParam[] = params.map((p) => ({
+                                name: p.name, min: p.min, max: p.max, step: p.step,
+                                suffix: '',
+                                value: p.value,
+                                defaultValue: Number.isFinite(p.defaultValue ?? Number.NaN)
+                                    ? (p.defaultValue as number)
+                                    : (Number.isFinite(p.value) ? p.value : (p.min + p.max) * 0.5),
+                            }));
+                            return [device.id, mapped] as const;
+                        } catch (err) {
+                            console.error('[Dream] getExternalPluginParamsForSlot failed:', err);
+                            return [device.id, [] as PluginParam[]] as const;
+                        }
+                    }),
+                );
+                if (cancelled) return;
+                setExternalParamsBySlotId((prev) => {
+                    const next = { ...prev };
+                    for (const [slotId, params] of results) next[slotId] = params;
+                    return next;
+                });
+            })();
+        }, 80);
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [chain, selectedTrackId]);
 
     const visibleExternalParamsBySlotId = useMemo(() => {

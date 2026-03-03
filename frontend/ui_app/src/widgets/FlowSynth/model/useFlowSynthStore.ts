@@ -107,7 +107,7 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
             fromPort: 'freq',
             toNode: 'node-osc-1',
             toPort: 'freq',
-            signalType: 'audio',
+            signalType: 'control',
         },
         {
             id: 'conn-osc-to-out',
@@ -618,11 +618,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             ];
         });
 
-        // AUDIT FIX: Parallel awaits instead of sequential — setFlowEnabled and syncFlowGraph
-        // are independent operations that can execute concurrently.
-        await Promise.all([
-            engine.setFlowEnabled(trackIndex, true),
-            engine.syncFlowGraph(trackIndex, nodes, connections),
-        ]);
+        // ENTERPRISE FIX: Sequential awaits — setFlowEnabled MUST complete before
+        // syncFlowGraph. The engine must be enabled before it processes graph data,
+        // otherwise the graph sync arrives while the engine is still in disabled
+        // state and may be silently dropped or cause state inconsistency.
+        await engine.setFlowEnabled(trackIndex, true);
+        await engine.syncFlowGraph(trackIndex, nodes, connections);
     },
 }));

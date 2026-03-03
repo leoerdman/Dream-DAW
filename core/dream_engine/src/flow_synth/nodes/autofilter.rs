@@ -85,12 +85,11 @@ impl FlowNode for AutoFilterNode {
             self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sample_rate as f32 * release)).exp());
         }
 
-        // LFO (Sine)
-        self.lfo_phase += 2.0 * std::f32::consts::PI * lfo_rate / sample_rate as f32;
-        if self.lfo_phase > 2.0 * std::f32::consts::PI {
-            self.lfo_phase -= 2.0 * std::f32::consts::PI;
-        }
-        let lfo_val = self.lfo_phase.sin();
+        // LFO (Sine) — ENTERPRISE: normalized 0..1 phase prevents f32 precision
+        // drift after long sessions. Previous raw radian approach lost accuracy.
+        self.lfo_phase += lfo_rate / sample_rate as f32;
+        self.lfo_phase = self.lfo_phase.fract();
+        let lfo_val = (self.lfo_phase * 2.0 * std::f32::consts::PI).sin();
 
         // Combine modulations (in octaves/relative frequency)
         let modulation = (lfo_val * lfo_depth) + (self.envelope_state * env_follow_depth);

@@ -57,6 +57,7 @@ use crate::driver::parse_external_param_target;
 use crate::driver::midi_dispatcher::{clamp_midi_pitch, quantize_to_scale};
 use crate::render_callback::{RenderContext, soft_clip};
 use crate::essence_synth::EssenceSynthEngine;
+use crate::flow_synth::FlowSynthEngine;
 use crate::instrument_core::AdsrParams;
 use crate::sampler::{SampleRackEngine, SamplerEngine};
 
@@ -1562,6 +1563,7 @@ impl OfflineRenderer {
             let mut engine = SamplerEngine::new(sample_rate);
             let mut rack = SampleRackEngine::new(sample_rate);
             let mut essence = EssenceSynthEngine::new(sample_rate);
+            let mut flow = FlowSynthEngine::new(sample_rate);
             let mut has_sample = false;
 
             if let Some(cfg) = &sampler_cfg {
@@ -1702,7 +1704,9 @@ impl OfflineRenderer {
                 // If the sampler has a loaded sample, suppress the Essence Synth.
                 let use_essence = !has_sample;
                 let essence_active_now = use_essence && essence.has_active_voices();
-                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active || essence_active_now {
+                let use_flow = flow.is_enabled();
+                let flow_active_now = use_flow && flow.has_active_voices();
+                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active || essence_active_now || flow_active_now || use_flow {
                     // Convert scheduled notes to instantaneous events (same logic as driver.rs).
                     let mut events: Vec<(usize, u8, u8, u8)> = Vec::new(); // (frame, kind, pitch, velocity)
                     for event in &schedule_scratch {
@@ -1753,6 +1757,13 @@ impl OfflineRenderer {
                                     seg,
                                 );
                             }
+                            if use_flow {
+                                flow.render(
+                                    &mut chunk_left[cursor..cursor + seg],
+                                    &mut chunk_right[cursor..cursor + seg],
+                                    seg,
+                                );
+                            }
                             cursor += seg;
                         } else if frame > cursor {
                             cursor = frame;
@@ -1764,11 +1775,17 @@ impl OfflineRenderer {
                             if use_essence {
                                 essence.note_off(pitch);
                             }
+                            if use_flow {
+                                flow.note_off(pitch);
+                            }
                         } else {
                             engine.note_on(pitch, velocity);
                             rack.note_on(pitch, velocity);
                             if use_essence {
                                 essence.note_on(pitch, velocity);
+                            }
+                            if use_flow {
+                                flow.note_on(pitch, velocity);
                             }
                         }
                     }
@@ -1790,6 +1807,13 @@ impl OfflineRenderer {
                         );
                         if use_essence && essence.has_active_voices() {
                             essence.render(
+                                &mut chunk_left[cursor..cursor + rem],
+                                &mut chunk_right[cursor..cursor + rem],
+                                rem,
+                            );
+                        }
+                        if use_flow {
+                            flow.render(
                                 &mut chunk_left[cursor..cursor + rem],
                                 &mut chunk_right[cursor..cursor + rem],
                                 rem,

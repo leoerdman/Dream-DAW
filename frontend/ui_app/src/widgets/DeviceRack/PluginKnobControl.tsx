@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
 import {
     knobDialStyle,
@@ -18,7 +18,7 @@ import { usePluginKnobDrag } from './usePluginKnobDrag';
 import type { PluginParam } from './StandardPluginControlTypes';
 import { KnobArcSvg } from '@/shared/ui/KnobArcSvg';
 
-export const PluginKnob = ({
+export const PluginKnob = React.memo(({
     param,
     compact = false,
     label,
@@ -207,4 +207,5 @@ export const PluginKnob = ({
             )}
         </label>
     );
-};
+});
+PluginKnob.displayName = 'PluginKnob';

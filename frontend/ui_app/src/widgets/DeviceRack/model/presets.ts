@@ -13,29 +13,29 @@ export const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], Q
         { label: 'Glue', values: { thr: -12, ratio: 2, atk: 30, rel: 180 } },
     ],
     delay: [
-        { label: 'Slap', values: { time: 95, fb: 18, 'dry/wet': 20 } },
-        { label: 'Wide', values: { time: 320, fb: 42, 'dry/wet': 34 } },
-        { label: 'Wash', values: { time: 560, fb: 60, 'dry/wet': 48 } },
+        { label: 'Slap', values: { 'time l': 95, 'time r': 95, fb: 18, 'dry/wet': 20 } },
+        { label: 'Wide', values: { 'time l': 320, 'time r': 480, fb: 42, 'dry/wet': 34 } },
+        { label: 'Wash', values: { 'time l': 560, 'time r': 560, fb: 60, 'dry/wet': 48 } },
     ],
     reverb: [
         {
             label: 'Room',
             values: {
-                decay: 28, tone: 36, 'dry/wet': 16, predelay: 5, width: 90,
+                size: 28, damp: 36, 'dry/wet': 16, predelay: 5, width: 90,
                 'lo cut': 120, 'hi cut': 12000, diffusion: 58, density: 62, chorus: 10, voicing: 0,
             },
         },
         {
             label: 'Hall',
             values: {
-                decay: 56, tone: 52, 'dry/wet': 24, predelay: 14, width: 100,
+                size: 56, damp: 52, 'dry/wet': 24, predelay: 14, width: 100,
                 'lo cut': 80, 'hi cut': 14500, diffusion: 78, density: 82, chorus: 22, voicing: 1,
             },
         },
         {
             label: 'Shimmer',
             values: {
-                decay: 76, tone: 74, 'dry/wet': 34, predelay: 22, width: 100,
+                size: 76, damp: 74, 'dry/wet': 34, predelay: 22, width: 100,
                 'lo cut': 140, 'hi cut': 17800, diffusion: 92, density: 90, chorus: 34, voicing: 2,
             },
         },
@@ -154,14 +154,21 @@ export function resolveQuickPresetParams(
 ): Array<{ paramName: string; value: number }> {
     const byName = new Map(device.params.map((p) => [p.name.toLowerCase(), p.name]));
     const resolved: Array<{ paramName: string; value: number }> = [];
+    const unmatched: string[] = [];
     for (const [rawName, value] of Object.entries(preset.values)) {
         const key = rawName.toLowerCase();
         const canonical =
             byName.get(key)
             ?? byName.get(key.replace(/\s+/g, ''))
             ?? byName.get(key.replace(/\s*\/\s*/g, '/'));
-        if (!canonical) continue;
+        if (!canonical) {
+            unmatched.push(rawName);
+            continue;
+        }
         resolved.push({ paramName: canonical, value });
+    }
+    if (unmatched.length > 0 && process.env.NODE_ENV !== 'production') {
+        console.warn(`[Dream] Preset "${preset.label}": unmatched keys: ${unmatched.join(', ')}`);
     }
     return resolved;
 }
@@ -178,6 +185,10 @@ export function clampAndSnapParamValue(param: PluginParam, value: number): numbe
 export function defaultParamForReset(param: PluginParam): number {
     if (Number.isFinite(param.defaultValue)) {
         return clampAndSnapParamValue(param, param.defaultValue as number);
+    }
+    // BUG-C08 FIX: Use the catalog `value` field as a better fallback than heuristic.
+    if (Number.isFinite(param.value)) {
+        return clampAndSnapParamValue(param, param.value);
     }
     const name = param.name.toLowerCase();
     if (param.min <= 0 && param.max >= 0) return 0;

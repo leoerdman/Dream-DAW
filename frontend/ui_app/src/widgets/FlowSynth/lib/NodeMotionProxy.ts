@@ -68,6 +68,15 @@ class MotionProxy {
             this.positions.set(nodeId, { x, y });
         }
     }
+
+    /**
+     * ENTERPRISE FIX (#7): Remove a node's position and subscribers.
+     * Called when a node is deleted to prevent unbounded Map growth.
+     */
+    removeNode(nodeId: string) {
+        this.positions.delete(nodeId);
+        this.subscribers.delete(nodeId);
+    }
 }
 
 export const nodeMotionProxy = new MotionProxy();

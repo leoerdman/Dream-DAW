@@ -1,15 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
-
-// Reusing the type structure from the store directly since @entities/flow might not be mapped here
-type FlowConnection = {
-    id: string;
-    fromNode: string;
-    fromPort: string;
-    toNode: string;
-    toPort: string;
-    signalType?: 'audio' | 'midi' | 'control';
-};
+import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
+import type { SynthConnection } from '../model/useFlowSynthStore';
 
 const PULSE_DURATION_MS = 520;
 
@@ -19,7 +11,7 @@ function cubicBezierAt(t: number, p0: number, p1: number, p2: number, p3: number
 }
 
 interface Props {
-    conn: FlowConnection;
+    conn: SynthConnection;
     initialStart: { x: number; y: number };
     initialEnd: { x: number; y: number };
     isSelected: boolean;
@@ -43,28 +35,37 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const [start, setStart] = useState(initialStart);
     const [end, setEnd] = useState(initialEnd);
 
-    // ENTERPRISE: Subscribe purely to the proxy coords. 
-    // This allows the connection to deform smoothly while a node is dragged @ 120Hz
-    // Without triggering a top-level React re-render of the Graph
+    // ENTERPRISE FIX (#3+#4): Store the port-relative Y offset as a ref.
+    // The port Y position = nodePosition.y + portRelativeY.
+    // We compute portRelativeY once from initial props and use absolute math thereafter.
+    const startPortOffsetY = useRef(0);
+    const endPortOffsetY = useRef(0);
+
+    // Compute port offsets from the initial positions.
+    // initialStart.y = initialNodePosition.y + portRelativeY.
+    // We can derive nodePosition from the proxy or from initial positions.
+    useEffect(() => {
+        const fromNodePos = nodeMotionProxy.getPosition(conn.fromNode);
+        const toNodePos = nodeMotionProxy.getPosition(conn.toNode);
+        // portRelativeY = initialStart.y - node.y
+        startPortOffsetY.current = fromNodePos ? initialStart.y - fromNodePos.y : 0;
+        endPortOffsetY.current = toNodePos ? initialEnd.y - toNodePos.y : 0;
+    }, [conn.fromNode, conn.toNode, initialStart.y, initialEnd.y]);
+
     useEffect(() => {
         let isDisposed = false;
 
-        // Try to fetch synchronously first
-        const s = nodeMotionProxy.getPosition(conn.fromNode);
-        if (s) {
-            setStart(prev => ({ x: s.x + 240, y: prev.y }));
-        }
-
         const unsubStart = nodeMotionProxy.subscribe(conn.fromNode, (pos) => {
             if (isDisposed) return;
-            // The X moves exactly by node position. The Y moves, but port relative Y is constant.
-            // Since we know the delta of the node matching the delta of the port:
-            setStart(prev => ({ x: pos.x + 240, y: initialStart.y + (pos.y - (initialStart.y - prev.y)) }));
+            // ENTERPRISE FIX: Absolute positioning — no prev-dependent accumulation.
+            // Output port X = node.x + FLOW_NODE_WIDTH (right edge)
+            setStart({ x: pos.x + FLOW_NODE_WIDTH, y: pos.y + startPortOffsetY.current });
         });
 
         const unsubEnd = nodeMotionProxy.subscribe(conn.toNode, (pos) => {
             if (isDisposed) return;
-            setEnd(prev => ({ x: pos.x, y: initialEnd.y + (pos.y - (initialEnd.y - prev.y)) }));
+            // Input port X = node.x (left edge)
+            setEnd({ x: pos.x, y: pos.y + endPortOffsetY.current });
         });
 
         return () => {
@@ -72,7 +73,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
             unsubStart();
             unsubEnd();
         };
-    }, [conn.fromNode, conn.toNode, initialStart.x, initialStart.y, initialEnd.x, initialEnd.y]);
+    }, [conn.fromNode, conn.toNode]);
 
     // Update refs if props completely change (e.g. initial graph load)
     useEffect(() => {

@@ -1202,10 +1202,6 @@ impl OfflineRenderer {
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
-            let mut pre_strip_rms = 0.0;
-            if track_idx == 1 {
-                pre_strip_rms = (slot.buf_left[..frame_count].iter().chain(slot.buf_right[..frame_count].iter()).map(|s| s*s).sum::<f32>() / (2.0 * frame_count as f32)).sqrt();
-            }
             
             if enabled {
                 slot.strip.process_stereo(
@@ -1217,13 +1213,7 @@ impl OfflineRenderer {
                 slot.buf_right[..frame_count].fill(0.0);
             }
             
-            if track_idx == 1 {
-                let post_strip_rms: f32 = (slot.buf_left[..frame_count].iter().chain(slot.buf_right[..frame_count].iter()).map(|s| s*s).sum::<f32>() / (2.0 * frame_count as f32)).sqrt();
-                static STLOG: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                if STLOG.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 1000 && (pre_strip_rms > 0.0 || post_strip_rms > 0.0) {
-                     log::debug!("[Bounce-Strip] T[1] pre={:.5} post={:.5} enabled={}", pre_strip_rms, post_strip_rms, enabled);
-                }
-            }
+
 
             // BOUNCE-AUTOMATION-FIX: Apply track mixer automation (volume/pan
             // automation curves) — mirrors RT path at audio_thread_runner.rs:838.

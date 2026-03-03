@@ -20,7 +20,7 @@ export const PluginSlider = ({
     onGestureEnd?: (paramName: string) => void;
     onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => (
-    <label style={sliderLabelStyle} onContextMenu={(e) => onRightClickFn?.(e, param.name)}>
+    <label style={sliderLabelStyle} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onRightClickFn?.(e, param.name); }}>
         <span style={sliderTextStyle}>
             {param.name} <span style={sliderValueStyle}>{formatPluginParamValue(param)}</span>
         </span>

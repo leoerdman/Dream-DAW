@@ -2,7 +2,7 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGrid,
+    KnobParamGridMemo,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -75,7 +75,7 @@ export function renderStandardAnalyzerMidiSurface(
             <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
                 <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8c8e8)' }}>{title}</div>
                 {device.effectType === 'spectrum' && (
-                    <svg viewBox="0 0 320 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 46 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 46, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-8-10-14-0d7)" />
                         {spectrumBars.map((bar, idx) => (
                             <rect key={idx} x={bar.x} y={46 - bar.h} width="8" height={bar.h} rx="1.2" fill={bar.h > 30 ? 'var(--token-color-rgba-255-180-102-0d92)' : 'var(--token-color-rgba-122-198-255-0d92)'} />
@@ -205,7 +205,7 @@ export function renderStandardAnalyzerMidiSurface(
                     </span>
                 </div>
             </div>
-            <KnobParamGrid device={device} handlers={handlers} maxCols={4} minCols={2} />
+            <KnobParamGridMemo device={device} handlers={handlers} maxCols={4} minCols={2} />
         </div>
     );
 }

@@ -169,7 +169,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                     onPointerCancel={endKnobDrag}
                     onMouseDown={beginMouseDrag}
                     onDoubleClick={onDoubleClick}
-                    onContextMenu={(e) => onContextMenu?.(e, resolvedParam.name)}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu?.(e, resolvedParam.name); }}
                 >
                     <KnobArcSvg
                         pct={pct}

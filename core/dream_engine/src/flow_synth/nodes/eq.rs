@@ -38,7 +38,7 @@ impl BiquadBand {
 
     fn update_coefficients(&mut self, sample_rate: f64) {
         // ENTERPRISE: Only compute trigonometric math if parameters changed OR sample rate shifted.
-        if !self.dirty && self.last_sr == sample_rate {
+        if !self.dirty && (self.last_sr - sample_rate).abs() < 0.01 {
             return;
         }
         self.dirty = false;

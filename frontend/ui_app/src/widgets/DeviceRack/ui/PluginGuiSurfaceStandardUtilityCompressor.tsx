@@ -108,7 +108,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                     <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1f2a36)', position: 'relative' }}>
                                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-hex-7ab6ff)' }} />
                                     </div>
-                                    <svg viewBox="0 0 220 26" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                                    <svg viewBox="0 0 220 26" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
                                         <rect x="0" y="0" width="220" height="26" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
                                         <line x1="110" y1="4" x2="110" y2="22" stroke="var(--token-color-rgba-122-182-255-0d55)" strokeWidth="1.3" />
                                         <path d="M 24 14 Q 64 6, 102 14" fill="none" stroke="var(--token-color-rgba-122-182-255-0d65)" strokeWidth="1.8" strokeLinecap="round" />
@@ -122,7 +122,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-role-data)' }}>
                                         Utility profile
                                     </div>
-                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
                                         <rect x="0" y="0" width="220" height="28" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
                                         {isAutoShift ? (
                                             <>
@@ -143,7 +143,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c2cfdb)', lineHeight: 1.4 }}>
                                         External routing host. Use device params below for send/return balance and compensation.
                                     </div>
-                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
                                         <rect x="0" y="0" width="220" height="28" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
                                         <rect x="14" y="7" width="56" height="14" rx="3" fill="var(--token-color-rgba-122-182-255-0d28)" />
                                         <rect x="150" y="7" width="56" height="14" rx="3" fill="var(--token-color-rgba-122-182-255-0d28)" />
@@ -175,8 +175,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const ratioParam = readSurfaceParam(device, 'ratio', 4, ':1');
         const thr = thrParam.value;
         const ratio = ratioParam.value;
-        const _vuLevel = (device as any).vuLevel;
-        const rawGr = Number.isFinite(_vuLevel) ? Math.abs(_vuLevel) : 0;
+        const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel!) : 0;
         const pseudoGr = rawGr > 0 ? Math.max(0, Math.min(24, rawGr)) : Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
         const atkParam = readSurfaceParam(device, ['atk', 'attack'], 10, 'ms');
         const relParam = readSurfaceParam(device, ['rel', 'release'], 80, 'ms');
@@ -210,7 +209,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             </div>
                         </div>
                     ) : (
-                        <svg viewBox="0 0 280 86" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%' , willChange: 'transform', transform: 'translateZ(0)'}}>
+                        <svg viewBox="0 0 280 86" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
                             <rect x="0" y="0" width="280" height="86" fill="var(--token-color-rgba-22-24-30-0d65)" rx="4" />
                             {!isGlueCompressor && !isMultibandDynamics && (
                                 <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="3" strokeLinecap="round" />

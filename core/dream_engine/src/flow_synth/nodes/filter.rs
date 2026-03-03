@@ -84,7 +84,7 @@ impl FlowNode for FilterNode {
         // ENTERPRISE: Coefficient Cache logic. Only recompute tan() and coefficients 
         // if the incoming control signals moved, or if engine SR changed.
         // For static synth presets with no active LFO/Env on cutoff, this drops CPU usage by 95%
-        if (cutoff - self.last_cutoff).abs() > 0.001 || (resonance - self.last_resonance).abs() > 0.001 || sample_rate != self.last_sr {
+        if (cutoff - self.last_cutoff).abs() > 0.001 || (resonance - self.last_resonance).abs() > 0.001 || (sample_rate - self.last_sr).abs() > 0.01 {
             let inv_sr = 1.0 / sample_rate;
             self.g = (std::f64::consts::PI * cutoff * inv_sr).tan() as f32;
             self.k = (2.0 * (1.0 - resonance)) as f32;

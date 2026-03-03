@@ -301,7 +301,7 @@ impl DspProcessor for EqProcessor {
         if band_idx >= NUM_BANDS {
             return;
         }
-        let sr = self.sample_rate;
+
         let band = &mut self.bands[band_idx];
 
         match param_idx {

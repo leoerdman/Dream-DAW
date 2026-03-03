@@ -1,11 +1,10 @@
 import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
-    buildSurfaceKnobParams,
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGrid,
+    KnobParamGridMemo,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -18,9 +17,7 @@ import {
 import { renderModSpatialSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardModSpatial';
 
 function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -0.3, 'dB');
     const ceilParam = readSurfaceParam(device, 'ceil', -0.1, 'dB');
     const thr = thrParam.value;
@@ -33,7 +30,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-limiter)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a4d9d3)' }}>Lookahead Limiter</div>
-                    <svg viewBox="0 0 280 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 28 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                    <svg viewBox="0 0 280 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 28, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="28" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1={14 + (1 + thr / 60) * 240} y1="2" x2={14 + (1 + thr / 60) * 240} y2="26" stroke="var(--token-color-hex-f0a66e)" strokeWidth="1.5" strokeDasharray="3,2" />
                         <line x1={14 + (1 + ceil / 60) * 240} y1="2" x2={14 + (1 + ceil / 60) * 240} y2="26" stroke="var(--token-color-hex-ff6b6b)" strokeWidth="1.5" />
@@ -52,13 +49,12 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-56d4c8)" show={showDryWet} />
             </div>
-            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
 
 function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
     const rangeParam = readSurfaceParam(device, 'range', -80, 'dB');
@@ -70,7 +66,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-gate)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8dfad)' }}>Noise Gate</div>
-                    <svg viewBox="0 0 280 48" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                    <svg viewBox="0 0 280 48" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="48" rx="4" fill="var(--token-color-rgba-8-14-8-0d65)" />
                         {Array.from({ length: 14 }).map((_, i) => {
                             const x = 10 + i * 19;
@@ -89,13 +85,12 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-8ec77c)" show={showDryWet} />
             </div>
-            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }
 
 function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const normalizedInternalId = getDevicePluginKey(device);
     const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Auto Filter';
@@ -110,7 +105,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-4cc9d8)' }}>{title}</div>
-                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48 , willChange: 'transform', transform: 'translateZ(0)'}}>
+                    <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {isVocoder ? (
                             <>
@@ -137,7 +132,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-4cc9d8)" show={showDryWet} />
             </div>
-            <KnobParamGrid device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
         </div>
     );
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
+import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { portNameToIndex, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType } from './portRegistry';
 import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
 
@@ -130,6 +131,11 @@ function stableNodeNumericId(nodeId: string): number {
     return (hash || 1) >>> 0;
 }
 
+// ENTERPRISE SSOT: Module-level ID map populated by syncFlowGraphToEngine.
+// This is the SINGLE source of truth for string→numeric node ID mapping.
+// updateNodeData reads from this map to ensure collision-resolved IDs match.
+const _nodeIdMap = new Map<string, number>();
+
 function resolvePortIndex(nodeId: string, portId: string, side: 'in' | 'out', nodesState: SynthNode[]): number {
     const node = nodesState.find((n) => n.id === nodeId);
     if (!node) return 0;
@@ -199,14 +205,19 @@ function buildFlowConfigJson(state: FlowSynthState): string {
 // Separates the fast RT-safe parameter modulation from disk I/O serialization.
 let _saveTimeout: number | null = null;
 function _scheduleSaveConfig(get: () => FlowSynthState): void {
+    // ENTERPRISE FIX (#11): Capture activeTrackId NOW to prevent writing
+    // track A's data to track B if the user switches within the 1.5s debounce.
+    const capturedTrackId = get().activeTrackId;
     if (_saveTimeout !== null) {
         window.clearTimeout(_saveTimeout);
     }
     _saveTimeout = window.setTimeout(async () => {
         _saveTimeout = null;
+        if (!capturedTrackId) return;
         const state = get();
-        if (!state.activeTrackId) return;
-        const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(state.activeTrackId);
+        // Double-check: if user switched tracks, abort this stale save.
+        if (state.activeTrackId !== capturedTrackId) return;
+        const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
         if (trackIndex < 0) return;
         await engine.saveFlowSynthConfig(trackIndex, buildFlowConfigJson(state));
     }, 1500);
@@ -368,6 +379,9 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             (c) => c.fromNode !== id && c.toNode !== id,
         );
 
+        // ENTERPRISE FIX (#7): Clean up proxy position data to prevent memory leaks.
+        nodeMotionProxy.removeNode(id);
+
         // Trigger sync
         _scheduleSyncFlowGraph(get);
 
@@ -399,17 +413,13 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         if (activeTrackId) {
             const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(activeTrackId);
             if (trackIndex >= 0) {
-                // ENTERPRISE FIX: Use the exact same stableNodeNumericId function
-                // as syncFlowGraphToEngine to guarantee matching numeric IDs.
-                // Previously used a different DJB2-style hash which caused
-                // parameter updates to target wrong nodes.
-                const numericIdResult = stableNodeNumericId(id);
-
-                if (numericIdResult > 0) {
+                // ENTERPRISE SSOT: Read from the shared _nodeIdMap populated by syncFlowGraphToEngine.
+                // This guarantees collision-resolved IDs match between full sync and param updates.
+                const numericId = _nodeIdMap.get(id);
+                if (numericId !== undefined && numericId > 0) {
                     for (const [key, val] of Object.entries(patch)) {
                         if (val !== null && val !== undefined) {
-                            // Instant mutation over IPC
-                            engine.updateFlowNodeParam(trackIndex, numericIdResult, key, String(val)).catch((err: any) => {
+                            engine.updateFlowNodeParam(trackIndex, numericId, key, String(val)).catch((err: any) => {
                                 console.warn('[FlowSynth] Failed to update param:', err);
                             });
                         }
@@ -455,6 +465,9 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const nextConnections = state.connections.filter((conn) =>
             !selected.has(conn.fromNode) && !selected.has(conn.toNode),
         );
+
+        // ENTERPRISE FIX (#7): Clean up proxy position data for all deleted nodes.
+        selected.forEach((nodeId) => nodeMotionProxy.removeNode(nodeId));
 
         // Trigger sync
         _scheduleSyncFlowGraph(get);
@@ -713,6 +726,12 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             idMap.set(id, numeric);
             return numeric;
         };
+
+        // ENTERPRISE SSOT: Populate the module-level shared map so that
+        // updateNodeData can reuse the exact collision-resolved IDs.
+        state.nodes.forEach((n) => mapNode(n.id));
+        _nodeIdMap.clear();
+        idMap.forEach((v, k) => _nodeIdMap.set(k, v));
 
         const encodeNodeParams = (data: Record<string, unknown> | undefined): [string, string][] => {
             if (!data) return [];

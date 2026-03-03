@@ -1603,6 +1603,35 @@ export class TimelineEngine {
                             this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
                         } else {
                             this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
+
+                            // ENTERPRISE FIX: Optimistic position update in pending clips.
+                            // The onClipMove callback triggers an async IPC round-trip.
+                            // Meanwhile, _pendingClips contains PRE-MOVE store data.
+                            // Without this fix, flushing _pendingClips would overwrite
+                            // drag positions with stale data, making clips vanish until
+                            // the async delta arrives. Apply the move delta to pending
+                            // clips so they reflect the new positions immediately.
+                            if (this._pendingClips) {
+                                const moveMap = new Map<string, { beat: number; track: number }>();
+                                moveMap.set(this._drag.clipId!, { beat: finalBeat, track: finalTrack });
+                                if (this._drag.coMoverOrigins) {
+                                    const dBeat = finalBeat - this._drag.clipOriginalBeat;
+                                    const dTrack = finalTrack - this._drag.clipOriginalTrack;
+                                    for (const [id, origin] of this._drag.coMoverOrigins) {
+                                        moveMap.set(id, {
+                                            beat: this._snapBeat(Math.max(0, origin.beat + dBeat)),
+                                            track: Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + dTrack)),
+                                        });
+                                    }
+                                }
+                                this._pendingClips = this._pendingClips.map((c) => {
+                                    const moved = moveMap.get(c.id);
+                                    if (moved) {
+                                        return { ...c, startBeat: moved.beat, trackIndex: moved.track };
+                                    }
+                                    return c;
+                                });
+                            }
                         }
                     }
                     // Always clear Cmd+Drag ghosts on commit

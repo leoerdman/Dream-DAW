@@ -108,30 +108,17 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const cursorBeat = (ctx.editCursorBeat ?? -1) >= 0 ? (ctx.editCursorBeat as number) : frameToBeat(playheadFrames, bpm, sampleRate);
         const firstBeat = clipboardRef.current[0].startBeat;
 
-        // ENTERPRISE FIX: Calculate the end of the last clipboard clip.
-        // Used for smart paste when cursor is at the same position as source.
-        let lastClipEndBeat = 0;
-        for (const c of clipboardRef.current) {
-            const end = c.startBeat + c.durationBeats;
-            if (end > lastClipEndBeat) lastClipEndBeat = end;
-        }
-        const clipboardDurationBeats = lastClipEndBeat - firstBeat;
 
         let minRelative = Infinity;
         for (const c of clipboardRef.current) minRelative = Math.min(minRelative, c.startBeat - firstBeat);
         const groupOffset = Math.max(0, cursorBeat + minRelative) - (cursorBeat + minRelative);
 
-        // ENTERPRISE FIX: Detect same-position paste — if the paste cursor
-        // equals the clipboard's original start position, the duplicate would
-        // land exactly on top of the original clip. Overlap resolution would
-        // then trim/delete the original, making it look like paste did nothing.
-        // In this case, shift paste position to right after the clipboard clips
-        // (Ableton/Logic-style smart paste behavior).
-        let effectiveCursorBeat = cursorBeat;
-        const pasteAtExactOriginal = Math.abs(effectiveCursorBeat - firstBeat) < 1e-6;
-        if (pasteAtExactOriginal && clipboardDurationBeats > 0) {
-            effectiveCursorBeat = lastClipEndBeat;
-        }
+        // ENTERPRISE FIX: Always paste at cursor position (or playhead if no cursor).
+        // Previous "smart paste" logic detected when paste position coincided with
+        // source clips and shifted paste to after the source. This caused paste to
+        // always land after the original regardless of cursor position — removing.
+        // Standard DAW behavior: paste at cursor; overlapping duplicates are expected.
+        const effectiveCursorBeat = cursorBeat;
 
         const anchorTrackIndex = clipboardRef.current[0].trackIndex;
         const selectedTrackIdx = selectedTrackIndex;

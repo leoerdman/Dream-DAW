@@ -235,23 +235,23 @@ export const BuiltinEffectType: {
     FilterDelay: 34,
 };
 export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
-    invoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });
+    safeInvoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });
 export const removeDevice = (trackIndex: number, slotIndex: number) =>
-    invoke<void>('remove_device_cmd', { trackIndex, slotIndex });
+    safeInvoke<void>('remove_device_cmd', { trackIndex, slotIndex });
 export const bypassDevice = (trackIndex: number, slotIndex: number, bypassed: boolean) =>
-    invoke<void>('bypass_device_cmd', { trackIndex, slotIndex, bypassed });
+    safeInvoke<void>('bypass_device_cmd', { trackIndex, slotIndex, bypassed });
 export const setSlotBypass = (trackId: string, slotId: string, bypassed: boolean) =>
-    invoke<void>('set_slot_bypass_cmd', { trackId, slotId, bypassed });
+    safeInvoke<void>('set_slot_bypass_cmd', { trackId, slotId, bypassed });
 export const setSlotBypassWithDeltas = (trackId: string, slotId: string, bypassed: boolean) =>
-    invoke<DeltaMutationResponse>('set_slot_bypass_with_deltas_cmd', { trackId, slotId, bypassed });
+    safeInvoke<DeltaMutationResponse>('set_slot_bypass_with_deltas_cmd', { trackId, slotId, bypassed });
 export const moveEffectSlot = (trackId: string, slotId: string, targetIndex: number) =>
-    invoke<void>('move_effect_slot_cmd', { trackId, slotId, targetIndex });
+    safeInvoke<void>('move_effect_slot_cmd', { trackId, slotId, targetIndex });
 export const moveEffectSlotWithDeltas = (trackId: string, slotId: string, targetIndex: number) =>
-    invoke<DeltaMutationResponse>('move_effect_slot_with_deltas_cmd', { trackId, slotId, targetIndex });
+    safeInvoke<DeltaMutationResponse>('move_effect_slot_with_deltas_cmd', { trackId, slotId, targetIndex });
 export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
-    invoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });
+    safeInvoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });
 export const setDeviceParamRuntime = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
-    invoke<void>('set_device_param_runtime_cmd', { trackIndex, slotIndex, paramIndex, value });
+    safeInvoke<void>('set_device_param_runtime_cmd', { trackIndex, slotIndex, paramIndex, value });
 export type RuntimeDeviceParamUpdate = {
     paramIndex: number;
     value: number;
@@ -260,18 +260,18 @@ export const setDeviceParamsRuntime = (
     trackIndex: number,
     slotIndex: number,
     updates: RuntimeDeviceParamUpdate[],
-) => invoke<void>('set_device_params_runtime_cmd', { trackIndex, slotIndex, updates });
+) => safeInvoke<void>('set_device_params_runtime_cmd', { trackIndex, slotIndex, updates });
 export const updateTrack = (update: TrackStateUpdate) =>
-    invoke<void>('update_track', { update });
+    safeInvoke<void>('update_track', { update });
 export const addTrack = (name?: string, inheritFromTrackId?: string | null) =>
-    invoke<void>('add_track_cmd', {
+    safeInvoke<void>('add_track_cmd', {
         name: name ?? null,
         trackType: 'audio',
         insertAfterIndex: null,
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
 export const addTrackWithDeltas = (name?: string, inheritFromTrackId?: string | null) =>
-    invoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
         name: name ?? null,
         trackType: 'audio',
         insertAfterIndex: null,
@@ -284,7 +284,7 @@ export const addTrackAdvanced = (
     name?: string,
     inheritFromTrackId?: string | null,
 ) =>
-    invoke<void>('add_track_cmd', {
+    safeInvoke<void>('add_track_cmd', {
         name: name ?? null,
         trackType,
         insertAfterIndex: insertAfterIndex ?? null,
@@ -296,32 +296,32 @@ export const addTrackWithDeltasAdvanced = (
     name?: string,
     inheritFromTrackId?: string | null,
 ) =>
-    invoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
         name: name ?? null,
         trackType,
         insertAfterIndex: insertAfterIndex ?? null,
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
 export const deleteTrack = (trackIndex: number) =>
-    invoke<void>('delete_track_cmd', { index: trackIndex });
+    safeInvoke<void>('delete_track_cmd', { index: trackIndex });
 export const deleteTrackWithDeltas = (trackIndex: number) =>
-    invoke<DeltaMutationResponse>('delete_track_with_deltas_cmd', { index: trackIndex });
+    safeInvoke<DeltaMutationResponse>('delete_track_with_deltas_cmd', { index: trackIndex });
 export const deleteTracks = (trackIds: string[]) =>
-    invoke<void>('delete_tracks_cmd', { trackIds });
+    safeInvoke<void>('delete_tracks_cmd', { trackIds });
 export const renameTrack = (index: number, name: string) =>
-    invoke<void>('rename_track_cmd', { index, name });
+    safeInvoke<void>('rename_track_cmd', { index, name });
 export const renameTrackWithDeltas = (index: number, name: string) =>
-    invoke<DeltaMutationResponse>('rename_track_with_deltas_cmd', { index, name });
+    safeInvoke<DeltaMutationResponse>('rename_track_with_deltas_cmd', { index, name });
 export const setTrackHeight = (trackId: string, height: number) =>
-    invoke<void>('set_track_height_cmd', { trackId, height });
+    safeInvoke<void>('set_track_height_cmd', { trackId, height });
 export const setTrackHeightWithDeltas = (trackId: string, height: number) =>
-    invoke<DeltaMutationResponse>('set_track_height_with_deltas_cmd', { trackId, height });
+    safeInvoke<DeltaMutationResponse>('set_track_height_with_deltas_cmd', { trackId, height });
 export const setTrackColor = (trackId: string, colorHex: string) =>
-    invoke<void>('set_track_color_cmd', { trackId, colorHex });
+    safeInvoke<void>('set_track_color_cmd', { trackId, colorHex });
 export const setTrackColorWithDeltas = (trackId: string, colorHex: string) =>
-    invoke<DeltaMutationResponse>('set_track_color_with_deltas_cmd', { trackId, colorHex });
+    safeInvoke<DeltaMutationResponse>('set_track_color_with_deltas_cmd', { trackId, colorHex });
 export const createGroup = (trackIds: string[], groupName?: string) =>
-    invoke<string>('create_group_cmd', {
+    safeInvoke<string>('create_group_cmd', {
         trackIds,
         groupName: groupName ?? null,
     });
@@ -330,24 +330,24 @@ export interface CreateGroupWithDeltasResponse {
     deltas: ProjectDelta[];
 }
 export const createGroupWithDeltas = (trackIds: string[], groupName?: string) =>
-    invoke<CreateGroupWithDeltasResponse>('create_group_with_deltas_cmd', {
+    safeInvoke<CreateGroupWithDeltasResponse>('create_group_with_deltas_cmd', {
         trackIds,
         groupName: groupName ?? null,
     });
 export const setGroupExpanded = (groupId: string, expanded: boolean) =>
-    invoke<void>('set_group_expanded_cmd', { groupId, expanded });
+    safeInvoke<void>('set_group_expanded_cmd', { groupId, expanded });
 export const setGroupExpandedWithDeltas = (groupId: string, expanded: boolean) =>
-    invoke<DeltaMutationResponse>('set_group_expanded_with_deltas_cmd', { groupId, expanded });
+    safeInvoke<DeltaMutationResponse>('set_group_expanded_with_deltas_cmd', { groupId, expanded });
 export const moveTrackToIndex = (trackId: string, targetIndex: number) =>
-    invoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
+    safeInvoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
 export const moveTrackToIndexWithDeltas = (trackId: string, targetIndex: number) =>
-    invoke<DeltaMutationResponse>('move_track_to_index_with_deltas_cmd', { trackId, targetIndex });
+    safeInvoke<DeltaMutationResponse>('move_track_to_index_with_deltas_cmd', { trackId, targetIndex });
 export const moveTrackWithParent = (
     trackId: string,
     targetIndex: number,
     targetParentGroupId?: string | null,
 ) =>
-    invoke<void>('move_track_with_parent_cmd', {
+    safeInvoke<void>('move_track_with_parent_cmd', {
         trackId,
         targetIndex,
         targetParentGroupId: targetParentGroupId ?? null,
@@ -357,39 +357,39 @@ export const moveTrackWithParentWithDeltas = (
     targetIndex: number,
     targetParentGroupId?: string | null,
 ) =>
-    invoke<DeltaMutationResponse>('move_track_with_parent_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('move_track_with_parent_with_deltas_cmd', {
         trackId,
         targetIndex,
         targetParentGroupId: targetParentGroupId ?? null,
     });
 export const setTrackGroup = (trackId: string, groupId?: string | null) =>
-    invoke<void>('set_track_group_cmd', {
+    safeInvoke<void>('set_track_group_cmd', {
         trackId,
         groupId: groupId ?? null,
     });
 export const setTrackGroupWithDeltas = (trackId: string, groupId?: string | null) =>
-    invoke<DeltaMutationResponse>('set_track_group_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_track_group_with_deltas_cmd', {
         trackId,
         groupId: groupId ?? null,
     });
 export const ungroupTrack = (groupId: string) =>
-    invoke<void>('ungroup_track_cmd', { groupId });
+    safeInvoke<void>('ungroup_track_cmd', { groupId });
 export const ungroupTrackWithDeltas = (groupId: string) =>
-    invoke<DeltaMutationResponse>('ungroup_track_with_deltas_cmd', { groupId });
+    safeInvoke<DeltaMutationResponse>('ungroup_track_with_deltas_cmd', { groupId });
 export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
-    invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
+    safeInvoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
 export const moveTrackBlockToIndexWithDeltas = (rootTrackId: string, targetIndex: number) =>
-    invoke<DeltaMutationResponse>('move_track_block_to_index_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('move_track_block_to_index_with_deltas_cmd', {
         rootTrackId,
         targetIndex,
     });
 export const duplicateTracks = (trackIds: string[]) =>
-    invoke<void>('duplicate_tracks_cmd', { trackIds });
+    safeInvoke<void>('duplicate_tracks_cmd', { trackIds });
 export const duplicateTracksWithDeltas = (trackIds: string[]) =>
-    invoke<DeltaMutationResponse>('duplicate_tracks_with_deltas_cmd', { trackIds });
-export const getState = () => invoke<EngineState>('get_state');
-export const getTransport = () => invoke<TransportState>('get_transport');
-export const getMeters = () => invoke<MeteringSnapshot>('get_meters');
+    safeInvoke<DeltaMutationResponse>('duplicate_tracks_with_deltas_cmd', { trackIds });
+export const getState = () => safeInvoke<EngineState>('get_state');
+export const getTransport = () => safeInvoke<TransportState>('get_transport');
+export const getMeters = () => safeInvoke<MeteringSnapshot>('get_meters');
 type BinaryInvokePayload = ArrayBuffer | Uint8Array | number[];
 function toUint8Array(payload: BinaryInvokePayload): Uint8Array {
     if (payload instanceof Uint8Array) return payload;
@@ -397,23 +397,23 @@ function toUint8Array(payload: BinaryInvokePayload): Uint8Array {
     return new Uint8Array(payload);
 }
 export const getMetersBinary = async (): Promise<Uint8Array> => {
-    const raw = await invoke<BinaryInvokePayload>('get_meters_binary');
+    const raw = await safeInvoke<BinaryInvokePayload>('get_meters_binary');
     const bytes = toUint8Array(raw);
     return bytes;
 };
 export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number }) =>
-    invoke<ProjectHistoryEvent[]>('get_project_history', {
+    safeInvoke<ProjectHistoryEvent[]>('get_project_history', {
         limit: options?.limit,
         sinceSeq: options?.sinceSeq,
     });
 export const getPdcDebugSnapshot = () =>
-    invoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
+    safeInvoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
 export const getRtDebugSnapshot = () =>
-    invoke<RtDebugSnapshot>('get_rt_debug_snapshot');
+    safeInvoke<RtDebugSnapshot>('get_rt_debug_snapshot');
 export const setRtDebugEnabled = (enabled: boolean) =>
-    invoke<void>('set_rt_debug_enabled', { enabled });
+    safeInvoke<void>('set_rt_debug_enabled', { enabled });
 export const setFrequency = (freq: number) =>
-    invoke<void>('set_frequency', { freq });
+    safeInvoke<void>('set_frequency', { freq });
 export interface ImportAudioResponse {
     clip_id: string;
     clip_name: string;
@@ -426,13 +426,13 @@ export interface ImportAudioWithDeltasResponse extends ImportAudioResponse {
     deltas: ProjectDelta[];
 }
 export const importAudioFile = (path: string, trackIndex: number, positionFrames?: number) =>
-    invoke<ImportAudioResponse>('import_audio_file', {
+    safeInvoke<ImportAudioResponse>('import_audio_file', {
         path,
         trackIndex,
         positionFrames: positionFrames ?? null,
     });
 export const importAudioFileWithDeltas = (path: string, trackIndex: number, positionFrames?: number) =>
-    invoke<ImportAudioWithDeltasResponse>('import_audio_file_with_deltas', {
+    safeInvoke<ImportAudioWithDeltasResponse>('import_audio_file_with_deltas', {
         path,
         trackIndex,
         positionFrames: positionFrames ?? null,
@@ -480,7 +480,7 @@ export const createMidiClip = (
     durationFrames: number,
     name?: string,
 ) =>
-    invoke<CreateMidiClipResponse>('create_midi_clip_cmd', {
+    safeInvoke<CreateMidiClipResponse>('create_midi_clip_cmd', {
         trackIndex,
         positionFrames,
         durationFrames,
@@ -492,7 +492,7 @@ export const createMidiClipWithDeltas = (
     durationFrames: number,
     name?: string,
 ) =>
-    invoke<CreateMidiClipWithDeltasResponse>('create_midi_clip_with_deltas_cmd', {
+    safeInvoke<CreateMidiClipWithDeltasResponse>('create_midi_clip_with_deltas_cmd', {
         trackIndex,
         positionFrames,
         durationFrames,
@@ -503,7 +503,7 @@ export const updateMidiClip = (
     notes: MidiClipNoteUpdate[],
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<void>('update_midi_clip_cmd', {
+    safeInvoke<void>('update_midi_clip_cmd', {
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         notes: notes.map((n) => ({
@@ -520,7 +520,7 @@ export const updateMidiClipWithDeltas = (
     notes: MidiClipNoteUpdate[],
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<DeltaMutationResponse>('update_midi_clip_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('update_midi_clip_with_deltas_cmd', {
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         notes: notes.map((n) => ({
@@ -545,7 +545,7 @@ export const setMidiClipEnvelopes = (
     envelopes: MidiClipEnvelopeUpdate[],
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<void>('set_midi_clip_envelopes_cmd', {
+    safeInvoke<void>('set_midi_clip_envelopes_cmd', {
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         envelopes: envelopes.map((env) => ({
@@ -557,37 +557,37 @@ export const setMidiClipEnvelopes = (
         })),
     });
 export const generateMidiVariation = (input: GenerateMidiVariationInput) =>
-    invoke<{ notes: MidiVariationNote[] }>('generate_midi_variation_cmd', { request: input })
+    safeInvoke<{ notes: MidiVariationNote[] }>('generate_midi_variation_cmd', { request: input })
         .then((res) => res.notes);
 export const getMidiInputs = () =>
-    invoke<MidiInputPort[]>('get_midi_inputs');
+    safeInvoke<MidiInputPort[]>('get_midi_inputs');
 export const connectMidiInput = (portName: string) =>
-    invoke<void>('connect_midi_input', { portName });
+    safeInvoke<void>('connect_midi_input', { portName });
 export const generateDemoSamples = () =>
-    invoke<number>('generate_demo_samples_cmd');
+    safeInvoke<number>('generate_demo_samples_cmd');
 export const previewAudioFile = (path: string) =>
-    invoke<void>('preview_audio_file_cmd', { path });
+    safeInvoke<void>('preview_audio_file_cmd', { path });
 export const stopPreview = () =>
-    invoke<void>('stop_preview_cmd');
+    safeInvoke<void>('stop_preview_cmd');
 export const getAudioFileDuration = (path: string) =>
-    invoke<number>('get_audio_file_duration', { path });
-export const closeSplashscreen = () => invoke<void>('close_splashscreen');
-export const getActiveProjectId = () => invoke<string>('get_active_project_id');
-export const newProject = () => invoke<DeltaMutationResponse>('new_project');
-export const saveProject = () => invoke<string>('save_project');
+    safeInvoke<number>('get_audio_file_duration', { path });
+export const closeSplashscreen = () => safeInvoke<void>('close_splashscreen');
+export const getActiveProjectId = () => safeInvoke<string>('get_active_project_id');
+export const newProject = () => safeInvoke<DeltaMutationResponse>('new_project');
+export const saveProject = () => safeInvoke<string>('save_project');
 export const saveProjectAs = (path: string) =>
-    invoke<string>('save_project_as', { path });
+    safeInvoke<string>('save_project_as', { path });
 export const openProject = (path: string) =>
-    invoke<DeltaMutationResponse>('open_project', { path });
+    safeInvoke<DeltaMutationResponse>('open_project', { path });
 export const importAbletonProject = (path: string) =>
-    invoke<DeltaMutationResponse>('import_ableton_project', { path });
+    safeInvoke<DeltaMutationResponse>('import_ableton_project', { path });
 export const eagerActivateExternalPlugins = () =>
-    invoke<{ total: number; loaded: number; failed: number; skipped: number }>(
+    safeInvoke<{ total: number; loaded: number; failed: number; skipped: number }>(
         'eager_activate_external_plugins',
     );
 export const getRecentProjects = () =>
-    invoke<RecentProject[]>('get_recent_projects');
-export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
+    safeInvoke<RecentProject[]>('get_recent_projects');
+export const getProjectStatus = () => safeInvoke<ProjectStatus>('get_project_status');
 
 // ── Multi-Project Tab Management ──
 export interface ProjectTabInfo {
@@ -607,47 +607,47 @@ export interface CloseProjectTabResponse {
     deltas?: ProjectDelta[];
 }
 export const createProjectTab = () =>
-    invoke<CreateProjectTabResponse>('create_project_tab');
+    safeInvoke<CreateProjectTabResponse>('create_project_tab');
 export const switchProjectTab = (id: string) =>
-    invoke<DeltaMutationResponse>('switch_project_tab', { id });
+    safeInvoke<DeltaMutationResponse>('switch_project_tab', { id });
 export const closeProjectTab = (id: string) =>
-    invoke<CloseProjectTabResponse>('close_project_tab', { id });
+    safeInvoke<CloseProjectTabResponse>('close_project_tab', { id });
 export const listOpenProjects = () =>
-    invoke<ProjectTabInfo[]>('list_open_projects');
+    safeInvoke<ProjectTabInfo[]>('list_open_projects');
 
 // ── Cross-Project Global Clipboard ──
 export const copyClipsToGlobalClipboard = (clipIds: string[]) =>
-    invoke<number>('copy_clips_to_global_clipboard', { clipIds });
+    safeInvoke<number>('copy_clips_to_global_clipboard', { clipIds });
 export const pasteClipsFromGlobalClipboard = (trackIndex: number, positionFrames: number) =>
-    invoke<DeltaMutationResponse>('paste_clips_from_global_clipboard', { trackIndex, positionFrames });
+    safeInvoke<DeltaMutationResponse>('paste_clips_from_global_clipboard', { trackIndex, positionFrames });
 export const copyTrackToGlobalClipboard = (trackIndex: number) =>
-    invoke<string>('copy_track_to_global_clipboard', { trackIndex });
+    safeInvoke<string>('copy_track_to_global_clipboard', { trackIndex });
 export const pasteTrackFromGlobalClipboard = (insertIndex?: number) =>
-    invoke<DeltaMutationResponse>('paste_track_from_global_clipboard', { insertIndex: insertIndex ?? null });
+    safeInvoke<DeltaMutationResponse>('paste_track_from_global_clipboard', { insertIndex: insertIndex ?? null });
 export interface ArrangementViewportState {
     pixels_per_beat: number | null;
     scroll_left: number | null;
     scroll_top?: number | null;
 }
 export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number, scrollTop?: number) =>
-    invoke<void>('set_arrangement_viewport_cmd', {
+    safeInvoke<void>('set_arrangement_viewport_cmd', {
         pixelsPerBeat,
         scrollLeft,
         scrollTop,
     });
 export const getArrangementViewport = () =>
-    invoke<ArrangementViewportState>('get_arrangement_viewport_cmd');
-export const createBackup = () => invoke<string>('create_backup_cmd');
+    safeInvoke<ArrangementViewportState>('get_arrangement_viewport_cmd');
+export const createBackup = () => safeInvoke<string>('create_backup_cmd');
 export interface AutoSaveResult {
     saved: boolean;
     reason?: string;
     path?: string;
 }
-export const autoSaveIfDirty = () => invoke<AutoSaveResult>('auto_save_if_dirty');
-export const markDirty = () => invoke<void>('mark_dirty_cmd');
-export const syncTitle = () => invoke<void>('sync_title_cmd');
-export const getProjectNotes = () => invoke<string>('get_project_notes');
-export const setProjectNotes = (text: string) => invoke<void>('set_project_notes', { text });
+export const autoSaveIfDirty = () => safeInvoke<AutoSaveResult>('auto_save_if_dirty');
+export const markDirty = () => safeInvoke<void>('mark_dirty_cmd');
+export const syncTitle = () => safeInvoke<void>('sync_title_cmd');
+export const getProjectNotes = () => safeInvoke<string>('get_project_notes');
+export const setProjectNotes = (text: string) => safeInvoke<void>('set_project_notes', { text });
 export const setArrangementGrid = (
     numerator: number,
     denominator: number,
@@ -655,7 +655,7 @@ export const setArrangementGrid = (
     snapToGrid: boolean,
     fixed: boolean,
 ) =>
-    invoke<void>('set_arrangement_grid_cmd', {
+    safeInvoke<void>('set_arrangement_grid_cmd', {
         numerator,
         denominator,
         ntoles,
@@ -669,7 +669,7 @@ export const setArrangementGridWithDeltas = (
     snapToGrid: boolean,
     fixed: boolean,
 ) =>
-    invoke<DeltaMutationResponse>('set_arrangement_grid_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_arrangement_grid_with_deltas_cmd', {
         numerator,
         denominator,
         ntoles,
@@ -677,12 +677,12 @@ export const setArrangementGridWithDeltas = (
         fixed,
     });
 export const setKeySignature = (enabled: boolean, tonic: string, mode: string) =>
-    invoke<void>('set_key_signature_cmd', { enabled, tonic, mode });
+    safeInvoke<void>('set_key_signature_cmd', { enabled, tonic, mode });
 export const setKeySignatureWithDeltas = (enabled: boolean, tonic: string, mode: string) =>
-    invoke<DeltaMutationResponse>('set_key_signature_with_deltas_cmd', { enabled, tonic, mode });
-export const getSettings = () => invoke<AppSettings>('get_settings');
+    safeInvoke<DeltaMutationResponse>('set_key_signature_with_deltas_cmd', { enabled, tonic, mode });
+export const getSettings = () => safeInvoke<AppSettings>('get_settings');
 export const updateSettings = (newSettings: AppSettings) =>
-    invoke<void>('update_settings', { newSettings });
+    safeInvoke<void>('update_settings', { newSettings });
 export interface AudioFileEntry {
     name: string;
     path: string;
@@ -692,9 +692,9 @@ export interface AudioFileEntry {
     duration_seconds?: number | null;
 }
 export const scanAudioFolder = (path: string) =>
-    invoke<AudioFileEntry[]>('scan_audio_folder', { path });
+    safeInvoke<AudioFileEntry[]>('scan_audio_folder', { path });
 export const scanAllAudioSources = () =>
-    invoke<AudioFileEntry[]>('scan_all_audio_sources');
+    safeInvoke<AudioFileEntry[]>('scan_all_audio_sources');
 export interface BrowserFileEntry {
     name: string;
     path: string;
@@ -706,23 +706,23 @@ export interface BrowserFileEntry {
     duration_seconds?: number | null;
 }
 export const scanFolderAll = (path: string) =>
-    invoke<BrowserFileEntry[]>('scan_folder_all', { path });
+    safeInvoke<BrowserFileEntry[]>('scan_folder_all', { path });
 export const scanPluginFolders = () =>
-    invoke<BrowserFileEntry[]>('scan_plugin_folders');
+    safeInvoke<BrowserFileEntry[]>('scan_plugin_folders');
 export const getBrowserFolders = () =>
-    invoke<string[]>('get_browser_folders');
+    safeInvoke<string[]>('get_browser_folders');
 export const addBrowserFolder = () =>
-    invoke<string[]>('add_browser_folder');
+    safeInvoke<string[]>('add_browser_folder');
 export const removeBrowserFolder = (path: string) =>
-    invoke<string[]>('remove_browser_folder', { path });
+    safeInvoke<string[]>('remove_browser_folder', { path });
 export const getSamplesPath = () =>
-    invoke<string>('get_samples_path');
+    safeInvoke<string>('get_samples_path');
 export const pickFolder = () =>
-    invoke<string | null>('pick_folder');
+    safeInvoke<string | null>('pick_folder');
 export const pickProjectFile = () =>
-    invoke<string | null>('pick_project_file');
+    safeInvoke<string | null>('pick_project_file');
 export const saveProjectDialog = () =>
-    invoke<string | null>('save_project_dialog');
+    safeInvoke<string | null>('save_project_dialog');
 export interface PeakPair {
     min: number;
     max: number;
@@ -738,7 +738,7 @@ export interface WaveformPeaks {
     mip_levels: PeakMipLevel[];
 }
 export const getWaveformPeaks = (filePath: string) =>
-    invoke<WaveformPeaks>('get_waveform_peaks', { filePath });
+    safeInvoke<WaveformPeaks>('get_waveform_peaks', { filePath });
 interface WaveformPeaksBinaryResponse {
     source_id: string;
     sample_rate: number;
@@ -751,7 +751,7 @@ interface WaveformPeaksBinaryResponse {
     peaks_bytes: number[];
 }
 export async function getWaveformPeaksBinary(filePath: string): Promise<WaveformPeaks> {
-    const raw = await invoke<WaveformPeaksBinaryResponse>(
+    const raw = await safeInvoke<WaveformPeaksBinaryResponse>(
         'get_waveform_peaks_binary',
         { filePath },
     );
@@ -783,47 +783,47 @@ export async function getWaveformPeaksBinary(filePath: string): Promise<Waveform
     };
 }
 export async function getWaveformPeaksLodBinary(filePath: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<BinaryInvokePayload>('get_waveform_peaks_lod_binary', {
+    const raw = await safeInvoke<BinaryInvokePayload>('get_waveform_peaks_lod_binary', {
         filePath,
         lodLevel,
     });
     return toUint8Array(raw);
 }
 export async function getPeaksByClipId(clipId: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<BinaryInvokePayload>('get_peaks_by_clip_id', {
+    const raw = await safeInvoke<BinaryInvokePayload>('get_peaks_by_clip_id', {
         clipId,
         lodLevel,
     });
     return toUint8Array(raw);
 }
 export async function getPeaks(clipId: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<BinaryInvokePayload>('get_peaks_binary', { clipId, lodLevel });
+    const raw = await safeInvoke<BinaryInvokePayload>('get_peaks_binary', { clipId, lodLevel });
     return toUint8Array(raw);
 }
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
-    invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
+    safeInvoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
 export const moveClipWithDeltas = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
-    invoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
+    safeInvoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
 
 export const moveMultipleClipsWithDeltas = (
     requests: Array<{ id: string; newTrackIndex: number; newPositionFrames: number }>
-) => invoke<DeltaMutationResponse>('move_multiple_clips_with_deltas_cmd', { requests });
+) => safeInvoke<DeltaMutationResponse>('move_multiple_clips_with_deltas_cmd', { requests });
 export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
-    invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
+    safeInvoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
 export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
-    invoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
+    safeInvoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
 export const splitClip = (clipId: string, splitFrame: number) =>
-    invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
+    safeInvoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
 export const splitClipWithDeltas = (clipId: string, splitFrame: number) =>
-    invoke<SplitClipWithDeltasResponse>('split_clip_with_deltas_cmd', { clipId, splitFrame });
+    safeInvoke<SplitClipWithDeltasResponse>('split_clip_with_deltas_cmd', { clipId, splitFrame });
 export const duplicateClip = (clipId: string, newPositionFrames?: number, targetTrackIndex?: number) =>
-    invoke<DuplicateClipResponse>('duplicate_clip_cmd', {
+    safeInvoke<DuplicateClipResponse>('duplicate_clip_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
         targetTrackIndex: targetTrackIndex ?? null,
     });
 export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: number, targetTrackIndex?: number) =>
-    invoke<DuplicateClipWithDeltasResponse>('duplicate_clip_with_deltas_cmd', {
+    safeInvoke<DuplicateClipWithDeltasResponse>('duplicate_clip_with_deltas_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
         targetTrackIndex: targetTrackIndex ?? null,
@@ -831,41 +831,41 @@ export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: numb
 
 export const duplicateMultipleClipsWithDeltas = (
     requests: Array<{ id: string; newPositionFrames?: number; targetTrackIndex?: number }>
-) => invoke<DuplicateClipWithDeltasResponse>('duplicate_multiple_clips_with_deltas_cmd', { requests });
+) => safeInvoke<DuplicateClipWithDeltasResponse>('duplicate_multiple_clips_with_deltas_cmd', { requests });
 export const mergeClips = (clipIds: string[]) =>
-    invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
+    safeInvoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
 export const mergeClipsWithDeltas = (clipIds: string[]) =>
-    invoke<MergeClipsWithDeltasResponse>('merge_clips_with_deltas_cmd', { clipIds });
+    safeInvoke<MergeClipsWithDeltasResponse>('merge_clips_with_deltas_cmd', { clipIds });
 export const deleteClip = (clipId: string) =>
-    invoke<void>('delete_clip_cmd', { clipId });
+    safeInvoke<void>('delete_clip_cmd', { clipId });
 export const deleteClipWithDeltas = (clipId: string) =>
-    invoke<DeltaMutationResponse>('delete_clip_with_deltas_cmd', { clipId });
+    safeInvoke<DeltaMutationResponse>('delete_clip_with_deltas_cmd', { clipId });
 export const setClipMuted = (clipId: string, muted: boolean) =>
-    invoke<void>('set_clip_muted_cmd', { clipId, muted });
+    safeInvoke<void>('set_clip_muted_cmd', { clipId, muted });
 export const setClipMutedWithDeltas = (clipId: string, muted: boolean) =>
-    invoke<DeltaMutationResponse>('set_clip_muted_with_deltas_cmd', { clipId, muted });
+    safeInvoke<DeltaMutationResponse>('set_clip_muted_with_deltas_cmd', { clipId, muted });
 export const setClipsMuted = (clipIds: string[], muted: boolean) =>
-    invoke<number>('set_clips_muted_cmd', { clipIds, muted });
+    safeInvoke<number>('set_clips_muted_cmd', { clipIds, muted });
 export const setClipsMutedWithDeltas = (clipIds: string[], muted: boolean) =>
-    invoke<DeltaMutationResponse>('set_clips_muted_with_deltas_cmd', { clipIds, muted });
+    safeInvoke<DeltaMutationResponse>('set_clips_muted_with_deltas_cmd', { clipIds, muted });
 export const paintTrackClipsWithTrackColor = (trackId: string) =>
-    invoke<void>('paint_track_clips_with_track_color_cmd', { trackId });
+    safeInvoke<void>('paint_track_clips_with_track_color_cmd', { trackId });
 export const paintTrackClipsWithTrackColorWithDeltas = (trackId: string) =>
-    invoke<DeltaMutationResponse>('paint_track_clips_with_track_color_with_deltas_cmd', { trackId });
+    safeInvoke<DeltaMutationResponse>('paint_track_clips_with_track_color_with_deltas_cmd', { trackId });
 export interface AudioDevices {
     outputs: string[];
     inputs: string[];
 }
 export const getAudioDevices = () =>
-    invoke<AudioDevices>('get_audio_devices');
+    safeInvoke<AudioDevices>('get_audio_devices');
 export const setAudioDevice = (deviceName: string) =>
-    invoke<string>('set_audio_device', { deviceName });
+    safeInvoke<string>('set_audio_device', { deviceName });
 export const restartAudioEngine = (deviceName: string) =>
-    invoke<string>('restart_audio_engine', { deviceName });
+    safeInvoke<string>('restart_audio_engine', { deviceName });
 export const openPluginWindow = (pluginId: string) =>
-    invoke<void>('open_plugin_window', { pluginId });
+    safeInvoke<void>('open_plugin_window', { pluginId });
 export const openPluginWindowForSlot = (trackId: string, slotId: string) =>
-    invoke<void>('open_plugin_window_for_slot', { trackId, slotId });
+    safeInvoke<void>('open_plugin_window_for_slot', { trackId, slotId });
 export interface PluginEditorCapability {
     supported: boolean;
     reason?: string | null;
@@ -879,22 +879,22 @@ export interface PluginSlotRuntimeStatus {
     message?: string | null;
 }
 export const canOpenPluginEditor = (pluginId: string) =>
-    invoke<PluginEditorCapability>('can_open_plugin_editor', { pluginId });
+    safeInvoke<PluginEditorCapability>('can_open_plugin_editor', { pluginId });
 export const canOpenPluginEditorForSlot = (trackId: string, slotId: string) =>
-    invoke<PluginEditorCapability>('can_open_plugin_editor_for_slot', { trackId, slotId });
+    safeInvoke<PluginEditorCapability>('can_open_plugin_editor_for_slot', { trackId, slotId });
 export const getPluginSlotRuntimeStatus = (trackId: string, slotId: string) =>
-    invoke<PluginSlotRuntimeStatus>('get_plugin_slot_runtime_status_cmd', { trackId, slotId });
+    safeInvoke<PluginSlotRuntimeStatus>('get_plugin_slot_runtime_status_cmd', { trackId, slotId });
 export const ensurePluginSlotActive = (trackId: string, slotId: string) =>
-    invoke<void>('ensure_plugin_slot_active_cmd', { trackId, slotId });
+    safeInvoke<void>('ensure_plugin_slot_active_cmd', { trackId, slotId });
 export const unloadPluginSlot = (trackId: string, slotId: string) =>
-    invoke<void>('unload_plugin_slot_cmd', { trackId, slotId });
+    safeInvoke<void>('unload_plugin_slot_cmd', { trackId, slotId });
 export const replaceMissingPluginSlot = (
     trackId: string,
     slotId: string,
     replacementPluginId: string,
     replacementPluginName?: string,
 ) =>
-    invoke<void>('replace_missing_plugin_slot_cmd', {
+    safeInvoke<void>('replace_missing_plugin_slot_cmd', {
         payload: {
             trackId,
             slotId,
@@ -908,7 +908,7 @@ export const replaceMissingPluginSlotWithDeltas = (
     replacementPluginId: string,
     replacementPluginName?: string,
 ) =>
-    invoke<DeltaMutationResponse>('replace_missing_plugin_slot_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('replace_missing_plugin_slot_with_deltas_cmd', {
         payload: {
             trackId,
             slotId,
@@ -917,7 +917,7 @@ export const replaceMissingPluginSlotWithDeltas = (
         },
     });
 export const autoResolveMissingPluginsWithDeltas = () =>
-    invoke<DeltaMutationResponse>('auto_resolve_missing_plugins_with_deltas_cmd');
+    safeInvoke<DeltaMutationResponse>('auto_resolve_missing_plugins_with_deltas_cmd');
 
 export interface AutoResolveMissingPluginsReport {
     deltas: ProjectDelta[];
@@ -929,11 +929,11 @@ export interface AutoResolveMissingPluginsReport {
 }
 
 export const autoResolveMissingPluginsReportWithDeltas = () =>
-    invoke<AutoResolveMissingPluginsReport>('auto_resolve_missing_plugins_report_with_deltas_cmd');
+    safeInvoke<AutoResolveMissingPluginsReport>('auto_resolve_missing_plugins_report_with_deltas_cmd');
 export const closePluginWindow = (pluginId: string) =>
-    invoke<void>('close_plugin_window_cmd', { pluginId });
+    safeInvoke<void>('close_plugin_window_cmd', { pluginId });
 export const closePluginWindowForSlot = (trackId: string, slotId: string) =>
-    invoke<void>('close_plugin_window_for_slot', { trackId, slotId });
+    safeInvoke<void>('close_plugin_window_for_slot', { trackId, slotId });
 export type PluginSandboxStatus = 'spawning' | 'running' | 'timed_out' | 'crashed' | 'stopped';
 export interface PluginSandboxRuntimeInfo {
     plugin_instance_id: string;
@@ -972,44 +972,44 @@ export interface ReloadSandboxInstancesResponse {
     errors: string[];
 }
 export const getPluginSandboxRuntime = () =>
-    invoke<PluginSandboxSnapshot>('get_plugin_sandbox_runtime');
+    safeInvoke<PluginSandboxSnapshot>('get_plugin_sandbox_runtime');
 export const setPluginSandboxEnabled = (enabled: boolean) =>
-    invoke<PluginSandboxSnapshot>('set_plugin_sandbox_enabled', { enabled });
+    safeInvoke<PluginSandboxSnapshot>('set_plugin_sandbox_enabled', { enabled });
 export const tickPluginSandboxWatchdog = () =>
-    invoke<PluginSandboxSnapshot>('tick_plugin_sandbox_watchdog');
+    safeInvoke<PluginSandboxSnapshot>('tick_plugin_sandbox_watchdog');
 export const reloadPluginSandboxInstance = (instanceId: string) =>
-    invoke<PluginSandboxSnapshot>('reload_plugin_sandbox_instance', { instanceId });
+    safeInvoke<PluginSandboxSnapshot>('reload_plugin_sandbox_instance', { instanceId });
 export const reloadUnhealthyPluginSandboxes = () =>
-    invoke<ReloadSandboxInstancesResponse>('reload_unhealthy_plugin_sandboxes');
+    safeInvoke<ReloadSandboxInstancesResponse>('reload_unhealthy_plugin_sandboxes');
 export const logFrontendError = (module: string, error: string, stack?: string) =>
-    invoke<void>('log_frontend_error', { module, error, stack: stack ?? null });
+    safeInvoke<void>('log_frontend_error', { module, error, stack: stack ?? null });
 export interface RoutingTarget {
     trackId: string;
     trackName: string;
     trackType: string;
 }
 export const getRoutingTargets = (trackId: string) =>
-    invoke<RoutingTarget[]>('get_routing_targets', { trackId });
+    safeInvoke<RoutingTarget[]>('get_routing_targets', { trackId });
 export const setTrackRouting = (trackId: string, targetId: string) =>
-    invoke<void>('set_track_routing_cmd', { trackId, targetId });
+    safeInvoke<void>('set_track_routing_cmd', { trackId, targetId });
 export const setTrackRoutingWithDeltas = (trackId: string, targetId: string) =>
-    invoke<DeltaMutationResponse>('set_track_routing_with_deltas_cmd', { trackId, targetId });
+    safeInvoke<DeltaMutationResponse>('set_track_routing_with_deltas_cmd', { trackId, targetId });
 export const setTrackInput = (trackId: string, inputId: string) =>
-    invoke<void>('set_track_input_cmd', { trackId, inputId });
+    safeInvoke<void>('set_track_input_cmd', { trackId, inputId });
 export const setTrackInputWithDeltas = (trackId: string, inputId: string) =>
-    invoke<DeltaMutationResponse>('set_track_input_with_deltas_cmd', { trackId, inputId });
+    safeInvoke<DeltaMutationResponse>('set_track_input_with_deltas_cmd', { trackId, inputId });
 export const setPluginSidechainSource = (
     trackId: string,
     slotId: string,
     sourceTrackId: string,
 ) =>
-    invoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId });
+    safeInvoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId });
 export const setPluginSidechainSourceWithDeltas = (
     trackId: string,
     slotId: string,
     sourceTrackId: string,
 ) =>
-    invoke<DeltaMutationResponse>('set_plugin_sidechain_source_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_plugin_sidechain_source_with_deltas_cmd', {
         trackId,
         slotId,
         sourceTrackId,
@@ -1021,7 +1021,7 @@ export const addPluginToTrack = (
     slot: 'instrument' | 'effect' | 'auto' = 'auto',
     insertIndex?: number,
 ) =>
-    invoke<void>('add_plugin_to_track_cmd', {
+    safeInvoke<void>('add_plugin_to_track_cmd', {
         payload: { trackId, pluginId, pluginName, slot, insertIndex: insertIndex ?? null },
     });
 export const addPluginToTrackWithDeltas = (
@@ -1031,29 +1031,29 @@ export const addPluginToTrackWithDeltas = (
     slot: 'instrument' | 'effect' | 'auto' = 'auto',
     insertIndex?: number,
 ) =>
-    invoke<DeltaMutationResponse>('add_plugin_to_track_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('add_plugin_to_track_with_deltas_cmd', {
         payload: { trackId, pluginId, pluginName, slot, insertIndex: insertIndex ?? null },
     });
 export const removePluginFromTrack = (trackId: string, slotId: string) =>
-    invoke<void>('remove_plugin_from_track_cmd', {
+    safeInvoke<void>('remove_plugin_from_track_cmd', {
         payload: { trackId, slotId },
     });
 export const removePluginFromTrackWithDeltas = (trackId: string, slotId: string) =>
-    invoke<DeltaMutationResponse>('remove_plugin_from_track_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('remove_plugin_from_track_with_deltas_cmd', {
         payload: { trackId, slotId },
     });
 export const copyDeviceFromTrack = (trackId: string, deviceId: string) =>
-    invoke<string>('copy_device_from_track_cmd', { trackId, deviceId });
+    safeInvoke<string>('copy_device_from_track_cmd', { trackId, deviceId });
 export const pasteDeviceToTrack = (
     trackId: string,
     slotHint: 'instrument' | 'effect' | 'auto' = 'auto',
 ) =>
-    invoke<void>('paste_device_to_track_cmd', { trackId, slotHint });
+    safeInvoke<void>('paste_device_to_track_cmd', { trackId, slotHint });
 export const pasteDeviceToTrackWithDeltas = (
     trackId: string,
     slotHint: 'instrument' | 'effect' | 'auto' = 'auto',
 ) =>
-    invoke<DeltaMutationResponse>('paste_device_to_track_with_deltas_cmd', { trackId, slotHint });
+    safeInvoke<DeltaMutationResponse>('paste_device_to_track_with_deltas_cmd', { trackId, slotHint });
 export const setInternalPluginParam = (
     trackId: string,
     slotId: string,
@@ -1061,7 +1061,7 @@ export const setInternalPluginParam = (
     value: number,
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<void>('set_internal_plugin_param_cmd', {
+    safeInvoke<void>('set_internal_plugin_param_cmd', {
         payload: {
             trackId,
             slotId,
@@ -1077,7 +1077,7 @@ export const setInternalPluginParamWithDeltas = (
     value: number,
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<DeltaMutationResponse>('set_internal_plugin_param_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_internal_plugin_param_with_deltas_cmd', {
         payload: {
             trackId,
             slotId,
@@ -1091,7 +1091,7 @@ export const setExternalPluginParam = (
     paramIndex: number,
     value: number,
 ) =>
-    invoke<void>('set_external_plugin_param_cmd', {
+    safeInvoke<void>('set_external_plugin_param_cmd', {
         pluginId,
         paramIndex,
         value,
@@ -1103,7 +1103,7 @@ export const setExternalPluginParamForSlot = (
     value: number,
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<void>('set_external_plugin_param_for_slot_cmd', {
+    safeInvoke<void>('set_external_plugin_param_for_slot_cmd', {
         trackId,
         slotId,
         paramIndex,
@@ -1116,7 +1116,7 @@ export const setExternalPluginParamForSlotRuntime = (
     paramIndex: number,
     value: number,
 ) =>
-    invoke<void>('set_external_plugin_param_for_slot_runtime_cmd', {
+    safeInvoke<void>('set_external_plugin_param_for_slot_runtime_cmd', {
         slotId,
         pluginId,
         paramIndex,
@@ -1129,7 +1129,7 @@ export const setExternalPluginParamForSlotWithDeltas = (
     value: number,
     options?: { pushUndoStep?: boolean },
 ) =>
-    invoke<DeltaMutationResponse>('set_external_plugin_param_for_slot_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_external_plugin_param_for_slot_with_deltas_cmd', {
         trackId,
         slotId,
         paramIndex,
@@ -1146,15 +1146,15 @@ export interface ExternalPluginParamInfo {
     value: number;
 }
 export const getExternalPluginParams = (pluginId: string) =>
-    invoke<ExternalPluginParamInfo[]>('get_external_plugin_params', { pluginId });
+    safeInvoke<ExternalPluginParamInfo[]>('get_external_plugin_params', { pluginId });
 export const getExternalPluginParamsForSlot = (trackId: string, slotId: string) =>
-    invoke<ExternalPluginParamInfo[]>('get_external_plugin_params_for_slot', { trackId, slotId });
+    safeInvoke<ExternalPluginParamInfo[]>('get_external_plugin_params_for_slot', { trackId, slotId });
 export const setSamplerSample = (
     trackId: string,
     samplePath: string,
     rootNote?: number,
 ) =>
-    invoke<void>('set_sampler_sample_cmd', {
+    safeInvoke<void>('set_sampler_sample_cmd', {
         payload: { trackId, samplePath, rootNote: rootNote ?? null },
     });
 export const setSamplerSampleWithDeltas = (
@@ -1162,7 +1162,7 @@ export const setSamplerSampleWithDeltas = (
     samplePath: string,
     rootNote?: number,
 ) =>
-    invoke<DeltaMutationResponse>('set_sampler_sample_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_sampler_sample_with_deltas_cmd', {
         payload: { trackId, samplePath, rootNote: rootNote ?? null },
     });
 export const setSampleRackPadSample = (
@@ -1170,7 +1170,7 @@ export const setSampleRackPadSample = (
     padIndex: number,
     samplePath: string,
 ) =>
-    invoke<void>('set_sample_rack_pad_sample_cmd', {
+    safeInvoke<void>('set_sample_rack_pad_sample_cmd', {
         trackId, padIndex, samplePath
     });
 export const setSampleRackPadSampleWithDeltas = (
@@ -1178,44 +1178,44 @@ export const setSampleRackPadSampleWithDeltas = (
     padIndex: number,
     samplePath: string,
 ) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_sample_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_sample_with_deltas_cmd', {
         trackId, padIndex, samplePath
     });
 export const setSampleRackPadVolumeCmd = (trackId: string, padIndex: number, volume: number) =>
-    invoke<void>('set_sample_rack_pad_volume_cmd', { trackId, padIndex, volume });
+    safeInvoke<void>('set_sample_rack_pad_volume_cmd', { trackId, padIndex, volume });
 export const setSampleRackPadVolumeWithDeltasCmd = (trackId: string, padIndex: number, volume: number) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_volume_with_deltas_cmd', { trackId, padIndex, volume });
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_volume_with_deltas_cmd', { trackId, padIndex, volume });
 export const setSampleRackPadMuteCmd = (trackId: string, padIndex: number, muted: boolean) =>
-    invoke<void>('set_sample_rack_pad_mute_cmd', { trackId, padIndex, muted });
+    safeInvoke<void>('set_sample_rack_pad_mute_cmd', { trackId, padIndex, muted });
 export const setSampleRackPadMuteWithDeltasCmd = (trackId: string, padIndex: number, muted: boolean) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_mute_with_deltas_cmd', { trackId, padIndex, muted });
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_mute_with_deltas_cmd', { trackId, padIndex, muted });
 export const setSampleRackPadSoloCmd = (trackId: string, padIndex: number, soloed: boolean) =>
-    invoke<void>('set_sample_rack_pad_solo_cmd', { trackId, padIndex, soloed });
+    safeInvoke<void>('set_sample_rack_pad_solo_cmd', { trackId, padIndex, soloed });
 export const setSampleRackPadSoloWithDeltasCmd = (trackId: string, padIndex: number, soloed: boolean) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_solo_with_deltas_cmd', { trackId, padIndex, soloed });
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_solo_with_deltas_cmd', { trackId, padIndex, soloed });
 export const setSampleRackPadAdsrCmd = (trackId: string, padIndex: number, attack: number, decay: number, sustain: number, release: number) =>
-    invoke<void>('set_sample_rack_pad_adsr_cmd', { trackId, padIndex, attack, decay, sustain, release });
+    safeInvoke<void>('set_sample_rack_pad_adsr_cmd', { trackId, padIndex, attack, decay, sustain, release });
 export const setSampleRackPadAdsrWithDeltasCmd = (trackId: string, padIndex: number, attack: number, decay: number, sustain: number, release: number) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_adsr_with_deltas_cmd', { trackId, padIndex, attack, decay, sustain, release });
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_adsr_with_deltas_cmd', { trackId, padIndex, attack, decay, sustain, release });
 export const setSampleRackPadFilterCutoffCmd = (trackId: string, padIndex: number, cutoff: number) =>
-    invoke<void>('set_sample_rack_pad_filter_cutoff_cmd', { trackId, padIndex, cutoff });
+    safeInvoke<void>('set_sample_rack_pad_filter_cutoff_cmd', { trackId, padIndex, cutoff });
 export const setSampleRackPadFilterCutoffWithDeltasCmd = (trackId: string, padIndex: number, cutoff: number) =>
-    invoke<DeltaMutationResponse>('set_sample_rack_pad_filter_cutoff_with_deltas_cmd', { trackId, padIndex, cutoff });
+    safeInvoke<DeltaMutationResponse>('set_sample_rack_pad_filter_cutoff_with_deltas_cmd', { trackId, padIndex, cutoff });
 // BUG-027 FIX: Validate fade frame values — no negative or NaN.
 export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
     const fi = Number.isFinite(fadeInFrames) ? Math.max(0, Math.round(fadeInFrames)) : 0;
     const fo = Number.isFinite(fadeOutFrames) ? Math.max(0, Math.round(fadeOutFrames)) : 0;
-    return invoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
+    return safeInvoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
 };
 export const setClipFadesWithDeltas = (clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
     const fi = Number.isFinite(fadeInFrames) ? Math.max(0, Math.round(fadeInFrames)) : 0;
     const fo = Number.isFinite(fadeOutFrames) ? Math.max(0, Math.round(fadeOutFrames)) : 0;
-    return invoke<DeltaMutationResponse>('set_clip_fades_with_deltas_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
+    return safeInvoke<DeltaMutationResponse>('set_clip_fades_with_deltas_cmd', { clipId, fadeInFrames: fi, fadeOutFrames: fo });
 };
 export const setClipSourceOffset = (clipId: string, sourceOffsetFrames: number) =>
-    invoke<void>('set_clip_source_offset_cmd', { clipId, sourceOffsetFrames });
+    safeInvoke<void>('set_clip_source_offset_cmd', { clipId, sourceOffsetFrames });
 export const setClipSourceOffsetWithDeltas = (clipId: string, sourceOffsetFrames: number) =>
-    invoke<DeltaMutationResponse>('set_clip_source_offset_with_deltas_cmd', { clipId, sourceOffsetFrames });
+    safeInvoke<DeltaMutationResponse>('set_clip_source_offset_with_deltas_cmd', { clipId, sourceOffsetFrames });
 export interface SetClipWarpPayload {
     clipId: string;
     isWarped?: boolean;
@@ -1223,19 +1223,19 @@ export interface SetClipWarpPayload {
     warpBaseBpm?: number | null;
 }
 export const setClipWarp = (payload: SetClipWarpPayload) =>
-    invoke<void>('set_clip_warp_cmd', { payload });
+    safeInvoke<void>('set_clip_warp_cmd', { payload });
 export const setClipWarpWithDeltas = (payload: SetClipWarpPayload) =>
-    invoke<DeltaMutationResponse>('set_clip_warp_with_deltas_cmd', { payload });
+    safeInvoke<DeltaMutationResponse>('set_clip_warp_with_deltas_cmd', { payload });
 export const setClipPitch = (payload: {
     clipId: string;
     pitchShiftSemitones: number;
 }) =>
-    invoke<void>('set_clip_pitch_cmd', { payload });
+    safeInvoke<void>('set_clip_pitch_cmd', { payload });
 export const setClipPitchWithDeltas = (payload: {
     clipId: string;
     pitchShiftSemitones: number;
 }) =>
-    invoke<DeltaMutationResponse>('set_clip_pitch_with_deltas_cmd', { payload });
+    safeInvoke<DeltaMutationResponse>('set_clip_pitch_with_deltas_cmd', { payload });
 export interface ExportSettings {
     outputPath: string;
     sampleRate: number;
@@ -1259,15 +1259,15 @@ export interface BackgroundJobSnapshot {
     cancellable: boolean;
 }
 export const exportMix = (settings: ExportSettings) =>
-    invoke<string>('export_mix_cmd', { settings });
+    safeInvoke<string>('export_mix_cmd', { settings });
 export const cancelExport = () =>
-    invoke<void>('cancel_export_cmd');
+    safeInvoke<void>('cancel_export_cmd');
 export const listBackgroundJobs = () =>
-    invoke<BackgroundJobSnapshot[]>('list_background_jobs_cmd');
+    safeInvoke<BackgroundJobSnapshot[]>('list_background_jobs_cmd');
 export const cancelBackgroundJob = (jobId: string) =>
-    invoke<void>('cancel_background_job_cmd', { jobId });
+    safeInvoke<void>('cancel_background_job_cmd', { jobId });
 export const clearFinishedBackgroundJobs = () =>
-    invoke<number>('clear_finished_background_jobs_cmd');
+    safeInvoke<number>('clear_finished_background_jobs_cmd');
 export interface BounceSelectionToTrackPayload {
     clipIds?: string[];
     rangeStartFrames?: number;
@@ -1276,47 +1276,47 @@ export interface BounceSelectionToTrackPayload {
     endTrackIndex?: number;
 }
 export const bounceSelectionToTrack = (payload: BounceSelectionToTrackPayload) =>
-    invoke<void>('bounce_selection_to_track_cmd', { payload });
+    safeInvoke<void>('bounce_selection_to_track_cmd', { payload });
 export const bounceSelectionToTrackWithDeltas = (payload: BounceSelectionToTrackPayload) =>
-    invoke<DeltaMutationResponse>('bounce_selection_to_track_with_deltas_cmd', { payload });
+    safeInvoke<DeltaMutationResponse>('bounce_selection_to_track_with_deltas_cmd', { payload });
 export const bounceTrack = (trackId: string) =>
-    invoke<void>('bounce_track_cmd', { trackId });
+    safeInvoke<void>('bounce_track_cmd', { trackId });
 export const bounceTrackWithDeltas = (trackId: string) =>
-    invoke<DeltaMutationResponse>('bounce_track_with_deltas_cmd', { trackId });
+    safeInvoke<DeltaMutationResponse>('bounce_track_with_deltas_cmd', { trackId });
 export const bounceGroup = (groupTrackId: string) =>
-    invoke<void>('bounce_group_cmd', { groupTrackId });
+    safeInvoke<void>('bounce_group_cmd', { groupTrackId });
 export const bounceGroupWithDeltas = (groupTrackId: string) =>
-    invoke<DeltaMutationResponse>('bounce_group_with_deltas_cmd', { groupTrackId });
+    safeInvoke<DeltaMutationResponse>('bounce_group_with_deltas_cmd', { groupTrackId });
 export const consolidateSelection = (payload: BounceSelectionToTrackPayload) =>
-    invoke<void>('consolidate_selection_cmd', { payload });
+    safeInvoke<void>('consolidate_selection_cmd', { payload });
 export const consolidateSelectionWithDeltas = (payload: BounceSelectionToTrackPayload) =>
-    invoke<DeltaMutationResponse>('consolidate_selection_with_deltas_cmd', { payload });
+    safeInvoke<DeltaMutationResponse>('consolidate_selection_with_deltas_cmd', { payload });
 export const splitTrackToStems = (trackId: string) =>
-    invoke<void>('split_track_to_stems_cmd', {
+    safeInvoke<void>('split_track_to_stems_cmd', {
         payload: { trackId },
     });
 export const splitTrackToStemsWithDeltas = (trackId: string) =>
-    invoke<DeltaMutationResponse>('split_track_to_stems_with_deltas_cmd', {
+    safeInvoke<DeltaMutationResponse>('split_track_to_stems_with_deltas_cmd', {
         payload: { trackId },
     });
-export const undo = () => invoke<void>('undo_cmd');
+export const undo = () => safeInvoke<void>('undo_cmd');
 export const undoWithDeltas = () =>
-    invoke<DeltaMutationResponse>('undo_with_deltas_cmd');
-export const redo = () => invoke<void>('redo_cmd');
+    safeInvoke<DeltaMutationResponse>('undo_with_deltas_cmd');
+export const redo = () => safeInvoke<void>('redo_cmd');
 export const redoWithDeltas = () =>
-    invoke<DeltaMutationResponse>('redo_with_deltas_cmd');
+    safeInvoke<DeltaMutationResponse>('redo_with_deltas_cmd');
 export const armTrack = (trackIndex: number, armed: boolean) =>
-    invoke<void>('arm_track_cmd', { trackIndex, armed });
+    safeInvoke<void>('arm_track_cmd', { trackIndex, armed });
 export const armTrackWithDeltas = (trackIndex: number, armed: boolean) =>
-    invoke<DeltaMutationResponse>('arm_track_with_deltas_cmd', { trackIndex, armed });
+    safeInvoke<DeltaMutationResponse>('arm_track_with_deltas_cmd', { trackIndex, armed });
 export const startRecording = () =>
-    invoke<void>('start_recording_cmd');
+    safeInvoke<void>('start_recording_cmd');
 export const stopRecording = () =>
-    invoke<void>('stop_recording_cmd');
+    safeInvoke<void>('stop_recording_cmd');
 export const resolveMissingFile = (clipId: string, newPath: string) =>
-    invoke<void>('resolve_missing_file_cmd', { clipId, newPath });
+    safeInvoke<void>('resolve_missing_file_cmd', { clipId, newPath });
 export const resolveMissingFileWithDeltas = (clipId: string, newPath: string) =>
-    invoke<DeltaMutationResponse>('resolve_missing_file_with_deltas_cmd', { clipId, newPath });
+    safeInvoke<DeltaMutationResponse>('resolve_missing_file_with_deltas_cmd', { clipId, newPath });
 export interface AutomationPoint {
     beat: number;
     value: number;
@@ -1324,16 +1324,16 @@ export interface AutomationPoint {
     tension?: number;
 }
 export const setAutomationPoints = (trackId: string, paramId: string, points: AutomationPoint[]) =>
-    invoke<void>('set_automation_points_cmd', { trackId, paramId, points });
+    safeInvoke<void>('set_automation_points_cmd', { trackId, paramId, points });
 export const setAutomationPointsWithDeltas = (trackId: string, paramId: string, points: AutomationPoint[]) =>
-    invoke<DeltaMutationResponse>('set_automation_points_with_deltas_cmd', { trackId, paramId, points });
+    safeInvoke<DeltaMutationResponse>('set_automation_points_with_deltas_cmd', { trackId, paramId, points });
 export const createRackFromDevices = (
     trackId: string,
     deviceIds: string[],
     rackName?: string,
     rackType?: 'audio_effect' | 'instrument' | 'drum' | 'midi_effect',
 ) =>
-    invoke<string>('create_rack_from_devices_cmd', {
+    safeInvoke<string>('create_rack_from_devices_cmd', {
         payload: { trackId, deviceIds, rackName: rackName ?? null, rackType: rackType ?? null },
     });
 export const addChainToRack = (
@@ -1341,7 +1341,7 @@ export const addChainToRack = (
     rackId: string,
     chainName?: string,
 ) =>
-    invoke<string>('add_chain_to_rack_cmd', {
+    safeInvoke<string>('add_chain_to_rack_cmd', {
         payload: { trackId, rackId, chainName: chainName ?? null },
     });
 export const addDeviceToRackChain = (
@@ -1352,7 +1352,7 @@ export const addDeviceToRackChain = (
     pluginName: string,
     insertIndex?: number,
 ) =>
-    invoke<string>('add_device_to_rack_chain_cmd', {
+    safeInvoke<string>('add_device_to_rack_chain_cmd', {
         payload: { trackId, rackId, chainId, pluginId, pluginName, insertIndex: insertIndex ?? null },
     });
 export const removeDeviceFromRack = (
@@ -1361,7 +1361,7 @@ export const removeDeviceFromRack = (
     deviceId: string,
     autoDissolve = false,
 ) =>
-    invoke<void>('remove_device_from_rack_cmd', {
+    safeInvoke<void>('remove_device_from_rack_cmd', {
         payload: { trackId, rackId, deviceId, autoDissolve },
     });
 export const saveDevicePreset = (
@@ -1372,7 +1372,7 @@ export const saveDevicePreset = (
     tags?: string[],
     description?: string,
 ) =>
-    invoke<string>('save_device_preset_cmd', {
+    safeInvoke<string>('save_device_preset_cmd', {
         payload: {
             trackId,
             deviceId,
@@ -1387,15 +1387,15 @@ export const loadDevicePreset = (
     presetPath: string,
     insertIndex?: number,
 ) =>
-    invoke<string>('load_device_preset_cmd', {
+    safeInvoke<string>('load_device_preset_cmd', {
         payload: { trackId, presetPath, insertIndex: insertIndex ?? null },
     });
 export const setFlowEnabled = (trackIndex: number, enabled: boolean) =>
-    invoke<void>('set_flow_enabled_cmd', { trackIndex, enabled });
+    safeInvoke<void>('set_flow_enabled_cmd', { trackIndex, enabled });
 
 export const syncFlowGraph = (
     trackIndex: number,
     nodes: [number, string, [string, string][]][],
     connections: [number, number, number, number][],
 ) =>
-    invoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });
+    safeInvoke<void>('sync_flow_graph_cmd', { trackIndex, nodes, connections });

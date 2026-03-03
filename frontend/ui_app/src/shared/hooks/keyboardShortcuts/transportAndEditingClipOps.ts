@@ -16,42 +16,47 @@ function resolveNudgeStepLabel(coarse: boolean): string {
 }
 
 export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv['ctx']): Promise<string[] | null> {
-    const {
-        selectedClipId,
-        selectedClipIds,
-        editCursorBeat = -1,
-        timelineClips,
-        marqueeSelection,
-        playheadFrames,
-        selectedTrackIndex,
-    } = ctx;
-    const splitFrame = resolveSplitFrame(playheadFrames, editCursorBeat);
-    const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.transport.bpm);
-    const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0 ? editCursorBeat : frameToBeat(playheadFrames, bpm, sampleRate);
-    const hasThinMultiCursor = Boolean(
-        marqueeSelection
-        && Math.abs(marqueeSelection.endBeat - marqueeSelection.startBeat) <= 1e-6
-        && marqueeSelection.startTrack !== marqueeSelection.endTrack,
-    );
-    const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-    const EPS = 1e-6;
-    const containsSplit = (clip: (typeof timelineClips)[number]) => splitBeat > clip.startBeat + EPS && splitBeat < clip.startBeat + clip.durationBeats - EPS;
-    let clipsAtPlayhead = (targets.length > 0 ? timelineClips.filter((clip) => targets.includes(clip.id)) : timelineClips.filter((clip) => clip.trackIndex === selectedTrackIndex)).filter(containsSplit);
-    if (hasThinMultiCursor && marqueeSelection) {
-        const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
-        const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
-        clipsAtPlayhead = timelineClips.filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack).filter(containsSplit);
+    try {
+        const {
+            selectedClipId,
+            selectedClipIds,
+            editCursorBeat = -1,
+            timelineClips,
+            marqueeSelection,
+            playheadFrames,
+            selectedTrackIndex,
+        } = ctx;
+        const splitFrame = resolveSplitFrame(playheadFrames, editCursorBeat);
+        const store = useEngineStore.getState();
+        const bpm = resolveBpm(store.transport.bpm);
+        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
+        const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0 ? editCursorBeat : frameToBeat(playheadFrames, bpm, sampleRate);
+        const hasThinMultiCursor = Boolean(
+            marqueeSelection
+            && Math.abs(marqueeSelection.endBeat - marqueeSelection.startBeat) <= 1e-6
+            && marqueeSelection.startTrack !== marqueeSelection.endTrack,
+        );
+        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+        const EPS = 1e-6;
+        const containsSplit = (clip: (typeof timelineClips)[number]) => splitBeat > clip.startBeat + EPS && splitBeat < clip.startBeat + clip.durationBeats - EPS;
+        let clipsAtPlayhead = (targets.length > 0 ? timelineClips.filter((clip) => targets.includes(clip.id)) : timelineClips.filter((clip) => clip.trackIndex === selectedTrackIndex)).filter(containsSplit);
+        if (hasThinMultiCursor && marqueeSelection) {
+            const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
+            const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
+            clipsAtPlayhead = timelineClips.filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack).filter(containsSplit);
+        }
+        if (clipsAtPlayhead.length === 0) return null;
+        // BUG-002 FIX: Parallel IPC calls — O(1) round-trips instead of O(N) sequential.
+        const responses = await Promise.all(
+            clipsAtPlayhead.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)),
+        );
+        const batchedDeltas = responses.flatMap((r) => r.deltas);
+        await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
+        return clipsAtPlayhead.map((clip) => clip.id);
+    } catch (err) {
+        engine.logFrontendError('keyboard', `splitSelectedClipsAtCursor: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
     }
-    if (clipsAtPlayhead.length === 0) return null;
-    // BUG-002 FIX: Parallel IPC calls — O(1) round-trips instead of O(N) sequential.
-    const responses = await Promise.all(
-        clipsAtPlayhead.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)),
-    );
-    const batchedDeltas = responses.flatMap((r) => r.deltas);
-    await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
-    return clipsAtPlayhead.map((clip) => clip.id);
 }
 
 // BUG-B08 FIX: In-flight guard prevents rapid Ctrl+D from creating overlapping duplicates.
@@ -112,38 +117,43 @@ export async function nudgeSelectedClips(
     direction: -1 | 1,
     coarse: boolean,
 ): Promise<string[] | null> {
-    const { selectedClipId, selectedClipIds, timelineClips } = ctx;
-    const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-    if (targets.length === 0) return null;
-    const selected = timelineClips.filter((clip) => targets.includes(clip.id));
-    if (selected.length === 0) return null;
+    try {
+        const { selectedClipId, selectedClipIds, timelineClips } = ctx;
+        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+        if (targets.length === 0) return null;
+        const selected = timelineClips.filter((clip) => targets.includes(clip.id));
+        if (selected.length === 0) return null;
 
-    const gridState = useGridStore.getState();
-    const baseStep = Math.max(0.0001, gridState.gridInterval(4) || 0.25);
-    const stepBeats = baseStep * (coarse ? 4 : 1);
-    let deltaBeats = stepBeats * direction;
-    if (deltaBeats < 0) {
-        let minStart = Infinity;
-        for (const clip of selected) minStart = Math.min(minStart, clip.startBeat);
-        deltaBeats = Math.max(-minStart, deltaBeats);
-        if (Math.abs(deltaBeats) <= 1e-9) return selected.map((clip) => clip.id);
+        const gridState = useGridStore.getState();
+        const baseStep = Math.max(0.0001, gridState.gridInterval(4) || 0.25);
+        const stepBeats = baseStep * (coarse ? 4 : 1);
+        let deltaBeats = stepBeats * direction;
+        if (deltaBeats < 0) {
+            let minStart = Infinity;
+            for (const clip of selected) minStart = Math.min(minStart, clip.startBeat);
+            deltaBeats = Math.max(-minStart, deltaBeats);
+            if (Math.abs(deltaBeats) <= 1e-9) return selected.map((clip) => clip.id);
+        }
+
+        const store = useEngineStore.getState();
+        const bpm = resolveBpm(store.transport.bpm);
+        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
+        const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
+            const nextBeat = Math.max(0, clip.startBeat + deltaBeats);
+            return {
+                id: clip.id,
+                newTrackIndex: clip.trackIndex,
+                newPositionFrames: Math.max(0, beatToFrame(nextBeat, bpm, sampleRate))
+            };
+        }));
+        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-time');
+        const stepLabel = resolveNudgeStepLabel(coarse);
+        useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'left' : 'right'} ${stepLabel} (${selected.length} clip(s))`);
+        return selected.map((clip) => clip.id);
+    } catch (err) {
+        engine.logFrontendError('keyboard', `nudgeSelectedClips: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
     }
-
-    const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.transport.bpm);
-    const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
-        const nextBeat = Math.max(0, clip.startBeat + deltaBeats);
-        return {
-            id: clip.id,
-            newTrackIndex: clip.trackIndex,
-            newPositionFrames: Math.max(0, beatToFrame(nextBeat, bpm, sampleRate))
-        };
-    }));
-    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-time');
-    const stepLabel = resolveNudgeStepLabel(coarse);
-    useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'left' : 'right'} ${stepLabel} (${selected.length} clip(s))`);
-    return selected.map((clip) => clip.id);
 }
 
 export async function nudgeSelectedClipsTrack(
@@ -151,38 +161,43 @@ export async function nudgeSelectedClipsTrack(
     direction: -1 | 1,
     coarse: boolean,
 ): Promise<string[] | null> {
-    const { selectedClipId, selectedClipIds, timelineClips, trackIds } = ctx;
-    const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-    if (targets.length === 0) return null;
-    const selected = timelineClips.filter((clip) => targets.includes(clip.id));
-    if (selected.length === 0) return null;
+    try {
+        const { selectedClipId, selectedClipIds, timelineClips, trackIds } = ctx;
+        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+        if (targets.length === 0) return null;
+        const selected = timelineClips.filter((clip) => targets.includes(clip.id));
+        if (selected.length === 0) return null;
 
-    const maxTrackIndex = Math.max(0, trackIds.length - 1);
-    let minTrack = Infinity;
-    let maxTrack = -Infinity;
-    for (const clip of selected) {
-        minTrack = Math.min(minTrack, clip.trackIndex);
-        maxTrack = Math.max(maxTrack, clip.trackIndex);
+        const maxTrackIndex = Math.max(0, trackIds.length - 1);
+        let minTrack = Infinity;
+        let maxTrack = -Infinity;
+        for (const clip of selected) {
+            minTrack = Math.min(minTrack, clip.trackIndex);
+            maxTrack = Math.max(maxTrack, clip.trackIndex);
+        }
+        const desiredDelta = (coarse ? 4 : 1) * direction;
+        const minDelta = -minTrack;
+        const maxDelta = maxTrackIndex - maxTrack;
+        const deltaTrack = Math.max(minDelta, Math.min(maxDelta, desiredDelta));
+        if (deltaTrack === 0) return selected.map((clip) => clip.id);
+
+        const store = useEngineStore.getState();
+        const bpm = resolveBpm(store.transport.bpm);
+        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
+        const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
+            const nextTrack = Math.max(0, Math.min(maxTrackIndex, clip.trackIndex + deltaTrack));
+            return {
+                id: clip.id,
+                newTrackIndex: nextTrack,
+                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat, bpm, sampleRate))
+            };
+        }));
+        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-track');
+        const stepLabel = resolveNudgeStepLabel(coarse);
+        useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'up' : 'down'} ${Math.abs(deltaTrack)} track(s) • ${stepLabel} (${selected.length} clip(s))`);
+        return selected.map((clip) => clip.id);
+    } catch (err) {
+        engine.logFrontendError('keyboard', `nudgeSelectedClipsTrack: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
     }
-    const desiredDelta = (coarse ? 4 : 1) * direction;
-    const minDelta = -minTrack;
-    const maxDelta = maxTrackIndex - maxTrack;
-    const deltaTrack = Math.max(minDelta, Math.min(maxDelta, desiredDelta));
-    if (deltaTrack === 0) return selected.map((clip) => clip.id);
-
-    const store = useEngineStore.getState();
-    const bpm = resolveBpm(store.transport.bpm);
-    const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-    const response = await engine.moveMultipleClipsWithDeltas(selected.map((clip) => {
-        const nextTrack = Math.max(0, Math.min(maxTrackIndex, clip.trackIndex + deltaTrack));
-        return {
-            id: clip.id,
-            newTrackIndex: nextTrack,
-            newPositionFrames: Math.max(0, beatToFrame(clip.startBeat, bpm, sampleRate))
-        };
-    }));
-    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:nudge-track');
-    const stepLabel = resolveNudgeStepLabel(coarse);
-    useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'up' : 'down'} ${Math.abs(deltaTrack)} track(s) • ${stepLabel} (${selected.length} clip(s))`);
-    return selected.map((clip) => clip.id);
 }

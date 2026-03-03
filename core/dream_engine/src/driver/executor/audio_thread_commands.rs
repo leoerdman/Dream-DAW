@@ -77,6 +77,11 @@ pub(super) fn drain_commands(
 ) -> usize {
     let max_commands = (frame_count * 4).clamp(64, 512);
     let mut commands_processed = 0usize;
+    // BUG-UNDO-FX-001 FIX: Track whether ClearAllDeviceChains was processed
+    // in this drain cycle. When true, SetDeviceParam and BypassDevice commands
+    // must be deferred to the topology queue — the actual device chains are
+    // empty until apply_all_topology_mutations() re-creates them.
+    let mut chains_cleared = false;
 
     ctx.pending_track_volume.fill(None);
     ctx.pending_track_pan.fill(None);
@@ -108,6 +113,11 @@ pub(super) fn drain_commands(
                 // BUG-A034 FIX: Reset executor-level diagnostic counters (topology / GC) on project change.
                 crate::driver::executor::audio_thread_runner::reset_runner_counters();
                 crate::driver::executor::audio_thread_track_pass::reset_track_pass_counters();
+
+                // BUG-UNDO-FX-001 FIX: All subsequent SetDeviceParam / BypassDevice
+                // commands in this drain cycle must be deferred until devices are
+                // re-created by apply_all_topology_mutations().
+                chains_cleared = true;
             }
             EngineCommand::SetPlay(play) => {
                 *ctx.is_playing = play;
@@ -634,7 +644,15 @@ pub(super) fn drain_commands(
                 slot_index,
                 bypassed,
             } => {
-                if track_index == MASTER_TRACK_INDEX {
+                // BUG-UNDO-FX-001 FIX: If chains were cleared in this cycle,
+                // defer bypass until devices are re-created.
+                if chains_cleared {
+                    ctx.deferred_topology.push_back(DeferredDeviceChainCmd::SetBypass {
+                        track_index,
+                        slot_index,
+                        bypassed,
+                    });
+                } else if track_index == MASTER_TRACK_INDEX {
                     ctx.master_device_chain
                         .set_bypass(slot_index as usize, bypassed);
                 } else {
@@ -652,7 +670,16 @@ pub(super) fn drain_commands(
                 param_index,
                 value,
             } => {
-                if track_index == MASTER_TRACK_INDEX {
+                // BUG-UNDO-FX-001 FIX: If chains were cleared in this cycle,
+                // defer param set until devices are re-created.
+                if chains_cleared {
+                    ctx.deferred_topology.push_back(DeferredDeviceChainCmd::SetParam {
+                        track_index,
+                        slot_index,
+                        param_index,
+                        value,
+                    });
+                } else if track_index == MASTER_TRACK_INDEX {
                     ctx.master_device_chain
                         .set_param(slot_index as usize, param_index as u32, value);
                 } else {

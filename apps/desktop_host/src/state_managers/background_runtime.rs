@@ -25,6 +25,10 @@ struct TransportTelemetryPayload {
     loop_end: i64,
     output_latency_frames: u32,
     telemetry_timestamp_ms: u128,
+    /// BUG-SYNC-001 FIX: Time signature forwarded in telemetry so frontend
+    /// updates in real-time instead of waiting for the next project snapshot.
+    time_sig_numerator: u32,
+    time_sig_denominator: u32,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -117,6 +121,18 @@ pub(crate) fn spawn_background_runtime_threads(
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis())
                         .unwrap_or(0);
+
+                    // BUG-SYNC-001 FIX: Read time signature from project (SSOT).
+                    // PlaybackState doesn't store time_sig — it lives on Project.
+                    let registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = telemetry_app.state();
+                    let (ts_num, ts_den) = registry
+                        .get_active_project()
+                        .and_then(|ps| ps.project.lock().ok().map(|p| (
+                            u32::from(p.time_signature.numerator.max(1)),
+                            u32::from(p.time_signature.denominator.max(1)),
+                        )))
+                        .unwrap_or((4, 4));
+
                     TransportTelemetryPayload {
                         is_playing: state.is_playing,
                         position_frames: frames,
@@ -129,6 +145,8 @@ pub(crate) fn spawn_background_runtime_threads(
                         loop_end: state.loop_end,
                         output_latency_frames: handle.output_latency_frames,
                         telemetry_timestamp_ms,
+                        time_sig_numerator: ts_num,
+                        time_sig_denominator: ts_den,
                     }
                 };
 

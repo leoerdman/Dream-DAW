@@ -38,6 +38,24 @@ pub(super) enum DeferredDeviceChainCmd {
         from_slot: u8,
         to_slot: u8,
     },
+    /// BUG-UNDO-FX-001 FIX: Deferred parameter set.
+    ///
+    /// When `ClearAllDeviceChains` fires, all device chains are wiped immediately.
+    /// Subsequent `SetDeviceParam` commands in the same drain cycle would be applied
+    /// to empty chains and silently lost. By deferring them to the topology queue,
+    /// they execute AFTER `AddDevice` re-creates the devices.
+    SetParam {
+        track_index: u16,
+        slot_index: u8,
+        param_index: u8,
+        value: f32,
+    },
+    /// BUG-UNDO-FX-001 FIX: Deferred bypass set (same ordering issue as SetParam).
+    SetBypass {
+        track_index: u16,
+        slot_index: u8,
+        bypassed: bool,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -214,6 +232,44 @@ pub(super) fn apply_all_topology_mutations(
                     render_ctx.track_slots[idx]
                         .device_chain
                         .reorder(from_slot as usize, to_slot as usize);
+                }
+            }
+            // BUG-UNDO-FX-001 FIX: Apply deferred param/bypass after devices exist.
+            DeferredDeviceChainCmd::SetParam {
+                track_index,
+                slot_index,
+                param_index,
+                value,
+            } => {
+                if track_index == master_track_index {
+                    master_device_chain
+                        .set_param(slot_index as usize, param_index as u32, value);
+                } else {
+                    let idx = track_index as usize;
+                    if idx < render_ctx.track_slots.len() {
+                        render_ctx.track_slots[idx].device_chain.set_param(
+                            slot_index as usize,
+                            param_index as u32,
+                            value,
+                        );
+                    }
+                }
+            }
+            DeferredDeviceChainCmd::SetBypass {
+                track_index,
+                slot_index,
+                bypassed,
+            } => {
+                if track_index == master_track_index {
+                    master_device_chain
+                        .set_bypass(slot_index as usize, bypassed);
+                } else {
+                    let idx = track_index as usize;
+                    if idx < render_ctx.track_slots.len() {
+                        render_ctx.track_slots[idx]
+                            .device_chain
+                            .set_bypass(slot_index as usize, bypassed);
+                    }
                 }
             }
         }

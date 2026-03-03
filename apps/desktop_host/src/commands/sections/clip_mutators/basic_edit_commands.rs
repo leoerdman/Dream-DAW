@@ -91,6 +91,7 @@ async fn move_clip_with_deltas_cmd(
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MoveClipRequestPayload {
     pub id: String,
     pub new_track_index: usize,
@@ -578,6 +579,7 @@ async fn duplicate_clip_with_deltas_cmd(
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DuplicateClipRequestPayload {
     pub id: String,
     pub new_position_frames: Option<i64>,

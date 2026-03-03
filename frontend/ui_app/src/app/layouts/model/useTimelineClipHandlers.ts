@@ -52,6 +52,10 @@ export function useTimelineClipHandlers({
 }: Args): Result {
     const isClipNotFoundError = (err: unknown): boolean => {
         const message = err instanceof Error ? err.message : String(err);
+        // ENTERPRISE FIX: Only match genuine clip-not-found errors, not serde
+        // deserialization failures like "missing field `new_track_index`".
+        // Require "clip" word AND a not-found indicator, but exclude "missing field".
+        if (/missing\s+field/i.test(message)) return false;
         return /clip/i.test(message) && /(not\s+found|unknown|does\s+not\s+exist|missing)/i.test(message);
     };
 
@@ -171,6 +175,7 @@ export function useTimelineClipHandlers({
                 const response = await engineApi.moveMultipleClipsWithDeltas(requests);
                 await applyProjectDeltas(response.deltas, moveAsGroup ? 'clip-move-group' : 'clip-move');
             } catch (err) {
+                console.error('[CLIP-MOVE-DIAG] Move FAILED:', err);
                 if (isClipNotFoundError(err)) {
                     // Not ideal grouping behavior if one deletes mid-drag, but avoids total failure.
                     for (const req of requests) pruneGhostClip(req.id);

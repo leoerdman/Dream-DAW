@@ -223,13 +223,19 @@ export class CanvasClipRenderer {
             else gridStep = 0.5;
         }
 
-        // ENTERPRISE FIX: Level-of-Detail guard for fine grid settings (1:16, 1:32).
-        // When zoomed out with a fine grid, the number of lines can exceed 4000+
-        // causing severe CPU spikes and UI freezing. Coarsen the grid step
-        // until the line count stays under MAX_GRID_LINES.
-        const MAX_GRID_LINES = 2000;
-        const visibleBeats = range.endBeat - range.startBeat;
-        while (gridStep > 0 && (visibleBeats / gridStep) > MAX_GRID_LINES) {
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTERPRISE: Pixel-spacing–based adaptive grid density.
+        //
+        // Standard DAW approach (Ableton, Logic, FL Studio): coarsen the
+        // grid step until lines are at least MIN_GRID_PX apart. Sub-pixel
+        // lines are invisible and waste CPU. At 1/128 grid fully zoomed
+        // out, this reduces line count from millions to a few hundred.
+        //
+        // The grid step always doubles (power-of-2), preserving musical
+        // alignment: 1/128 → 1/64 → 1/32 → 1/16 → 1/8 → 1/4 → 1/2 → 1.
+        // ═══════════════════════════════════════════════════════════════════
+        const MIN_GRID_PX = 3; // Minimum pixel spacing between grid lines
+        while (gridStep > 0 && (gridStep * ppb) < MIN_GRID_PX) {
             gridStep *= 2;
         }
 

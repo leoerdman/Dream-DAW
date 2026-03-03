@@ -364,6 +364,19 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     useEffect(() => {
         refreshStatus();
     }, [refreshStatus]);
+
+    // ── ENTERPRISE: Periodic dirty state sync ───────────────────────
+    // The backend marks projects dirty when VST3 plugins change params
+    // via their native UI (IComponentHandler.performEdit). Without
+    // periodic polling, the frontend never learns about these changes
+    // until the next explicit save/open. Poll every 2s (lightweight:
+    // single IPC call returning a small JSON payload).
+    useEffect(() => {
+        const dirtyPollId = setInterval(() => {
+            refreshStatus();
+        }, 2000);
+        return () => clearInterval(dirtyPollId);
+    }, [refreshStatus]);
     return {
         /** Current project manager state. */
         ...state,

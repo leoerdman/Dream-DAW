@@ -39,25 +39,21 @@ export const VerticalMixerStrip = ({
     const holdTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
-        let rafId: number | null = null;
         const meterNorm = Math.max(meterNormL, meterNormR);
+        // ENTERPRISE: Peak hold — update only when new peak exceeds held value.
         if (meterNorm > peakHoldNorm) {
-            rafId = window.requestAnimationFrame(() => {
-                setPeakHoldNorm(meterNorm);
-            });
+            setPeakHoldNorm(meterNorm);
         }
         if (peakDb >= 0) {
-            // BUG-R4-050 FIX: Direct state set — React batches this within the effect.
-            // No need for setTimeout(0) or queueMicrotask for a simple boolean update.
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setClipLatched(true);
         }
+        // ENTERPRISE: 4-second peak hold (professional mixer standard).
+        // After 4s of no new peak, reset to 0 so the indicator disappears cleanly.
         if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
         holdTimerRef.current = window.setTimeout(() => {
-            setPeakHoldNorm(meterNorm);
-        }, 650);
+            setPeakHoldNorm(0);
+        }, 4000);
         return () => {
-            if (rafId !== null) window.cancelAnimationFrame(rafId);
             if (holdTimerRef.current !== null) {
                 window.clearTimeout(holdTimerRef.current);
                 holdTimerRef.current = null;

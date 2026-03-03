@@ -823,6 +823,25 @@ impl OfflineRenderer {
                                     };
                                 let sc_pair =
                                     source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+
+                                // ── NUCLEAR DIAGNOSTIC: Pre-process snapshot ──
+                                static SLOT_DIAG_COUNTER: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                let slot_diag_n = SLOT_DIAG_COUNTER.load(std::sync::atomic::Ordering::Relaxed);
+                                let should_diag = slot_diag_n < 200; // First 200 slot-buffer events
+                                let input_rms = if should_diag {
+                                    let sum: f32 = main_inputs[0].iter().chain(main_inputs[1].iter())
+                                        .map(|s| s * s).sum::<f32>();
+                                    (sum / (2.0 * c as f32)).sqrt()
+                                } else { 0.0 };
+                                let sc_rms = if should_diag {
+                                    sc_pair.as_ref().map(|pair| {
+                                        let sum: f32 = pair[0].iter().chain(pair[1].iter())
+                                            .map(|s| s * s).sum::<f32>();
+                                        (sum / (2.0 * c as f32)).sqrt()
+                                    }).unwrap_or(-1.0)
+                                } else { 0.0 };
+
                                 if let Err(proc_err) = host.process_with_sidechain(
                                     &main_inputs,
                                     sc_pair.as_ref().map(|pair| pair.as_slice()),
@@ -844,6 +863,27 @@ impl OfflineRenderer {
                                         );
                                     }
                                 }
+
+                                // ── NUCLEAR DIAGNOSTIC: Post-process analysis ──
+                                if should_diag {
+                                    let out_rms: f32 = (scratch_left[..c].iter()
+                                        .chain(scratch_right[..c].iter())
+                                        .map(|s| s * s).sum::<f32>() / (2.0 * c as f32)).sqrt();
+                                    let out_peak: f32 = scratch_left[..c].iter()
+                                        .chain(scratch_right[..c].iter())
+                                        .map(|s| s.abs())
+                                        .fold(0.0f32, f32::max);
+                                    let midi_sent = use_midi.len();
+                                    let is_inst = runtime_slot.is_instrument;
+                                    let has_sc = sc_pair.is_some();
+                                    log::error!(
+                                        "[Bounce-SLOT] Track[{}] Slot[{}] inst={} sc={} | in_rms={:.6} sc_rms={:.6} out_rms={:.6} out_peak={:.6} midi={} byp={}",
+                                        track_idx, runtime_slot_idx, is_inst, has_sc,
+                                        input_rms, sc_rms, out_rms, out_peak, midi_sent, runtime_slot.is_bypassed
+                                    );
+                                    SLOT_DIAG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+
                                 // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
                                 // misbehaving plugin would corrupt the entire export file.
                                 for i in 0..c {
@@ -1122,6 +1162,37 @@ impl OfflineRenderer {
                 ctx.bounce_scratch_left,
                 ctx.bounce_scratch_right,
             );
+
+            // ── ENTERPRISE DIAGNOSTIC: Per-buffer RMS for key tracks ──
+            // Log post-FX RMS for the first 10 buffers to verify signal flow.
+            // This confirms (a) Kick VST instrument produces audio,
+            // (b) BASS group receives summed child audio + ShaperBox processes it.
+            {
+                static DIAG_BUFFER_COUNT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
+                let buf_num = DIAG_BUFFER_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+                // Log first 10 buffers, then every 100th buffer
+                let should_log = buf_num < 10 || (buf_num % 100 == 0 && buf_num < 500);
+                if should_log && (track_idx <= 1 || track_idx == 9 || track_idx == 10) {
+                    let rms_l: f32 = (slot.buf_left[..frame_count].iter()
+                        .map(|s| s * s).sum::<f32>() / frame_count as f32).sqrt();
+                    let rms_r: f32 = (slot.buf_right[..frame_count].iter()
+                        .map(|s| s * s).sum::<f32>() / frame_count as f32).sqrt();
+                    let peak = slot.buf_left[..frame_count].iter()
+                        .chain(slot.buf_right[..frame_count].iter())
+                        .map(|s| s.abs())
+                        .fold(0.0f32, f32::max);
+                    let midi_count = ctx.bounce_midi_events.len();
+                    log::error!(
+                        "[Bounce-RMS] buf#{} Track[{}] post-FX: rms_l={:.6}, rms_r={:.6}, peak={:.6}, active={}, midi_events={}",
+                        buf_num, track_idx, rms_l, rms_r, peak, slot.active, midi_count
+                    );
+                }
+                // Increment only once per buffer (when processing Track[0])
+                if track_idx == 0 {
+                    DIAG_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
 
             // ── PDC (Plugin Delay Compensation) ──
             // PDC-7 FIX: Match the exact routing edge (from→to) instead of just

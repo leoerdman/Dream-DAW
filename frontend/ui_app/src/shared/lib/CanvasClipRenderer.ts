@@ -49,6 +49,33 @@ export class CanvasClipRenderer {
     private _blendMins: Float32Array | null = null;
     private _blendMaxs: Float32Array | null = null;
 
+    /** PERF #6: Pre-computed rgba/rgb color strings per hex color. */
+    private static _clipColorStringCache = new Map<string, {
+        header: string; divider: string; body: string;
+        headerBorder: string; bodyBorder: string; bodyDisabled: string; headerDisabled: string;
+    }>();
+
+    /** PERF #6: Get pre-computed color strings for a clip color. */
+    private _getClipColorStrings(hexColor: string) {
+        const cached = CanvasClipRenderer._clipColorStringCache.get(hexColor);
+        if (cached) return cached;
+        const rgb = this._parseColor(hexColor);
+        const r = rgb.r, g = rgb.g, b = rgb.b;
+        const dR = Math.max(0, Math.round(r * 0.5)), dG = Math.max(0, Math.round(g * 0.5)), dB = Math.max(0, Math.round(b * 0.5));
+        const bR = Math.max(0, Math.round(r * 0.60)), bG = Math.max(0, Math.round(g * 0.60)), bB = Math.max(0, Math.round(b * 0.60));
+        const result = {
+            header: `rgba(${r},${g},${b},0.95)`,
+            divider: `rgba(${dR},${dG},${dB},0.8)`,
+            body: `rgba(${bR},${bG},${bB},0.85)`,
+            headerBorder: `rgb(${r},${g},${b})`,
+            bodyBorder: `rgb(${bR},${bG},${bB})`,
+            bodyDisabled: `rgba(${bR},${bG},${bB},0.85)`,
+            headerDisabled: `rgba(${r},${g},${b},0.95)`,
+        };
+        CanvasClipRenderer._clipColorStringCache.set(hexColor, result);
+        return result;
+    }
+
     /** Group track metadata: maps group track index → child track indices */
     private _groupTracks: Map<number, number[]> = new Map();
     /** All track colors by index (for miniature rendering). */
@@ -594,21 +621,21 @@ export class CanvasClipRenderer {
 
         const rgbBase = this._parseColor(clip.color);
         const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
+        // PERF #6: Use pre-computed color strings (avoids per-frame rgba() string creation)
+        const colorStrings = clip.muted ? null : this._getClipColorStrings(clip.color);
 
         const headerH = Math.min(HEADER_HEIGHT, h);
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
-        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 0.95)`;
+        ctx.fillStyle = colorStrings ? colorStrings.header : `rgba(${headerR},${headerG},${headerB},0.95)`;
         ctx.fillRect(x, y, w, headerH);
 
         // Crisp 1px dark divider
-        const dividerR = Math.max(0, Math.round(headerR * 0.5)), dividerG = Math.max(0, Math.round(headerG * 0.5)), dividerB = Math.max(0, Math.round(headerB * 0.5));
-        ctx.fillStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.8)`;
+        ctx.fillStyle = colorStrings ? colorStrings.divider : `rgba(${Math.max(0, Math.round(headerR * 0.5))},${Math.max(0, Math.round(headerG * 0.5))},${Math.max(0, Math.round(headerB * 0.5))},0.8)`;
         ctx.fillRect(x, y + headerH, w, 1);
 
         if (h > headerH + 1) {
             // Sleek darker body background
-            const bodyR = Math.max(0, Math.round(headerR * 0.60)), bodyG = Math.max(0, Math.round(headerG * 0.60)), bodyB = Math.max(0, Math.round(headerB * 0.60));
-            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.85)`;
+            ctx.fillStyle = colorStrings ? colorStrings.body : `rgba(${Math.max(0, Math.round(headerR * 0.60))},${Math.max(0, Math.round(headerG * 0.60))},${Math.max(0, Math.round(headerB * 0.60))},0.85)`;
             ctx.fillRect(x, y + 1 + headerH, w, h - headerH - 1);
         }
 
@@ -684,8 +711,10 @@ export class CanvasClipRenderer {
         ctx.restore();
 
         // ── Dual-color 1px inset border via stroke() ──
-        // Uses stroke on the same roundRect path → perfect rounded corners.
-        // Selected: white. Non-selected: header color (top) + body color (bottom).
+        // PERF #3: Eliminated 2× extra ctx.clip() (the most expensive Canvas 2D op).
+        // Previously: clip to header zone → stroke full roundRect, clip to body zone →
+        // stroke full roundRect. Now: two simple rect strokes within the existing
+        // main body clip from line 555. Reduces ctx.clip() from 3× to 1× per clip.
         {
             const bw = 1;
             const inset = bw / 2;
@@ -700,39 +729,31 @@ export class CanvasClipRenderer {
                 ctx.stroke();
                 ctx.restore();
             } else {
+                // PERF #6: Use pre-computed color strings for borders
                 const hdrColor = clip.muted
                     ? 'rgba(110, 115, 125, 0.8)'
-                    : (isTrackDisabled ? `rgba(${headerR}, ${headerG}, ${headerB}, 0.95)` : `rgb(${headerR}, ${headerG}, ${headerB})`);
+                    : (isTrackDisabled ? (colorStrings ? colorStrings.headerDisabled : `rgba(${headerR},${headerG},${headerB},0.95)`)
+                        : (colorStrings ? colorStrings.headerBorder : `rgb(${headerR},${headerG},${headerB})`));
                 const bR = Math.max(0, Math.round(headerR * 0.60)), bG = Math.max(0, Math.round(headerG * 0.60)), bB = Math.max(0, Math.round(headerB * 0.60));
                 const bdyColor = clip.muted
                     ? 'rgba(80, 85, 95, 0.8)'
-                    : (isTrackDisabled ? `rgba(${bR}, ${bG}, ${bB}, 0.85)` : `rgb(${bR}, ${bG}, ${bB})`);
+                    : (isTrackDisabled ? (colorStrings ? colorStrings.bodyDisabled : `rgba(${bR},${bG},${bB},0.85)`)
+                        : (colorStrings ? colorStrings.bodyBorder : `rgb(${bR},${bG},${bB})`));
 
-                // Header-zone stroke (clipped to header area)
                 ctx.save();
                 if (isTrackDisabled) ctx.globalAlpha = 0.25;
-                ctx.beginPath();
-                ctx.rect(x - 1, y - 1, w + 2, headerH + 2);
-                ctx.clip();
-                ctx.strokeStyle = hdrColor;
                 ctx.lineWidth = bw;
-                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
-                ctx.stroke();
-                ctx.restore();
 
-                // Body-zone stroke (clipped to body area)
+                // Header border — simple rect stroke (no clip needed)
+                ctx.strokeStyle = hdrColor;
+                ctx.strokeRect(x + inset, y + inset, w - bw, Math.min(headerH, h - bw));
+
+                // Body border — simple rect stroke (no clip needed)
                 if (bodyH > 0) {
-                    ctx.save();
-                    if (isTrackDisabled) ctx.globalAlpha = 0.25;
-                    ctx.beginPath();
-                    ctx.rect(x - 1, y + headerH, w + 2, h - headerH + 2);
-                    ctx.clip();
                     ctx.strokeStyle = bdyColor;
-                    ctx.lineWidth = bw;
-                    this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
-                    ctx.stroke();
-                    ctx.restore();
+                    ctx.strokeRect(x + inset, y + headerH, w - bw, h - headerH - inset);
                 }
+                ctx.restore();
             }
         }
 
@@ -985,17 +1006,27 @@ export class CanvasClipRenderer {
             ? rgba(156, 163, 173, 0.62)
             : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));
 
-        // BUG-C10 FIX: save/restore to prevent globalAlpha leak on exception.
+        // PERF #9: Batch notes by velocity bucket (8 buckets → 8 globalAlpha changes
+        // instead of N per-note changes). Visual difference is imperceptible —
+        // velocity quantized to 16-step increments.
         ctx.save();
-        for (const note of clip.midiNotes) {
-            const clampedPitch = clampMidiPitch(note.pitch);
-            const noteX = clipX + note.startBeat * ppb;
-            const noteW = Math.max(1, note.durationBeats * ppb);
-            const pitchIndexFromTop = 127 - clampedPitch;
-            const noteY = bodyY + pitchIndexFromTop * midiRowStep;
+        const VELOCITY_BUCKETS = 8;
+        const bucketSize = 128 / VELOCITY_BUCKETS; // 16
+        for (let bucket = 0; bucket < VELOCITY_BUCKETS; bucket++) {
+            const minVel = bucket * bucketSize;
+            const maxVel = minVel + bucketSize - 1;
+            const avgVel = (minVel + maxVel) / 2;
+            ctx.globalAlpha = 0.3 + (avgVel / 127) * 0.7;
 
-            ctx.globalAlpha = 0.3 + (note.velocity / 127) * 0.7;
-            ctx.fillRect(noteX, noteY, noteW, noteH);
+            for (const note of clip.midiNotes) {
+                if (note.velocity < minVel || note.velocity > maxVel) continue;
+                const clampedPitch = clampMidiPitch(note.pitch);
+                const noteX = clipX + note.startBeat * ppb;
+                const noteW = Math.max(1, note.durationBeats * ppb);
+                const pitchIndexFromTop = 127 - clampedPitch;
+                const noteY = bodyY + pitchIndexFromTop * midiRowStep;
+                ctx.fillRect(noteX, noteY, noteW, noteH);
+            }
         }
         ctx.restore();
     }
@@ -1219,6 +1250,39 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
+    // PERF #7: Pre-built fade gradient textures (created once, reused every frame)
+    private _fadeInCanvas: HTMLCanvasElement | null = null;
+    private _fadeOutCanvas: HTMLCanvasElement | null = null;
+
+    private _ensureFadeTextures(): void {
+        if (this._fadeInCanvas) return;
+        const SIZE = 256;
+
+        // Fade-in: dark→transparent
+        this._fadeInCanvas = document.createElement('canvas');
+        this._fadeInCanvas.width = SIZE;
+        this._fadeInCanvas.height = 1;
+        const ctxIn = this._fadeInCanvas.getContext('2d')!;
+        const gi = ctxIn.createLinearGradient(0, 0, SIZE, 0);
+        gi.addColorStop(0, rgba(0, 0, 0, 0.58));
+        gi.addColorStop(0.55, rgba(0, 0, 0, 0.22));
+        gi.addColorStop(1, rgba(0, 0, 0, 0));
+        ctxIn.fillStyle = gi;
+        ctxIn.fillRect(0, 0, SIZE, 1);
+
+        // Fade-out: transparent→dark
+        this._fadeOutCanvas = document.createElement('canvas');
+        this._fadeOutCanvas.width = SIZE;
+        this._fadeOutCanvas.height = 1;
+        const ctxOut = this._fadeOutCanvas.getContext('2d')!;
+        const go = ctxOut.createLinearGradient(0, 0, SIZE, 0);
+        go.addColorStop(0, rgba(0, 0, 0, 0));
+        go.addColorStop(0.45, rgba(0, 0, 0, 0.22));
+        go.addColorStop(1, rgba(0, 0, 0, 0.58));
+        ctxOut.fillStyle = go;
+        ctxOut.fillRect(0, 0, SIZE, 1);
+    }
+
     private _drawFade(
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
@@ -1230,24 +1294,15 @@ export class CanvasClipRenderer {
         const t = Math.max(0.05, Math.min(0.95, curve));
 
         // FADE-VIS: Gradient overlay opacity adapts to hover state.
-        // Always visible, but subtle when not hovered.
         const gradientAlpha = isHovered ? 1.0 : 0.55;
         const curveAlpha = isHovered ? 0.96 : 0.50;
 
+        // PERF #7: Use pre-built gradient texture instead of createLinearGradient per frame
+        this._ensureFadeTextures();
+        const tex = direction === 'in' ? this._fadeInCanvas! : this._fadeOutCanvas!;
         ctx.save();
         ctx.globalAlpha *= gradientAlpha;
-        const gradient = ctx.createLinearGradient(x, y, x + w, y);
-        if (direction === 'in') {
-            gradient.addColorStop(0, rgba(0, 0, 0, 0.58));
-            gradient.addColorStop(0.55, rgba(0, 0, 0, 0.22));
-            gradient.addColorStop(1, rgba(0, 0, 0, 0));
-        } else {
-            gradient.addColorStop(0, rgba(0, 0, 0, 0));
-            gradient.addColorStop(0.45, rgba(0, 0, 0, 0.22));
-            gradient.addColorStop(1, rgba(0, 0, 0, 0.58));
-        }
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x, y, w, h);
+        ctx.drawImage(tex, 0, 0, tex.width, 1, x, y, w, h);
         ctx.restore();
 
         // Bezier fade curve line

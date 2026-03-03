@@ -424,16 +424,32 @@ export class TimelineEngine {
     }
 
     setConfig(config: Partial<TimelineEngineConfig>): void {
-        if (config.beatsPerBar !== undefined) this._beatsPerBar = config.beatsPerBar;
-        if (config.bpm !== undefined) this._bpm = config.bpm;
-        if (config.sampleRate !== undefined) this._sampleRate = config.sampleRate;
-        if (config.snapBeats !== undefined) this._snapBeats = config.snapBeats;
-        if (config.snapEnabled !== undefined) this._snapEnabled = config.snapEnabled;
-        if (config.automationVisible !== undefined) this._automationVisible = config.automationVisible;
+        // PERF #11: Track whether any value actually changed before triggering redraw.
+        let changed = false;
+        if (config.beatsPerBar !== undefined && config.beatsPerBar !== this._beatsPerBar) {
+            this._beatsPerBar = config.beatsPerBar; changed = true;
+        }
+        if (config.bpm !== undefined && config.bpm !== this._bpm) {
+            this._bpm = config.bpm; changed = true;
+        }
+        if (config.sampleRate !== undefined && config.sampleRate !== this._sampleRate) {
+            this._sampleRate = config.sampleRate; changed = true;
+        }
+        if (config.snapBeats !== undefined && config.snapBeats !== this._snapBeats) {
+            this._snapBeats = config.snapBeats; changed = true;
+        }
+        if (config.snapEnabled !== undefined && config.snapEnabled !== this._snapEnabled) {
+            this._snapEnabled = config.snapEnabled; changed = true;
+        }
+        if (config.automationVisible !== undefined && config.automationVisible !== this._automationVisible) {
+            this._automationVisible = config.automationVisible; changed = true;
+        }
         if (config.viewport) {
             this._viewport.updateConfig(config.viewport);
+            // ViewportMatrix.updateConfig sets its own dirty flag if anything changed
+            changed = true;
         }
-        this._requestRedraw();
+        if (changed) this._requestRedraw();
     }
 
     /** Ensure a beat is visible (playhead follow). */

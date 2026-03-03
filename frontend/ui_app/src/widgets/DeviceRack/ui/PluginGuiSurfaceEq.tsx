@@ -307,15 +307,14 @@ export function PluginGuiSurfaceEq({
 }
 
 const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDragging }: { deviceId: string; eqSpectrumEnabled: boolean; isDragging: boolean }) => {
-    const [spectrumPath, setSpectrumPath] = useState<string | null>(null);
+    // ENTERPRISE: Direct DOM manipulation for spectrum path eliminates React
+    // re-render flicker. The path's `d` attribute is updated directly via ref,
+    // completely bypassing React's reconciliation cycle.
+    const pathRef = React.useRef<SVGPathElement | null>(null);
     const lastSpectrumRef = React.useRef<number[] | null>(null);
-    // ENTERPRISE: Use ref for drag state so the long-running async poll
-    // always reads the latest value without restarting the useEffect.
     const isDraggingRef = React.useRef(isDragging);
     isDraggingRef.current = isDragging;
 
-    // Enterprise: resolve track index from Zustand store for per-track spectrum.
-    // The device's id is used to find which track the EQ belongs to.
     const trackIndex = useEngineStore((s) => {
         const allIds = s.tracks.allIds;
         for (let i = 0; i < allIds.length; i++) {
@@ -330,21 +329,19 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
 
     useEffect(() => {
         if (!eqSpectrumEnabled) {
-            setSpectrumPath(null);
+            lastSpectrumRef.current = null;
+            if (pathRef.current) pathRef.current.setAttribute('d', '');
             return;
         }
         let active = true;
         let errorBackoff = 50;
+
         const poll = async () => {
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
                 while (active) {
-                    if (!active) break;
                     try {
-                        // Enterprise: per-track spectrum when track index is valid,
-                        // fallback to master spectrum otherwise.
-                        // PERF: During drag, poll at reduced rate (60ms) instead of skipping
-                        // entirely — keeps spectrum visible but avoids IPC contention.
+                        // During drag, poll at reduced rate to avoid IPC contention
                         if (isDraggingRef.current) {
                             await new Promise(r => setTimeout(r, 60));
                         }
@@ -353,21 +350,27 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
                             : await invoke<number[]>('get_spectrum_data');
                         if (!active) break;
                         errorBackoff = 50;
+
                         if (Array.isArray(data) && data.length > 0) {
                             const prev = lastSpectrumRef.current;
+                            let smoothed: number[];
                             if (prev && prev.length === data.length) {
-                                // Higher smoothing (0.82) = less flicker between frames
-                                const smoothed = data.map((v, i) => prev[i] * 0.82 + v * 0.18);
-                                lastSpectrumRef.current = smoothed;
-                                setSpectrumPath(buildSpectrumPath(smoothed));
+                                // Exponential smoothing: 0.82 = less flicker
+                                smoothed = data.map((v, i) => prev[i] * 0.82 + v * 0.18);
                             } else {
-                                lastSpectrumRef.current = data;
-                                setSpectrumPath(buildSpectrumPath(data));
+                                smoothed = data;
+                            }
+                            lastSpectrumRef.current = smoothed;
+                            // DIRECT DOM UPDATE — no React state, no re-render, no flicker
+                            const path = buildSpectrumPath(smoothed);
+                            if (pathRef.current) {
+                                pathRef.current.setAttribute('d', path);
                             }
                         } else {
                             lastSpectrumRef.current = null;
-                            setSpectrumPath(null);
+                            if (pathRef.current) pathRef.current.setAttribute('d', '');
                         }
+                        // Wait for next animation frame before polling again
                         await new Promise(r => requestAnimationFrame(r));
                     } catch (err) {
                         console.warn('[Dream] poll error (backoff):', err);
@@ -386,11 +389,16 @@ const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled, isDra
         };
     }, [eqSpectrumEnabled, trackIndex]);
 
-    if (!eqSpectrumEnabled || !spectrumPath) return null;
+    if (!eqSpectrumEnabled) return null;
 
-    // ENTERPRISE: Gradient is defined once in the parent SVG <defs> (line ~193).
-    // No duplicate <defs> here — just reference the parent's gradient by ID.
+    // Render an empty path element — its `d` attribute is updated directly by the poll loop
     return (
-        <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.72" />
+        <path
+            ref={pathRef}
+            d=""
+            fill={`url(#specGrad-${deviceId})`}
+            opacity="0.72"
+        />
     );
 });
+

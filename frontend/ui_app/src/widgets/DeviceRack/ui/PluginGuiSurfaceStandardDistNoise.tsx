@@ -37,9 +37,6 @@ export function renderStandardDistNoiseSurface(
         const title = device.effectType === 'bitcrusher'
             ? 'Bitcrusher'
             : (PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Distortion');
-        const color = device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)';
-        const drive = readSurfaceParam(device, 'drive', 0, 'dB');
-        const tone = readSurfaceParam(device, 'tone', 0, '%');
         const isAmp = title === 'Amp';
         const isCabinet = title === 'Cabinet';
         const isErosion = title === 'Erosion';
@@ -49,6 +46,77 @@ export function renderStandardDistNoiseSurface(
         const isDrumBuss = title === 'Drum Buss';
         const isDynamicTube = title === 'Dynamic Tube';
         const isBit = title === 'Bitcrusher';
+        const color = device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)';
+
+        /* ── Per-plugin meta readouts (enterprise: each plugin shows its own key params) ── */
+        const metaBlock = (() => {
+            if (isAmp) {
+                const gain = readSurfaceParam(device, 'gain', 0, 'dB');
+                const bass = readSurfaceParam(device, 'bass', 0, 'dB');
+                const treble = readSurfaceParam(device, 'treble', 0, 'dB');
+                const master = readSurfaceParam(device, 'master', 0, 'dB');
+                return (<><span>Gain {formatSurfaceParam(gain)}</span><span>Bass {formatSurfaceParam(bass)}</span><span>Treble {formatSurfaceParam(treble)}</span><span>Master {formatSurfaceParam(master)}</span></>);
+            }
+            if (isCabinet) {
+                const cabType = readSurfaceParam(device, 'type', 0, '');
+                const micPos = readSurfaceParam(device, 'mic pos', 50, '%');
+                const resonance = readSurfaceParam(device, 'resonance', 0, '%');
+                const CAB_LABELS = ['Small Combo', 'Large Combo', '4×12', 'Bass 8×10', 'Open Back'];
+                const cabLabel = CAB_LABELS[Math.round(cabType.value)] ?? 'Combo';
+                return (<><span>{cabLabel}</span><span>Mic {formatSurfaceParam(micPos)}</span><span>Res {formatSurfaceParam(resonance)}</span></>);
+            }
+            if (isErosion) {
+                const freq = readSurfaceParam(device, 'frequency', 2000, 'Hz');
+                const amount = readSurfaceParam(device, 'amount', 0, '%');
+                const width = readSurfaceParam(device, 'width', 50, '%');
+                return (<><span>Freq {formatSurfaceParam(freq)}</span><span>Amount {formatSurfaceParam(amount)}</span><span>Width {formatSurfaceParam(width)}</span></>);
+            }
+            if (isOverdrive) {
+                const drive = readSurfaceParam(device, 'drive', 0, 'dB');
+                const tone = readSurfaceParam(device, 'tone', 0, '%');
+                const bias = readSurfaceParam(device, 'bias', 0, '%');
+                return (<><span>Drive {formatSurfaceParam(drive)}</span><span>Tone {formatSurfaceParam(tone)}</span><span>Bias {formatSurfaceParam(bias)}</span></>);
+            }
+            if (isPedal) {
+                const mode = readSurfaceParam(device, 'mode', 0, '');
+                const drive = readSurfaceParam(device, 'drive', 0, '%');
+                const tone = readSurfaceParam(device, 'tone', 50, '%');
+                const PEDAL_LABELS = ['Fuzz', 'Screamer', 'Rat', 'Muff'];
+                const modeLabel = PEDAL_LABELS[Math.round(mode.value)] ?? 'Fuzz';
+                return (<><span>{modeLabel}</span><span>Drive {formatSurfaceParam(drive)}</span><span>Tone {formatSurfaceParam(tone)}</span></>);
+            }
+            if (isRoar) {
+                const character = readSurfaceParam(device, 'character', 0, '');
+                const intensity = readSurfaceParam(device, 'intensity', 40, '%');
+                const colorP = readSurfaceParam(device, 'color', 50, '%');
+                const CHAR_LABELS = ['Growl', 'Scream', 'Crush', 'Fire'];
+                const charLabel = CHAR_LABELS[Math.round(character.value)] ?? 'Growl';
+                return (<><span>{charLabel}</span><span>Intensity {formatSurfaceParam(intensity)}</span><span>Color {formatSurfaceParam(colorP)}</span></>);
+            }
+            if (isDrumBuss) {
+                const boom = readSurfaceParam(device, 'boom', 40, '%');
+                const drive = readSurfaceParam(device, 'drive', 30, '%');
+                const transient = readSurfaceParam(device, 'transient', 50, '%');
+                return (<><span>Boom {formatSurfaceParam(boom)}</span><span>Drive {formatSurfaceParam(drive)}</span><span>Trans {formatSurfaceParam(transient)}</span></>);
+            }
+            if (isDynamicTube) {
+                const drive = readSurfaceParam(device, 'drive', 40, '%');
+                const bias = readSurfaceParam(device, 'bias', 20, '%');
+                const envelope = readSurfaceParam(device, 'envelope', 50, '%');
+                return (<><span>Drive {formatSurfaceParam(drive)}</span><span>Bias {formatSurfaceParam(bias)}</span><span>Env {formatSurfaceParam(envelope)}</span></>);
+            }
+            if (isBit) {
+                const bits = readSurfaceParam(device, 'bits', 16, '');
+                const downsample = readSurfaceParam(device, 'downsample', 1, 'x');
+                const jitter = readSurfaceParam(device, 'jitter', 0, '%');
+                return (<><span>Bits {formatSurfaceParam(bits)}</span><span>↓{formatSurfaceParam(downsample)}</span><span>Jitter {formatSurfaceParam(jitter)}</span></>);
+            }
+            // Default: Distortion
+            const drive = readSurfaceParam(device, 'drive', 0, 'dB');
+            const tone = readSurfaceParam(device, 'tone', 0, '%');
+            return (<><span>Drive {formatSurfaceParam(drive)}</span><span>Tone {formatSurfaceParam(tone)}</span></>);
+        })();
+
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-distortion)' }}>
@@ -141,8 +209,7 @@ export function renderStandardDistNoiseSurface(
                             )}
                         </svg>
                         <div style={pluginPanelMetaStyle}>
-                            <span>Drive {formatSurfaceParam(drive)}</span>
-                            <span>Tone {formatSurfaceParam(tone)}</span>
+                            {metaBlock}
                         </div>
                     </div>
                     <DryWetSection device={device} handlers={handlers} accent={device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)'} show={showDryWet} />

@@ -83,9 +83,19 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{satTitle}</span>
-                        <span>Drive {formatSurfaceParam(driveParam)}</span>
-                        {satToneParam.value !== 0 && <span>Tone {formatSurfaceParam(satToneParam)}</span>}
-                        <span>Mix {formatSurfaceParam(mix)}</span>
+                        {isDrumBuss ? (<>
+                            <span>Boom {formatSurfaceParam(readSurfaceParam(device, 'boom', 40, '%'))}</span>
+                            <span>Drive {formatSurfaceParam(driveParam)}</span>
+                            <span>Trans {formatSurfaceParam(readSurfaceParam(device, 'transient', 50, '%'))}</span>
+                        </>) : isDynamicTube ? (<>
+                            <span>Drive {formatSurfaceParam(driveParam)}</span>
+                            <span>Bias {formatSurfaceParam(readSurfaceParam(device, 'bias', 20, '%'))}</span>
+                            <span>Env {formatSurfaceParam(readSurfaceParam(device, 'envelope', 50, '%'))}</span>
+                        </>) : (<>
+                            <span>Drive {formatSurfaceParam(driveParam)}</span>
+                            {satToneParam.value !== 0 && <span>Tone {formatSurfaceParam(satToneParam)}</span>}
+                            <span>Mix {formatSurfaceParam(mix)}</span>
+                        </>)}
                     </div>
                 </div>
                 <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />

@@ -525,9 +525,16 @@ impl RenderContext {
                         // for clips with ≥3 markers spanning a meaningful beat range.
                         let use_marker_interpolation = clip.warp_markers.len() >= 3
                             && {
-                                let first = clip.warp_markers.first().unwrap();
-                                let last = clip.warp_markers.last().unwrap();
-                                (last.beat_time - first.beat_time).abs() > 0.5
+                                // AUDIT-RT-04 FIX: Replaced .unwrap() with safe
+                                // pattern match — no panicking code on RT thread.
+                                if let (Some(first), Some(last)) = (
+                                    clip.warp_markers.first(),
+                                    clip.warp_markers.last(),
+                                ) {
+                                    (last.beat_time - first.beat_time).abs() > 0.5
+                                } else {
+                                    false
+                                }
                             };
 
                         let (source_start, warp_rate) = if use_marker_interpolation {
@@ -627,9 +634,16 @@ impl RenderContext {
 
                         let use_marker_interpolation = clip.warp_markers.len() >= 3
                             && {
-                                let first = clip.warp_markers.first().unwrap();
-                                let last = clip.warp_markers.last().unwrap();
-                                (last.beat_time - first.beat_time).abs() > 0.5
+                                // AUDIT-RT-04 FIX: Replaced .unwrap() with safe
+                                // pattern match — no panicking code on RT thread.
+                                if let (Some(first), Some(last)) = (
+                                    clip.warp_markers.first(),
+                                    clip.warp_markers.last(),
+                                ) {
+                                    (last.beat_time - first.beat_time).abs() > 0.5
+                                } else {
+                                    false
+                                }
                             };
 
                         let (source_start, warp_rate) = if use_marker_interpolation {

@@ -406,8 +406,10 @@ pub struct DeviceGroupSlot {
     chains: Vec<GroupChain>,
     /// Macro control knobs (up to MAX_MACROS).
     macros: [MacroState; MAX_MACROS],
-    /// Whether this group is bypassed.
+    /// Whether this group is bypassed (target state).
     bypassed: bool,
+    /// Bypass crossfade ramp: 0.0 = fully active (wet), 1.0 = fully bypassed (dry).
+    bypass_ramp: f32,
     /// Cached sample rate.
     _sample_rate: f32,
     /// Pre-allocated scratch buffers for parallel chain processing.
@@ -458,6 +460,7 @@ impl DeviceGroupSlot {
             chains: Vec::with_capacity(MAX_GROUP_CHAINS),
             macros: std::array::from_fn(|_| MacroState::default()),
             bypassed: false,
+            bypass_ramp: 0.0,
             _sample_rate: sample_rate,
             scratch_left: vec![0.0; GROUP_MAX_FRAMES],
             scratch_right: vec![0.0; GROUP_MAX_FRAMES],
@@ -542,10 +545,18 @@ impl DeviceProcessor for DeviceGroupSlot {
         _sidechain_right: Option<&[f32]>,
         context: &ProcessContext,
     ) -> ProcessResult {
-        if self.bypassed || self.chains.is_empty() {
+        let bypass_target = if self.bypassed { 1.0f32 } else { 0.0f32 };
+
+        // Fast path: fully bypassed AND ramp settled → pure passthrough.
+        if self.bypassed && (self.bypass_ramp - 1.0).abs() < 1e-6 {
             return ProcessResult::Processed;
         }
 
+        if self.chains.is_empty() {
+            return ProcessResult::Processed;
+        }
+
+        let needs_crossfade = (self.bypass_ramp - bypass_target).abs() > 1e-6;
         let n = left.len().min(right.len()).min(GROUP_MAX_FRAMES);
 
         // 1. Apply macro → child param mappings.
@@ -609,10 +620,30 @@ impl DeviceProcessor for DeviceGroupSlot {
             active_chains += 1;
         }
 
-        // 5. Write summed result to output.
+        // 5. Write result to output with bypass crossfade.
         if active_chains > 0 {
-            left[..n].copy_from_slice(&self.sum_left[..n]);
-            right[..n].copy_from_slice(&self.sum_right[..n]);
+            if needs_crossfade {
+                // ── Crossfade path: ramp between dry and wet ──
+                let ramp_time_sec = 0.005;
+                let coeff = (1.0 / (ramp_time_sec * context.sample_rate).max(1.0)).min(1.0);
+
+                for i in 0..n {
+                    self.bypass_ramp += (bypass_target - self.bypass_ramp) * coeff;
+                    let dry_mix = self.bypass_ramp;
+                    let wet_mix = 1.0 - dry_mix;
+                    left[i] = left[i] * dry_mix + self.sum_left[i] * wet_mix;
+                    right[i] = right[i] * dry_mix + self.sum_right[i] * wet_mix;
+                }
+
+                // Snap ramp to exact target (prevents IIR infinite tail).
+                if (self.bypass_ramp - bypass_target).abs() < 1e-5 {
+                    self.bypass_ramp = bypass_target;
+                }
+            } else {
+                // Fully active, ramp settled — pure wet output.
+                left[..n].copy_from_slice(&self.sum_left[..n]);
+                right[..n].copy_from_slice(&self.sum_right[..n]);
+            }
         }
         // If no chains were active, output passes through unmodified.
 
@@ -748,9 +779,16 @@ mod tests {
         group.chains[chain_idx].devices.push(Box::new(utility));
         group.set_bypass(true);
 
+        let ctx = ProcessContext::default();
+        // Warm-up: process a buffer so the bypass ramp settles to 1.0.
+        // The one-pole IIR ramp needs ~1000 samples to reach 99%.
+        let mut warmup_l = vec![1.0f32; 4096];
+        let mut warmup_r = vec![1.0f32; 4096];
+        group.process(&mut warmup_l, &mut warmup_r, None, None, &ctx);
+
+        // Now the ramp has settled — bypass should be pure passthrough.
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
-        let ctx = ProcessContext::default();
         group.process(&mut left, &mut right, None, None, &ctx);
         // Bypassed group — signal unchanged.
         assert!(left.iter().all(|s| (*s - 1.0).abs() < 0.001));

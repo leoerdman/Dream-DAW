@@ -168,10 +168,11 @@ impl PdcDelayLine {
     pub fn set_delay(&mut self, samples: usize) {
         let clamped = samples.min(self.capacity - 1);
         if clamped < samples {
-            log::warn!(
-                "[PDC] Delay {} samples exceeds capacity {} — clipped to {}",
-                samples, self.capacity, clamped
-            );
+            // AUDIT-RT-02 FIX: Replaced log::warn!() — log backend Mutex is
+            // RT-unsafe (priority inversion). Atomic counter is RT-safe.
+            static PDC_CLAMP_COUNT: std::sync::atomic::AtomicU32 =
+                std::sync::atomic::AtomicU32::new(0);
+            PDC_CLAMP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         self.delay_samples = clamped;
         self.frac_delay = 0.0;
@@ -420,16 +421,9 @@ impl GraphRenderer {
             buf.clear(self.max_frames);
         }
 
-        log::info!(
-            "[GraphRenderer] Plan updated: {} bounded nodes, {} stages, {} node-PDC (ignored), {} edge-PDC",
-            self.active_node_count,
-            plan.parallel_stages.len(),
-            plan.delay_compensation.iter().filter(|&&d| d > 0).count(),
-            plan.edge_delay_compensation
-                .iter()
-                .filter(|e| e.delay_samples > 0)
-                .count(),
-        );
+        // AUDIT-RT-03 FIX: Removed log::info!() — log backend Mutex is
+        // RT-unsafe (priority inversion on audio thread). Plan diagnostics
+        // are available via the ExecutionPlan struct returned to the caller.
     }
 
     fn configure_edge_pdc(
@@ -447,12 +441,11 @@ impl GraphRenderer {
             let src_idx = edge.from.index();
             let dst_idx = edge.to.index();
             if src_idx >= self.node_buffers.len() || dst_idx >= self.node_buffers.len() {
-                log::warn!(
-                    "[GraphRenderer] Edge {}->{} dropped: node index out of bounds (capacity={})",
-                    src_idx,
-                    dst_idx,
-                    self.node_buffers.len()
-                );
+                // AUDIT-RT-01 FIX: Replaced log::warn!() — log backend Mutex is
+                // RT-unsafe (priority inversion). Atomic counter is RT-safe.
+                static EDGE_OOB_COUNT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
+                EDGE_OOB_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 continue;
             }
 

@@ -39,6 +39,7 @@ interface UseDawShellTimelinePropsParams {
     onDoubleClickTrack: TimelineProps['onDoubleClickTrack'];
     onOpenMidiClip: TimelineProps['onOpenMidiClip'];
     onTrackSelect: TimelineProps['onTrackSelect'];
+    onClipContextMenu?: TimelineProps['onClipContextMenu'];
     followPlayhead: boolean;
     automationVisible: boolean;
     fitHorizontalToken: number;
@@ -82,6 +83,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             onDoubleClickTrack: params.onDoubleClickTrack,
             onOpenMidiClip: params.onOpenMidiClip,
             onTrackSelect: params.onTrackSelect,
+            onClipContextMenu: params.onClipContextMenu,
             followPlayhead: params.followPlayhead,
             automationVisible: params.automationVisible,
             fitHorizontalToken: params.fitHorizontalToken,
@@ -116,6 +118,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             params.onOpenMidiClip,
             params.onPlayheadChange,
             params.onTrackSelect,
+            params.onClipContextMenu,
             params.recordingActive,
             params.recordingTrackIndex,
             params.selectedClipIds,

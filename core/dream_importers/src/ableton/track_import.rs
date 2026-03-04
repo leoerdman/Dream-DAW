@@ -126,11 +126,15 @@ fn parse_audio_clip(
         clip.gain = sample_volume.clamp(0.0, 8.0) as f32;
     }
 
-    // Fades
-    let (fade_in, fade_out) =
-        super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
-    clip.fade_in_frames = fade_in;
-    clip.fade_out_frames = fade_out;
+    // Fades — ENTERPRISE FIX: parse full curve shape (skew/slope) not just lengths
+    let fade_info =
+        super::file_resolver::parse_fade_info_from_audio_clip(clip_node, bpm, sample_rate);
+    clip.fade_in_frames = fade_info.fade_in_frames;
+    clip.fade_out_frames = fade_info.fade_out_frames;
+    clip.fade_in_curve_skew = fade_info.fade_in_curve_skew;
+    clip.fade_in_curve_slope = fade_info.fade_in_curve_slope;
+    clip.fade_out_curve_skew = fade_info.fade_out_curve_skew;
+    clip.fade_out_curve_slope = fade_info.fade_out_curve_slope;
 
     // Source offset
     if let Some(start_relative_beats) = clip_node
@@ -474,9 +478,14 @@ fn import_midi_notes(
             }
 
             let velocity = (raw_velocity.clamp(1, 127)) as u8;
+            let off_velocity = note
+                .attribute("OffVelocity")
+                .and_then(parse_i64_value)
+                .map(|v| v.clamp(0, 127) as u8)
+                .unwrap_or(64);
             let start_frame = beats_to_frames(time_beats.max(0.0), bpm, sample_rate).max(0);
             let duration_frames = beats_to_frames(duration_note_beats, bpm, sample_rate).max(1);
-            clip.add_note(MidiNote::new(pitch, velocity, start_frame, duration_frames));
+            clip.add_note(MidiNote::with_off_velocity(pitch, velocity, off_velocity, start_frame, duration_frames));
         }
     }
 }

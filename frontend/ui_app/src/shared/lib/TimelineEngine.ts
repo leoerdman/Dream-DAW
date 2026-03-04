@@ -868,12 +868,25 @@ export class TimelineEngine {
 
                 let fadeHandle: 'in' | 'out' | undefined;
                 if (inFadeBody) {
-                    const handleY = fadeBody.top + 6;
+                    // ENTERPRISE: Square handles pressed to header bottom — rectangular hit test
+                    const handleSize = 5;
+                    const handleTopY = fadeBody.top; // Top of body = bottom of header
                     const inHandleX = clipLeftPx + Math.max(4, Math.min(clipWidthPx - 4, fadeInWidthPx));
                     const outHandleX = clipRightPx - Math.max(4, Math.min(clipWidthPx - 4, fadeOutWidthPx));
-                    if (Math.hypot(localX - inHandleX, localYPx - handleY) <= FADE_HANDLE_HOTSPOT_PX) {
+                    const pad = FADE_HANDLE_HOTSPOT_PX;
+                    if (
+                        localX >= inHandleX - handleSize / 2 - pad &&
+                        localX <= inHandleX + handleSize / 2 + pad &&
+                        localYPx >= handleTopY - pad &&
+                        localYPx <= handleTopY + handleSize + pad
+                    ) {
                         fadeHandle = 'in';
-                    } else if (Math.hypot(localX - outHandleX, localYPx - handleY) <= FADE_HANDLE_HOTSPOT_PX) {
+                    } else if (
+                        localX >= outHandleX - handleSize / 2 - pad &&
+                        localX <= outHandleX + handleSize / 2 + pad &&
+                        localYPx >= handleTopY - pad &&
+                        localYPx <= handleTopY + handleSize + pad
+                    ) {
                         fadeHandle = 'out';
                     }
                 }
@@ -1057,8 +1070,9 @@ export class TimelineEngine {
 
     private _getFadeBodyBounds(clipTopPx: number, trackH: number): { top: number; bottom: number } {
         const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2);
-        const bodyTop = clipTopPx + headerH + 2;
-        const bodyBottom = clipTopPx + trackH - 2;
+        // Match renderer: bodyY = y + headerH, bodyBottom = y + h
+        const bodyTop = clipTopPx + headerH;
+        const bodyBottom = clipTopPx + trackH;
         return { top: bodyTop, bottom: Math.max(bodyTop + 6, bodyBottom) };
     }
 
@@ -1298,6 +1312,23 @@ export class TimelineEngine {
                 }
                 const multipleSelected = selectedCount > 1;
                 const preserveMultiSelect = isAlreadySelected && multipleSelected && !isAdditive;
+
+                // ENTERPRISE SSOT FIX: For non-additive clicks, clear ALL engine-side
+                // selections IMMEDIATELY and mark the clicked clip selected.
+                // This eliminates the render-cycle delay that previously caused stale
+                // `clip.selected` flags (the React state round-trip via onClipClick →
+                // setSelectedClipIds → selectedClipIds prop took a full render cycle).
+                if (!isAdditive && !preserveMultiSelect) {
+                    this._clearAllClipSelections();
+                    clip.selected = true;
+                    // Keep the _clipsByTrack map in sync with the new selected state
+                    const trackClips = this._clipsByTrack.get(clip.trackIndex);
+                    if (trackClips) {
+                        const idx = trackClips.findIndex(c => c.id === clip.id);
+                        if (idx >= 0) trackClips[idx] = clip;
+                    }
+                    this._requestRedraw();
+                }
 
                 if (!preserveMultiSelect) {
                     this.onClipClick?.(hit.clipId, isShift, isCtrl);
@@ -1878,7 +1909,7 @@ export class TimelineEngine {
                     const clip = this._clipById.get(this._drag.clipId);
                     if (!clip) break;
                     const durationFrames = Math.max(1, this._clipDurationFrames(clip));
-                    const maxFadeFrames = Math.round(durationFrames * 0.5);
+                    const maxFadeFrames = durationFrames;
                     const fadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeIn ?? 0) * durationFrames)));
                     const fadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeOut ?? 0) * durationFrames)));
                     const prevFadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeIn ?? 0) * durationFrames)));
@@ -2022,7 +2053,7 @@ export class TimelineEngine {
                             if (hit.fadeHandle === 'in') clip.fadeIn = 0;
                             else clip.fadeOut = 0;
                             const durationFrames = Math.max(1, this._clipDurationFrames(clip));
-                            const maxFadeFrames = Math.round(durationFrames * 0.5);
+                            const maxFadeFrames = durationFrames;
                             const fadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeIn ?? 0) * durationFrames)));
                             const fadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeOut ?? 0) * durationFrames)));
                             this.onClipFades?.(clip.id, fadeInFrames, fadeOutFrames);
@@ -2137,7 +2168,7 @@ export class TimelineEngine {
     }
 
     private _clampFadeFraction(value: number): number {
-        return Math.max(0, Math.min(0.5, value));
+        return Math.max(0, Math.min(1.0, value));
     }
 
     private _clipDurationFrames(clip: TimelineClipData): number {

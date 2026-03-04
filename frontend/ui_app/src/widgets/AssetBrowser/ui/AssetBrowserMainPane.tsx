@@ -159,12 +159,14 @@ const mainPaneStyle: React.CSSProperties = {
 const filtersToolbarStyle: React.CSSProperties = {
     gridRow: 1,
     display: 'flex',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     alignItems: 'center',
     gap: 4,
     padding: 'var(--space-1) var(--space-1-5)',
     background: 'var(--color-bg-header)',
-    overflow: 'hidden',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    minHeight: 28,
 };
 
 const pluginActionButtonStyle: React.CSSProperties = {

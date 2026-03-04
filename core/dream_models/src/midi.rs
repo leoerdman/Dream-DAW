@@ -35,11 +35,20 @@ pub struct MidiNote {
     /// Note velocity (1–127). 0 = note-off.
     pub velocity: u8,
 
+    /// Note-off velocity (0–127). Default is 64.
+    /// Used by some synths to control release behavior.
+    #[serde(default = "default_off_velocity")]
+    pub off_velocity: u8,
+
     /// Start position relative to clip start (in sample frames).
     pub start_frame: i64,
 
     /// Duration in sample frames.
     pub duration_frames: i64,
+}
+
+fn default_off_velocity() -> u8 {
+    64
 }
 
 impl MidiNote {
@@ -49,6 +58,24 @@ impl MidiNote {
             pitch: pitch.min(127),
             // BUG-028 FIX: Allow velocity 0 — MIDI spec uses velocity=0 as note-off.
             velocity: velocity.min(127),
+            off_velocity: 64,
+            start_frame,
+            duration_frames: duration_frames.max(1),
+        }
+    }
+
+    /// Creates a new MIDI note with explicit off_velocity.
+    pub fn with_off_velocity(
+        pitch: u8,
+        velocity: u8,
+        off_velocity: u8,
+        start_frame: i64,
+        duration_frames: i64,
+    ) -> Self {
+        Self {
+            pitch: pitch.min(127),
+            velocity: velocity.min(127),
+            off_velocity: off_velocity.min(127),
             start_frame,
             duration_frames: duration_frames.max(1),
         }

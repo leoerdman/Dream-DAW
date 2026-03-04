@@ -886,24 +886,64 @@ fn normalize_file_uri(raw: &str) -> Option<String> {
 
 // ── Fade Frame Parsing ─────────────────────────────────────────────────
 
-/// Parses fade-in and fade-out frame durations from an audio clip XML node.
+/// Parsed fade info including length and curve shape.
+pub struct FadeInfo {
+    pub fade_in_frames: i64,
+    pub fade_out_frames: i64,
+    pub fade_in_curve_skew: f64,
+    pub fade_in_curve_slope: f64,
+    pub fade_out_curve_skew: f64,
+    pub fade_out_curve_slope: f64,
+}
+
+/// Parses fade-in and fade-out info from an audio clip XML node.
+/// Returns frame durations AND curve shape parameters for high-fidelity import.
+pub fn parse_fade_info_from_audio_clip(
+    clip_node: roxmltree::Node<'_, '_>,
+    bpm: f64,
+    sample_rate: f64,
+) -> FadeInfo {
+    let fades = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Fades"));
+    let Some(fades) = fades else {
+        return FadeInfo {
+            fade_in_frames: 0,
+            fade_out_frames: 0,
+            fade_in_curve_skew: 0.0,
+            fade_in_curve_slope: 0.0,
+            fade_out_curve_skew: 0.0,
+            fade_out_curve_slope: 0.0,
+        };
+    };
+    let fade_in_beats = first_child_f64(fades, "FadeInLength").unwrap_or(0.0);
+    let fade_out_beats = first_child_f64(fades, "FadeOutLength").unwrap_or(0.0);
+    FadeInfo {
+        fade_in_frames: beats_to_frames(fade_in_beats, bpm, sample_rate),
+        fade_out_frames: beats_to_frames(fade_out_beats, bpm, sample_rate),
+        fade_in_curve_skew: first_child_f64(fades, "FadeInCurveSkew")
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0),
+        fade_in_curve_slope: first_child_f64(fades, "FadeInCurveSlope")
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0),
+        fade_out_curve_skew: first_child_f64(fades, "FadeOutCurveSkew")
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0),
+        fade_out_curve_slope: first_child_f64(fades, "FadeOutCurveSlope")
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0),
+    }
+}
+
+/// Legacy wrapper: Parses fade-in and fade-out frame durations from an audio clip XML node.
 pub fn parse_fade_frames_from_audio_clip(
     clip_node: roxmltree::Node<'_, '_>,
     bpm: f64,
     sample_rate: f64,
 ) -> (i64, i64) {
-    let fades = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Fades"));
-    let Some(fades) = fades else {
-        return (0, 0);
-    };
-    let fade_in_beats = first_child_f64(fades, "FadeInLength").unwrap_or(0.0);
-    let fade_out_beats = first_child_f64(fades, "FadeOutLength").unwrap_or(0.0);
-    (
-        beats_to_frames(fade_in_beats, bpm, sample_rate),
-        beats_to_frames(fade_out_beats, bpm, sample_rate),
-    )
+    let info = parse_fade_info_from_audio_clip(clip_node, bpm, sample_rate);
+    (info.fade_in_frames, info.fade_out_frames)
 }
 
 /// Copies clip source files to `<project>/Samples/Imported` and rewrites

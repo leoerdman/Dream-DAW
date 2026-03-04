@@ -45,6 +45,8 @@ export function useTimelineClipSync({
             durationBeats: c.durationBeats,
             type: c.type,
             color: c.color,
+            // SSOT: Engine's setClips() carries over selection from internal state.
+            // We pass selected: false here — the engine overwrites it with oldClip.selected.
             selected: false,
             filePath: c.filePath,
             durationSamples: c.durationSamples,
@@ -59,13 +61,10 @@ export function useTimelineClipSync({
             pitchShiftSemitones: c.pitchShiftSemitones,
             midiNotes: c.midiNotes,
         }));
-        // BUG-C02 FIX: Apply selection directly to clipData before setClips
-        // to prevent 1-frame deselection flicker between setClips/setClipSelection.
-        const selectedSet = new Set(selectedClipIdsRef.current);
-        for (const cd of clipData) {
-            cd.selected = selectedSet.has(cd.id);
-        }
         engine.setClips(clipData);
+        // SSOT: setClipSelection ensures the engine's selection state matches React's
+        // selectedClipIds. This is needed because setClips carries over OLD selection
+        // from the engine, but React may have changed selectedClipIds independently.
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates, selectedClipIdsRef]);
 

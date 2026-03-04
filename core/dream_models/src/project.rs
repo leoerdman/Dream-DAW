@@ -1039,6 +1039,24 @@ pub struct AudioClip {
     #[serde(default)]
     pub fade_out_frames: i64,
 
+    /// Fade-in curve skew (-1.0 to 1.0, 0.0 = symmetric).
+    /// Controls asymmetry of the fade curve shape.
+    #[serde(default)]
+    pub fade_in_curve_skew: f64,
+
+    /// Fade-in curve slope (-1.0 to 1.0, 0.0 = linear).
+    /// Negative = concave (logarithmic), positive = convex (exponential).
+    #[serde(default)]
+    pub fade_in_curve_slope: f64,
+
+    /// Fade-out curve skew (-1.0 to 1.0, 0.0 = symmetric).
+    #[serde(default)]
+    pub fade_out_curve_skew: f64,
+
+    /// Fade-out curve slope (-1.0 to 1.0, 0.0 = linear).
+    #[serde(default)]
+    pub fade_out_curve_slope: f64,
+
     /// Whether source media is currently missing on disk.
     #[serde(default)]
     pub is_offline: bool,
@@ -1192,6 +1210,10 @@ impl AudioClip {
             gain: 1.0,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            fade_in_curve_skew: 0.0,
+            fade_in_curve_slope: 0.0,
+            fade_out_curve_skew: 0.0,
+            fade_out_curve_slope: 0.0,
             is_offline: false,
             is_selected: false,
             is_disabled: false,

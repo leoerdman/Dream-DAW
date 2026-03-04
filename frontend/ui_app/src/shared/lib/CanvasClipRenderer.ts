@@ -10,7 +10,7 @@ import {
     CLIP_RADIUS,
     DROP_TARGET_BORDER,
     DROP_TARGET_COLOR,
-    FADE_GRAB_RADIUS,
+
     GHOST_CLIP_ALPHA,
     HEADER_HEIGHT,
     hex,
@@ -726,9 +726,11 @@ export class CanvasClipRenderer {
         ctx.restore();
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
-            const handleY = bodyY + 6;
-            const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
-            const fadeOutWidth = w * Math.max(0, Math.min(0.5, clip.fadeOut ?? 0));
+            // ENTERPRISE: Square handles pressed against header bottom
+            const handleSize = 5;
+            const handleY = bodyY; // Top of body = bottom of header
+            const fadeInWidth = w * Math.max(0, Math.min(1.0, clip.fadeIn ?? 0));
+            const fadeOutWidth = w * Math.max(0, Math.min(1.0, clip.fadeOut ?? 0));
             const leftX = x + Math.max(4, Math.min(w - 4, fadeInWidth));
             const rightX = x + w - Math.max(4, Math.min(w - 4, fadeOutWidth));
 
@@ -738,15 +740,13 @@ export class CanvasClipRenderer {
             ctx.strokeStyle = rgba(0, 0, 0, 0.65);
             ctx.lineWidth = 1;
 
-            ctx.beginPath();
-            ctx.arc(leftX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
+            // Fade-in handle: square pressed to header
+            ctx.fillRect(leftX - handleSize / 2, handleY, handleSize, handleSize);
+            ctx.strokeRect(leftX - handleSize / 2, handleY, handleSize, handleSize);
 
-            ctx.beginPath();
-            ctx.arc(rightX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
+            // Fade-out handle: square pressed to header
+            ctx.fillRect(rightX - handleSize / 2, handleY, handleSize, handleSize);
+            ctx.strokeRect(rightX - handleSize / 2, handleY, handleSize, handleSize);
 
             const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
             const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
@@ -1183,10 +1183,9 @@ export class CanvasClipRenderer {
         return result;
     }
 
-    private _toMutedGray(rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
-        const luma = Math.round(rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722);
-        const gray = Math.max(78, Math.min(168, luma));
-        return { r: gray, g: gray, b: gray };
+    private _toMutedGray(_rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+        // ENTERPRISE: All muted clips use the same fixed gray — no color-dependent variation
+        return { r: 120, g: 120, b: 120 };
     }
 
     private _drawOfflineStripes(
@@ -1271,10 +1270,11 @@ export class CanvasClipRenderer {
         const endY = direction === 'in' ? y : y + h;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
         const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
-        ctx.strokeStyle = rgba(255, 193, 92, curveAlpha);
+        // ENTERPRISE: White fade line (was yellow)
+        ctx.strokeStyle = rgba(255, 255, 255, curveAlpha);
         if (isHovered) {
-            ctx.shadowColor = rgba(255, 190, 85, 0.32);
-            ctx.shadowBlur = 3;
+            ctx.shadowColor = rgba(255, 255, 255, 0.25);
+            ctx.shadowBlur = 2;
         }
         ctx.lineWidth = isHovered ? 1.5 : 1.0;
         ctx.beginPath();
@@ -1354,15 +1354,15 @@ export class CanvasClipRenderer {
             const groupY = rulerH + vp.trackOffsetY(groupIdx) - vp.scrollY;
             if (groupY + trackH < rulerH || groupY > vpH) continue;
 
-            const paddingTop = 3;
-            const paddingBottom = 2;
+            // ENTERPRISE: Miniatures start from very top, min 4px per lane
+            const paddingTop = 0;
+            const paddingBottom = 0;
             const usableH = trackH - paddingTop - paddingBottom;
-            if (usableH < 2) continue;
+            if (usableH < 4) continue;
 
-            const laneH = Math.max(2, Math.floor(usableH / childCount));
+            const laneH = Math.max(4, Math.floor(usableH / childCount));
             const laneGap = childCount > 1 ? 1 : 0;
-            const totalLaneH = laneH * childCount + laneGap * (childCount - 1);
-            const laneStartY = groupY + paddingTop + Math.max(0, (usableH - totalLaneH) >> 1);
+            const laneStartY = groupY + paddingTop;
 
             ctx.save();
             ctx.beginPath();

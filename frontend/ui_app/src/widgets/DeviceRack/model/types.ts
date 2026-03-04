@@ -1,5 +1,7 @@
 import type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
+import type { RackInfo } from '@/shared/lib/trackAdapter';
 export type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
+export type { RackInfo } from '@/shared/lib/trackAdapter';
 
 export type DeviceEffectType =
     | 'eq'
@@ -58,6 +60,8 @@ export interface DeviceSlot {
     supportsSidechain?: boolean;
     sidechainSourceTrackId?: string | null;
     guiMode?: string;
+    /** Present only when this slot represents a device rack. */
+    rack?: RackInfo;
 }
 
 export type QuickPreset = {

@@ -220,6 +220,24 @@ export function DeviceNodeHeader({
             >
                 {pluginFormat}
             </span>
+            {device.rack && (
+                <span
+                    style={{
+                        fontSize: 7,
+                        fontWeight: 800,
+                        color: device.rack.rack_type === 'Instrument' ? '#e066aa'
+                            : device.rack.rack_type === 'DrumRack' ? '#f0a040'
+                                : device.rack.rack_type === 'MidiEffect' ? '#40d0c0'
+                                    : '#50b8e0',
+                        flexShrink: 0,
+                        letterSpacing: '0.05em',
+                        lineHeight: 1,
+                        textAlign: 'center',
+                    }}
+                >
+                    {device.rack.chains.length}ch
+                </span>
+            )}
         </div>
     );
 }

@@ -39,6 +39,23 @@ pub fn build_main_track_mixer_snapshot(
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
         })
+        // ENTERPRISE FIX: Fall back to DeviceChain > Mixer.
+        // Ableton Live 12 uses DeviceChain, not InsertEffectsChain.
+        .or_else(|| {
+            main_track_node
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+                .and_then(|dc| {
+                    dc.children()
+                        .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+                })
+        })
+        // Last resort: search anywhere under this track node
+        .or_else(|| {
+            main_track_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+        })
     {
         let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
         let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
@@ -288,6 +305,26 @@ pub fn build_pointee_map_with(
         .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
+                .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+        })
+        // ENTERPRISE FIX: Fall back to DeviceChain > Mixer.
+        // ALL tracks in Ableton Live 12 (and most Live 11 projects) use
+        // DeviceChain rather than InsertEffectsChain. Without this fallback,
+        // ALL mixer automation PointeeId mappings (Volume, Pan, Sends, On,
+        // Speaker, Solo, Arm) are lost → param_ids become "unknown:NNNN".
+        .or_else(|| {
+            track_node
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+                .and_then(|dc| {
+                    dc.children()
+                        .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+                })
+        })
+        // Last resort: search anywhere under this track node
+        .or_else(|| {
+            track_node
+                .descendants()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
         });
 

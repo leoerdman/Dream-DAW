@@ -55,6 +55,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipFades,
         onDropBrowserItem,
         onClipFadeCurves,
+        onClipContextMenu,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -152,6 +153,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipFades,
         onDropBrowserItem,
         onClipFadeCurves,
+        onClipContextMenu,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -168,6 +170,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipFades,
         onDropBrowserItem,
         onClipFadeCurves,
+        onClipContextMenu,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -315,11 +318,10 @@ export const Timeline = (props: TimelineProps) => {
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
     }, [fitHorizontalToken, beatsPerBar, engineRef, propsRef, hasPendingRestore]);
-    useEffect(() => {
-        const engine = engineRef.current;
-        if (!engine) return;
-        engine.setClipSelection(selectedClipIds);
-    }, [selectedClipIds, engineRef]);
+    // SSOT FIX: setClipSelection is already called by useTimelineClipSync.
+    // A separate effect here was a SECOND source of truth — it raced with
+    // useTimelineClipSync and could overwrite marquee-computed partial ranges
+    // with full-clip ranges. Removed to maintain single source of truth.
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;

@@ -260,6 +260,37 @@ pub fn resolve_als_file_path_cached(
         return Some(found);
     }
 
+    // ── Tier 1.5: Ableton app path rewriting ──
+    // When a project references e.g. /Applications/Ableton Live 12 Beta.app/Contents/...
+    // but the user has the release version, rewrite to try all known app bundles.
+    if let Some(abs) = absolute_path
+        && abs.contains("/Applications/Ableton Live ")
+        && abs.contains(".app/Contents/")
+    {
+        // Extract the suffix after ".app/" (e.g. "Contents/App-Resources/Builtin/Devices/...")
+        if let Some(app_suffix_pos) = abs.find(".app/") {
+            let suffix = &abs[app_suffix_pos + 5..]; // skip ".app/"
+            // Try to extract the version number
+            let after_live = &abs[abs.find("Ableton Live ").unwrap() + 13..app_suffix_pos];
+            // Parse out the major version number (e.g. "12 Beta" → 12, "12" → 12)
+            let major_ver = after_live.split_whitespace().next()
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(12);
+
+            let variants = [
+                format!("/Applications/Ableton Live {}.app/{}", major_ver, suffix),
+                format!("/Applications/Ableton Live {} Suite.app/{}", major_ver, suffix),
+                format!("/Applications/Ableton Live {} Beta.app/{}", major_ver, suffix),
+                format!("/Applications/Ableton Live {} Suite Beta.app/{}", major_ver, suffix),
+            ];
+            for variant in &variants {
+                if let Some(found) = try_existing_variants(variant) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
     // ── Tier 2: Relative path joined with ALS parent ──
     if let Some(rel) = relative_path
         && !rel.trim().is_empty()
@@ -455,15 +486,38 @@ fn search_ableton_library(file_name: &str) -> Option<String> {
     for ver in 9..=13 {
         let suite = format!("Ableton Live {} Suite.app", ver);
         let standard = format!("Ableton Live {}.app", ver);
-        // Application bundle resources
-        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources/Core Library", suite)));
-        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources/Core Library", standard)));
-        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources", suite)));
-        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources", standard)));
+        let beta = format!("Ableton Live {} Beta.app", ver);
+        let suite_beta = format!("Ableton Live {} Suite Beta.app", ver);
+        // Application bundle resources (Release, Suite, Beta, Suite Beta)
+        for app_name in [&suite, &standard, &beta, &suite_beta] {
+            library_dirs.push(PathBuf::from(format!(
+                "/Applications/{}/Contents/App-Resources/Core Library",
+                app_name
+            )));
+            library_dirs.push(PathBuf::from(format!(
+                "/Applications/{}/Contents/App-Resources",
+                app_name
+            )));
+        }
         // User-installed Packs
         library_dirs.push(home.join(format!("Music/Ableton/Live {}/User Library/Samples", ver)));
         library_dirs.push(home.join(format!("Music/Ableton/Live {}/User Library", ver)));
         library_dirs.push(home.join(format!("Library/Application Support/Ableton/Live {}", ver)));
+    }
+
+    // ── Dynamic scan for minor version directories (Live 12.3, Live 12.3.5, etc.) ──
+    // Ableton stores support files under ~/Library/Application Support/Ableton/Live X.Y.Z/
+    let ableton_support = home.join("Library/Application Support/Ableton");
+    if ableton_support.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&ableton_support) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("Live ") && entry.path().is_dir() {
+                    library_dirs.push(entry.path());
+                }
+            }
+        }
     }
 
     // ── Ableton Packs download cache ──

@@ -68,6 +68,15 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                         if (!logic.contextMenu?.trackId) return;
                         logic.handlePaintClipsWithTrackColor(logic.contextMenu.trackId);
                     }}
+                    isGroupTrack={(() => {
+                        if (!logic.contextMenu?.trackId) return false;
+                        const ctxTrack = logic.tracks.find((t) => t.id === logic.contextMenu?.trackId);
+                        return !!ctxTrack && ctxTrack.type === 'group';
+                    })()}
+                    onPaintGroupColor={() => {
+                        if (!logic.contextMenu?.trackId) return;
+                        logic.handlePaintGroupColor(logic.contextMenu.trackId);
+                    }}
                     onDismiss={dismissAll}
                 />
             )}

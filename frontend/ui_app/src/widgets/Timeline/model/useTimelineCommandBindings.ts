@@ -16,6 +16,7 @@ type TimelineCallbacks = {
     onClipFades?: TimelineProps['onClipFades'];
     onDropBrowserItem?: TimelineProps['onDropBrowserItem'];
     onClipFadeCurves?: TimelineProps['onClipFadeCurves'];
+    onClipContextMenu?: TimelineProps['onClipContextMenu'];
     onDoubleClickTrack?: TimelineProps['onDoubleClickTrack'];
     onOpenMidiClip?: TimelineProps['onOpenMidiClip'];
     onTrackSelect?: TimelineProps['onTrackSelect'];
@@ -162,6 +163,7 @@ export function useTimelineEngineCommandBindings({
         engine.onClipDuplicate = (clipId, newBeat, newTrack) => commandBusRef.current.emit({ type: 'clip-duplicate', clipId, beat: newBeat, trackIndex: newTrack });
         engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
         engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
+        engine.onClipContextMenu = (clipId, beat, trackIndex, clientX, clientY) => callbacksRef.current.onClipContextMenu?.(clipId, beat, trackIndex, clientX, clientY);
         engine.onClipBoxSelection = (clipIds) => commandBusRef.current.emit({ type: 'clip-selection', clipIds });
         engine.onClipResize = (clipId, newStartBeat, newDuration, allowStretch) => {
             commandBusRef.current.emit({ type: 'clip-resize', clipId, startBeat: newStartBeat, duration: newDuration, allowStretch });

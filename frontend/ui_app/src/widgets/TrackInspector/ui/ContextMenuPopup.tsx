@@ -15,6 +15,8 @@ export type ContextMenuPopupProps = {
     onDelete: () => void;
     onChangeColor: () => void;
     onPaintClips: () => void;
+    isGroupTrack: boolean;
+    onPaintGroupColor: () => void;
     onDismiss: () => void;
 };
 
@@ -32,6 +34,8 @@ export const ContextMenuPopup = ({
     onDelete,
     onChangeColor,
     onPaintClips,
+    isGroupTrack,
+    onPaintGroupColor,
     onDismiss,
 }: ContextMenuPopupProps) => {
     const ref = useRef<HTMLDivElement>(null);
@@ -133,6 +137,13 @@ export const ContextMenuPopup = ({
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🖌</span> Paint Clips As Track
                     </button>
+                    {isGroupTrack && (
+                        <button style={itemStyle} onClick={onPaintGroupColor}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Paint Children to Group Color
+                        </button>
+                    )}
                     <button style={itemStyle} onClick={onGroup}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>

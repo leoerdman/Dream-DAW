@@ -795,6 +795,21 @@ impl ExternalPluginIndex {
                 push_unique("khs haas".to_string());
                 push_unique("haas".to_string());
             }
+            if key.contains("ring") {
+                push_unique("khs ring mod".to_string());
+                push_unique("ring mod".to_string());
+            }
+            if key.contains("reverb") {
+                push_unique("khs reverb".to_string());
+            }
+            if key.contains("trance") || key.contains("gate") {
+                push_unique("khs trance gate".to_string());
+                push_unique("trance gate".to_string());
+            }
+            if key.contains("frequency") {
+                push_unique("khs frequency shifter".to_string());
+                push_unique("frequency shifter".to_string());
+            }
         }
         // ── Valhalla DSP aliases ──
         if key.contains("valhalla") {
@@ -810,6 +825,30 @@ impl ExternalPluginIndex {
             push_unique("soothe2".to_string());
             push_unique("soothe 2".to_string());
             push_unique("soothe".to_string());
+        }
+        // ── Serum / Xfer aliases (557 instances across 54 projects) ──
+        if key.contains("serum") {
+            push_unique("serum 2".to_string());
+            push_unique("serum".to_string());
+            push_unique("xfer serum".to_string());
+            push_unique("xfer records serum".to_string());
+        }
+        // ── ShaperBox / Cableguys aliases (73 instances) ──
+        if key.contains("shaperbox") || key.contains("shaper box") {
+            push_unique("shaperbox 3".to_string());
+            push_unique("shaperbox3".to_string());
+            push_unique("shaperbox".to_string());
+            push_unique("cableguys shaperbox 3".to_string());
+        }
+        if key.contains("cableguys") {
+            push_unique(key.replace("cableguys ", ""));
+        }
+        // ── LFO plugin aliases (33 instances) ──
+        if key == "lfo" || key.contains("lfo tool") {
+            push_unique("lfo".to_string());
+            push_unique("lfo tool".to_string());
+            push_unique("lfotool".to_string());
+            push_unique("cableguys lfotool".to_string());
         }
         // ── iZotope aliases ──
         if key.contains("izotope") {
@@ -829,6 +868,17 @@ impl ExternalPluginIndex {
         if key.contains("mwave") || key.contains("melda") {
             push_unique("mwaveshaper".to_string());
             push_unique("mwave shaper".to_string());
+        }
+        // ── Voxengo SPAN aliases (55 instances) ──
+        if key.contains("span") || key.contains("voxengo") {
+            push_unique("span".to_string());
+            push_unique("voxengo span".to_string());
+        }
+        // ── FabFilter Saturn aliases (4 instances) ──
+        if key.contains("saturn") {
+            push_unique("saturn 2".to_string());
+            push_unique("fabfilter saturn 2".to_string());
+            push_unique("saturn".to_string());
         }
         // ── Slate Digital / others ──
         if key.contains("fresh air") {

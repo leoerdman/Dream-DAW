@@ -2,7 +2,6 @@ import { clamp01 } from '@/shared/lib/audioMath';
 export const HEADER_HEIGHT = 20;
 export const CLIP_RADIUS = 0;
 export const FADE_GRAB_RADIUS = 3;
-export const SELECTION_BORDER_WIDTH = 2;
 
 export const rgba = (r: number, g: number, b: number, a: number): string => `rgba(${r}, ${g}, ${b}, ${a})`;
 export const hex = (r: number, g: number, b: number): string =>

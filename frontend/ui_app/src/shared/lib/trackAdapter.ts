@@ -12,6 +12,10 @@
 
 import type { TrackColor } from '@bindings/TrackColor';
 import type { DeviceNode } from '@bindings/DeviceNode';
+import type { DeviceRack } from '@bindings/DeviceRack';
+import type { RackChain } from '@bindings/RackChain';
+import type { MacroControl } from '@bindings/MacroControl';
+import type { RackType } from '@bindings/RackType';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 import type { FlowSynthConfig } from '@bindings/FlowSynthConfig';
 import { clamp01 } from '@/shared/lib/audioMath';
@@ -57,6 +61,28 @@ export function resolveTrackColor(color: unknown): string {
 
 // ── Flat effect/instrument shape for UI consumption ──────────────────────
 
+/** Summary of a single chain inside a rack (for UI rendering). */
+export interface RackChainSummary {
+    id: string;
+    name: string;
+    deviceCount: number;
+    deviceNames: string[];
+    volume: number;
+    pan: number;
+    is_solo: boolean;
+    is_disabled: boolean;
+}
+
+/** Rack metadata attached to a FlatPluginSlot when the DeviceNode is a Rack. */
+export interface RackInfo {
+    rack_type: RackType;
+    chains: RackChainSummary[];
+    macro_controls: MacroControl[];
+    is_expanded: boolean;
+    /** Full chain data for deep rendering (contains nested DeviceNodes). */
+    raw_chains: RackChain[];
+}
+
 export interface FlatPluginSlot {
     id: string;
     name: string;
@@ -64,11 +90,43 @@ export interface FlatPluginSlot {
     is_bypassed: boolean;
     supports_sidechain_input?: boolean;
     sidechain_source_track_id?: string | null;
+    /** Present only when this slot represents a device rack. */
+    rack?: RackInfo;
 }
+
+/** Build a short summary of a RackChain for UI display. */
+function summarizeChain(chain: RackChain): RackChainSummary {
+    const deviceNames: string[] = [];
+    for (const dev of chain.devices ?? []) {
+        if (dev.type === 'Single') {
+            deviceNames.push((dev as unknown as { name?: string }).name ?? 'Device');
+        } else if (dev.type === 'Rack') {
+            deviceNames.push((dev as unknown as DeviceRack).name ?? 'Rack');
+        }
+    }
+    return {
+        id: chain.id ?? '',
+        name: chain.name ?? '',
+        deviceCount: (chain.devices ?? []).length,
+        deviceNames,
+        volume: chain.volume ?? 1.0,
+        pan: chain.pan ?? 0.0,
+        is_solo: Boolean(chain.is_solo),
+        is_disabled: Boolean(chain.is_disabled),
+    };
+}
+
+const RACK_TYPE_LABELS: Record<RackType, string> = {
+    Instrument: 'Instrument Rack',
+    AudioEffect: 'Audio Effect Rack',
+    DrumRack: 'Drum Rack',
+    MidiEffect: 'MIDI Effect Rack',
+};
 
 /**
  * Flatten a DeviceNode (tagged union: Single | Rack) into a flat plugin slot.
- * For rack types, returns null (racks are rendered separately).
+ * ENTERPRISE FIX: Rack DeviceNodes are now included with full rack metadata
+ * instead of being silently dropped.
  */
 function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
     if (node.type === 'Single') {
@@ -81,7 +139,22 @@ function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
             sidechain_source_track_id: node.sidechain_source_track_id ?? null,
         };
     }
-    return null;
+    // Rack DeviceNode — preserve full rack structure for UI rendering.
+    const rack = node as unknown as DeviceRack;
+    const rackType = rack.rack_type ?? 'AudioEffect';
+    return {
+        id: rack.id ?? '',
+        name: rack.name || RACK_TYPE_LABELS[rackType] || 'Rack',
+        plugin_id: `internal://rack/${rackType.toLowerCase()}`,
+        is_bypassed: Boolean(rack.is_bypassed ?? false),
+        rack: {
+            rack_type: rackType,
+            chains: (rack.chains ?? []).map(summarizeChain),
+            macro_controls: rack.macro_controls ?? [],
+            is_expanded: Boolean(rack.is_expanded ?? true),
+            raw_chains: rack.chains ?? [],
+        },
+    };
 }
 
 // ── Sampler shape for UI (subset of SamplerConfig for backward compat) ──

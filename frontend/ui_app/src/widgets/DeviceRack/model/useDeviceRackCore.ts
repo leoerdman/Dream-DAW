@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { DeviceSlot } from '../model/types';
+import type { RackInfo } from '../model/types';
 import { getInternalPluginById, normalizeInternalPluginId, waveformIndexFromSamplePath } from '@/shared/lib/internalPlugins';
 import { getEffectTypeByPluginId } from '@/shared/config/pluginManifest';
 import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
@@ -23,6 +24,8 @@ type DeviceNodeModel = {
     sampleRackConfig?: SampleRackConfig;
     sample_rack?: SampleRackConfig;
     sampler_config?: { sample_path?: string };
+    /** ENTERPRISE: Rack metadata from trackAdapter (present when device is a rack). */
+    rack?: RackInfo;
 };
 type SelectedTrackModel = {
     id: string;
@@ -40,6 +43,8 @@ function isDeviceSlotEqual(a: DeviceSlot, b: DeviceSlot): boolean {
     if (a.id !== b.id || a.isBypassed !== b.isBypassed || a.isEnabled !== b.isEnabled) return false;
     if (a.name !== b.name || a.pluginId !== b.pluginId || a.effectType !== b.effectType) return false;
     if (a.samplePath !== b.samplePath || a.supportsSidechain !== b.supportsSidechain || a.sidechainSourceTrackId !== b.sidechainSourceTrackId) return false;
+    // ENTERPRISE: Rack data — bypass/chain changes must invalidate the cached slot.
+    if (a.rack !== b.rack) return false;
     if (a.params.length !== b.params.length) return false;
     for (let i = 0; i < a.params.length; i++) {
         if (a.params[i].name !== b.params[i].name || Math.abs(a.params[i].value - b.params[i].value) > 1e-6) return false;
@@ -284,6 +289,8 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 vuLevel: isEnabled ? outLevel : 0,
                 vuLevelL: isEnabled ? outLevelL : 0,
                 vuLevelR: isEnabled ? outLevelR : 0,
+                // ENTERPRISE: Preserve rack metadata for UI rendering.
+                rack: (node as DeviceNodeModel).rack,
             };
 
             const prevSlot = prevSlotsRef.current[id];

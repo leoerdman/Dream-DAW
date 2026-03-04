@@ -121,6 +121,21 @@ export function resolvePlugin(
         };
     }
 
+    // ENTERPRISE: Rack plugin IDs from trackAdapter (e.g. 'internal://rack/instrument').
+    if (pluginId.startsWith('internal://rack/')) {
+        const effectType = 'rack' as DeviceEffectType;
+        return {
+            effectType,
+            format: 'INT' as PluginFormat,
+            hasEditor: false,
+            cardWidth: EFFECT_TYPE_DEFAULT_WIDTHS[effectType] ?? 720,
+            supportsSettings: false,
+            supportsSidechain: false,
+            category: isInstrumentSlot ? 'instrument' as PluginCategory : 'effect' as PluginCategory,
+            displayName: name,
+        };
+    }
+
     const format = source === 'internal' ? 'INT' as PluginFormat : detectFormat(pluginId);
     const isVstFormat = format === 'VST2' || format === 'VST3' || format === 'AU';
     const effectType = detectExternalEffectType(name, isInstrumentSlot);

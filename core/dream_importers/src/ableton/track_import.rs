@@ -454,12 +454,27 @@ fn import_midi_notes(
                 .attribute("Duration")
                 .and_then(parse_f64_value)
                 .unwrap_or(0.0);
-            let velocity = note
+
+            // Skip zero/negative duration notes — these are Ableton glitch
+            // artifacts (69 found across 54 real projects). A note with 0 beats
+            // duration is inaudible and would become a 1-sample artifact.
+            if duration_note_beats <= 0.0 {
+                continue;
+            }
+
+            let raw_velocity = note
                 .attribute("Velocity")
                 .and_then(parse_i64_value)
-                .map(|v| v.clamp(1, 127) as u8)
                 .unwrap_or(100);
-            let start_frame = beats_to_frames(time_beats, bpm, sample_rate).max(0);
+
+            // Skip zero velocity notes (47 found across 54 real projects).
+            // MIDI velocity 0 is "note off" per the MIDI spec.
+            if raw_velocity <= 0 {
+                continue;
+            }
+
+            let velocity = (raw_velocity.clamp(1, 127)) as u8;
+            let start_frame = beats_to_frames(time_beats.max(0.0), bpm, sample_rate).max(0);
             let duration_frames = beats_to_frames(duration_note_beats, bpm, sample_rate).max(1);
             clip.add_note(MidiNote::new(pitch, velocity, start_frame, duration_frames));
         }

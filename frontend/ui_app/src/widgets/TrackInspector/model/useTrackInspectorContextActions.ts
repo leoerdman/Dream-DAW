@@ -195,18 +195,24 @@ export function useTrackInspectorContextActions({
     const handleGroupTrack = useCallback((trackId: string) => {
         // Capture source track color before group creation
         const sourceTrack = tracks.find((t) => t.id === trackId);
-        // ENTERPRISE: Always use a valid hex color — fallback if color is falsy or CSS var
-        const sourceColor = sourceTrack?.color && sourceTrack.color.startsWith('#') ? sourceTrack.color : '#808080';
+        const rawColor = sourceTrack?.color ?? '';
+        // ENTERPRISE: Accept hex colors (both uppercase and lowercase), fallback for CSS vars or empty
+        const sourceColor = rawColor.match(/^#[0-9a-fA-F]{6}$/i) ? rawColor : '#808080';
+        console.info('[Dream] groupTrack: trackId=%s rawColor=%s sourceColor=%s', trackId, rawColor, sourceColor);
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');
             // ENTERPRISE: Inherit the source track's color on the newly created group
             if (response.group_id) {
                 try {
+                    console.info('[Dream] groupTrack: setting group %s color to %s', response.group_id, sourceColor);
                     const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
                     await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
+                    console.info('[Dream] groupTrack: color inheritance applied successfully');
                 } catch (err) {
                     console.warn('[Dream] group color inherit failed:', err);
                 }
+            } else {
+                console.warn('[Dream] groupTrack: no group_id in response', response);
             }
         }).catch((err) => {
             console.error('[Dream] createGroup failed:', err);

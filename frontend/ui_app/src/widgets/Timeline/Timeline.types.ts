@@ -31,6 +31,7 @@ export interface TimelineProps {
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
+    onClipContextMenu?: (clipId: string, beat: number, trackIndex: number, clientX: number, clientY: number) => void;
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;

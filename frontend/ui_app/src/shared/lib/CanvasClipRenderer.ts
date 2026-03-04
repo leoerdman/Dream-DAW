@@ -222,7 +222,7 @@ export class CanvasClipRenderer {
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
         this._drawMarquee(ctx, vp, marquee);
-        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible, marquee !== null);
+        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
         this._drawGroupMiniatures(ctx, vp, clips, range);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
@@ -498,7 +498,6 @@ export class CanvasClipRenderer {
         range: VisibleRange,
         sampleRate: number,
         automationVisible: boolean,
-        marqueeActive: boolean,
     ): void {
         const bufferBeats = 2;
         // ── P5: Reuse pre-allocated buffer instead of filter() ──
@@ -527,7 +526,7 @@ export class CanvasClipRenderer {
         }
 
         for (const clip of filtered) {
-            this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible, marqueeActive);
+            this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible);
         }
     }
 
@@ -537,7 +536,6 @@ export class CanvasClipRenderer {
         clip: TimelineClipData,
         sampleRate: number,
         automationVisible: boolean,
-        marqueeActive: boolean,
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
@@ -660,9 +658,7 @@ export class CanvasClipRenderer {
         }
 
         // ── Ableton-style selection highlight: fill selected body region with light blue ──
-        // Skip during active marquee drag — the marquee fill (drawn behind) already
-        // tints the body; drawing both creates double-tint.
-        if (clip.selected && !isTrackDisabled && !marqueeActive) {
+        if (clip.selected && !isTrackDisabled) {
             const selStartRel = clip.selectionStartBeat ?? 0;
             const selEndRel = clip.selectionEndBeat ?? clip.durationBeats;
             const ppbLocal = vp.pixelsPerBeat;

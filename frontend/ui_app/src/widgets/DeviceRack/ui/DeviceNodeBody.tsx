@@ -67,6 +67,182 @@ export const DeviceNodeBody = React.memo(({
         ? (QUICK_PRESETS_BY_EFFECT[device.effectType] ?? [])
         : [];
 
+    // ── ENTERPRISE: Rack body — show chain list, macros, and structure ──
+    if (device.rack) {
+        const rack = device.rack;
+        const rackColors: Record<string, string> = {
+            Instrument: '#e066aa',
+            DrumRack: '#f0a040',
+            MidiEffect: '#40d0c0',
+            AudioEffect: '#50b8e0',
+        };
+        const accent = rackColors[rack.rack_type] ?? '#50b8e0';
+        const rackLabels: Record<string, string> = {
+            Instrument: 'Instrument Rack',
+            DrumRack: 'Drum Rack',
+            MidiEffect: 'MIDI Effect Rack',
+            AudioEffect: 'Audio Effect Rack',
+        };
+
+        return (
+            <div
+                data-no-drag
+                style={{
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 0,
+                    overflow: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0,
+                    padding: 'var(--space-1-5)',
+                }}
+            >
+                {/* Rack type label */}
+                <div style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: accent,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    marginBottom: 4,
+                    paddingBottom: 3,
+                    borderBottom: `1px solid ${accent}33`,
+                }}>
+                    {rackLabels[rack.rack_type] ?? 'Rack'} · {rack.chains.length} chain{rack.chains.length !== 1 ? 's' : ''}
+                </div>
+
+                {/* Chains */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {rack.chains.map((chain, chainIdx) => (
+                        <div
+                            key={chain.id || chainIdx}
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 1,
+                                padding: '3px 4px',
+                                borderRadius: 3,
+                                background: chain.is_disabled
+                                    ? 'rgba(255,255,255,0.02)'
+                                    : 'rgba(255,255,255,0.04)',
+                                opacity: chain.is_disabled ? 0.45 : 1,
+                            }}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: chain.is_solo
+                                    ? '#ffc040'
+                                    : 'var(--color-text-secondary)',
+                            }}>
+                                {chain.is_solo && <span style={{ fontSize: 7, color: '#ffc040' }}>S</span>}
+                                {chain.is_disabled && <span style={{ fontSize: 7, color: '#ff6060' }}>M</span>}
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {chain.name || `Chain ${String.fromCharCode(65 + chainIdx)}`}
+                                </span>
+                                <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                                    {chain.deviceCount}
+                                </span>
+                            </div>
+                            {/* Device names within chain */}
+                            {chain.deviceNames.length > 0 && (
+                                <div style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: '2px 6px',
+                                    paddingLeft: 8,
+                                }}>
+                                    {chain.deviceNames.map((devName, devIdx) => (
+                                        <span
+                                            key={devIdx}
+                                            style={{
+                                                fontSize: 8,
+                                                color: 'var(--color-text-tertiary)',
+                                                letterSpacing: '0.02em',
+                                            }}
+                                        >
+                                            {devName}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Macro controls summary */}
+                {rack.macro_controls.length > 0 && (
+                    <div style={{
+                        marginTop: 6,
+                        paddingTop: 4,
+                        borderTop: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                        <div style={{
+                            fontSize: 8,
+                            fontWeight: 600,
+                            color: 'var(--color-text-tertiary)',
+                            letterSpacing: '0.05em',
+                            textTransform: 'uppercase',
+                            marginBottom: 3,
+                        }}>
+                            Macros
+                        </div>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))',
+                            gap: '2px 4px',
+                        }}>
+                            {rack.macro_controls
+                                .filter(mc => mc.name !== `Macro ${mc.index + 1}` || mc.value !== 0)
+                                .slice(0, 16)
+                                .map((mc) => (
+                                    <div
+                                        key={mc.index}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            fontSize: 8,
+                                            color: 'var(--color-text-secondary)',
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 24,
+                                            height: 3,
+                                            borderRadius: 1.5,
+                                            background: 'rgba(255,255,255,0.08)',
+                                            position: 'relative',
+                                            overflow: 'hidden',
+                                        }}>
+                                            <div style={{
+                                                width: `${Math.min(100, (mc.value / 127) * 100)}%`,
+                                                height: '100%',
+                                                borderRadius: 1.5,
+                                                background: accent,
+                                                opacity: 0.7,
+                                            }} />
+                                        </div>
+                                        <span style={{
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            flex: 1,
+                                        }}>
+                                            {mc.name}
+                                        </span>
+                                    </div>
+                                ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     const settingsPanel = (
         <Suspense fallback={null}>
             <PluginSettingsPanelLazy

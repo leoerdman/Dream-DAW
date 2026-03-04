@@ -74,6 +74,11 @@ export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlo
     'internal://midi-fx/random': 'midiRandom',
     // BUG-37 FIX: Arpeggiator has its own type with rate/pattern/octaves — not Random.
     'internal://midi-fx/arpeggiator': 'midiArpeggiator',
+    // ENTERPRISE: Rack plugin IDs from trackAdapter rack flattening.
+    'internal://rack/instrument': 'rack',
+    'internal://rack/audioeffect': 'rack',
+    'internal://rack/drumrack': 'rack',
+    'internal://rack/midieffect': 'rack',
 };
 
 export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<

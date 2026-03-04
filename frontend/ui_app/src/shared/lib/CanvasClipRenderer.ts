@@ -25,8 +25,6 @@ import {
     FADE_CURVE_HANDLE_FILL,
     FADE_CURVE_HANDLE_STROKE,
     FADE_CURVE_POINT_RADIUS,
-    FADE_GRADIENT_OPACITY_FULL,
-    FADE_GRADIENT_OPACITY_MID,
     FADE_HANDLE_EDGE_PAD,
     FADE_HANDLE_SIZE,
 
@@ -1021,8 +1019,35 @@ export class CanvasClipRenderer {
         if (!clip.midiNotes || clip.midiNotes.length === 0) return;
 
         const ppb = vp.pixelsPerBeat;
-        const midiRowStep = bodyH / 128;
-        const noteH = Math.max(1, midiRowStep);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTERPRISE: Pitch-range normalization (Ableton-style).
+        //
+        // Instead of mapping all 128 MIDI values across bodyH (which makes
+        // notes invisible on small tracks), compute the actual min/max pitch
+        // range and map notes to fill the entire body area.
+        //
+        // A single-octave bass line and a full-range piano passage both
+        // produce clearly visible note bars at any zoom level.
+        // ═══════════════════════════════════════════════════════════════════
+        let pitchMin = 127;
+        let pitchMax = 0;
+        for (const note of clip.midiNotes) {
+            const p = clampMidiPitch(note.pitch);
+            if (p < pitchMin) pitchMin = p;
+            if (p > pitchMax) pitchMax = p;
+        }
+
+        // Pad range by ±1 so single-pitch clips don't collapse to zero height,
+        // and notes have visual breathing room at the edges.
+        pitchMin = Math.max(0, pitchMin - 1);
+        pitchMax = Math.min(127, pitchMax + 1);
+        const pitchRange = Math.max(1, pitchMax - pitchMin);
+
+        // Note height: fill body proportionally to the pitch range,
+        // but always at least 1px visible.
+        const midiRowStep = bodyH / (pitchRange + 1);
+        const noteH = Math.max(1, Math.min(midiRowStep, bodyH * 0.15));
 
         const contrastColor = this._getContrastColorCached(clip.color);
         ctx.fillStyle = muted
@@ -1046,8 +1071,9 @@ export class CanvasClipRenderer {
                 const clampedPitch = clampMidiPitch(note.pitch);
                 const noteX = clipX + note.startBeat * ppb;
                 const noteW = Math.max(1, note.durationBeats * ppb);
-                const pitchIndexFromTop = MIDI_MAX_VALUE - clampedPitch;
-                const noteY = bodyY + pitchIndexFromTop * midiRowStep;
+                // Map pitch to normalized range: highest pitch at top, lowest at bottom
+                const pitchIndexFromTop = pitchMax - clampedPitch;
+                const noteY = bodyY + (pitchIndexFromTop / pitchRange) * (bodyH - noteH);
                 ctx.fillRect(noteX, noteY, noteW, noteH);
             }
         }

@@ -19,8 +19,8 @@ export const AUTOMATION_DIM_ALPHA = 0.55; // SSOT: Alpha when clips are dimmed f
 export const MUTED_WAVEFORM_FILL_ALPHA = 0.55; // SSOT: Waveform fill alpha when clip is muted
 
 // ── Rendering thresholds (px) ──
-export const SMALL_CLIP_THRESHOLD_PX = 4; // Clips narrower than this get simplified rendering
-export const MIN_WAVEFORM_BODY_PX = 8; // Minimum body height to render waveform/MIDI
+export const SMALL_CLIP_THRESHOLD_PX = 2; // Clips narrower than this get simplified rendering
+export const MIN_WAVEFORM_BODY_PX = 3; // Minimum body height to render waveform/MIDI
 export const MIN_FADE_UI_WIDTH_PX = 14; // Minimum clip width to show fade handles
 export const MIN_FADE_UI_BODY_PX = 10; // Minimum body height to show fade handles
 export const MIN_FADE_WIDTH_PX = 8; // SSOT: Minimum rendered fade width in px (engine hit test + renderer)

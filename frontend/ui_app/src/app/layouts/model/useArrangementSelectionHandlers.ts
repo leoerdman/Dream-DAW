@@ -66,20 +66,12 @@ export function useArrangementSelectionHandlers({
         setMarqueeSelection(null);
     }, [setMarqueeSelection, setSelectedClipIds]);
 
-    const handleClipSelect = useCallback((clipId: string, isShift: boolean = false, isCtrl: boolean = false) => {
-        setSelectedClipIds((prev) => {
-            if (isCtrl) {
-                if (prev.includes(clipId)) {
-                    return prev.filter((id) => id !== clipId);
-                }
-                return [...prev, clipId];
-            }
-            if (isShift) {
-                if (prev.includes(clipId)) return prev;
-                return [...prev, clipId];
-            }
-            return [clipId];
-        });
+    const handleClipSelect = useCallback((clipId: string, _isShift: boolean = false, _isCtrl: boolean = false) => {
+        // SSOT FIX: Shift/ctrl logic is handled exclusively in
+        // useTimelineCommandBusBindings (clip-select handler). This function
+        // is only called via onClipSelect (plain single-click path).
+        // The shift/ctrl args are unused but kept in signature for API compat.
+        setSelectedClipIds([clipId]);
 
         const clip = timelineClipsForView.find((item) => item.id === clipId);
         if (clip) {

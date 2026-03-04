@@ -10,6 +10,7 @@ import {
     CLIP_RADIUS,
     DROP_TARGET_BORDER,
     DROP_TARGET_COLOR,
+    FADE_HANDLE_SIZE,
 
     GHOST_CLIP_ALPHA,
     HEADER_HEIGHT,
@@ -32,7 +33,7 @@ export class CanvasClipRenderer {
 
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
-    private _waveformStyle: 'default' | 'classic' = 'default';
+    private _waveformStyle: 'default' | 'classic' | 'colored' = 'default';
 
     // (removed: _editCursorPlacedMs / _prevEditCursorBeat — replaced by quantized blink P4)
 
@@ -81,6 +82,10 @@ export class CanvasClipRenderer {
     private _trackColors: Map<number, string> = new Map();
     /** PERF: Set of all child track indices across all groups — for O(1) membership check. */
     private _groupChildSet: Set<number> = new Set();
+    /** PERF: Reusable Set for miniature child track membership check (avoids per-frame alloc). */
+    private _miniChildTrackSet: Set<number> = new Set();
+    /** PERF: Reusable Map for miniature per-track clip index (avoids per-frame alloc). */
+    private _miniClipsByTrack: Map<number, TimelineClipData[]> = new Map();
 
 
 
@@ -169,7 +174,7 @@ export class CanvasClipRenderer {
             trackDivider: s.getPropertyValue('--color-border-subtle').trim() || rgba(255, 255, 255, 0.08),
         };
         // BUG-061 FIX: Cache waveformStyle here (max 1x/sec) instead of per-clip in _drawWaveform
-        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic';
+        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic' | 'colored';
         this._lastThemeSync = now;
     }
 
@@ -622,7 +627,7 @@ export class CanvasClipRenderer {
         // PERF #6: Use pre-computed color strings (avoids per-frame rgba() string creation)
         const colorStrings = clip.muted ? null : this._getClipColorStrings(clip.color);
 
-        const headerH = Math.min(HEADER_HEIGHT, h);
+        const headerH = Math.min(HEADER_HEIGHT, h - 2); // SSOT: matches engine's Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2)
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
         ctx.fillStyle = colorStrings ? colorStrings.header : `rgba(${headerR},${headerG},${headerB},0.95)`;
         ctx.fillRect(x, y, w, headerH);
@@ -727,7 +732,6 @@ export class CanvasClipRenderer {
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             // ENTERPRISE: Square handles pressed against header bottom
-            const handleSize = 5;
             const handleY = bodyY; // Top of body = bottom of header
             const fadeInWidth = w * Math.max(0, Math.min(1.0, clip.fadeIn ?? 0));
             const fadeOutWidth = w * Math.max(0, Math.min(1.0, clip.fadeOut ?? 0));
@@ -741,12 +745,12 @@ export class CanvasClipRenderer {
             ctx.lineWidth = 1;
 
             // Fade-in handle: square pressed to header
-            ctx.fillRect(leftX - handleSize / 2, handleY, handleSize, handleSize);
-            ctx.strokeRect(leftX - handleSize / 2, handleY, handleSize, handleSize);
+            ctx.fillRect(leftX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
+            ctx.strokeRect(leftX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
 
             // Fade-out handle: square pressed to header
-            ctx.fillRect(rightX - handleSize / 2, handleY, handleSize, handleSize);
-            ctx.strokeRect(rightX - handleSize / 2, handleY, handleSize, handleSize);
+            ctx.fillRect(rightX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
+            ctx.strokeRect(rightX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
 
             const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
             const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
@@ -888,19 +892,31 @@ export class CanvasClipRenderer {
         // ── Choose fill style ────────────────────────────────────────────
         const contrastColor = this._getContrastColorCached(clip.color);
 
-        if (this._waveformStyle === 'classic') {
+        if (this._waveformStyle === 'colored') {
+            // ENTERPRISE: Colored waveform — use the clip's own color for waveform fill
+            const rgb = this._parseColor(clip.color);
+            if (muted) {
+                ctx.fillStyle = rgba(120, 120, 120, 0.55);
+            } else {
+                // Bright, saturated version of clip color for the waveform
+                const boost = 40;
+                const r = Math.min(255, rgb.r + boost);
+                const g = Math.min(255, rgb.g + boost);
+                const b = Math.min(255, rgb.b + boost);
+                ctx.fillStyle = rgba(r, g, b, 0.82);
+            }
+        } else if (this._waveformStyle === 'classic') {
             ctx.fillStyle = muted
                 ? rgba(40, 44, 52, 0.4)
-                : (clip.selected ? rgba(0, 0, 0, 0.85) : rgba(0, 0, 0, 0.65));
+                : rgba(0, 0, 0, 0.65);
         } else {
+            // 'default' style — contrast-based black/white
             if (muted) {
-                ctx.fillStyle = clip.selected
-                    ? rgba(186, 192, 202, 0.72)
-                    : rgba(162, 168, 178, 0.62);
+                ctx.fillStyle = rgba(162, 168, 178, 0.62);
             } else {
                 ctx.fillStyle = contrastColor === 'black'
-                    ? (clip.selected ? rgba(0, 0, 0, 0.76) : rgba(0, 0, 0, 0.62))
-                    : (clip.selected ? rgba(255, 255, 255, 0.9) : rgba(255, 255, 255, 0.72));
+                    ? rgba(0, 0, 0, 0.62)
+                    : rgba(255, 255, 255, 0.72);
             }
         }
 
@@ -938,7 +954,12 @@ export class CanvasClipRenderer {
         }
 
         // ── Center line ──────────────────────────────────────────────────
-        if (this._waveformStyle === 'classic') {
+        if (this._waveformStyle === 'colored') {
+            const rgb = this._parseColor(clip.color);
+            ctx.strokeStyle = muted
+                ? rgba(120, 120, 120, 0.25)
+                : rgba(rgb.r, rgb.g, rgb.b, 0.3);
+        } else if (this._waveformStyle === 'classic') {
             ctx.strokeStyle = muted
                 ? rgba(40, 44, 52, 0.2)
                 : rgba(0, 0, 0, 0.25);
@@ -1106,7 +1127,8 @@ export class CanvasClipRenderer {
         const y1 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY);
         const y2 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY);
 
-        ctx.fillStyle = rgba(100, 160, 255, 0.18);
+        // SSOT: Use SELECTION_HIGHLIGHT_COLOR for marquee fill (same as clip highlight)
+        ctx.fillStyle = SELECTION_HIGHLIGHT_COLOR;
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
     }
 
@@ -1183,9 +1205,10 @@ export class CanvasClipRenderer {
         return result;
     }
 
+    // ENTERPRISE: Static muted gray — avoids per-call object allocation
+    private static readonly _MUTED_GRAY = { r: 120, g: 120, b: 120 };
     private _toMutedGray(_rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
-        // ENTERPRISE: All muted clips use the same fixed gray — no color-dependent variation
-        return { r: 120, g: 120, b: 120 };
+        return CanvasClipRenderer._MUTED_GRAY;
     }
 
     private _drawOfflineStripes(
@@ -1327,21 +1350,19 @@ export class CanvasClipRenderer {
         const rangeStart = range.startBeat - bufferBeats;
         const rangeEnd = range.endBeat + bufferBeats;
 
-        // ENTERPRISE PERF: Build per-track clip index in O(N) once,
-        // instead of scanning all clips for each child lane (was O(childCount × N)).
-        // For 71 tracks × 1412 clips = ~100K iterations → now ~1412.
-        const childTrackSet = new Set<number>();
+        // ENTERPRISE PERF: Reusable Set+Map — cleared each frame instead of allocating new ones.
+        this._miniChildTrackSet.clear();
         for (const [, childIndices] of this._groupTracks) {
-            for (const idx of childIndices) childTrackSet.add(idx);
+            for (const idx of childIndices) this._miniChildTrackSet.add(idx);
         }
-        const clipsByTrack = new Map<number, TimelineClipData[]>();
+        this._miniClipsByTrack.clear();
         for (let k = 0, len = clips.length; k < len; k++) {
             const clip = clips[k];
-            if (!childTrackSet.has(clip.trackIndex)) continue;
+            if (!this._miniChildTrackSet.has(clip.trackIndex)) continue;
             const clipEnd = clip.startBeat + clip.durationBeats;
             if (clipEnd < rangeStart || clip.startBeat > rangeEnd) continue;
-            let arr = clipsByTrack.get(clip.trackIndex);
-            if (!arr) { arr = []; clipsByTrack.set(clip.trackIndex, arr); }
+            let arr = this._miniClipsByTrack.get(clip.trackIndex);
+            if (!arr) { arr = []; this._miniClipsByTrack.set(clip.trackIndex, arr); }
             arr.push(clip);
         }
 
@@ -1360,8 +1381,9 @@ export class CanvasClipRenderer {
             const usableH = trackH - paddingTop - paddingBottom;
             if (usableH < 4) continue;
 
-            const laneH = Math.max(4, Math.floor(usableH / childCount));
             const laneGap = childCount > 1 ? 1 : 0;
+            const totalGap = laneGap * (childCount - 1);
+            const laneH2 = Math.max(4, Math.floor((usableH - totalGap) / childCount));
             const laneStartY = groupY + paddingTop;
 
             ctx.save();
@@ -1371,8 +1393,8 @@ export class CanvasClipRenderer {
 
             for (let ci = 0; ci < childCount; ci++) {
                 const childIdx = childIndices[ci];
-                const laneY = laneStartY + ci * (laneH + laneGap);
-                const trackClips = clipsByTrack.get(childIdx);
+                const laneY = laneStartY + ci * (laneH2 + laneGap);
+                const trackClips = this._miniClipsByTrack.get(childIdx);
                 if (!trackClips) continue;
 
                 for (let k = 0, len = trackClips.length; k < len; k++) {
@@ -1391,9 +1413,9 @@ export class CanvasClipRenderer {
                             : 0.375;
 
                     ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
-                    ctx.fillRect(x, laneY, w, laneH);
+                    ctx.fillRect(x, laneY, w, laneH2);
 
-                    if (laneH >= 3) {
+                    if (laneH2 >= 3) {
                         ctx.fillStyle = `rgba(${Math.min(255, rgb.r + 40)},${Math.min(255, rgb.g + 40)},${Math.min(255, rgb.b + 40)},${alpha * 0.6})`;
                         ctx.fillRect(x, laneY, w, 1);
                     }

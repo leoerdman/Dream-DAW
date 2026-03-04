@@ -51,6 +51,10 @@ fn default_off_velocity() -> u8 {
     64
 }
 
+fn default_follow_loop_iters() -> i32 {
+    1
+}
+
 impl MidiNote {
     /// Creates a new MIDI note.
     pub fn new(pitch: u8, velocity: u8, start_frame: i64, duration_frames: i64) -> Self {
@@ -215,6 +219,22 @@ pub struct MidiClip {
     #[serde(default)]
     pub follow_chance_b: f64,
 
+    /// Follow action jump index A (which slot to jump to).
+    #[serde(default)]
+    pub follow_jump_index_a: i32,
+
+    /// Follow action jump index B.
+    #[serde(default)]
+    pub follow_jump_index_b: i32,
+
+    /// Follow action loop iterations before triggering.
+    #[serde(default = "default_follow_loop_iters")]
+    pub follow_loop_iterations: i32,
+
+    /// Follow action linked to clip length.
+    #[serde(default)]
+    pub follow_is_linked: bool,
+
     /// Whether clip is marked in-key (`IsInKey`).
     #[serde(default)]
     pub is_in_key: bool,
@@ -297,6 +317,10 @@ impl MidiClip {
             follow_action_b: 0,
             follow_chance_a: 0.0,
             follow_chance_b: 0.0,
+            follow_jump_index_a: 1,
+            follow_jump_index_b: 1,
+            follow_loop_iterations: 1,
+            follow_is_linked: true,
             is_in_key: false,
             scale_root: None,
             scale_name: None,

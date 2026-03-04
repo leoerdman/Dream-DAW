@@ -44,23 +44,52 @@ pub fn parse_clip_scale_info(
     (is_in_key, scale_root, scale_name)
 }
 
+/// Parsed follow action data.
+pub struct FollowActionInfo {
+    pub enabled: bool,
+    pub time: f64,
+    pub action_a: i32,
+    pub action_b: i32,
+    pub chance_a: f64,
+    pub chance_b: f64,
+    pub jump_index_a: i32,
+    pub jump_index_b: i32,
+    pub loop_iterations: i32,
+    pub is_linked: bool,
+}
+
 pub fn parse_clip_follow_action(
     clip_node: roxmltree::Node<'_, '_>,
-) -> (bool, f64, i32, i32, f64, f64) {
+) -> FollowActionInfo {
     let follow = clip_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("FollowAction"));
     let Some(follow) = follow else {
-        return (false, 0.0, 0, 0, 0.0, 0.0);
+        return FollowActionInfo {
+            enabled: false,
+            time: 0.0,
+            action_a: 0,
+            action_b: 0,
+            chance_a: 0.0,
+            chance_b: 0.0,
+            jump_index_a: 1,
+            jump_index_b: 1,
+            loop_iterations: 1,
+            is_linked: true,
+        };
     };
-    (
-        first_child_bool(follow, "FollowActionEnabled").unwrap_or(false),
-        first_child_f64(follow, "FollowTime").unwrap_or(0.0),
-        first_child_i32(follow, "FollowActionA").unwrap_or(0),
-        first_child_i32(follow, "FollowActionB").unwrap_or(0),
-        first_child_f64(follow, "FollowChanceA").unwrap_or(0.0),
-        first_child_f64(follow, "FollowChanceB").unwrap_or(0.0),
-    )
+    FollowActionInfo {
+        enabled: first_child_bool(follow, "FollowActionEnabled").unwrap_or(false),
+        time: first_child_f64(follow, "FollowTime").unwrap_or(0.0),
+        action_a: first_child_i32(follow, "FollowActionA").unwrap_or(0),
+        action_b: first_child_i32(follow, "FollowActionB").unwrap_or(0),
+        chance_a: first_child_f64(follow, "FollowChanceA").unwrap_or(0.0),
+        chance_b: first_child_f64(follow, "FollowChanceB").unwrap_or(0.0),
+        jump_index_a: first_child_i32(follow, "JumpIndexA").unwrap_or(1),
+        jump_index_b: first_child_i32(follow, "JumpIndexB").unwrap_or(1),
+        loop_iterations: first_child_i32(follow, "LoopIterations").unwrap_or(1),
+        is_linked: first_child_bool(follow, "IsLinked").unwrap_or(true),
+    }
 }
 
 pub fn parse_clip_groove(clip_node: roxmltree::Node<'_, '_>) -> (Option<String>, f64) {

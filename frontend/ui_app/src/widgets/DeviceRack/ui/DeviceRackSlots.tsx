@@ -10,10 +10,12 @@ export function DeviceSlot({
     device,
     deviceIndex,
     logic,
+    onContextMenu,
 }: {
     device: DeviceSlotModel;
     deviceIndex: number;
     logic: DeviceRackLogicOutput;
+    onContextMenu?: (e: React.MouseEvent, device: DeviceSlotModel) => void;
 }) {
     const { selectedTrack } = logic;
     // BUG-49 FIX: Memoize effectIds and effectIdSet to prevent recreation every render.
@@ -79,6 +81,7 @@ export function DeviceSlot({
                 deviceIndex={deviceIndex}
                 canReorder={canReorderThisDevice}
                 isSelected={logic.selectedDeviceIds.includes(device.id)}
+                onContextMenu={onContextMenu ? (e) => onContextMenu(e, device) : undefined}
                 editorSupported={logic.pluginCapability[device.id]?.supported ?? true}
                 editorReason={logic.pluginCapability[device.id]?.reason}
                 runtimeStatus={logic.pluginRuntimeBySlot[device.id]}

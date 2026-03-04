@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import * as engineApi from '@/shared/api/engine';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
+import type { DeviceSlot as DeviceSlotModel } from '@/widgets/DeviceRack/model/types';
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots';
+import { DeviceContextMenuPopup } from '@/widgets/DeviceRack/ui/DeviceContextMenuPopup';
 
 interface DeviceRackContentProps {
     logic: DeviceRackLogicOutput;
@@ -23,6 +26,8 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
         selectDevice,
         statusClear,
     } = logic;
+
+    const [deviceContextMenu, setDeviceContextMenu] = useState<{ device: DeviceSlotModel; x: number; y: number } | null>(null);
 
     const selectedDeviceId = selectedDeviceIds[0] ?? '';
     const pluginDragName = draggingItem?.type === 'plugin' ? draggingItem.name : '';
@@ -80,6 +85,9 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                             device={device}
                             deviceIndex={deviceIndex}
                             logic={logic}
+                            onContextMenu={(e, dev) => {
+                                setDeviceContextMenu({ device: dev, x: e.clientX, y: e.clientY });
+                            }}
                         />
                     ))
                 ) : (
@@ -145,6 +153,33 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                 >
                     Drop Plugin: {pluginDragName}
                 </div>
+            )}
+            {deviceContextMenu && (
+                <DeviceContextMenuPopup
+                    x={deviceContextMenu.x}
+                    y={deviceContextMenu.y}
+                    deviceId={deviceContextMenu.device.id}
+                    deviceName={deviceContextMenu.device.name}
+                    isEnabled={deviceContextMenu.device.isEnabled}
+                    onGroup={() => {
+                        // TODO: Implement wrap-in-rack via backend API when available
+                        console.log('[Dream] Group device into rack:', deviceContextMenu.device.id);
+                        setDeviceContextMenu(null);
+                    }}
+                    onBypass={() => {
+                        logic.toggleDevice(deviceContextMenu.device);
+                        setDeviceContextMenu(null);
+                    }}
+                    onDelete={() => {
+                        if (!selectedTrack) { setDeviceContextMenu(null); return; }
+                        void engineApi
+                            .removePluginFromTrackWithDeltas(selectedTrack.id, deviceContextMenu.device.id)
+                            .then((res) => logic.applyProjectDeltas(res.deltas, 'device-rack:remove-device-ctx'))
+                            .catch((err) => console.error('[Dream] removePlugin via context menu failed:', err));
+                        setDeviceContextMenu(null);
+                    }}
+                    onDismiss={() => setDeviceContextMenu(null)}
+                />
             )}
         </div>
     );

@@ -108,6 +108,22 @@ follow_chance_a: number,
  */
 follow_chance_b: number, 
 /**
+ * Follow action jump index A (which slot to jump to).
+ */
+follow_jump_index_a: number, 
+/**
+ * Follow action jump index B.
+ */
+follow_jump_index_b: number, 
+/**
+ * Follow action loop iterations before triggering.
+ */
+follow_loop_iterations: number, 
+/**
+ * Follow action linked to clip length.
+ */
+follow_is_linked: boolean, 
+/**
  * Whether clip is marked in-key (`IsInKey`).
  */
 is_in_key: boolean, 

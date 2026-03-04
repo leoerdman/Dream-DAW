@@ -1,6 +1,7 @@
 import { clamp01 } from '@/shared/lib/audioMath';
-export const HEADER_HEIGHT = 20;
+export const HEADER_HEIGHT = 22; // SSOT: Must match CLIP_HEADER_HEIGHT_PX in TimelineEngine.types.ts
 export const CLIP_RADIUS = 0;
+export const FADE_HANDLE_SIZE = 5; // SSOT: Square handle side length (px), used in renderer + engine hit test
 
 export const rgba = (r: number, g: number, b: number, a: number): string => `rgba(${r}, ${g}, ${b}, ${a})`;
 export const hex = (r: number, g: number, b: number): string =>

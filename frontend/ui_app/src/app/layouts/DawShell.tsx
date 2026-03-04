@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { ClipContextMenuPopup } from '@/widgets/Timeline/ui/ClipContextMenuPopup';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import * as engineApi from '@/shared/api/engine';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
@@ -119,6 +120,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         startTrack: number;
         endTrack: number;
     } | null>(null);
+    const [clipContextMenu, setClipContextMenu] = useState<{ clipId: string; x: number; y: number } | null>(null);
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
@@ -533,6 +535,9 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         onDoubleClickTrack: handleDoubleClickTrack,
         onOpenMidiClip: handleOpenMidiClip,
         onTrackSelect: handleTimelineTrackSelect,
+        onClipContextMenu: useCallback((clipId: string, _beat: number, _trackIndex: number, clientX: number, clientY: number) => {
+            setClipContextMenu({ clipId, x: clientX, y: clientY });
+        }, []),
         followPlayhead,
         automationVisible,
         fitHorizontalToken: fitTimelineToken,
@@ -640,6 +645,33 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 loopEndBeat={loopEndBeat}
                 marqueeSelection={marqueeSelection}
             />
+            {clipContextMenu && (
+                <ClipContextMenuPopup
+                    x={clipContextMenu.x}
+                    y={clipContextMenu.y}
+                    clipId={clipContextMenu.clipId}
+                    onDuplicate={() => {
+                        void engineApi.duplicateClipWithDeltas(clipContextMenu.clipId).then((res) => {
+                            if (res?.deltas) applyProjectDeltas(res.deltas);
+                        });
+                        setClipContextMenu(null);
+                    }}
+                    onResetFades={() => {
+                        void engineApi.setClipFadesWithDeltas(clipContextMenu.clipId, 0, 0).then((res) => {
+                            if (res?.deltas) applyProjectDeltas(res.deltas);
+                        });
+                        setClipContextMenu(null);
+                    }}
+                    onDelete={() => {
+                        void engineApi.deleteClipWithDeltas(clipContextMenu.clipId).then((res) => {
+                            if (res?.deltas) applyProjectDeltas(res.deltas);
+                        });
+                        setSelectedClipIds((prev) => prev.filter((id) => id !== clipContextMenu.clipId));
+                        setClipContextMenu(null);
+                    }}
+                    onDismiss={() => setClipContextMenu(null)}
+                />
+            )}
         </div>
     );
 };

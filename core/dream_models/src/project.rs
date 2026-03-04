@@ -1057,6 +1057,10 @@ pub struct AudioClip {
     #[serde(default)]
     pub fade_out_curve_slope: f64,
 
+    /// Clip-level crossfade state from ALS `<Fades>` (0 = none, 1 = in, 2 = out).
+    #[serde(default)]
+    pub crossfade_in_state: i32,
+
     /// Whether source media is currently missing on disk.
     #[serde(default)]
     pub is_offline: bool,
@@ -1109,6 +1113,22 @@ pub struct AudioClip {
     #[serde(default)]
     pub follow_chance_b: f64,
 
+    /// Follow action jump index A (which slot to jump to).
+    #[serde(default)]
+    pub follow_jump_index_a: i32,
+
+    /// Follow action jump index B.
+    #[serde(default)]
+    pub follow_jump_index_b: i32,
+
+    /// Follow action loop iterations before triggering.
+    #[serde(default = "default_follow_loop_iterations")]
+    pub follow_loop_iterations: i32,
+
+    /// Follow action linked to clip length.
+    #[serde(default)]
+    pub follow_is_linked: bool,
+
     /// Whether clip is marked in-key (`IsInKey`).
     #[serde(default)]
     pub is_in_key: bool,
@@ -1146,6 +1166,38 @@ pub struct AudioClip {
     /// This stays stable while warped clip timeline duration changes with tempo.
     #[serde(default)]
     pub warp_source_duration_frames: i64,
+
+    /// Complex Pro formant preservation amount (0–100).
+    #[serde(default)]
+    pub complex_pro_formants: f64,
+
+    /// Complex Pro envelope amount (default 128).
+    #[serde(default = "default_complex_pro_envelope")]
+    pub complex_pro_envelope: f64,
+
+    /// Granularity/Texture warp parameter.
+    #[serde(default = "default_granularity_texture")]
+    pub granularity_texture: f64,
+
+    /// Granularity/Tones warp parameter.
+    #[serde(default = "default_granularity_tones")]
+    pub granularity_tones: f64,
+
+    /// Fluctuation/Texture warp parameter.
+    #[serde(default = "default_fluctuation_texture")]
+    pub fluctuation_texture: f64,
+
+    /// Transient envelope amount.
+    #[serde(default = "default_transient_envelope")]
+    pub transient_envelope: f64,
+
+    /// Transient loop mode (0=Off, 2=Forward).
+    #[serde(default)]
+    pub transient_loop_mode: i32,
+
+    /// Transient resolution (6=1/16 note).
+    #[serde(default = "default_transient_resolution")]
+    pub transient_resolution: i32,
 
     /// ALS take identifier (`TakeId`).
     #[serde(default)]
@@ -1214,6 +1266,7 @@ impl AudioClip {
             fade_in_curve_slope: 0.0,
             fade_out_curve_skew: 0.0,
             fade_out_curve_slope: 0.0,
+            crossfade_in_state: 0,
             is_offline: false,
             is_selected: false,
             is_disabled: false,
@@ -1228,6 +1281,10 @@ impl AudioClip {
             // BUG-075 FIX: Clamp follow chance values to valid range [0, 100].
             follow_chance_a: 0.0,
             follow_chance_b: 0.0,
+            follow_jump_index_a: 1,
+            follow_jump_index_b: 1,
+            follow_loop_iterations: 1,
+            follow_is_linked: true,
             is_in_key: false,
             scale_root: None,
             scale_name: None,
@@ -1237,6 +1294,14 @@ impl AudioClip {
             warp_markers: Vec::new(),
             warp_base_bpm: default_clip_warp_base_bpm(),
             warp_source_duration_frames: duration.sample_frame.max(1),
+            complex_pro_formants: 0.0,
+            complex_pro_envelope: default_complex_pro_envelope(),
+            granularity_texture: default_granularity_texture(),
+            granularity_tones: default_granularity_tones(),
+            fluctuation_texture: default_fluctuation_texture(),
+            transient_envelope: default_transient_envelope(),
+            transient_loop_mode: 0,
+            transient_resolution: default_transient_resolution(),
             take_id: None,
             legato: false,
             ram: false,
@@ -1268,6 +1333,34 @@ impl AudioClip {
     pub fn overlaps(&self, start: i64, end: i64) -> bool {
         self.position.sample_frame < end && self.end_position().sample_frame > start
     }
+}
+
+fn default_follow_loop_iterations() -> i32 {
+    1
+}
+
+fn default_complex_pro_envelope() -> f64 {
+    128.0
+}
+
+fn default_granularity_texture() -> f64 {
+    65.0
+}
+
+fn default_granularity_tones() -> f64 {
+    30.0
+}
+
+fn default_fluctuation_texture() -> f64 {
+    25.0
+}
+
+fn default_transient_envelope() -> f64 {
+    100.0
+}
+
+fn default_transient_resolution() -> i32 {
+    6
 }
 
 fn default_clip_warp_base_bpm() -> f64 {

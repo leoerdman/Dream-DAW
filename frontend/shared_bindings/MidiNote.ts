@@ -16,6 +16,11 @@ pitch: number,
  */
 velocity: number, 
 /**
+ * Note-off velocity (0–127). Default is 64.
+ * Used by some synths to control release behavior.
+ */
+off_velocity: number, 
+/**
  * Start position relative to clip start (in sample frames).
  */
 start_frame: bigint, 

@@ -48,6 +48,28 @@ fade_in_frames: bigint,
  */
 fade_out_frames: bigint, 
 /**
+ * Fade-in curve skew (-1.0 to 1.0, 0.0 = symmetric).
+ * Controls asymmetry of the fade curve shape.
+ */
+fade_in_curve_skew: number, 
+/**
+ * Fade-in curve slope (-1.0 to 1.0, 0.0 = linear).
+ * Negative = concave (logarithmic), positive = convex (exponential).
+ */
+fade_in_curve_slope: number, 
+/**
+ * Fade-out curve skew (-1.0 to 1.0, 0.0 = symmetric).
+ */
+fade_out_curve_skew: number, 
+/**
+ * Fade-out curve slope (-1.0 to 1.0, 0.0 = linear).
+ */
+fade_out_curve_slope: number, 
+/**
+ * Clip-level crossfade state from ALS `<Fades>` (0 = none, 1 = in, 2 = out).
+ */
+crossfade_in_state: number, 
+/**
  * Whether source media is currently missing on disk.
  */
 is_offline: boolean, 
@@ -101,6 +123,22 @@ follow_chance_a: number,
  */
 follow_chance_b: number, 
 /**
+ * Follow action jump index A (which slot to jump to).
+ */
+follow_jump_index_a: number, 
+/**
+ * Follow action jump index B.
+ */
+follow_jump_index_b: number, 
+/**
+ * Follow action loop iterations before triggering.
+ */
+follow_loop_iterations: number, 
+/**
+ * Follow action linked to clip length.
+ */
+follow_is_linked: boolean, 
+/**
  * Whether clip is marked in-key (`IsInKey`).
  */
 is_in_key: boolean, 
@@ -138,6 +176,38 @@ warp_base_bpm: number,
  * This stays stable while warped clip timeline duration changes with tempo.
  */
 warp_source_duration_frames: bigint, 
+/**
+ * Complex Pro formant preservation amount (0–100).
+ */
+complex_pro_formants: number, 
+/**
+ * Complex Pro envelope amount (default 128).
+ */
+complex_pro_envelope: number, 
+/**
+ * Granularity/Texture warp parameter.
+ */
+granularity_texture: number, 
+/**
+ * Granularity/Tones warp parameter.
+ */
+granularity_tones: number, 
+/**
+ * Fluctuation/Texture warp parameter.
+ */
+fluctuation_texture: number, 
+/**
+ * Transient envelope amount.
+ */
+transient_envelope: number, 
+/**
+ * Transient loop mode (0=Off, 2=Forward).
+ */
+transient_loop_mode: number, 
+/**
+ * Transient resolution (6=1/16 note).
+ */
+transient_resolution: number, 
 /**
  * ALS take identifier (`TakeId`).
  */

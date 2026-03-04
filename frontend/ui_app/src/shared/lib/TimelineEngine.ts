@@ -1,6 +1,7 @@
 
 import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
+import { FADE_HANDLE_SIZE } from './CanvasClipRenderer.constants';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames, framesToBeatDuration } from './audioMath';
 import { normalizeTimelineClips } from './clipNormalization';
@@ -274,6 +275,15 @@ export class TimelineEngine {
             const selStart = sel ? (oldClip?.selectionStartBeat) : undefined;
             const selEnd = sel ? (oldClip?.selectionEndBeat) : undefined;
 
+            // ENTERPRISE: Cross-clamp fadeIn+fadeOut to prevent sum > 1.0
+            let fadeIn = clip.fadeIn ?? 0;
+            let fadeOut = clip.fadeOut ?? 0;
+            if (fadeIn + fadeOut > 1.0 && (fadeIn + fadeOut) > 0) {
+                const total = fadeIn + fadeOut;
+                fadeIn = fadeIn / total;
+                fadeOut = fadeOut / total;
+            }
+
             // Fast path: if merged result matches the input clip, reuse without allocation.
             // NOTE: React provides clip.selected=false, but engine may have set it to true.
             // We compare merged values against the clip to decide if a new object is needed.
@@ -284,7 +294,9 @@ export class TimelineEngine {
                 clip.selected === sel &&
                 clip.primarySelected === priSel &&
                 clip.selectionStartBeat === selStart &&
-                clip.selectionEndBeat === selEnd
+                clip.selectionEndBeat === selEnd &&
+                clip.fadeIn === fadeIn &&
+                clip.fadeOut === fadeOut
             ) {
                 nextClips[i] = clip;
             } else {
@@ -297,6 +309,8 @@ export class TimelineEngine {
                     primarySelected: priSel,
                     selectionStartBeat: selStart,
                     selectionEndBeat: selEnd,
+                    fadeIn,
+                    fadeOut,
                 };
             }
         }
@@ -366,7 +380,17 @@ export class TimelineEngine {
             const clip = this._clips[i];
             const nextSelected = selected.has(clip.id);
             const nextPrimarySelected = primarySelectedId === clip.id;
-            if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected) continue;
+
+            // SSOT FIX: Even if selected/primarySelected flags haven't changed,
+            // we may need to upgrade partial selection ranges to full-clip ranges
+            // after a marquee was dismissed (Escape key). Without this check,
+            // partial highlights from the marquee persist indefinitely.
+            const hasStalePartialRange = nextSelected && !hasMarquee
+                && clip.selectionStartBeat !== undefined
+                && clip.selectionEndBeat !== undefined
+                && (clip.selectionStartBeat !== 0 || clip.selectionEndBeat !== clip.durationBeats);
+
+            if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected && !hasStalePartialRange) continue;
             changed = true;
 
             // Determine selection ranges:
@@ -723,6 +747,10 @@ export class TimelineEngine {
             if ((a.isOffline ?? false) !== (b.isOffline ?? false)) return true;
             if ((a.color ?? '') !== (b.color ?? '')) return true;
             if ((a.name ?? '') !== (b.name ?? '')) return true;
+            if ((a.isWarped ?? false) !== (b.isWarped ?? false)) return true;
+            if ((a.warpSourceDurationFrames ?? 0) !== (b.warpSourceDurationFrames ?? 0)) return true;
+            if ((a.pitchShiftSemitones ?? 0) !== (b.pitchShiftSemitones ?? 0)) return true;
+            if ((a.trackDisabled ?? false) !== (b.trackDisabled ?? false)) return true;
         }
         return false;
     }
@@ -869,23 +897,22 @@ export class TimelineEngine {
                 let fadeHandle: 'in' | 'out' | undefined;
                 if (inFadeBody) {
                     // ENTERPRISE: Square handles pressed to header bottom — rectangular hit test
-                    const handleSize = 5;
                     const handleTopY = fadeBody.top; // Top of body = bottom of header
                     const inHandleX = clipLeftPx + Math.max(4, Math.min(clipWidthPx - 4, fadeInWidthPx));
                     const outHandleX = clipRightPx - Math.max(4, Math.min(clipWidthPx - 4, fadeOutWidthPx));
                     const pad = FADE_HANDLE_HOTSPOT_PX;
                     if (
-                        localX >= inHandleX - handleSize / 2 - pad &&
-                        localX <= inHandleX + handleSize / 2 + pad &&
+                        localX >= inHandleX - FADE_HANDLE_SIZE / 2 - pad &&
+                        localX <= inHandleX + FADE_HANDLE_SIZE / 2 + pad &&
                         localYPx >= handleTopY - pad &&
-                        localYPx <= handleTopY + handleSize + pad
+                        localYPx <= handleTopY + FADE_HANDLE_SIZE + pad
                     ) {
                         fadeHandle = 'in';
                     } else if (
-                        localX >= outHandleX - handleSize / 2 - pad &&
-                        localX <= outHandleX + handleSize / 2 + pad &&
+                        localX >= outHandleX - FADE_HANDLE_SIZE / 2 - pad &&
+                        localX <= outHandleX + FADE_HANDLE_SIZE / 2 + pad &&
                         localYPx >= handleTopY - pad &&
-                        localYPx <= handleTopY + handleSize + pad
+                        localYPx <= handleTopY + FADE_HANDLE_SIZE + pad
                     ) {
                         fadeHandle = 'out';
                     }
@@ -954,12 +981,44 @@ export class TimelineEngine {
         }
     }
 
+    /**
+     * SSOT HELPER: Selects a single clip by ID, updating all 3 stores atomically.
+     * Must be called AFTER _clearAllClipSelections() to avoid stale references.
+     * Re-fetches the clip from _clipById because clear may have replaced objects.
+     */
+    private _selectSingleClip(clipId: string): void {
+        const freshClip = this._clipById.get(clipId);
+        if (!freshClip) return;
+        const selectedClip: TimelineClipData = {
+            ...freshClip,
+            selected: true,
+            primarySelected: true,
+            selectionStartBeat: 0,
+            selectionEndBeat: freshClip.durationBeats,
+        };
+        const clipIdx = this._clips.indexOf(freshClip);
+        if (clipIdx >= 0) this._clips[clipIdx] = selectedClip;
+        this._clipById.set(selectedClip.id, selectedClip);
+        const trackClips = this._clipsByTrack.get(selectedClip.trackIndex);
+        if (trackClips) {
+            const tIdx = trackClips.indexOf(freshClip);
+            if (tIdx >= 0) trackClips[tIdx] = selectedClip;
+        }
+        this._renderer.setHasClipSelection(true);
+    }
+
     /** Clears selection+ranges on all internal clips. Used when marquee is dismissed. */
     private _clearAllClipSelections(): void {
         for (let i = 0, len = this._clips.length; i < len; i++) {
             this._deselectClipAt(i);
         }
         this._renderer.setHasClipSelection(false);
+    }
+
+    /** SSOT: Atomic clear selection + notify React in one call. */
+    private _clearSelectionAndNotify(): void {
+        this._clearAllClipSelections();
+        this.onClipBoxSelection?.([]);
     }
 
     private _selectClipsWithinMarquee(
@@ -1070,9 +1129,9 @@ export class TimelineEngine {
 
     private _getFadeBodyBounds(clipTopPx: number, trackH: number): { top: number; bottom: number } {
         const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2);
-        // Match renderer: bodyY = y + headerH, bodyBottom = y + h
+        // Match renderer: bodyY = y + headerH, bodyBottom = bodyY + bodyH - 2
         const bodyTop = clipTopPx + headerH;
-        const bodyBottom = clipTopPx + trackH;
+        const bodyBottom = clipTopPx + trackH - 2;
         return { top: bodyTop, bottom: Math.max(bodyTop + 6, bodyBottom) };
     }
 
@@ -1146,8 +1205,7 @@ export class TimelineEngine {
             case 'ruler': {
                 if (this._marquee) this._setMarquee(null);
                 // Clear any lingering clip selection when clicking the ruler
-                this._clearAllClipSelections();
-                this.onClipBoxSelection?.([]);
+                this._clearSelectionAndNotify();
                 if (hit.loopHandle === 'start') {
                     this._drag = {
                         mode: DragMode.LoopStartMove,
@@ -1200,6 +1258,10 @@ export class TimelineEngine {
                 if (!clip) break;
 
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
+                    // SSOT FIX: Clear+select on engine side before notifying React
+                    this._clearAllClipSelections();
+                    this._selectSingleClip(hit.clipId);
+                    this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: hit.fadeCurveHandle === 'in' ? DragMode.ClipFadeInCurve : DragMode.ClipFadeOutCurve,
@@ -1220,6 +1282,10 @@ export class TimelineEngine {
                 }
 
                 if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
+                    // SSOT FIX: Clear+select on engine side before notifying React
+                    this._clearAllClipSelections();
+                    this._selectSingleClip(hit.clipId);
+                    this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: hit.fadeHandle === 'in' ? DragMode.ClipFadeIn : DragMode.ClipFadeOut,
@@ -1238,6 +1304,10 @@ export class TimelineEngine {
                 }
 
                 if (hit.edge === 'left') {
+                    // SSOT FIX: Clear+select on engine side before notifying React
+                    this._clearAllClipSelections();
+                    this._selectSingleClip(hit.clipId);
+                    this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
                     const allowStretch = e.shiftKey;
                     this._drag = {
@@ -1264,6 +1334,10 @@ export class TimelineEngine {
                     break;
                 }
                 if (hit.edge === 'right') {
+                    // SSOT FIX: Clear+select on engine side before notifying React
+                    this._clearAllClipSelections();
+                    this._selectSingleClip(hit.clipId);
+                    this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
                     const allowStretch = e.shiftKey;
                     this._drag = {
@@ -1299,8 +1373,7 @@ export class TimelineEngine {
                     this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
                     this.onTrackSelect?.(hit.trackIndex);
                     // Clear clip selection when clicking on clip body (not header)
-                    this._clearAllClipSelections();
-                    this.onClipBoxSelection?.([]);
+                    this._clearSelectionAndNotify();
                     break;
                 }
 
@@ -1315,18 +1388,10 @@ export class TimelineEngine {
 
                 // ENTERPRISE SSOT FIX: For non-additive clicks, clear ALL engine-side
                 // selections IMMEDIATELY and mark the clicked clip selected.
-                // This eliminates the render-cycle delay that previously caused stale
-                // `clip.selected` flags (the React state round-trip via onClipClick →
-                // setSelectedClipIds → selectedClipIds prop took a full render cycle).
+                // Uses _selectSingleClip helper for atomic 3-store update.
                 if (!isAdditive && !preserveMultiSelect) {
                     this._clearAllClipSelections();
-                    clip.selected = true;
-                    // Keep the _clipsByTrack map in sync with the new selected state
-                    const trackClips = this._clipsByTrack.get(clip.trackIndex);
-                    if (trackClips) {
-                        const idx = trackClips.findIndex(c => c.id === clip.id);
-                        if (idx >= 0) trackClips[idx] = clip;
-                    }
+                    this._selectSingleClip(hit.clipId);
                     this._requestRedraw();
                 }
 
@@ -1425,8 +1490,7 @@ export class TimelineEngine {
 
                 // ENTERPRISE: Atomically clear prior selection on mousedown — prevents
                 // two-step visual where marquee disappears but clip highlights persist.
-                this._clearAllClipSelections();
-                this.onClipBoxSelection?.([]);
+                this._clearSelectionAndNotify();
 
                 this.onMarqueeSelectionStart?.();
                 this._drag = {
@@ -1621,6 +1685,9 @@ export class TimelineEngine {
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
                 clip.fadeIn = this._clampFadeFraction((this._drag.clipOriginalFadeIn ?? 0) + deltaFraction * fineFactor);
+                // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
+                const maxFadeIn = 1.0 - (clip.fadeOut ?? 0);
+                if (clip.fadeIn > maxFadeIn) clip.fadeIn = Math.max(0, maxFadeIn);
                 this._requestRedraw();
                 break;
             }
@@ -1633,6 +1700,9 @@ export class TimelineEngine {
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
                 clip.fadeOut = this._clampFadeFraction((this._drag.clipOriginalFadeOut ?? 0) - deltaFraction * fineFactor);
+                // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
+                const maxFadeOut = 1.0 - (clip.fadeIn ?? 0);
+                if (clip.fadeOut > maxFadeOut) clip.fadeOut = Math.max(0, maxFadeOut);
                 this._requestRedraw();
                 break;
             }
@@ -1768,6 +1838,10 @@ export class TimelineEngine {
                     && this._drag.coMoverOrigins
                     && this._drag.coMoverOrigins.size > 0
                 ) {
+                    // SSOT FIX: Clear+select on engine side before notifying React
+                    this._clearAllClipSelections();
+                    this._selectSingleClip(this._drag.clipId);
+                    this._requestRedraw();
                     this.onClipClick?.(this._drag.clipId, false, false);
                 }
                 break;
@@ -1789,6 +1863,8 @@ export class TimelineEngine {
                                 }
                             }
                         }
+                        // SSOT FIX: Rebuild _clipsByTrack after in-place trackIndex restore
+                        this._rebuildClipsByTrack();
                         this._requestRedraw();
                         break;
                     }
@@ -1821,6 +1897,8 @@ export class TimelineEngine {
                         }
                         this._trimPreview = null;
                         this._ghost = null;
+                        // SSOT FIX: Rebuild _clipsByTrack after in-place trackIndex restore
+                        this._rebuildClipsByTrack();
                         this._requestRedraw();
                         break;
                     }
@@ -1895,6 +1973,17 @@ export class TimelineEngine {
                                 preview.durationBeats,
                                 preview.allowStretch,
                             );
+                            // SSOT FIX: Optimistic update for pending clips (same pattern as ClipMove)
+                            if (this._pendingClips) {
+                                const resizeId = this._drag.clipId;
+                                const resizeBeat = preview.startBeat;
+                                const resizeDur = preview.durationBeats;
+                                this._pendingClips = this._pendingClips.map((c) =>
+                                    c.id === resizeId
+                                        ? { ...c, startBeat: resizeBeat, durationBeats: resizeDur }
+                                        : c,
+                                );
+                            }
                         }
                     }
                 }
@@ -1916,6 +2005,17 @@ export class TimelineEngine {
                     const prevFadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeOut ?? 0) * durationFrames)));
                     if (fadeInFrames !== prevFadeInFrames || fadeOutFrames !== prevFadeOutFrames) {
                         this.onClipFades?.(this._drag.clipId, fadeInFrames, fadeOutFrames);
+                        // SSOT FIX: Optimistic update for pending clips (same pattern as ClipMove)
+                        if (this._pendingClips) {
+                            const fadeClipId = this._drag.clipId;
+                            const fadeInFrac = clip.fadeIn ?? 0;
+                            const fadeOutFrac = clip.fadeOut ?? 0;
+                            this._pendingClips = this._pendingClips.map((c) => {
+                                if (c.id !== fadeClipId) return c;
+                                const dur = Math.max(1, c.durationSamples ?? 0);
+                                return { ...c, fadeIn: Math.round(fadeInFrac * dur), fadeOut: Math.round(fadeOutFrac * dur) };
+                            });
+                        }
                     }
                 }
                 this._requestRedraw();
@@ -1933,6 +2033,15 @@ export class TimelineEngine {
                         const prevOut = this._clampFadeCurve(this._drag.clipOriginalFadeOutCurve ?? 0.5);
                         if (Math.abs(nextIn - prevIn) > 0.0001 || Math.abs(nextOut - prevOut) > 0.0001) {
                             this.onClipFadeCurves?.(clip.id, nextIn, nextOut);
+                            // SSOT FIX: Optimistic update for pending clips
+                            if (this._pendingClips) {
+                                const curveClipId = clip.id;
+                                this._pendingClips = this._pendingClips.map((c) =>
+                                    c.id === curveClipId
+                                        ? { ...c, fadeInCurve: nextIn, fadeOutCurve: nextOut }
+                                        : c,
+                                );
+                            }
                         }
                     }
                 }
@@ -1963,8 +2072,7 @@ export class TimelineEngine {
                     const snappedBeat = this._snapBeat(this._drag.startBeat);
                     this.onEditCursorChange?.(snappedBeat, this._drag.startTrack, this._drag.startTrack);
                     this.onTrackSelect?.(this._drag.startTrack);
-                    this._clearAllClipSelections();
-                    this.onClipBoxSelection?.([]);
+                    this._clearSelectionAndNotify();
                     this._setMarquee(null);
                 } else if (isVerticalLine) {
                     const snappedBeat = this._snapBeat(Math.max(0, this._drag.startBeat));
@@ -1998,8 +2106,7 @@ export class TimelineEngine {
                 this.onTrackSelect?.(this._drag.currentTrack);
 
                 if (!moved) {
-                    this._clearAllClipSelections();
-                    this.onClipBoxSelection?.([]);
+                    this._clearSelectionAndNotify();
                     this._setMarquee(null);
                 } else {
                     this._setMarquee({
@@ -2057,6 +2164,17 @@ export class TimelineEngine {
                             const fadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeIn ?? 0) * durationFrames)));
                             const fadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeOut ?? 0) * durationFrames)));
                             this.onClipFades?.(clip.id, fadeInFrames, fadeOutFrames);
+                            // ENTERPRISE: Sync pending clips with reset fade values
+                            if (this._pendingClips) {
+                                const resetId = clip.id;
+                                const fi = clip.fadeIn ?? 0;
+                                const fo = clip.fadeOut ?? 0;
+                                this._pendingClips = this._pendingClips.map((c) => {
+                                    if (c.id !== resetId) return c;
+                                    const dur = Math.max(1, c.durationSamples ?? 0);
+                                    return { ...c, fadeIn: Math.round(fi * dur), fadeOut: Math.round(fo * dur) };
+                                });
+                            }
                             this._requestRedraw();
                             break;
                         }
@@ -2080,6 +2198,17 @@ export class TimelineEngine {
                                 this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
                                 this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
                             );
+                            // ENTERPRISE: Sync pending clips with reset fadeCurve values
+                            if (this._pendingClips) {
+                                const curveResetId = clip.id;
+                                const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
+                                const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+                                this._pendingClips = this._pendingClips.map((c) =>
+                                    c.id === curveResetId
+                                        ? { ...c, fadeInCurve: nextInC, fadeOutCurve: nextOutC }
+                                        : c,
+                                );
+                            }
                             this._requestRedraw();
                             break;
                         }
@@ -2101,8 +2230,7 @@ export class TimelineEngine {
                         const snapped = this._snapBeat(hit.beat);
                         this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
                         // Clear selection on double-click body
-                        this._clearAllClipSelections();
-                        this.onClipBoxSelection?.([]);
+                        this._clearSelectionAndNotify();
                         break;
                     }
                     this.onDoubleClickClip?.(hit.clipId, hit.trackIndex);
@@ -2124,8 +2252,14 @@ export class TimelineEngine {
 
         const side = hit.fadeCurveHandle ?? hit.fadeZone;
         if (side !== 'in' && side !== 'out') {
-            // No fade handle — fire clip context menu callback
+            // SSOT FIX: Right-click must select the clip (DAW standard behavior)
             e.preventDefault();
+            if (!this._clipById.get(hit.clipId)?.selected) {
+                this._clearAllClipSelections();
+                this._selectSingleClip(hit.clipId);
+                this._requestRedraw();
+                this.onClipClick?.(hit.clipId, false, false);
+            }
             this.onClipContextMenu?.(hit.clipId, hit.beat ?? 0, hit.trackIndex ?? 0, e.clientX, e.clientY);
             return;
         }
@@ -2151,6 +2285,17 @@ export class TimelineEngine {
             this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
             this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
         );
+        // ENTERPRISE: Sync pending clips with cycled fadeCurve values
+        if (this._pendingClips) {
+            const cycleId = clip.id;
+            const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
+            const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+            this._pendingClips = this._pendingClips.map((c) =>
+                c.id === cycleId
+                    ? { ...c, fadeInCurve: nextInC, fadeOutCurve: nextOutC }
+                    : c,
+            );
+        }
         this._requestRedraw();
     }
 
@@ -2334,6 +2479,25 @@ export class TimelineEngine {
                             c.fadeOut = this._drag.clipOriginalFadeOut ?? c.fadeOut;
                             c.fadeInCurve = this._drag.clipOriginalFadeInCurve ?? c.fadeInCurve;
                             c.fadeOutCurve = this._drag.clipOriginalFadeOutCurve ?? c.fadeOutCurve;
+                            // ENTERPRISE: Sync pending clips with restored fade values
+                            if (this._pendingClips) {
+                                const escId = c.id;
+                                const fi = c.fadeIn ?? 0;
+                                const fo = c.fadeOut ?? 0;
+                                const fic = c.fadeInCurve;
+                                const foc = c.fadeOutCurve;
+                                this._pendingClips = this._pendingClips.map((pc) => {
+                                    if (pc.id !== escId) return pc;
+                                    const dur = Math.max(1, pc.durationSamples ?? 0);
+                                    return {
+                                        ...pc,
+                                        fadeIn: Math.round(fi * dur),
+                                        fadeOut: Math.round(fo * dur),
+                                        fadeInCurve: fic,
+                                        fadeOutCurve: foc,
+                                    };
+                                });
+                            }
                         }
                     }
                     if (this._drag.coMoverOrigins) {

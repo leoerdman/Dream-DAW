@@ -135,6 +135,7 @@ fn parse_audio_clip(
     clip.fade_in_curve_slope = fade_info.fade_in_curve_slope;
     clip.fade_out_curve_skew = fade_info.fade_out_curve_skew;
     clip.fade_out_curve_slope = fade_info.fade_out_curve_slope;
+    clip.crossfade_in_state = fade_info.crossfade_in_state;
 
     // Source offset
     if let Some(start_relative_beats) = clip_node
@@ -599,14 +600,17 @@ fn apply_common_clip_metadata_audio(clip: &mut AudioClip, clip_node: roxmltree::
     let (launch_mode, launch_quantization) = parse_clip_launch(clip_node);
     clip.launch_mode = launch_mode;
     clip.launch_quantization = launch_quantization;
-    let (follow_enabled, follow_time, follow_a, follow_b, chance_a, chance_b) =
-        parse_clip_follow_action(clip_node);
-    clip.follow_action_enabled = follow_enabled;
-    clip.follow_time = follow_time;
-    clip.follow_action_a = follow_a;
-    clip.follow_action_b = follow_b;
-    clip.follow_chance_a = chance_a;
-    clip.follow_chance_b = chance_b;
+    let fa = parse_clip_follow_action(clip_node);
+    clip.follow_action_enabled = fa.enabled;
+    clip.follow_time = fa.time;
+    clip.follow_action_a = fa.action_a;
+    clip.follow_action_b = fa.action_b;
+    clip.follow_chance_a = fa.chance_a;
+    clip.follow_chance_b = fa.chance_b;
+    clip.follow_jump_index_a = fa.jump_index_a;
+    clip.follow_jump_index_b = fa.jump_index_b;
+    clip.follow_loop_iterations = fa.loop_iterations;
+    clip.follow_is_linked = fa.is_linked;
     let (in_key, scale_root, scale_name) = parse_clip_scale_info(clip_node);
     clip.is_in_key = in_key;
     clip.scale_root = scale_root;
@@ -615,20 +619,73 @@ fn apply_common_clip_metadata_audio(clip: &mut AudioClip, clip_node: roxmltree::
     clip.loop_start_beats = loop_start_beats;
     clip.loop_end_beats = loop_end_beats;
     clip.loop_on = loop_on;
+
+    // Warp algorithm parameters (SSOT fix: these affect how warped audio sounds)
+    if let Some(v) = node_child_value(clip_node, "ComplexProFormants")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.complex_pro_formants = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "ComplexProEnvelope")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.complex_pro_envelope = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "GranularityTexture")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.granularity_texture = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "GranularityTones")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.granularity_tones = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "FluctuationTexture")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.fluctuation_texture = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "TransientEnvelope")
+        .as_deref()
+        .and_then(parse_f64_value)
+    {
+        clip.transient_envelope = v;
+    }
+    if let Some(v) = node_child_value(clip_node, "TransientLoopMode")
+        .as_deref()
+        .and_then(parse_i64_value)
+    {
+        clip.transient_loop_mode = v as i32;
+    }
+    if let Some(v) = node_child_value(clip_node, "TransientResolution")
+        .as_deref()
+        .and_then(parse_i64_value)
+    {
+        clip.transient_resolution = v as i32;
+    }
 }
 
 fn apply_common_clip_metadata_midi(clip: &mut MidiClip, clip_node: roxmltree::Node<'_, '_>) {
     let (launch_mode, launch_quantization) = parse_clip_launch(clip_node);
     clip.launch_mode = launch_mode;
     clip.launch_quantization = launch_quantization;
-    let (follow_enabled, follow_time, follow_a, follow_b, chance_a, chance_b) =
-        parse_clip_follow_action(clip_node);
-    clip.follow_action_enabled = follow_enabled;
-    clip.follow_time = follow_time;
-    clip.follow_action_a = follow_a;
-    clip.follow_action_b = follow_b;
-    clip.follow_chance_a = chance_a;
-    clip.follow_chance_b = chance_b;
+    let fa = parse_clip_follow_action(clip_node);
+    clip.follow_action_enabled = fa.enabled;
+    clip.follow_time = fa.time;
+    clip.follow_action_a = fa.action_a;
+    clip.follow_action_b = fa.action_b;
+    clip.follow_chance_a = fa.chance_a;
+    clip.follow_chance_b = fa.chance_b;
+    clip.follow_jump_index_a = fa.jump_index_a;
+    clip.follow_jump_index_b = fa.jump_index_b;
+    clip.follow_loop_iterations = fa.loop_iterations;
+    clip.follow_is_linked = fa.is_linked;
     let (in_key, scale_root, scale_name) = parse_clip_scale_info(clip_node);
     clip.is_in_key = in_key;
     clip.scale_root = scale_root;

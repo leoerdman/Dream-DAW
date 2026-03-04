@@ -40,6 +40,7 @@ interface DeviceNodeProps {
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
     onEnsureActive?: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export const DeviceNode = React.memo(({
@@ -74,6 +75,7 @@ export const DeviceNode = React.memo(({
     sidechainOptions,
     onSidechainSourceChange,
     onEnsureActive,
+    onContextMenu,
 }: DeviceNodeProps) => {
     const lastPointerTargetRef = useRef<HTMLElement | null>(null);
     const isInstrumentSlot =
@@ -97,6 +99,11 @@ export const DeviceNode = React.memo(({
         <div
             className="device-node"
             draggable={canReorder}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onContextMenu?.(e);
+            }}
             onMouseDownCapture={(e) => {
                 lastPointerTargetRef.current = e.target as HTMLElement;
                 // Click-anywhere selection: any left-button mousedown on the

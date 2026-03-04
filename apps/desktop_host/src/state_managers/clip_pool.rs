@@ -115,17 +115,6 @@ impl ClipPoolState {
         latencies
     }
 
-    pub fn selected_runtime_chain(
-        rack: &dream_models::project::DeviceRack,
-    ) -> Option<&dream_models::project::RackChain> {
-        let has_solo = rack.chains.iter().any(|c| c.is_solo);
-        if has_solo {
-            rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-        } else {
-            rack.chains.iter().find(|c| !c.is_disabled)
-        }
-    }
-
     pub fn collect_sidechain_sources_from_node(
         node: &DeviceNode,
         project: &Project,

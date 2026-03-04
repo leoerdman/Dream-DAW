@@ -142,6 +142,33 @@ impl SmoothedProcessor {
                 | (BuiltinEffectType::Analyzer, 0)
                 // Channel EQ kill switches and crossover toggles
                 | (BuiltinEffectType::ChannelEq, 5..=7)
+                // ── Wave 3: Discrete/toggle params ───────────────
+                // Overdrive: no discrete params (all continuous)
+                // TransientShaper: no discrete params
+                // DrumBuss: no discrete params
+                // DynamicTube: no discrete params
+                // PhaserFlanger stages (discrete count)
+                | (BuiltinEffectType::PhaserFlanger, 4)
+                // Amp: no discrete params
+                // Cabinet type (model select)
+                | (BuiltinEffectType::Cabinet, 0)
+                // HybridReverb: no discrete params
+                // Erosion mode (algorithm select)
+                | (BuiltinEffectType::Erosion, 0)
+                // Pedal mode (drive type select)
+                | (BuiltinEffectType::Pedal, 0)
+                // Roar character (algorithm select)
+                | (BuiltinEffectType::Roar, 0)
+                // MultibandDynamics: no discrete params
+                // GrainDelay density (grain count, integer)
+                | (BuiltinEffectType::GrainDelay, 6)
+                // Corpus body type (mode select)
+                | (BuiltinEffectType::Corpus, 3)
+                // SpectralTime mode (algorithm select)
+                | (BuiltinEffectType::SpectralTime, 0)
+                // GlueCompressor ratio index (3 discrete values)
+                | (BuiltinEffectType::GlueCompressor, 1)
+                // FilterDelay: no discrete params
         )
     }
 

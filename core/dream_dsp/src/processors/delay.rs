@@ -32,7 +32,10 @@ const MAX_DELAY_SECONDS: f32 = 2.0;
 /// Maximum sample rate we pre-allocate for — covers 192kHz studio setups.
 /// Buffers are allocated once at this ceiling and never resized at runtime,
 /// guaranteeing zero heap allocations on the audio thread.
-const MAX_SAMPLE_RATE: f32 = 384_000.0;
+/// NOTE: 192kHz is the highest rate used by professional audio interfaces
+/// (e.g., RME UFX+, Lynx Hilo). Pre-allocating for 384kHz wastes ~1.5MB
+/// per delay instance with zero practical benefit.
+const MAX_SAMPLE_RATE: f32 = 192_000.0;
 
 pub struct DelayProcessor {
     buf_l: Vec<f32>,

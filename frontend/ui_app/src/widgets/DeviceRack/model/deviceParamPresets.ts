@@ -316,6 +316,160 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Octaves', value: 1, min: 1, max: 4, suffix: '', step: 1 },
         { name: 'Gate', value: 80, min: 5, max: 200, suffix: '%', step: 1 },
     ],
+    // ── Wave 3: Full effect processor support ─────────────────────
+    // Each entry maps 1:1 to the backend set_param(index, value) layout
+    // in the corresponding processor .rs file.
+    overdrive: [
+        { name: 'Drive', value: 30, min: 0, max: 100, suffix: '%', step: 1 },             // 0
+        { name: 'Tone', value: 50, min: 0, max: 100, suffix: '%', step: 1 },              // 1
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 2
+        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },          // 3
+        { name: 'Bias', value: 10, min: -100, max: 100, suffix: '%', step: 1 },           // 4
+        { name: 'Tight', value: 30, min: 0, max: 100, suffix: '%', step: 1 },             // 5
+    ],
+    transientShaper: [
+        { name: 'Attack', value: 0, min: -100, max: 100, suffix: '%', step: 1 },          // 0
+        { name: 'Sustain', value: 0, min: -100, max: 100, suffix: '%', step: 1 },         // 1
+        { name: 'Output', value: 0, min: -24, max: 12, suffix: 'dB', step: 0.1 },         // 2
+        { name: 'Speed', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 3
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 4
+    ],
+    drumBuss: [
+        { name: 'Drive', value: 30, min: 0, max: 100, suffix: '%', step: 1 },             // 0
+        { name: 'Crunch', value: 30, min: 0, max: 100, suffix: '%', step: 1 },            // 1
+        { name: 'Boom', value: 30, min: 0, max: 100, suffix: '%', step: 1 },              // 2
+        { name: 'Boom Freq', value: 80, min: 30, max: 200, suffix: 'Hz', step: 1 },       // 3
+        { name: 'Transient', value: 50, min: 0, max: 100, suffix: '%', step: 1 },         // 4
+        { name: 'Trim', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },            // 5
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 6
+    ],
+    dynamicTube: [
+        { name: 'Drive', value: 30, min: 0, max: 100, suffix: '%', step: 1 },             // 0
+        { name: 'Bias', value: 0, min: -100, max: 100, suffix: '%', step: 1 },            // 1
+        { name: 'Envelope', value: 40, min: 0, max: 100, suffix: '%', step: 1 },          // 2
+        { name: 'Tone', value: 50, min: 0, max: 100, suffix: '%', step: 1 },              // 3
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 4
+        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },          // 5
+    ],
+    phaserFlanger: [
+        { name: 'Rate', value: 0.5, min: 0.01, max: 20, suffix: 'Hz', step: 0.01 },      // 0
+        { name: 'Depth', value: 60, min: 0, max: 100, suffix: '%', step: 1 },             // 1
+        { name: 'Fb', value: 50, min: -95, max: 95, suffix: '%', step: 1 },               // 2
+        { name: 'Blend', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 3
+        { name: 'Stages', value: 4, min: 2, max: 12, suffix: '', step: 2 },               // 4
+        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 5
+        { name: 'Stereo', value: 90, min: 0, max: 180, suffix: '°', step: 1 },            // 6
+    ],
+    amp: [
+        { name: 'Gain', value: 50, min: 0, max: 100, suffix: '%', step: 1 },              // 0
+        { name: 'Bass', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },           // 1
+        { name: 'Mid', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },            // 2
+        { name: 'Treble', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },         // 3
+        { name: 'Presence', value: 50, min: 0, max: 100, suffix: '%', step: 1 },          // 4
+        { name: 'Master', value: -6, min: -60, max: 6, suffix: 'dB', step: 0.1 },         // 5
+        { name: 'Sag', value: 30, min: 0, max: 100, suffix: '%', step: 1 },               // 6
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 7
+    ],
+    cabinet: [
+        { name: 'Type', value: 0, min: 0, max: 4, suffix: '', step: 1 },                  // 0
+        { name: 'Mic Pos', value: 50, min: 0, max: 100, suffix: '%', step: 1 },           // 1
+        { name: 'Lo Cut', value: 80, min: 20, max: 500, suffix: 'Hz', step: 1 },          // 2
+        { name: 'Hi Cut', value: 8000, min: 1000, max: 12000, suffix: 'Hz', step: 1 },    // 3
+        { name: 'Resonance', value: 30, min: 0, max: 100, suffix: '%', step: 1 },         // 4
+        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },          // 5
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 6
+    ],
+    hybridReverb: [
+        { name: 'Size', value: 50, min: 0, max: 100, suffix: '%', step: 1 },              // 0
+        { name: 'Decay', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 1
+        { name: 'Damp', value: 40, min: 0, max: 100, suffix: '%', step: 1 },              // 2
+        { name: 'Early', value: 60, min: 0, max: 100, suffix: '%', step: 1 },             // 3
+        { name: 'Late', value: 80, min: 0, max: 100, suffix: '%', step: 1 },              // 4
+        { name: 'Predelay', value: 10, min: 0, max: 250, suffix: 'ms', step: 1 },         // 5
+        { name: 'Mod Depth', value: 15, min: 0, max: 100, suffix: '%', step: 1 },         // 6
+        { name: 'Mix', value: 30, min: 0, max: 100, suffix: '%', step: 1 },               // 7
+        { name: 'Width', value: 100, min: 0, max: 100, suffix: '%', step: 1 },            // 8
+    ],
+    erosion: [
+        { name: 'Mode', value: 0, min: 0, max: 2, suffix: '', step: 1 },                  // 0
+        { name: 'Frequency', value: 2000, min: 20, max: 20000, suffix: 'Hz', step: 1 },   // 1
+        { name: 'Amount', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 2
+        { name: 'Width', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 3
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 4
+    ],
+    pedal: [
+        { name: 'Mode', value: 0, min: 0, max: 3, suffix: '', step: 1 },                  // 0
+        { name: 'Drive', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 1
+        { name: 'Tone', value: 50, min: 0, max: 100, suffix: '%', step: 1 },              // 2
+        { name: 'Level', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },           // 3
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 4
+    ],
+    roar: [
+        { name: 'Character', value: 0, min: 0, max: 3, suffix: '', step: 1 },             // 0
+        { name: 'Intensity', value: 50, min: 0, max: 100, suffix: '%', step: 1 },         // 1
+        { name: 'Color', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 2
+        { name: 'Feedback', value: 20, min: 0, max: 80, suffix: '%', step: 1 },           // 3
+        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },          // 4
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 5
+    ],
+    multibandDynamics: [
+        { name: 'Xover Low', value: 200, min: 40, max: 1000, suffix: 'Hz', step: 1 },    // 0
+        { name: 'Xover High', value: 4000, min: 1000, max: 16000, suffix: 'Hz', step: 1 },// 1
+        { name: 'Lo Thr', value: -20, min: -40, max: 0, suffix: 'dB', step: 0.1 },        // 2
+        { name: 'Lo Ratio', value: 2, min: 1, max: 20, suffix: ':1', step: 0.1 },         // 3
+        { name: 'Lo Gain', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },        // 4
+        { name: 'Mid Thr', value: -20, min: -40, max: 0, suffix: 'dB', step: 0.1 },       // 5
+        { name: 'Mid Ratio', value: 2, min: 1, max: 20, suffix: ':1', step: 0.1 },        // 6
+        { name: 'Mid Gain', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },       // 7
+        { name: 'Hi Thr', value: -20, min: -40, max: 0, suffix: 'dB', step: 0.1 },        // 8
+        { name: 'Hi Ratio', value: 2, min: 1, max: 20, suffix: ':1', step: 0.1 },         // 9
+        { name: 'Hi Gain', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },        // 10
+        { name: 'Output', value: 0, min: -12, max: 12, suffix: 'dB', step: 0.1 },         // 11
+    ],
+    grainDelay: [
+        { name: 'Delay', value: 250, min: 1, max: 2000, suffix: 'ms', step: 1 },          // 0
+        { name: 'Grain', value: 100, min: 10, max: 500, suffix: 'ms', step: 1 },          // 1
+        { name: 'Pitch', value: 0, min: -24, max: 24, suffix: 'st', step: 1 },            // 2
+        { name: 'Spray', value: 30, min: 0, max: 100, suffix: '%', step: 1 },             // 3
+        { name: 'Fb', value: 30, min: 0, max: 95, suffix: '%', step: 1 },                 // 4
+        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 5
+        { name: 'Density', value: 3, min: 1, max: 8, suffix: '', step: 1 },               // 6
+    ],
+    corpus: [
+        { name: 'Tune', value: 60, min: 24, max: 96, suffix: '', step: 1 },               // 0
+        { name: 'Decay', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 1
+        { name: 'Damp', value: 40, min: 0, max: 100, suffix: '%', step: 1 },              // 2
+        { name: 'Type', value: 0, min: 0, max: 4, suffix: '', step: 1 },                  // 3
+        { name: 'Spread', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 4
+        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 5
+    ],
+    spectralTime: [
+        { name: 'Mode', value: 0, min: 0, max: 2, suffix: '', step: 1 },                  // 0
+        { name: 'Amount', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 1
+        { name: 'Decay', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 2
+        { name: 'Tilt', value: 0, min: -100, max: 100, suffix: '%', step: 1 },            // 3
+        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 4
+    ],
+    glueCompressor: [
+        { name: 'Thr', value: -10, min: -40, max: 0, suffix: 'dB', step: 0.1 },           // 0
+        { name: 'Ratio', value: 1, min: 0, max: 2, suffix: '', step: 1 },                 // 1  (0=2:1, 1=4:1, 2=10:1)
+        { name: 'Atk', value: 1, min: 0.1, max: 30, suffix: 'ms', step: 0.1 },            // 2
+        { name: 'Rel', value: 100, min: 0.1, max: 1200, suffix: 'ms', step: 1 },          // 3
+        { name: 'Makeup', value: 0, min: -6, max: 18, suffix: 'dB', step: 0.1 },          // 4
+        { name: 'Range', value: -40, min: -40, max: 0, suffix: 'dB', step: 0.1 },         // 5
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },              // 6
+        { name: 'Soft Clip', value: 0, min: 0, max: 100, suffix: '%', step: 1 },          // 7
+    ],
+    filterDelay: [
+        { name: 'L Delay', value: 250, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 0
+        { name: 'C Delay', value: 375, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 1
+        { name: 'R Delay', value: 500, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 2
+        { name: 'L Filter', value: 3000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 3
+        { name: 'C Filter', value: 5000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 4
+        { name: 'R Filter', value: 8000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 5
+        { name: 'Fb', value: 30, min: 0, max: 95, suffix: '%', step: 1 },                 // 6
+        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 7
+    ],
     sample_rack: [],
     rack: [],
 };

@@ -38,7 +38,25 @@ export type DeviceEffectType =
     | 'saturator'
     | 'waveSynth'
     | 'sample_rack'
-    | 'rack';
+    | 'rack'
+    // ── Wave 3: Full effect processor support ─────────────────────
+    | 'overdrive'
+    | 'transientShaper'
+    | 'drumBuss'
+    | 'dynamicTube'
+    | 'phaserFlanger'
+    | 'amp'
+    | 'cabinet'
+    | 'hybridReverb'
+    | 'erosion'
+    | 'pedal'
+    | 'roar'
+    | 'multibandDynamics'
+    | 'grainDelay'
+    | 'corpus'
+    | 'spectralTime'
+    | 'glueCompressor'
+    | 'filterDelay';
 
 export interface DeviceSlot {
     id: string;

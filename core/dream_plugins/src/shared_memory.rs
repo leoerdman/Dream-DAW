@@ -14,8 +14,8 @@
 // │  12..16   │  4B   │  processed_seq    │  ATOMIC: Daemon→Host     │
 // │  16..20   │  4B   │  midi_event_count │  Host writes per block   │
 // │  20..52   │  32B  │  midi_events[4]   │  Host writes per block   │
-// │  52..88   │  36B  │  transport_ctx    │  Host writes per block   │
-// │  88..128  │  40B  │  reserved/padding │  —                       │
+// │  52..92   │  40B  │  transport_ctx    │  Host writes per block   │
+// │  92..128  │  36B  │  reserved/padding │  —                       │
 // ├───────────┼───────┼───────────────────┼──────────────────────────┤
 // │  128..    │  var  │  input channels   │  Host writes per block   │
 // │  ...      │  var  │  output channels  │  Daemon writes per block │

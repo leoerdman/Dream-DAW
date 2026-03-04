@@ -1,18 +1,9 @@
 use crate::context::Command;
 use crate::error::{OrchestratorError, OrchestratorResult};
-use dream_models::project::{DeviceNode, DeviceRack, PluginSlot, Project, RackChain};
+use dream_models::project::{DeviceNode, PluginSlot, Project};
 
 const MASTER_TRACK_INDEX: u16 = u16::MAX;
 const INSTRUMENT_SLOT_INDEX: u8 = 255;
-
-fn selected_runtime_chain(rack: &DeviceRack) -> Option<&RackChain> {
-    let has_solo = rack.chains.iter().any(|c| c.is_solo);
-    if has_solo {
-        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-    } else {
-        rack.chains.iter().find(|c| !c.is_disabled)
-    }
-}
 
 fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
     match node {

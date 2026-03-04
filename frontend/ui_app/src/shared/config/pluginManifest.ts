@@ -71,6 +71,7 @@ const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     sample_rack: 520,
     instrument: 420,
     eq: 420,
+    bandEq: 420,
     compressor: 520,
     delay: 520,
     reverb: 520,
@@ -98,7 +99,26 @@ const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     utility: 360,
     vst: 160,
     rack: 720,
+    // ── Wave 3: Full effect processor widths ─────────────────────
+    overdrive: 520,
+    transientShaper: 520,
+    drumBuss: 520,
+    dynamicTube: 520,
+    phaserFlanger: 420,
+    amp: 520,
+    cabinet: 520,
+    hybridReverb: 520,
+    erosion: 420,
+    pedal: 520,
+    roar: 520,
+    multibandDynamics: 620,
+    grainDelay: 520,
+    corpus: 420,
+    spectralTime: 520,
+    glueCompressor: 520,
+    filterDelay: 620,
 };
+
 
 export function resolvePlugin(
     pluginId: string,

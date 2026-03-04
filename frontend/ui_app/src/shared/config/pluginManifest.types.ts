@@ -2,6 +2,7 @@ export type PluginFormat = 'INT' | 'VST2' | 'VST3' | 'AU';
 export type PluginCategory = 'instrument' | 'effect' | 'midi-fx';
 export type DeviceEffectType =
     | 'eq'
+    | 'bandEq'
     | 'compressor'
     | 'delay'
     | 'reverb'
@@ -33,7 +34,25 @@ export type DeviceEffectType =
     | 'sample_rack'
     | 'saturator'
     | 'waveSynth'
-    | 'rack';
+    | 'rack'
+    // ── Wave 3: Full effect processor support ─────────────────────
+    | 'overdrive'
+    | 'transientShaper'
+    | 'drumBuss'
+    | 'dynamicTube'
+    | 'phaserFlanger'
+    | 'amp'
+    | 'cabinet'
+    | 'hybridReverb'
+    | 'erosion'
+    | 'pedal'
+    | 'roar'
+    | 'multibandDynamics'
+    | 'grainDelay'
+    | 'corpus'
+    | 'spectralTime'
+    | 'glueCompressor'
+    | 'filterDelay';
 
 export interface PluginManifestEntry {
     id: string;

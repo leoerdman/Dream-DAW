@@ -8,17 +8,6 @@ struct RuntimeParamUpdate {
     value: f32,
 }
 
-fn selected_runtime_chain(
-    rack: &dream_models::project::DeviceRack,
-) -> Option<&dream_models::project::RackChain> {
-    let has_solo = rack.chains.iter().any(|c| c.is_solo);
-    if has_solo {
-        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-    } else {
-        rack.chains.iter().find(|c| !c.is_disabled)
-    }
-}
-
 fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
     match node {
         DeviceNode::Single(slot) => usize::from(

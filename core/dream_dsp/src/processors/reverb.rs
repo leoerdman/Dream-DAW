@@ -592,11 +592,11 @@ impl DspProcessor for ReverbProcessor {
             for (i, c) in self.combs_l.iter_mut().enumerate() {
                 // Modulate combs slightly out of phase with each other natively
                 let phase_shift = if i % 2 == 0 { 1.0 } else { -1.0 };
-                out_l += c.process(input_l, 1.0 + mod_samples_l * phase_shift);
+                out_l += c.process(input_l, mod_samples_l * phase_shift);
             }
             for (i, c) in self.combs_r.iter_mut().enumerate() {
                 let phase_shift = if i % 2 == 0 { 1.0 } else { -1.0 };
-                out_r += c.process(input_r, 1.0 + mod_samples_r * phase_shift);
+                out_r += c.process(input_r, mod_samples_r * phase_shift);
             }
 
             // Normalise summed comb output + density gain staging.

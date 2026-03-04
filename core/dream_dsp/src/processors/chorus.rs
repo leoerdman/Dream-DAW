@@ -39,8 +39,8 @@ const VOICE_BASE_DELAY_MS: [f32; MAX_VOICES] = [7.0, 9.0, 11.0];
 const VOICE_MOD_DEPTH_MS: [f32; MAX_VOICES] = [3.0, 2.5, 3.5];
 
 pub struct ChorusProcessor {
-    buf_l: [[f32; MAX_DELAY_SAMPLES]; MAX_VOICES],
-    buf_r: [[f32; MAX_DELAY_SAMPLES]; MAX_VOICES],
+    buf_l: [Box<[f32; MAX_DELAY_SAMPLES]>; MAX_VOICES],
+    buf_r: [Box<[f32; MAX_DELAY_SAMPLES]>; MAX_VOICES],
     write_pos: usize,
     lfo_phase: f64,
     rate_hz: f32,
@@ -73,8 +73,16 @@ impl ChorusProcessor {
     pub fn new(sample_rate: f32) -> Self {
         let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
-            buf_l: [[0.0; MAX_DELAY_SAMPLES]; MAX_VOICES],
-            buf_r: [[0.0; MAX_DELAY_SAMPLES]; MAX_VOICES],
+            buf_l: [
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+            ],
+            buf_r: [
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+                Box::new([0.0; MAX_DELAY_SAMPLES]),
+            ],
             write_pos: 0,
             lfo_phase: 0.0,
             rate_hz: 1.0,
@@ -128,7 +136,7 @@ impl ChorusProcessor {
     /// BUG-DSP-001 FIX: Read with 4-point Hermite interpolation for fractional delays.
     /// Preserves high frequencies during wide Chorus modulation sweeps.
     #[inline]
-    fn read_delay(buf: &[f32; MAX_DELAY_SAMPLES], write_pos: usize, delay_samples: f32) -> f32 {
+    fn read_delay(buf: &[f32], write_pos: usize, delay_samples: f32) -> f32 {
         let int_d = delay_samples as usize;
         let frac = delay_samples - int_d as f32;
         
@@ -191,8 +199,8 @@ impl DspProcessor for ChorusProcessor {
                 self.buf_l[v][self.write_pos] = dry_l + self.fb_l[v] * feedback;
                 self.buf_r[v][self.write_pos] = dry_r + self.fb_r[v] * feedback;
 
-                let out_l = Self::read_delay(&self.buf_l[v], self.write_pos, delay_l);
-                let out_r = Self::read_delay(&self.buf_r[v], self.write_pos, delay_r);
+                let out_l = Self::read_delay(&*self.buf_l[v], self.write_pos, delay_l);
+                let out_r = Self::read_delay(&*self.buf_r[v], self.write_pos, delay_r);
 
                 self.fb_l[v] = out_l;
                 self.fb_r[v] = out_r;
@@ -269,8 +277,8 @@ impl DspProcessor for ChorusProcessor {
 
     fn reset(&mut self) {
         for v in 0..MAX_VOICES {
-            self.buf_l[v] = [0.0; MAX_DELAY_SAMPLES];
-            self.buf_r[v] = [0.0; MAX_DELAY_SAMPLES];
+            self.buf_l[v].fill(0.0);
+            self.buf_r[v].fill(0.0);
             self.fb_l[v] = 0.0;
             self.fb_r[v] = 0.0;
         }

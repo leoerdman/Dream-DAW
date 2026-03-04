@@ -3,7 +3,7 @@
 // Shared Audio Buffer — Cross-Process Zero-Copy Audio Transport
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Memory layout (64-byte header + channel data):
+// Memory layout (128-byte header + channel data):
 //
 // ┌───────────────────────────────────────────────────────────────────┐
 // │  Offset   │  Size │  Field            │  Access Pattern          │
@@ -14,9 +14,10 @@
 // │  12..16   │  4B   │  processed_seq    │  ATOMIC: Daemon→Host     │
 // │  16..20   │  4B   │  midi_event_count │  Host writes per block   │
 // │  20..52   │  32B  │  midi_events[4]   │  Host writes per block   │
-// │  52..64   │  12B  │  reserved/padding │  —                       │
+// │  52..88   │  36B  │  transport_ctx    │  Host writes per block   │
+// │  88..128  │  40B  │  reserved/padding │  —                       │
 // ├───────────┼───────┼───────────────────┼──────────────────────────┤
-// │  64..     │  var  │  input channels   │  Host writes per block   │
+// │  128..    │  var  │  input channels   │  Host writes per block   │
 // │  ...      │  var  │  output channels  │  Daemon writes per block │
 // └───────────┴───────┴───────────────────┴──────────────────────────┘
 //
@@ -332,21 +333,6 @@ impl SharedAudioBufferRegion {
         }
         let bytes = &self.mmap[HEADER_TRANSPORT_OFFSET..end];
         Some(*bytemuck::from_bytes::<InlineTransport>(bytes))
-    }
-        if count == 0 {
-            return &[];
-        }
-        let bytes_len = count * MIDI_EVENT_STRIDE;
-        let end = HEADER_MIDI_DATA_OFFSET + bytes_len;
-        if end > self.mmap.len() {
-            return &[];
-        }
-        bytemuck::cast_slice(&self.mmap[HEADER_MIDI_DATA_OFFSET..end])
-    }
-
-    /// Clears the MIDI event count (call after daemon has consumed events).
-    pub fn clear_midi_events(&mut self) {
-        self.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, 0);
     }
 
     // ── Atomic Sequence Counters (cross-process safe) ───────────────────

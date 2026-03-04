@@ -912,3 +912,8 @@ pub fn take_param_values_changed() -> bool {
 pub fn take_plugin_state_dirty() -> bool {
     PLUGIN_STATE_DIRTY.swap(false, Ordering::AcqRel)
 }
+
+/// Sets the plugin state dirty flag (called from sandbox supervisor on StateDirty IPC events).
+pub fn mark_plugin_state_dirty() {
+    PLUGIN_STATE_DIRTY.store(true, Ordering::Release);
+}

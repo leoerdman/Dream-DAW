@@ -48,6 +48,7 @@ fn test_instance(
         spawned_at: SystemTime::now(),
         last_known_state_blob: None,
         ticks_since_last_save: 0,
+        pending_events: Vec::new(),
     }
 }
 

@@ -19,15 +19,16 @@ fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
         DeviceNode::Single(slot) => usize::from(
             dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some(),
         ),
-        DeviceNode::Rack(rack) => selected_runtime_chain(rack)
-            .map(|chain| {
-                chain
-                    .devices
-                    .iter()
-                    .map(count_runtime_internal_effects)
-                    .sum()
-            })
-            .unwrap_or(0),
+        DeviceNode::Rack(rack) => {
+            // ENTERPRISE SSOT FIX: Must iterate ALL applicable chains to match
+            // the engine's device chain layout built by runtime_device_chains.rs.
+            let has_solo = rack.chains.iter().any(|c| c.is_solo);
+            rack.chains.iter()
+                .filter(|c| !c.is_disabled && (!has_solo || c.is_solo))
+                .flat_map(|chain| chain.devices.iter())
+                .map(count_runtime_internal_effects)
+                .sum()
+        }
     }
 }
 

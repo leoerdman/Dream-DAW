@@ -148,7 +148,14 @@ impl ClipPoolState {
             }
             DeviceNode::Rack(rack) => {
                 let rack_bypassed = parent_bypassed || rack.is_bypassed;
-                if let Some(chain) = Self::selected_runtime_chain(rack) {
+                // ENTERPRISE SSOT FIX: Iterate ALL applicable chains, not just one.
+                // Ableton racks process chains in parallel — all enabled chains
+                // contribute sidechains simultaneously. Solo logic: when any chain
+                // is solo'd, only solo'd+enabled chains play.
+                let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                for chain in &rack.chains {
+                    if chain.is_disabled { continue; }
+                    if has_solo && !chain.is_solo { continue; }
                     for child in &chain.devices {
                         Self::collect_sidechain_sources_from_node(
                             child,
@@ -334,7 +341,11 @@ impl ClipPoolState {
                 }
                 DeviceNode::Rack(rack) => {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
-                    if let Some(chain) = ClipPoolState::selected_runtime_chain(rack) {
+                    // ENTERPRISE SSOT FIX: Iterate ALL applicable chains.
+                    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                    for chain in &rack.chains {
+                        if chain.is_disabled { continue; }
+                        if has_solo && !chain.is_solo { continue; }
                         for child in &chain.devices {
                             collect_effect_runtime_slots(
                                 child,

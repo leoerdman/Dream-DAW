@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, SystemTime};
 
@@ -494,7 +494,7 @@ impl PluginSandboxSupervisor {
                             }
                             PluginHostEventMessage::StateDirty { .. } => {
                                 // Trigger the global AST asterisk symbol in the DAW title bar.
-                                crate::vst3::host_objects::set_plugin_state_dirty(true);
+                                crate::vst3::host_objects::mark_plugin_state_dirty();
                             }
                             PluginHostEventMessage::StateSaved { state_blob_b64, .. } => {
                                 instance.last_known_state_blob = Some(state_blob_b64);
@@ -508,9 +508,9 @@ impl PluginSandboxSupervisor {
                                 );
                             }
                         }
-                    }
-                }
-            }
+                    } // ends for evt in events_to_process
+                } // ends if let Some(rx) = instance.event_rx.as_ref()
+                
             if let Some(child) = instance.process.as_mut() {
                 match child.try_wait() {
                     Ok(Some(status)) => {

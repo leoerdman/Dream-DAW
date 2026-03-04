@@ -436,7 +436,10 @@ fn main() {
                             .or_default()
                             .extend(midi_events);
                     }
-                    // ── LAZARUS PROTOCOL: Save/Restore State ────────────────
+                    // VST3 ENTERPRISE: Synchronous state save — daemon side behaves identically
+                    // to SaveState. The "wait" semantics are handled by the host supervisor which
+                    // blocks on receiving the StateSaved response.
+                    PluginHostControlMessage::SaveStateAndWait { instance_id } |
                     PluginHostControlMessage::SaveState { instance_id } => {
                         use base64::Engine;
                         let state_blob_b64 = if let Some(plugin) =
@@ -594,9 +597,20 @@ fn main() {
 
             // Process through plugin or passthrough.
             if let Some(plugin) = loaded_instances.get_mut(&daemon_instance_id) {
-                // Read lock-free transport block synced from UI thread
-                let transport = region.read_transport();
-                plugin.set_transport_context(transport);
+                // Read lock-free transport block synced from host via shared memory
+                if let Some(t) = region.read_transport() {
+                    let ctx = dream_plugins::instance::TransportContext {
+                        sample_rate: t.sample_rate,
+                        position_samples: t.current_sample_position,
+                        tempo: t.bpm,
+                        is_playing: t.playing != 0,
+                        is_recording: t.recording != 0,
+                        time_sig_numerator: t.time_sig_num,
+                        time_sig_denominator: t.time_sig_den,
+                        ..Default::default()
+                    };
+                    plugin.set_transport_context(ctx);
+                }
 
                 // ENTERPRISE: Sync GUI Parameter Edits to DSP & sent them Host
                 if dream_plugins::vst3_host::take_param_values_changed() {

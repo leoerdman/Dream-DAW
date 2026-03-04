@@ -398,7 +398,8 @@ pub fn import_als_project_with_target_sample_rate(
         if let Some(height_val) = parse_track_i64_value(track_node, "TrackHeight")
             .or_else(|| parse_track_i64_value(track_node, "LaneHeight"))
         {
-            track.height = height_val as f64;
+            let h = (height_val as f64).clamp(20.0, 500.0);
+            track.height = h;
         }
 
         // ── Phase 5: Routing & Session Slots ───────────────────────────
@@ -741,13 +742,35 @@ pub fn import_als_project_with_target_sample_rate(
 // ── Phase 5 Helpers ────────────────────────────────────────────────────
 
 fn parse_routing(track_node: roxmltree::Node<'_, '_>, tag_name: &str) -> Option<TrackRouting> {
-    let routing_node = track_node
+    // Ableton XML: AudioTrack → DeviceChain → AudioInputRouting/AudioOutputRouting/etc.
+    let device_chain = track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))?;
+
+    let routing_node = device_chain
         .children()
         .find(|n| n.is_element() && n.has_tag_name(tag_name))?;
 
-    let target = node_child_value(routing_node, "Target").unwrap_or_default();
-    let upper = node_child_value(routing_node, "UpperDisplayString").unwrap_or_default();
-    let lower = node_child_value(routing_node, "LowerDisplayString").unwrap_or_default();
+    let target = routing_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Target"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .to_string();
+
+    let upper = routing_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("UpperDisplayString"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .to_string();
+
+    let lower = routing_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("LowerDisplayString"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .to_string();
 
     if target.is_empty() {
         return None;
@@ -762,32 +785,70 @@ fn parse_routing(track_node: roxmltree::Node<'_, '_>, tag_name: &str) -> Option<
 
 fn parse_clip_slots(track_node: roxmltree::Node<'_, '_>) -> Vec<ClipSlot> {
     let mut slots = Vec::new();
-    let Some(device_chain) = track_node.children().find(|n| n.is_element() && n.has_tag_name("DeviceChain")) else {
-        return slots;
+
+    // Ableton XML path: AudioTrack → DeviceChain → MainSequencer → ClipSlotList
+    let device_chain = match track_node.children().find(|n| n.is_element() && n.has_tag_name("DeviceChain")) {
+        Some(dc) => dc,
+        None => return slots,
     };
-    let Some(clip_slot_list) = device_chain.children().find(|n| n.is_element() && n.has_tag_name("ClipSlotList")) else {
-        return slots;
+    let main_seq = match device_chain.children().find(|n| n.is_element() && n.has_tag_name("MainSequencer")) {
+        Some(ms) => ms,
+        None => return slots,
+    };
+    let clip_slot_list = match main_seq.children().find(|n| n.is_element() && n.has_tag_name("ClipSlotList")) {
+        Some(csl) => csl,
+        None => return slots,
     };
 
-    for (index, slot_node) in clip_slot_list.children().filter(|n| n.is_element() && n.has_tag_name("ClipSlot")).enumerate() {
-        // Value clip slots are stored in a ClipSlot node
-        let has_clip = node_child_value(slot_node, "HasClip")
-            .as_deref()
-            .and_then(parse_bool_value)
+    // Each item in ClipSlotList is a wrapper <ClipSlot> containing:
+    //   <LomId>, <ClipSlot> (inner, the actual value), <HasStop>, <NeedRefreeze>
+    for (index, wrapper_node) in clip_slot_list
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("ClipSlot"))
+        .enumerate()
+    {
+        // The inner <ClipSlot> child holds the actual clip information.
+        // If the inner ClipSlot has a <Value/> with empty Value attr, the slot is empty.
+        let inner_slot = wrapper_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ClipSlot"));
+
+        // A slot has a clip if the inner ClipSlot has children beyond just <Value Value=""/>
+        let has_clip = inner_slot
+            .map(|inner| {
+                // If inner has an AudioClip or MidiClip child, it contains a clip.
+                inner.children().any(|c| {
+                    c.is_element()
+                        && (c.has_tag_name("AudioClip")
+                            || c.has_tag_name("MidiClip")
+                            || c.has_tag_name("ClipSlot"))
+                })
+                || inner
+                    .children()
+                    .find(|c| c.is_element() && c.has_tag_name("Value"))
+                    .and_then(|v| v.attribute("Value"))
+                    .map(|val| !val.is_empty())
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
-        let name = node_child_value(slot_node, "Name")
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "".to_string());
-        
-        // Ableton colors its slots
-        let color = extract_ableton_color_index(slot_node)
+        let has_stop = wrapper_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("HasStop"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_bool_value)
+            .unwrap_or(true);
+
+        // Slot color from wrapper node
+        let color = extract_ableton_color_index(wrapper_node)
             .map(|idx| ableton_color_to_track_color(idx, index));
+
+        let _ = has_stop; // Reserved for future session launch behavior
 
         slots.push(ClipSlot {
             index: index as i32,
             has_clip,
-            name,
+            name: String::new(),
             color,
         });
     }

@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 
 use uuid::Uuid;
@@ -239,12 +239,12 @@ impl SandboxedPluginInstance {
         // Prevents all VST3 LFOs, arpeggiators, and delays from running "in a vacuum".
         let inline_transport = crate::shared_memory::InlineTransport {
             sample_rate: self.transport.sample_rate,
-            bpm: self.transport.bpm,
-            time_sig_num: self.transport.time_sig_num,
-            time_sig_den: self.transport.time_sig_den,
-            playing: if self.transport.playing { 1 } else { 0 },
-            recording: if self.transport.recording { 1 } else { 0 },
-            current_sample_position: self.transport.current_sample_position,
+            bpm: self.transport.tempo,
+            time_sig_num: self.transport.time_sig_numerator,
+            time_sig_den: self.transport.time_sig_denominator,
+            playing: if self.transport.is_playing { 1 } else { 0 },
+            recording: if self.transport.is_recording { 1 } else { 0 },
+            current_sample_position: self.transport.position_samples,
         };
         self.shared_region.write_transport(&inline_transport);
 

@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { DeviceNode } from '@/widgets/DeviceRack/ui/DeviceNode';
-import { linearToMeterNorm } from '@/shared/lib/meterManifest';
 import { normalizePickedPath, errorMessage } from '@/widgets/DeviceRack/model/deviceRackCatalog';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
 import type { DeviceSlot as DeviceSlotModel } from '@/widgets/DeviceRack/model/types';
@@ -186,8 +185,8 @@ export function DeviceSlot({
                 }}
             />
             <MeterStrip
-                levelL={linearToMeterNorm(device.vuLevelL ?? device.vuLevel ?? 0)}
-                levelR={linearToMeterNorm(device.vuLevelR ?? device.vuLevel ?? 0)}
+                levelL={device.isEnabled ? logic.outLevelL : 0}
+                levelR={device.isEnabled ? logic.outLevelR : 0}
                 style={{ marginLeft: 'var(--space-1-5)' }}
             />
         </div>

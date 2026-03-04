@@ -24,6 +24,44 @@ use super::plugin_mapper::{
 };
 use super::xml_helpers::*;
 
+/// Parses the device bypass state from an ALS device XML node.
+///
+/// Ableton stores bypass as `<On><Manual Value="false"/></On>` on each device.
+/// `On = true` means the device is active (not bypassed).
+/// `On = false` means the device is bypassed.
+///
+/// ENTERPRISE FIX: This was missing from rack_parser — devices inside rack
+/// chains never had their bypass state applied, causing bypassed effects
+/// inside racks to still process audio after import.
+fn parse_device_bypass_state(device: roxmltree::Node<'_, '_>) -> bool {
+    device
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("On"))
+        .and_then(|on_node| maybe_parse_bool_manual(on_node, "On")
+            .or_else(|| {
+                on_node
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_bool_value)
+            }))
+        .map(|on| !on) // Ableton stores "On", we need "is_bypassed"
+        .unwrap_or(false)
+}
+
+/// Applies the bypass state to a DeviceNode.
+fn apply_device_bypass(node: &mut DeviceNode, device: roxmltree::Node<'_, '_>) {
+    let bypass = parse_device_bypass_state(device);
+    match node {
+        DeviceNode::Single(slot) => {
+            slot.is_bypassed = bypass;
+        }
+        DeviceNode::Rack(rack) => {
+            rack.is_bypassed = bypass;
+        }
+    }
+}
+
 // ── Pending Macro Mapping ──────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -424,7 +462,9 @@ pub fn parse_als_rack_chains(
                             | "MidiEffectGroupDevice"
                     ) {
                         let nested_rack = parse_als_rack(child_device, external_plugins, als_path);
-                        chain.devices.push(DeviceNode::Rack(nested_rack));
+                        let mut node = DeviceNode::Rack(nested_rack);
+                        apply_device_bypass(&mut node, child_device);
+                        chain.devices.push(node);
                         continue;
                     }
 
@@ -432,11 +472,12 @@ pub fn parse_als_rack_chains(
                     // ENTERPRISE FIX: AuPluginDevice was previously unhandled,
                     // causing AU plugins inside racks to be silently dropped.
                     if child_tag == "PluginDevice" || child_tag == "AuPluginDevice" {
-                        let node = resolve_external_plugin_device(
+                        let mut node = resolve_external_plugin_device(
                             child_device,
                             external_plugins,
                             pending_macro_mappings,
                         );
+                        apply_device_bypass(&mut node, child_device);
                         chain.devices.push(node);
                         continue;
                     }
@@ -446,14 +487,16 @@ pub fn parse_als_rack_chains(
                     if let Some((pid, pname, _)) =
                         canonical_internal_plugin_for_import(child_tag, &display)
                     {
-                        let node = DeviceNode::Single(PluginSlot::new(pname, pid));
+                        let mut node = DeviceNode::Single(PluginSlot::new(pname, pid));
+                        apply_device_bypass(&mut node, child_device);
                         pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
                             child_device,
                             &node,
                         ));
                         chain.devices.push(node);
                     } else {
-                        let node = make_missing_plugin_slot(child_tag, &display);
+                        let mut node = make_missing_plugin_slot(child_tag, &display);
+                        apply_device_bypass(&mut node, child_device);
                         pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
                             child_device,
                             &node,

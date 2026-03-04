@@ -352,7 +352,7 @@ pub fn build_pointee_map_with(
     }
 
     for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
-        if !device.is_element() || !device.has_tag_name("PluginDevice") {
+        if !device.is_element() || !(device.has_tag_name("PluginDevice") || device.has_tag_name("AuPluginDevice")) {
             continue;
         }
         let plugin_name_raw = infer_device_display_name(*device, "plugin");
@@ -427,7 +427,7 @@ pub fn import_plugin_device_static_automation_fallback_with(
     upsert_static_import_lane_if_missing: fn(&mut Track, &str, f64),
 ) {
     for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
-        if !device.is_element() || !device.has_tag_name("PluginDevice") {
+        if !device.is_element() || !(device.has_tag_name("PluginDevice") || device.has_tag_name("AuPluginDevice")) {
             continue;
         }
         let plugin_name_raw = infer_device_display_name(*device, "plugin");
@@ -555,6 +555,69 @@ pub fn import_track_automation_with(
                     bezier_cp1y,
                     bezier_cp2x,
                     bezier_cp2y,
+                });
+            }
+
+            // ENTERPRISE FIX: Parse BoolEvent nodes (mute/solo/bypass automation).
+            // Ableton stores discrete on/off automation as BoolEvent instead of
+            // FloatEvent. Without this, ALL automated booleans were silently lost.
+            for event in envelope
+                .descendants()
+                .filter(|n| n.is_element() && n.has_tag_name("BoolEvent"))
+            {
+                let time_beats = event
+                    .attribute("Time")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
+                if time_beats < -1_000_000.0 {
+                    continue;
+                }
+                let value = event
+                    .attribute("Value")
+                    .and_then(parse_bool_value)
+                    .map(|b| if b { 1.0 } else { 0.0 })
+                    .unwrap_or(0.0);
+
+                points.push(AutomationPoint {
+                    beat: time_beats,
+                    value,
+                    curve_type: "hold".to_string(),
+                    tension: None,
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
+                });
+            }
+
+            // ENTERPRISE FIX: Parse EnumEvent nodes (filter type, waveform, etc).
+            // Ableton stores discrete enum automation as EnumEvent with integer values.
+            for event in envelope
+                .descendants()
+                .filter(|n| n.is_element() && n.has_tag_name("EnumEvent"))
+            {
+                let time_beats = event
+                    .attribute("Time")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
+                if time_beats < -1_000_000.0 {
+                    continue;
+                }
+                let value = event
+                    .attribute("Value")
+                    .and_then(parse_i64_value)
+                    .map(|v| v as f64)
+                    .unwrap_or(0.0);
+
+                points.push(AutomationPoint {
+                    beat: time_beats,
+                    value,
+                    curve_type: "hold".to_string(),
+                    tension: None,
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
                 });
             }
 

@@ -332,7 +332,8 @@ fn import_internal_ableton_device(
             import_midi_fx_static_params(track, plugin_id, device);
         }
     } else {
-        let slot = make_missing_plugin_slot("ableton-device", &display_name);
+        let mut slot = make_missing_plugin_slot("ableton-device", &display_name);
+        apply_device_bypass(&mut slot, device);
         if is_instrument_slot {
             track.instrument = Some(slot);
         } else {

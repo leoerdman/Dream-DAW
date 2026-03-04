@@ -195,6 +195,56 @@ pub fn resolve_als_file_path(
     resolve_als_file_path_cached(als_path, absolute_path, relative_path, None)
 }
 
+/// Generates normalized path candidates for a raw path string.
+/// Handles backslash→slash, percent-decoding, and file:// URI normalization.
+fn normalized_candidates(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::<String>::new();
+    let mut push_unique = |s: String| {
+        if !s.is_empty() && !out.iter().any(|v| v == &s) {
+            out.push(s);
+        }
+    };
+
+    push_unique(trimmed.to_string());
+    push_unique(trimmed.replace('\\', "/"));
+    push_unique(percent_decode_lossy(trimmed));
+    if let Some(uri_path) = normalize_file_uri(trimmed) {
+        push_unique(uri_path);
+    }
+    out
+}
+
+/// Tries normalized path + dash/space/dot variants to find an existing file.
+/// Handles Ableton Pack directory naming differences (e.g. "0. Packs" vs "0 - Packs").
+fn try_existing_variants(raw: &str) -> Option<String> {
+    for normalized in normalized_candidates(raw) {
+        let candidates = [
+            normalized.clone(),
+            // Dash/space normalization
+            normalized.replace(" - ", "-"),
+            normalized.replace(" -", "-"),
+            normalized.replace("- ", "-"),
+            normalized.replace("160 - 200 BPM", "160-200 BPM"),
+            // Dot/dash folder rename patterns (Ableton Pack directories)
+            // ALS may store "0. Packs" but folder is "0 - Packs" or vice versa
+            normalized.replace(". ", " - "),
+            normalized.replace(" - ", ". "),
+        ];
+        if let Some(found) = candidates
+            .into_iter()
+            .find(|candidate| std::path::Path::new(candidate).exists())
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 /// Same as `resolve_als_file_path` but with optional cache for batch resolution.
 pub fn resolve_als_file_path_cached(
     als_path: &Path,
@@ -202,52 +252,6 @@ pub fn resolve_als_file_path_cached(
     relative_path: Option<&str>,
     cache: Option<&PathResolverCache>,
 ) -> Option<String> {
-    fn normalized_candidates(raw: &str) -> Vec<String> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Vec::new();
-        }
-
-        let mut out = Vec::<String>::new();
-        let mut push_unique = |s: String| {
-            if !s.is_empty() && !out.iter().any(|v| v == &s) {
-                out.push(s);
-            }
-        };
-
-        push_unique(trimmed.to_string());
-        push_unique(trimmed.replace('\\', "/"));
-        push_unique(percent_decode_lossy(trimmed));
-        if let Some(uri_path) = normalize_file_uri(trimmed) {
-            push_unique(uri_path);
-        }
-        out
-    }
-
-    fn try_existing_variants(raw: &str) -> Option<String> {
-        for normalized in normalized_candidates(raw) {
-            let candidates = [
-                normalized.clone(),
-                // Dash/space normalization
-                normalized.replace(" - ", "-"),
-                normalized.replace(" -", "-"),
-                normalized.replace("- ", "-"),
-                normalized.replace("160 - 200 BPM", "160-200 BPM"),
-                // Dot/dash folder rename patterns (Ableton Pack directories)
-                // ALS may store "0. Packs" but folder is "0 - Packs" or vice versa
-                normalized.replace(". ", " - "),
-                normalized.replace(" - ", ". "),
-            ];
-            if let Some(found) = candidates
-                .into_iter()
-                .find(|candidate| std::path::Path::new(candidate).exists())
-            {
-                return Some(found);
-            }
-        }
-        None
-    }
-
     // ── Tier 1: Absolute path ──
     if let Some(abs) = absolute_path
         && !abs.trim().is_empty()
@@ -368,11 +372,23 @@ fn search_near_project_recursive(als_path: &Path, file_name: &str) -> Option<Str
 
     // Also search parent directory (common for multi-project setups)
     if let Some(grandparent) = root.parent() {
+        // Search grandparent's Samples/ dir
         let shared_samples = grandparent.join("Samples");
         if shared_samples.exists()
             && let Some(found) = search_directory_recursive(&shared_samples, file_name, 0, 3)
         {
             return Some(found);
+        }
+        // Search grandparent itself (sibling projects may share samples)
+        if let Some(found) = search_directory_recursive(grandparent, file_name, 0, 2) {
+            return Some(found);
+        }
+        // Search great-grandparent for BPM-folder structures
+        // (e.g. "ABLETON/160-200 BPM/48. Drift Away" shares with "ABLETON/120-160 BPM/*")
+        if let Some(great_grandparent) = grandparent.parent() {
+            if let Some(found) = search_directory_recursive(great_grandparent, file_name, 0, 3) {
+                return Some(found);
+            }
         }
     }
 
@@ -415,7 +431,7 @@ fn search_ableton_library(file_name: &str) -> Option<String> {
     let home: PathBuf = dirs::home_dir()?;
 
     // Ableton User Library paths (macOS)
-    let library_dirs: Vec<PathBuf> = vec![
+    let mut library_dirs: Vec<PathBuf> = vec![
         // User Library
         home.join("Music/Ableton/User Library/Samples"),
         home.join("Music/Ableton/User Library"),
@@ -432,6 +448,33 @@ fn search_ableton_library(file_name: &str) -> Option<String> {
         home.join("Splice/Samples"),
         home.join("Library/Audio/Sounds"),
     ];
+
+    // ── Ableton Live versioned Packs & Core Library ──
+    // Factory samples live in /Applications/Ableton Live <ver>/Contents/App-Resources/
+    // and in ~/Music/Ableton/Live <ver>/Packs/ or ~/Library/Application Support/Ableton/Live <ver>/
+    for ver in 9..=13 {
+        let suite = format!("Ableton Live {} Suite.app", ver);
+        let standard = format!("Ableton Live {}.app", ver);
+        // Application bundle resources
+        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources/Core Library", suite)));
+        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources/Core Library", standard)));
+        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources", suite)));
+        library_dirs.push(PathBuf::from(format!("/Applications/{}/Contents/App-Resources", standard)));
+        // User-installed Packs
+        library_dirs.push(home.join(format!("Music/Ableton/Live {}/User Library/Samples", ver)));
+        library_dirs.push(home.join(format!("Music/Ableton/Live {}/User Library", ver)));
+        library_dirs.push(home.join(format!("Library/Application Support/Ableton/Live {}", ver)));
+    }
+
+    // ── Ableton Packs download cache ──
+    // Packs downloaded via Pack Manager land in ~/Library/Application Support/Ableton/
+    library_dirs.push(home.join("Library/Application Support/Ableton/Live Database"));
+    library_dirs.push(home.join("Library/Application Support/Ableton/Packs"));
+
+    // ── User ABLETON folder ──
+    // Some users store projects in ~/ABLETON - Main Folder/ or ~/ABLETON/
+    library_dirs.push(home.join("ABLETON - Main Folder"));
+    library_dirs.push(home.join("ABLETON"));
 
     for dir in &library_dirs {
         if !dir.exists() {
@@ -499,27 +542,28 @@ fn resolve_file_ref_enterprise(
 ) -> Option<String> {
     let parsed = parse_ableton_file_ref(file_ref);
 
-    // Try: absolute path
+    // Try: absolute path (with dash/space/dot variant matching)
     if let Some(abs) = &parsed.abs_path
         && !abs.trim().is_empty()
-        && Path::new(abs.trim()).exists()
     {
-        log::debug!("[ALS Resolver] Found via absolute path: {}", abs.trim());
-        return Some(abs.trim().to_string());
+        if let Some(found) = try_existing_variants(abs.trim()) {
+            log::debug!("[ALS Resolver] Found via absolute path: {}", found);
+            return Some(found);
+        }
     }
 
-    // Try: relative path
+    // Try: relative path (with variant matching)
     if let Some(rel) = &parsed.relative_path
         && !rel.trim().is_empty()
     {
         let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
-        let joined = parent.join(rel.trim());
-        if joined.exists() {
+        let joined = parent.join(rel.trim()).to_string_lossy().to_string();
+        if let Some(found) = try_existing_variants(&joined) {
             log::debug!(
                 "[ALS Resolver] Found via relative path: {}",
-                joined.display()
+                found
             );
-            return Some(joined.to_string_lossy().to_string());
+            return Some(found);
         }
     }
 
@@ -537,35 +581,35 @@ fn resolve_file_ref_enterprise(
                 .and_then(|p| Path::new(p).file_name().and_then(|s| s.to_str())))
             .unwrap_or_default();
         if !file_name.is_empty() {
-            let joined = parent.join(rel_elements).join(file_name);
-            if joined.exists() {
+            let joined = parent.join(rel_elements).join(file_name).to_string_lossy().to_string();
+            if let Some(found) = try_existing_variants(&joined) {
                 log::debug!(
                     "[ALS Resolver] Found via RelativePathElement chain: {}",
-                    joined.display()
+                    found
                 );
-                return Some(joined.to_string_lossy().to_string());
+                return Some(found);
             }
         }
     }
 
-    // Try: SearchHint PathHint
+    // Try: SearchHint PathHint (with variant matching)
     if let Some(hint) = &parsed.search_hint_path
         && !hint.trim().is_empty()
     {
-        let hint_path = Path::new(hint.trim());
-        if hint_path.exists() {
+        if let Some(found) = try_existing_variants(hint.trim()) {
+            let found_path = Path::new(&found);
             // Validate file size if available
             let size_ok = parsed
                 .search_hint_file_size
                 .map(|expected| {
-                    std::fs::metadata(hint_path)
+                    std::fs::metadata(found_path)
                         .map(|m| m.len() as i64 == expected)
                         .unwrap_or(false)
                 })
                 .unwrap_or(true);
             if size_ok {
-                log::debug!("[ALS Resolver] Found via SearchHint: {}", hint.trim());
-                return Some(hint.trim().to_string());
+                log::debug!("[ALS Resolver] Found via SearchHint: {}", found);
+                return Some(found);
             }
         }
     }

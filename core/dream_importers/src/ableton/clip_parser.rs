@@ -5,6 +5,24 @@
 use crate::ableton::xml_helpers::*;
 use dream_models::project;
 
+/// Maps Ableton warp mode integer to human-readable name.
+///
+/// Reference (Ableton Live source):
+///   0 = Beats, 1 = Tones, 2 = Texture, 3 = Re-Pitch,
+///   4 = Complex, 5 = Rex, 6 = Complex Pro
+pub fn warp_mode_name(mode: i32) -> &'static str {
+    match mode {
+        0 => "Beats",
+        1 => "Tones",
+        2 => "Texture",
+        3 => "Re-Pitch",
+        4 => "Complex",
+        5 => "Rex",
+        6 => "Complex Pro",
+        _ => "Unknown",
+    }
+}
+
 pub fn parse_clip_scale_info(
     clip_node: roxmltree::Node<'_, '_>,
 ) -> (bool, Option<u8>, Option<String>) {
@@ -151,7 +169,9 @@ pub fn parse_audio_clip_warp(
 
 pub fn parse_audio_clip_warp_base_bpm(clip_node: roxmltree::Node<'_, '_>) -> Option<f64> {
     fn parse_bpm(v: &str) -> Option<f64> {
-        parse_f64_value(v).filter(|bpm| bpm.is_finite() && *bpm >= 20.0 && *bpm <= 320.0)
+        // ENTERPRISE FIX: Raised from 320 to 500 to match
+        // infer_warp_base_bpm_from_markers (DnB/halftime support).
+        parse_f64_value(v).filter(|bpm| bpm.is_finite() && *bpm >= 20.0 && *bpm <= 500.0)
     }
 
     const DIRECT_TAGS: [&str; 5] = [
@@ -267,6 +287,61 @@ pub fn parse_clip_envelopes(
                 beat,
                 value,
                 curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            });
+        }
+        // ENTERPRISE FIX: BoolEvent + EnumEvent in clip envelopes.
+        for event in envelope
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("BoolEvent"))
+        {
+            let beat = event
+                .attribute("Time")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            if beat < -1_000_000.0 {
+                continue;
+            }
+            let value = event
+                .attribute("Value")
+                .and_then(parse_bool_value)
+                .map(|b| if b { 1.0 } else { 0.0 })
+                .unwrap_or(0.0);
+            points.push(project::AutomationPoint {
+                beat,
+                value,
+                curve_type: "hold".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            });
+        }
+        for event in envelope
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("EnumEvent"))
+        {
+            let beat = event
+                .attribute("Time")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            if beat < -1_000_000.0 {
+                continue;
+            }
+            let value = event
+                .attribute("Value")
+                .and_then(parse_i64_value)
+                .map(|v| v as f64)
+                .unwrap_or(0.0);
+            points.push(project::AutomationPoint {
+                beat,
+                value,
+                curve_type: "hold".to_string(),
                 tension: None,
                 bezier_cp1x: None,
                 bezier_cp1y: None,

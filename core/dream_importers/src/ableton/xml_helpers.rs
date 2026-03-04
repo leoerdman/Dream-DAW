@@ -296,6 +296,9 @@ pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
 }
 
 pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
+    // ENTERPRISE FIX: Was reading "CrossFadeState" (crossfader A/B, 0-2)
+    // instead of "KeyNoteTarget" (MIDI root note, 0-127). This caused
+    // sampler root notes to be completely wrong for imported instruments.
     track_node
         .children()
         .find(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
@@ -307,7 +310,7 @@ pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Optio
                         .find(|n| n.is_element() && n.has_tag_name("Mixer"))
                 })
         })
-        .and_then(|mixer| maybe_parse_f64_manual(mixer, "CrossFadeState"))
+        .and_then(|mixer| maybe_parse_f64_manual(mixer, "KeyNoteTarget"))
         .map(|v| v.clamp(0.0, 127.0) as u8)
 }
 

@@ -11,6 +11,7 @@ import {
     computeVisibleInsertIndexFromClientY,
     resolveDropTargetFromClientY,
 } from '@/widgets/TrackInspector/model/trackInspectorDragDropHelpers';
+import { autoDeleteEmptyGroup } from '@/widgets/TrackInspector/model/trackGroupCleanup';
 
 interface UseTrackInspectorDragDropArgs {
     tracks: TrackData[];
@@ -82,28 +83,8 @@ export function useTrackInspectorDragDrop({
         void movePromise
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-track');
-                // ENTERPRISE: Auto-delete empty group after drag-out.
-                // If the old group has zero remaining children, dissolve it.
-                if (oldGroupId) {
-                    const freshTracks = useEngineStore.getState().tracks;
-                    const groupTrack = freshTracks.byId[oldGroupId];
-                    if (groupTrack) {
-                        const childCount = freshTracks.allIds.filter(
-                            (id) => freshTracks.byId[id]?.parent_track_id === oldGroupId,
-                        ).length;
-                        if (childCount === 0) {
-                            try {
-                                const ungroupResp = await engineApi.ungroupTrackWithDeltas(oldGroupId);
-                                await useEngineStore.getState().applyProjectDeltas(
-                                    ungroupResp.deltas,
-                                    'track-inspector:auto-delete-empty-group',
-                                );
-                            } catch (err) {
-                                console.warn('[Dream] auto-delete empty group failed:', err);
-                            }
-                        }
-                    }
-                }
+                // SSOT: Auto-delete empty group after drag-out.
+                await autoDeleteEmptyGroup(oldGroupId);
             })
             .catch((err) => {
                 console.error('[Dream] moveTrack(reorder) failed:', err);
@@ -144,10 +125,16 @@ export function useTrackInspectorDragDrop({
             if (dragIndex === noOpIndex && draggingTrack?.groupId === groupId) return;
         }
 
+        // Capture source group before move for auto-delete check
+        const oldGroupId = draggingTrack?.groupId ?? null;
+        const isChangingGroup = oldGroupId !== null && oldGroupId !== groupId;
+
         trackMoveInFlightRef.current = true;
         void engineApi.moveTrackWithParentWithDeltas(trackId, targetIndex, groupId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-to-group');
+                // SSOT: Auto-delete empty source group after moving between groups.
+                if (isChangingGroup) await autoDeleteEmptyGroup(oldGroupId);
             })
             .catch((err) => {
                 console.error('[Dream] moveTrackWithParent(group drop) failed:', err);

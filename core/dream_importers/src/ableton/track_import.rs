@@ -435,6 +435,17 @@ fn import_midi_notes(
             .descendants()
             .filter(|n| n.is_element() && n.has_tag_name("MidiNoteEvent"))
         {
+            // Skip muted/disabled notes (IsEnabled="false" in Live 11+).
+            // Dream DAW's MidiNote has no per-note mute field, and muted
+            // notes produce no sound in Ableton, so filtering is correct.
+            let is_enabled = note
+                .attribute("IsEnabled")
+                .and_then(parse_bool_value)
+                .unwrap_or(true);
+            if !is_enabled {
+                continue;
+            }
+
             let time_beats = note
                 .attribute("Time")
                 .and_then(parse_f64_value)
@@ -508,6 +519,22 @@ fn resolve_overlapping_midi_clips(clips: &mut Vec<MidiClip>) -> usize {
             }
             clip.position.sample_frame = last_end;
             clip.duration.sample_frame = (clip.duration.sample_frame - trim).max(1);
+            // ENTERPRISE FIX: Shift all MIDI note positions back by the
+            // trim amount and remove notes that now fall before the clip start.
+            // Without this, note timings are wrong after overlap resolution.
+            clip.notes.retain_mut(|note| {
+                note.start_frame -= trim;
+                // Keep only notes that start within or overlap the trimmed clip
+                note.start_frame + note.duration_frames > 0
+            });
+            // Clamp any negative note starts to 0
+            for note in &mut clip.notes {
+                if note.start_frame < 0 {
+                    let overshoot = -note.start_frame;
+                    note.duration_frames = (note.duration_frames - overshoot).max(1);
+                    note.start_frame = 0;
+                }
+            }
             adjusted += 1;
         }
         last_end = clip.position.sample_frame + clip.duration.sample_frame.max(1);

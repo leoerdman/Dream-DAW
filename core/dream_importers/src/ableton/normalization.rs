@@ -100,6 +100,9 @@ pub fn canonical_internal_plugin_for_import(
             "frequencyshifter" | "shifter" | "autoshift" => {
                 return Some(("internal://effect/frequency-shifter", "Frequency Shifter", "effect"));
             }
+            "stereogain" => {
+                return Some(("internal://effect/utility", "Utility", "effect"));
+            }
 
             "autopan" | "autopan2" => {
                 return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
@@ -143,10 +146,10 @@ pub fn canonical_internal_plugin_for_import(
             }
             "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
             "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
-            "redux" | "bitcrusher" => {
+            "redux" | "redux2" | "bitcrusher" => {
                 return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
             }
-            "autofilter" => {
+            "autofilter" | "autofilter2" => {
                 return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
             }
             "vocoder" => {

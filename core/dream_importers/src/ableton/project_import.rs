@@ -363,6 +363,37 @@ pub fn import_als_project_with_target_sample_rate(
                 if v { 1.0 } else { 0.0 },
             ));
         }
+
+        // ── Freeze State ──────────────────────────────────────────────
+        // Ableton stores track freeze as <IsFrozen Value="true"/>
+        // Frozen tracks render a bounce file and bypass live processing.
+        if let Some(frozen) = parse_track_bool_flag(track_node, "IsFrozen") {
+            static_mixer_values.push(("track.is_frozen".to_string(), if frozen { 1.0 } else { 0.0 }));
+        }
+
+        // ── Track Delay (PDC Manual Offset) ───────────────────────────
+        // Ableton stores per-track delay offset as <TrackDelay><Value Value="0"/></TrackDelay>
+        // This is in samples and can be negative (for pre-delay).
+        if let Some(delay) = parse_track_i64_value(track_node, "TrackDelay") {
+            static_mixer_values.push(("track.delay_samples".to_string(), delay as f64));
+        }
+
+        // ── Group Track Expanded State ────────────────────────────────
+        // Ableton stores <TrackUnfolded Value="true/false"/>
+        if let Some(unfolded) = parse_track_bool_flag(track_node, "TrackUnfolded") {
+            track.is_expanded = unfolded;
+        }
+
+        // ── Track Height ──────────────────────────────────────────────
+        // Ableton stores arrangement view height in <DeviceChain><AutomationLanes><AreAdditionalAutomationLanesFolded>
+        // and clip height can be extracted from various sources.
+        if let Some(height_val) = parse_track_i64_value(track_node, "TrackHeight")
+            .or_else(|| parse_track_i64_value(track_node, "LaneHeight"))
+        {
+            let h = (height_val as f64).clamp(20.0, 500.0);
+            track.height = h;
+        }
+
         if track_type == TrackType::Midi {
             if let Some(v) = parse_track_i64_value(track_node, "PitchbendRange") {
                 static_mixer_values.push(("midi.pitchbend_range".to_string(), v as f64));
@@ -607,13 +638,36 @@ pub fn import_als_project_with_target_sample_rate(
         let total_tracks = project.tracks.len();
         let total_audio_clips: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
         let total_midi_clips: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
+        let total_midi_notes: usize = project
+            .tracks
+            .iter()
+            .flat_map(|t| t.midi_clips.iter())
+            .map(|clip| clip.notes.len())
+            .sum();
         let muted_tracks = project.tracks.iter().filter(|t| t.is_disabled).count();
         let solo_tracks = project.tracks.iter().filter(|t| t.is_solo).count();
         let armed_tracks = project.tracks.iter().filter(|t| t.is_armed).count();
+        let group_tracks = project
+            .tracks
+            .iter()
+            .filter(|t| t.track_type == TrackType::Group)
+            .count();
+        let warped_clips = project
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .filter(|c| c.is_warped)
+            .count();
+        let automation_lanes: usize = project
+            .tracks
+            .iter()
+            .map(|t| t.automation_lanes.len())
+            .sum();
 
         let mut resolved_plugins = 0usize;
         let mut missing_plugins = 0usize;
         let mut placeholder_plugins = 0usize;
+        let mut bypassed_devices = 0usize;
         for track in &project.tracks {
             let all_slots: Vec<_> = track
                 .effects
@@ -622,6 +676,9 @@ pub fn import_als_project_with_target_sample_rate(
                 .chain(track.instrument.iter().flat_map(|d| d.collect_plugin_slots()))
                 .collect();
             for slot in &all_slots {
+                if slot.is_bypassed {
+                    bypassed_devices += 1;
+                }
                 if slot.plugin_id.starts_with("missing://") {
                     if slot.name.contains("placeholder") || slot.name.contains("Placeholder") {
                         placeholder_plugins += 1;
@@ -636,13 +693,15 @@ pub fn import_als_project_with_target_sample_rate(
 
         log::info!(
             "[ALS Import] ═══ IMPORT SUMMARY ═══\n  \
-             Tracks: {} total ({} muted, {} soloed, {} armed)\n  \
-             Clips:  {} audio, {} MIDI\n  \
-             Plugins: {} resolved, {} missing, {} placeholder\n  \
+             Tracks: {} total ({} group, {} muted, {} soloed, {} armed)\n  \
+             Clips:  {} audio ({} warped), {} MIDI ({} notes)\n  \
+             Plugins: {} resolved, {} missing, {} placeholder, {} bypassed\n  \
+             Automation: {} lanes\n  \
              Tempo: {} BPM, Sample rate: {} Hz",
-            total_tracks, muted_tracks, solo_tracks, armed_tracks,
-            total_audio_clips, total_midi_clips,
-            resolved_plugins, missing_plugins, placeholder_plugins,
+            total_tracks, group_tracks, muted_tracks, solo_tracks, armed_tracks,
+            total_audio_clips, warped_clips, total_midi_clips, total_midi_notes,
+            resolved_plugins, missing_plugins, placeholder_plugins, bypassed_devices,
+            automation_lanes,
             tempo, sample_rate,
         );
     }

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
+import { autoDeleteEmptyGroup } from '@/widgets/TrackInspector/model/trackGroupCleanup';
 interface UseTrackInspectorContextActionsParams {
     tracks: TrackData[];
     liveTracks: TrackData[];
@@ -227,27 +228,8 @@ export function useTrackInspectorContextActions({
             const oldGroupId = target?.groupId ?? null;
             void engineApi.setTrackGroupWithDeltas(trackId, null).then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
-                // ENTERPRISE: Auto-delete empty group after removing last child.
-                if (oldGroupId) {
-                    const freshTracks = useEngineStore.getState().tracks;
-                    const groupTrack = freshTracks.byId[oldGroupId];
-                    if (groupTrack) {
-                        const childCount = freshTracks.allIds.filter(
-                            (id) => freshTracks.byId[id]?.parent_track_id === oldGroupId,
-                        ).length;
-                        if (childCount === 0) {
-                            try {
-                                const ungroupResp = await engineApi.ungroupTrackWithDeltas(oldGroupId);
-                                await useEngineStore.getState().applyProjectDeltas(
-                                    ungroupResp.deltas,
-                                    'track-inspector:auto-delete-empty-group',
-                                );
-                            } catch (err) {
-                                console.warn('[Dream] auto-delete empty group failed:', err);
-                            }
-                        }
-                    }
-                }
+                // SSOT: Auto-delete empty group after removing last child.
+                await autoDeleteEmptyGroup(oldGroupId);
             }).catch((err) => {
                 console.error('[Dream] ungroup failed:', err);
             });

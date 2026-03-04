@@ -29,7 +29,8 @@ pub fn canonical_internal_plugin_for_import(
             "chorus" | "chorus2" | "ensemble" | "vibrato" => {
                 return Some(("internal://effect/chorus", "Chorus", "effect"));
             }
-            "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift" => {
+            "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift"
+            | "stereogain" => {
                 return Some(("internal://effect/utility", "Utility", "effect"));
             }
             "autopan" | "autopan2" => {
@@ -43,10 +44,10 @@ pub fn canonical_internal_plugin_for_import(
             }
             "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
             "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
-            "redux" | "bitcrusher" => {
+            "redux" | "redux2" | "bitcrusher" => {
                 return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
             }
-            "autofilter" | "vocoder" => {
+            "autofilter" | "autofilter2" | "vocoder" => {
                 return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
             }
             "phasernew" | "phaser" | "phaserflanger" => {
@@ -734,8 +735,104 @@ impl ExternalPluginIndex {
             push_unique(key.replace("fabfilter ", ""));
             push_unique(key.replace("fabfilter", ""));
         }
+        // ── FabFilter aliases (ALS only has BrowserContentPath like "Pro-Q 3") ──
+        if key.contains("pro-q") || key.contains("proq") {
+            push_unique("pro-q 3".to_string());
+            push_unique("pro-q 4".to_string());
+            push_unique("fabfilter pro-q 3".to_string());
+            push_unique("fabfilter pro-q 4".to_string());
+            push_unique("pro-q".to_string());
+        }
+        if key.contains("pro-l") || key.contains("prol") {
+            push_unique("pro-l 2".to_string());
+            push_unique("fabfilter pro-l 2".to_string());
+            push_unique("pro-l".to_string());
+        }
+        if key.contains("pro-r") || key.contains("pror") {
+            push_unique("pro-r 2".to_string());
+            push_unique("fabfilter pro-r".to_string());
+        }
+        if key.contains("pro-c") || key.contains("proc") {
+            push_unique("pro-c 2".to_string());
+            push_unique("fabfilter pro-c 2".to_string());
+        }
+        if key.contains("pro-mb") || key.contains("promb") {
+            push_unique("pro-mb".to_string());
+            push_unique("fabfilter pro-mb".to_string());
+        }
+        if key.contains("pro-ds") || key.contains("prods") {
+            push_unique("pro-ds".to_string());
+            push_unique("fabfilter pro-ds".to_string());
+        }
+        // ── kHs Audio aliases ──
+        if key.contains("khs") {
+            push_unique(key.replace("khs ", "").to_string());
+            push_unique(key.replace("khs", "").trim().to_string());
+            // Common kHs plugins
+            if key.contains("clipper") {
+                push_unique("khs clipper".to_string());
+                push_unique("clipper".to_string());
+            }
+            if key.contains("transient") {
+                push_unique("khs transient shaper".to_string());
+                push_unique("transient shaper".to_string());
+            }
+            if key.contains("pitch") {
+                push_unique("khs pitch shifter".to_string());
+                push_unique("pitch shifter".to_string());
+            }
+            if key.contains("haas") {
+                push_unique("khs haas".to_string());
+                push_unique("haas".to_string());
+            }
+        }
+        // ── Valhalla DSP aliases ──
+        if key.contains("valhalla") {
+            push_unique(key.replace("valhalla", "").trim().to_string());
+            push_unique("valhallaroom".to_string());
+            push_unique("valhallashimmer".to_string());
+            push_unique("valhallavintage".to_string());
+            push_unique("valhallasupermassive".to_string());
+            push_unique("valhalladelay".to_string());
+        }
+        // ── soothe / oeksound aliases ──
+        if key.contains("soothe") {
+            push_unique("soothe2".to_string());
+            push_unique("soothe 2".to_string());
+            push_unique("soothe".to_string());
+        }
+        // ── iZotope aliases ──
         if key.contains("izotope") {
             push_unique(key.replace("izotope ", ""));
+        }
+        if key.contains("ozone") {
+            push_unique("ozone 11".to_string());
+            push_unique("ozone 11 imager".to_string());
+            push_unique("ozone imager".to_string());
+            push_unique("ozone".to_string());
+        }
+        if key.contains("neutron") {
+            push_unique("neutron 4".to_string());
+            push_unique("neutron".to_string());
+        }
+        // ── MeldaProduction aliases ──
+        if key.contains("mwave") || key.contains("melda") {
+            push_unique("mwaveshaper".to_string());
+            push_unique("mwave shaper".to_string());
+        }
+        // ── Slate Digital / others ──
+        if key.contains("fresh air") {
+            push_unique("fresh air".to_string());
+            push_unique("freshair".to_string());
+        }
+        if key.contains("museplugin") || key.contains("muse plugin") {
+            push_unique("museplugin".to_string());
+            push_unique("muse plugin".to_string());
+        }
+        if key.contains("metricab") || key.contains("metric ab") {
+            push_unique("adptr metricab".to_string());
+            push_unique("metric ab".to_string());
+            push_unique("metricab".to_string());
         }
         for candidate in &candidates {
             if let Some(path) = self.by_name.get(candidate) {

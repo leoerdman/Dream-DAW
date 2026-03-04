@@ -35,6 +35,8 @@ export class TimelineEngine {
     private _clips: TimelineClipData[] = [];
     /** PERF-OPT-1: O(1) clip lookup by ID — built in setClips(). */
     private _clipById = new Map<string, TimelineClipData>();
+    /** PERF-OPT-2: O(1) per-track clip lookup — avoids scanning all clips in hitTest. */
+    private _clipsByTrack = new Map<number, TimelineClipData[]>();
     /** Deferred clips from setClips() calls during active drag. */
     private _pendingClips: TimelineClipData[] | null = null;
     private _playheadBeat = 0;
@@ -275,7 +277,13 @@ export class TimelineEngine {
 
         // PERF-OPT-1: Build O(1) lookup map after clip array update.
         this._clipById.clear();
-        for (const c of this._clips) this._clipById.set(c.id, c);
+        this._clipsByTrack.clear();
+        for (const c of this._clips) {
+            this._clipById.set(c.id, c);
+            let arr = this._clipsByTrack.get(c.trackIndex);
+            if (!arr) { arr = []; this._clipsByTrack.set(c.trackIndex, arr); }
+            arr.push(c);
+        }
 
         // PERF FIX: Build ID Set directly via for-loop — avoids .map() intermediate array.
         const currentIds = new Set<string>();
@@ -757,9 +765,11 @@ export class TimelineEngine {
         const beat = world.beat;
         const trackIndex = world.trackIndex;
 
-        for (let i = this._clips.length - 1; i >= 0; i--) {
-            const clip = this._clips[i];
-            if (clip.trackIndex !== trackIndex) continue;
+        // PERF-OPT-2: Only iterate clips on the hovered track via per-track index.
+        const trackClips = this._clipsByTrack.get(trackIndex);
+        if (!trackClips || trackClips.length === 0) return { type: 'track', beat, trackIndex };
+        for (let i = trackClips.length - 1; i >= 0; i--) {
+            const clip = trackClips[i];
 
             const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
             const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);

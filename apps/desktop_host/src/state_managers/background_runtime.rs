@@ -70,6 +70,7 @@ pub(crate) fn spawn_background_runtime_threads(
         .name("telemetry-push".into())
         .spawn(move || {
             let mut telemetry_tick_count: u64 = 0;
+            let mut frontend_ready_logged = false;
 
             // System performance monitoring — refreshed every ~1s (every 30 ticks)
             let mut sys = sysinfo::System::new();
@@ -158,6 +159,16 @@ pub(crate) fn spawn_background_runtime_threads(
                     performance: cached_perf.clone(),
                 };
 
+                // ENTERPRISE: Gate all event emissions behind frontend_ready to prevent
+                // Tauri's WebView JS bridge crash (`listeners[eventId].handlerId`).
+                if !handle.frontend_ready.load(Ordering::Relaxed) {
+                    continue;
+                }
+                if !frontend_ready_logged {
+                    frontend_ready_logged = true;
+                    log::info!("[Telemetry] Frontend ready — beginning event emission");
+                }
+
                 let _ = telemetry_app.emit("telemetry_tick", payload);
                 let _ = telemetry_app.emit(
                     "telemetry_meters_binary",
@@ -237,6 +248,13 @@ pub(crate) fn spawn_background_runtime_threads(
                 }
             }
             std::thread::sleep(Duration::from_millis(75));
+            // ENTERPRISE: Gate emissions behind frontend_ready.
+            {
+                let handle: tauri::State<'_, AudioEngineHandle> = sandbox_app.state();
+                if !handle.frontend_ready.load(Ordering::Relaxed) {
+                    continue;
+                }
+            }
             let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
             let (snapshot, crashes, recoveries) =
                 match plugin_host_state.tick_sandbox_watchdog_with_events() {

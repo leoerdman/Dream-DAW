@@ -295,6 +295,7 @@ pub(crate) fn invoke_handler()
         reload_plugin_sandbox_instance,
         reload_unhealthy_plugin_sandboxes,
         log_frontend_error,
+        signal_frontend_ready,
         get_routing_targets,
         set_track_routing_cmd,
         set_track_routing_with_deltas_cmd,

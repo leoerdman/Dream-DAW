@@ -156,3 +156,15 @@ fn log_frontend_error(module: String, error: String, stack: Option<String>) -> R
     }
     Ok(())
 }
+
+/// ENTERPRISE: Frontend signals that Tauri event listeners are registered.
+/// Background threads gate all `app.emit()` calls behind this flag to prevent
+/// the `listeners[eventId].handlerId` crash in Tauri's WebView JS bridge.
+#[tauri::command]
+fn signal_frontend_ready(
+    engine: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    engine.frontend_ready.store(true, std::sync::atomic::Ordering::Release);
+    log::info!("[FrontendReady] Frontend event listeners registered — background emissions unlocked");
+    Ok(())
+}

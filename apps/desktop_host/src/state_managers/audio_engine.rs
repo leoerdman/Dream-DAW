@@ -81,6 +81,11 @@ pub struct AudioEngineHandle {
     /// Global shutdown flag (BUG-14)
     pub is_shutting_down: Arc<std::sync::atomic::AtomicBool>,
 
+    /// ENTERPRISE: Frontend-ready gate — background threads skip event emission
+    /// until the frontend JS signals it has initialized Tauri event listeners.
+    /// Prevents `listeners[eventId].handlerId` crash in Tauri's WebView bridge.
+    pub frontend_ready: Arc<std::sync::atomic::AtomicBool>,
+
     /// Pre-allocation queue producer — for transferring pre-constructed DSP
     /// processors from the IPC thread to the audio thread without `malloc()`
     /// on the real-time thread. Enterprise RT-safety pattern.

@@ -983,6 +983,10 @@ export const reloadUnhealthyPluginSandboxes = () =>
     safeInvoke<ReloadSandboxInstancesResponse>('reload_unhealthy_plugin_sandboxes');
 export const logFrontendError = (module: string, error: string, stack?: string) =>
     safeInvoke<void>('log_frontend_error', { module, error, stack: stack ?? null });
+/** ENTERPRISE: Signal backend that frontend event listeners are registered.
+ *  Unblocks background thread emissions (telemetry, sandbox watchdog). */
+export const signalFrontendReady = () =>
+    safeInvoke<void>('signal_frontend_ready');
 export interface RoutingTarget {
     trackId: string;
     trackName: string;

@@ -344,6 +344,12 @@ export function createTelemetryActions(
                             void engine.play();
                         },
                     );
+
+                    // ENTERPRISE: All 12 listeners registered — unlock backend emissions.
+                    // Background threads (telemetry-push, sandbox-watchdog) gate all
+                    // app.emit() calls behind this flag to prevent Tauri's WebView
+                    // bridge crash (`listeners[eventId].handlerId`).
+                    await engine.signalFrontendReady();
                 } catch (e) {
                     // BUG-010 FIX: Clean up any partially-registered listeners.
                     // Previously only reset flag, leaking listeners registered

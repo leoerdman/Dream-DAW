@@ -518,31 +518,48 @@ impl RenderContext {
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
 
-                        // WARP-MARKERS FIX: Use piecewise-linear warp marker interpolation
-                        // to map beat position → source seconds when markers are available.
-                        // Ableton's warp markers define anchor points: SecTime (source) ↔ BeatTime (timeline).
-                        let (source_start, warp_rate) = if clip.warp_markers.len() >= 2 {
+                        // WARP-MARKERS FIX: Use warp markers intelligently.
+                        // Ableton auto-generates exactly 2 markers per warped clip as
+                        // tempo anchors (typically 0.03125 beats apart). These are NOT
+                        // user-placed warp markers. Only use piecewise-linear interpolation
+                        // for clips with ≥3 markers spanning a meaningful beat range.
+                        let use_marker_interpolation = clip.warp_markers.len() >= 3
+                            && {
+                                let first = clip.warp_markers.first().unwrap();
+                                let last = clip.warp_markers.last().unwrap();
+                                (last.beat_time - first.beat_time).abs() > 0.5
+                            };
+
+                        let (source_start, warp_rate) = if use_marker_interpolation {
                             let source_sr = audio.sample_rate.max(1) as f64;
-                            // Convert timeline-frame offset to beats for marker interpolation.
-                            // Beat = frame / (sample_rate * 60 / bpm). But warp markers use
-                            // absolute beat times relative to clip start.
                             let timeline_beat_offset = clip_local_timeline_start
                                 / self.timeline_sample_rate.max(1.0)
                                 * (current_bpm / 60.0);
-                            // BeatTime in markers is relative to clip's CurrentStart
                             let abs_beat = clip.warp_markers[0].beat_time + timeline_beat_offset;
                             let source_sec = warp_markers_beat_to_source_seconds(
                                 &clip.warp_markers, abs_beat,
                             );
                             let source_frame = source_sec * source_sr;
-                            // Compute local warp rate from marker derivative for playback speed
                             let marker_rate = warp_markers_local_rate(
                                 &clip.warp_markers, abs_beat, source_sr,
                                 self.timeline_sample_rate.max(1.0),
                                 current_bpm,
                             );
-                            (source_frame, marker_rate)
+                            // Safety guard: if marker interpolation produces invalid
+                            // positions, fall back to linear warp to avoid silence.
+                            if source_frame >= 0.0
+                                && source_frame.is_finite()
+                                && marker_rate.is_finite()
+                                && marker_rate > 0.0
+                            {
+                                (source_frame, marker_rate)
+                            } else {
+                                let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                                    + clip_local_timeline_start * linear_warp_rate;
+                                (source_start, linear_warp_rate)
+                            }
                         } else {
+                            // 2-marker or no-marker clips: use linear warp rate.
                             let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                                 + clip_local_timeline_start * linear_warp_rate;
                             (source_start, linear_warp_rate)
@@ -608,7 +625,14 @@ impl RenderContext {
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
 
-                        let (source_start, warp_rate) = if clip.warp_markers.len() >= 2 {
+                        let use_marker_interpolation = clip.warp_markers.len() >= 3
+                            && {
+                                let first = clip.warp_markers.first().unwrap();
+                                let last = clip.warp_markers.last().unwrap();
+                                (last.beat_time - first.beat_time).abs() > 0.5
+                            };
+
+                        let (source_start, warp_rate) = if use_marker_interpolation {
                             let source_sr = window.sample_rate().max(1) as f64;
                             let timeline_beat_offset = clip_local_timeline_start
                                 / self.timeline_sample_rate.max(1.0)
@@ -623,7 +647,18 @@ impl RenderContext {
                                 self.timeline_sample_rate.max(1.0),
                                 current_bpm,
                             );
-                            (source_frame, marker_rate)
+                            // Safety guard: fall back to linear if invalid
+                            if source_frame >= 0.0
+                                && source_frame.is_finite()
+                                && marker_rate.is_finite()
+                                && marker_rate > 0.0
+                            {
+                                (source_frame, marker_rate)
+                            } else {
+                                let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                                    + clip_local_timeline_start * linear_warp_rate;
+                                (source_start, linear_warp_rate)
+                            }
                         } else {
                             let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                                 + clip_local_timeline_start * linear_warp_rate;

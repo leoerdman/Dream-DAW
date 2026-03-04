@@ -482,9 +482,25 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         },
         [setClipFadeCurves],
     );
+    // ── Dynamic timeline length ──
+    // Compute from the furthest clip endpoint so the scrollable area
+    // always covers the entire project. 16-bar padding prevents the
+    // last bar from being clipped by the viewport edge.
+    const dynamicTotalBars = useMemo(() => {
+        const timeSigNum = useEngineStore.getState().timeSigNumerator;
+        const beatsPerBar = (timeSigNum > 0 && isFinite(timeSigNum)) ? timeSigNum : 4;
+        let maxBeat = 0;
+        for (const clip of timelineClipsForView) {
+            const end = clip.startBeat + Math.max(0, clip.durationBeats);
+            if (end > maxBeat) maxBeat = end;
+        }
+        const barsFromContent = Math.ceil(maxBeat / beatsPerBar);
+        return Math.max(128, barsFromContent + 16);
+    }, [timelineClipsForView]);
     const timelineProps = useDawShellTimelineProps({
         bpm: resolveBpm(projectBpm, transportBpm),
         clips: timelineClipsForView,
+        totalBars: dynamicTotalBars,
         editCursorBeat,
         editCursorTrackIndex,
         editCursorTrackIndexEnd,

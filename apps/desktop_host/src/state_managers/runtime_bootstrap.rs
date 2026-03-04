@@ -30,7 +30,10 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let (prealloc_producer, prealloc_consumer) =
         dream_ipc::prealloc_queue::new_prealloc_queue();
     let master_clock = Arc::new(MasterClock::new());
-    let meter_bank = Arc::new(MeterBank::new(64));
+    // ENTERPRISE FIX: Allocate meter slots for the maximum number of tracks
+    // supported by the engine. Previously was 64, which caused tracks 64+
+    // (e.g., in a 71-track Ableton import) to have zero/frozen meters.
+    let meter_bank = Arc::new(MeterBank::new(dream_engine::render_callback::MAX_TRACKS));
 
     let app_data_dir_for_settings = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))

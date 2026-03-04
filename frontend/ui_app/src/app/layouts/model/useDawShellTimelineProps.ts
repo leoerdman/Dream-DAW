@@ -6,6 +6,7 @@ type TimelineProps = React.ComponentProps<typeof Timeline>;
 interface UseDawShellTimelinePropsParams {
     bpm: number;
     clips: TimelineProps['clips'];
+    totalBars: number;
     editCursorBeat: number;
     editCursorTrackIndex: number;
     editCursorTrackIndexEnd: number;
@@ -48,6 +49,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
         () => ({
             bpm: params.bpm,
             clips: params.clips,
+            totalBars: params.totalBars,
             editCursorBeat: params.editCursorBeat,
             editCursorTrackIndex: params.editCursorTrackIndex,
             editCursorTrackIndexEnd: params.editCursorTrackIndexEnd,
@@ -88,6 +90,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             params.automationVisible,
             params.bpm,
             params.clips,
+            params.totalBars,
             params.editCursorBeat,
             params.editCursorTrackIndex,
             params.editCursorTrackIndexEnd,

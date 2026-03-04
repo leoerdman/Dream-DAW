@@ -4,8 +4,8 @@
 // Note: useViewportStore uses SPP (samples-per-pixel) domain — separate zoom scale.
 // Both have independent clamp bounds for their respective coordinate systems.
 
-/** Minimum pixels per beat — maximum zoom out. */
-const MIN_PPB = 4;
+/** Minimum pixels per beat — maximum zoom out. Lowered to support 200+ bar projects. */
+const MIN_PPB = 0.5;
 
 /** Maximum pixels per beat — maximum zoom in to overview. */
 const MAX_PPB = 800;

@@ -77,6 +77,7 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
             selectedClipId,
             selectedClipIds,
             timelineClips,
+            marqueeSelection,
             onClipSelectionChanged,
         } = ctx;
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
@@ -85,14 +86,28 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
         if (selected.length === 0) return null;
         const store = useEngineStore.getState();
         const bpm = resolveBpm(store.transport.bpm);
-        let minStart = Infinity;
-        let maxEnd = -Infinity;
-        for (const c of selected) {
-            if (c.startBeat < minStart) minStart = c.startBeat;
-            const end = c.startBeat + c.durationBeats;
-            if (end > maxEnd) maxEnd = end;
+
+        // ── ENTERPRISE: Region-aware span calculation ──────────────────
+        // When a marquee selection is active, use its full width as the
+        // duplication offset. This preserves empty space within the region:
+        //   10-bar marquee, clip at bar 10 → duplicate appears at bar 20.
+        // When no marquee, fall back to the clip bounding box span.
+        let spanBeats: number;
+        if (marqueeSelection) {
+            const regionStart = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
+            const regionEnd = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
+            spanBeats = Math.max(0.0001, regionEnd - regionStart);
+        } else {
+            let minStart = Infinity;
+            let maxEnd = -Infinity;
+            for (const c of selected) {
+                if (c.startBeat < minStart) minStart = c.startBeat;
+                const end = c.startBeat + c.durationBeats;
+                if (end > maxEnd) maxEnd = end;
+            }
+            spanBeats = Math.max(0.0001, maxEnd - minStart);
         }
-        const spanBeats = Math.max(0.0001, maxEnd - minStart);
+
         const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const results = await engine.duplicateMultipleClipsWithDeltas(selected.map((clip) => ({
             id: clip.id,

@@ -857,6 +857,18 @@ export class TimelineEngine {
         const minTrack = Math.min(startTrack, endTrack);
         const maxTrack = Math.max(startTrack, endTrack);
 
+        // ── ENTERPRISE: Floating-point tolerant overlap detection ─────────
+        // Clip positions are derived from frame→beat conversion:
+        //   beat = (frame × bpm) / (60 × sampleRate)
+        // After round-tripping (beats → frames → beats), values that SHOULD
+        // equal X may differ by ~1e-14. Without tolerance, a clip whose end
+        // equals the marquee start (touching, not overlapping) can pass the
+        // overlap check due to this imprecision.
+        //
+        // 1e-6 beats at 175 BPM = ~0.34μs — imperceptible, but safely above
+        // IEEE 754 double-precision noise (~1e-14).
+        const OVERLAP_EPS = 1e-6;
+
         // Pixel-level Y overlap: if content-Y coordinates are available, use
         // them to exclude clips whose visual bounding box doesn't actually
         // overlap the marquee rectangle. This prevents selecting clips when
@@ -864,6 +876,9 @@ export class TimelineEngine {
         const usePixelY = startContentY != null && endContentY != null;
         const marqueeYMin = usePixelY ? Math.min(startContentY, endContentY) : 0;
         const marqueeYMax = usePixelY ? Math.max(startContentY, endContentY) : 0;
+        // Pixel tolerance: 0.5px prevents sub-pixel rounding from selecting
+        // clips on adjacent tracks whose pixel boundary exactly coincides.
+        const PX_EPS = 0.5;
 
         const selectedIds = this._clips
             .filter((clip) => {
@@ -872,14 +887,15 @@ export class TimelineEngine {
                 // Skip clips on hidden (zero-height) tracks — e.g. collapsed group children
                 const clipTrackHeight = this._viewport.trackHeightAt(clip.trackIndex);
                 if (clipTrackHeight <= 0) return false;
-                // Beat axis overlap
-                if (clipEnd <= minBeat || clipStart >= maxBeat) return false;
+                // Beat axis overlap: clip must STRICTLY overlap the marquee,
+                // not merely touch its boundary. EPS absorbs float noise.
+                if (clipEnd <= minBeat + OVERLAP_EPS || clipStart >= maxBeat - OVERLAP_EPS) return false;
 
                 if (usePixelY) {
-                    // Pixel-level Y overlap check
+                    // Pixel-level Y overlap check (with sub-pixel tolerance)
                     const clipTopPx = this._viewport.trackOffsetY(clip.trackIndex);
                     const clipBottomPx = clipTopPx + clipTrackHeight;
-                    return clipBottomPx > marqueeYMin && clipTopPx < marqueeYMax;
+                    return clipBottomPx > marqueeYMin + PX_EPS && clipTopPx < marqueeYMax - PX_EPS;
                 }
 
                 // Fallback: integer track index range check

@@ -16,7 +16,7 @@ export function normalizeRegion(marquee: KeyboardShortcutHandlerEnv['ctx']['marq
     return { startBeat, endBeat, startTrack, endTrack };
 }
 
-function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
+export function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
     const EPS = 1e-6;
     const clips = useEngineStore.getState().timelineClips;
     return clips.filter((clip) => {
@@ -29,7 +29,7 @@ function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv[
 
 // SSOT FIX: Sequential splits with batched delta apply.
 // Prevents race conditions from parallel IPC calls mutating the same project state.
-async function splitRegionBoundaries(range: RegionBox): Promise<void> {
+export async function splitRegionBoundaries(range: RegionBox): Promise<void> {
     const store = useEngineStore.getState();
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);

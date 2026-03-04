@@ -5,6 +5,19 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils';
 import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
+import {
+    normalizeRegion,
+    splitRegionBoundaries,
+    collectRegionClips,
+} from './transportAndEditingRegions';
+
+/**
+ * ENTERPRISE: Module-level region bounds stored alongside clipboard clips.
+ * When a marquee selection is active during Cmd+C, its bounds are captured.
+ * During Cmd+V, the region width (not clip bounding box) is used for offset,
+ * preserving empty space within the copied region.
+ */
+let _clipboardRegionBounds: { startBeat: number; endBeat: number } | null = null;
 
 /**
  * Optimistically removes clips from the engine store state so the canvas
@@ -72,15 +85,34 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
+
+        // ENTERPRISE: Region-based copy with split-then-operate
+        const range = normalizeRegion(marqueeSelection);
+        if (range) {
+            // Split clips at marquee boundaries, then copy only portions within
+            await splitRegionBoundaries(range);
+            const regionClips = collectRegionClips(range);
+            if (regionClips.length > 0) {
+                clipboardRef.current = regionClips.map((c) => ({ ...c }));
+                _clipboardRegionBounds = {
+                    startBeat: range.startBeat,
+                    endBeat: range.endBeat,
+                };
+                void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id));
+            }
+            return true;
+        }
+
+        // Fallback: whole-clip copy (no marquee)
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
         if (selected.length > 0) {
             clipboardRef.current = selected.map((c) => ({ ...c }));
-            // Also copy to global (backend) clipboard for cross-project paste.
+            _clipboardRegionBounds = null;
             void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
         } else if (selectedTrackIndex >= 0) {
-            // No clips selected — copy the entire selected track to global clipboard.
-            clipboardRef.current = []; // Clear clip clipboard so paste knows to use track clipboard.
+            clipboardRef.current = [];
+            _clipboardRegionBounds = null;
             void engine.copyTrackToGlobalClipboard(selectedTrackIndex);
         }
         return true;
@@ -106,11 +138,17 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const bpm = resolveBpm(store.transport.bpm);
         const sampleRate = resolveSampleRate(store.projectSampleRate);
         const cursorBeat = (ctx.editCursorBeat ?? -1) >= 0 ? (ctx.editCursorBeat as number) : frameToBeat(playheadFrames, bpm, sampleRate);
-        const firstBeat = clipboardRef.current[0].startBeat;
 
+        // ENTERPRISE: Region-aware paste anchor.
+        // When clipboard was copied with a marquee, use the region start (not
+        // first clip start) as the anchor. This preserves empty space:
+        //   Region [0..10], clip at beat 8 → paste at cursor → clip appears at cursor+8.
+        const anchorBeat = _clipboardRegionBounds
+            ? _clipboardRegionBounds.startBeat
+            : clipboardRef.current[0].startBeat;
 
         let minRelative = Infinity;
-        for (const c of clipboardRef.current) minRelative = Math.min(minRelative, c.startBeat - firstBeat);
+        for (const c of clipboardRef.current) minRelative = Math.min(minRelative, c.startBeat - anchorBeat);
         const groupOffset = Math.max(0, cursorBeat + minRelative) - (cursorBeat + minRelative);
 
         // ENTERPRISE FIX: Always paste at cursor position (or playhead if no cursor).
@@ -145,7 +183,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 // for targetTrackIndex, which used the source clip's track. This
                 // failed when the user selected a different track to paste into.
                 const results = await engine.duplicateMultipleClipsWithDeltas(clipboardRef.current.map((clip) => {
-                    const destBeat = Math.max(0, effectiveCursorBeat + (clip.startBeat - firstBeat) + groupOffset);
+                    const destBeat = Math.max(0, effectiveCursorBeat + (clip.startBeat - anchorBeat) + groupOffset);
                     const destPositionFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                     const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
                     return {
@@ -169,18 +207,44 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
+
+        // ENTERPRISE: Region-based cut with split-then-operate
+        const range = normalizeRegion(marqueeSelection);
+        if (range) {
+            await splitRegionBoundaries(range);
+            const regionClips = collectRegionClips(range);
+            if (regionClips.length === 0) return true;
+            // Copy portions to clipboard with region bounds
+            clipboardRef.current = regionClips.map((c) => ({ ...c }));
+            _clipboardRegionBounds = { startBeat: range.startBeat, endBeat: range.endBeat };
+            void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id));
+            // Delete only the portions within the region
+            const rollback = optimisticRemoveClips(regionClips.map((c) => c.id));
+            onClipSelectionChanged([]);
+            try {
+                const batchedDeltas: engine.ProjectDelta[] = [];
+                for (const c of regionClips) {
+                    const r = await engine.deleteClipWithDeltas(c.id);
+                    batchedDeltas.push(...r.deltas);
+                }
+                await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-cut-region');
+            } catch (err) {
+                console.error('[Shortcuts] Region cut failed:', err);
+                rollback();
+            }
+            return true;
+        }
+
+        // Fallback: whole-clip cut (no marquee)
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
         if (selected.length === 0) return true;
         clipboardRef.current = selected.map((c) => ({ ...c }));
-        // Also copy to global clipboard for cross-project cut+paste.
+        _clipboardRegionBounds = null;
         void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
-        // Optimistic removal: instantly remove from canvas before async IPC
         const rollback = optimisticRemoveClips(selected.map((c) => c.id));
         onClipSelectionChanged([]);
         try {
-            // SSOT FIX: Sequential deletes with single batched delta apply.
-            // Avoids N parallel IPC calls that can partially fail and corrupt state.
             const batchedDeltas: engine.ProjectDelta[] = [];
             for (const c of selected) {
                 const r = await engine.deleteClipWithDeltas(c.id);
@@ -196,16 +260,39 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
 
     if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
         if (activePanel !== 'arrangement' || getScopedEditorElement(e, 'track-inspector')) return false;
+
+        // ENTERPRISE: Region-based delete with split-then-operate
+        const range = normalizeRegion(marqueeSelection);
+        if (range) {
+            e.preventDefault();
+            e.stopPropagation();
+            await splitRegionBoundaries(range);
+            const regionClips = collectRegionClips(range);
+            if (regionClips.length === 0) return true;
+            const rollback = optimisticRemoveClips(regionClips.map((c) => c.id));
+            onClipSelectionChanged([]);
+            try {
+                const batchedDeltas: engine.ProjectDelta[] = [];
+                for (const c of regionClips) {
+                    const r = await engine.deleteClipWithDeltas(c.id);
+                    batchedDeltas.push(...r.deltas);
+                }
+                await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-delete-region');
+            } catch (err) {
+                console.error('[Shortcuts] Region delete failed:', err);
+                rollback();
+            }
+            return true;
+        }
+
+        // Fallback: whole-clip delete
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return false;
         e.preventDefault();
         e.stopPropagation();
-        // Optimistic removal: instantly remove from canvas before async IPC
         const rollback = optimisticRemoveClips(targets);
         onClipSelectionChanged([]);
         try {
-            // SSOT FIX: Sequential deletes with batched delta apply.
-            // Prevents partial failure from N parallel IPC round-trips.
             const batchedDeltas: engine.ProjectDelta[] = [];
             for (const id of targets) {
                 const r = await engine.deleteClipWithDeltas(id);
@@ -223,6 +310,27 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
+
+        // ENTERPRISE: Region-based mute with split-then-operate
+        const range = normalizeRegion(marqueeSelection);
+        if (range) {
+            await splitRegionBoundaries(range);
+            const regionClips = collectRegionClips(range);
+            if (regionClips.length === 0) return true;
+            const newMutedState = regionClips.some((c) => !c.muted);
+            try {
+                const regionIds = regionClips.map((c) => c.id);
+                const response = regionIds.length === 1
+                    ? await engine.setClipMutedWithDeltas(regionIds[0], newMutedState)
+                    : await engine.setClipsMutedWithDeltas(regionIds, newMutedState);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-mute-region');
+            } catch (err) {
+                console.error('[Shortcuts] Region mute failed:', err);
+            }
+            return true;
+        }
+
+        // Fallback: whole-clip mute
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return true;
         const selected = timelineClips.filter((c) => targets.includes(c.id));

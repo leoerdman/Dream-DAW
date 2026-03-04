@@ -2,6 +2,7 @@ import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { isModKey, matchesShortcutAction } from './utils';
@@ -17,6 +18,7 @@ import {
     handleRegionShortcuts,
 } from './transportAndEditingHandlers';
 import { handleCreateMidiClipRangeShortcut } from './transportAndEditingMidiRange';
+import { duplicateRegion, normalizeRegion } from './transportAndEditingRegions';
 
 
 export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
@@ -59,18 +61,32 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     // BUG-009 FIX: Removed duplicate hardcoded KeyS split handler.
     // Split is handled by matchesShortcutAction('split_clips') below.
 
-    if (!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyD') {
+    // ── ENTERPRISE SSOT: Unified duplicate handler (bare D + Cmd+D) ──
+    // Priority: (1) marquee region → duplicateRegion, (2) selected clips → duplicateSelectedClips
+    if ((!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyD') || (isModKey(e) && e.code === 'KeyD')) {
         if (activePanel !== 'arrangement') return false;
-        // BUG-103 FIX: Same pattern — defer event consumption until clips
-        // are confirmed duplicated.  Without Cmd, this is the "bare-D"
-        // shortcut for clip duplication.
         try {
+            // When marquee is active and has width, delegate to region duplicate SSOT
+            const range = normalizeRegion(ctx.marqueeSelection);
+            if (range) {
+                e.preventDefault();
+                e.stopPropagation();
+                const newIds = await duplicateRegion(range);
+                if (newIds.length > 0) {
+                    ctx.onClipSelectionChanged(newIds);
+                    useStatusStore.getState().setInfo(`Region Duplicate: ${newIds.length} clip(s)`);
+                } else {
+                    useStatusStore.getState().setInfo('Region Duplicate: nothing to duplicate');
+                }
+                return true;
+            }
+            // No marquee — duplicate selected clips with region-aware span
             const duplicated = await duplicateSelectedClips(ctx);
             if (!duplicated || duplicated.length === 0) return false;
             e.preventDefault();
             e.stopPropagation();
         } catch (err) {
-            console.error('[Shortcuts] Duplicate clip failed:', err);
+            console.error('[Shortcuts] Duplicate failed:', err);
         }
         return true;
     }
@@ -199,22 +215,7 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
         return true;
     }
 
-    if (isModKey(e) && e.code === 'KeyD') {
-        if (activePanel !== 'arrangement') return false;
-        // BUG-103 FIX: Do NOT consume the event before confirming clips were
-        // actually duplicated.  When no clips are selected, let the event
-        // propagate so the TrackInspector's Cmd+D handler can duplicate the
-        // selected track instead.
-        try {
-            const duplicated = await duplicateSelectedClips(ctx);
-            if (!duplicated || duplicated.length === 0) return false;
-            e.preventDefault();
-            e.stopPropagation();
-        } catch (err) {
-            console.error('[Shortcuts] Duplicate clip failed:', err);
-        }
-        return true;
-    }
+    // Cmd+D is now handled by the unified handler above (line ~62).
 
     return false;
 }

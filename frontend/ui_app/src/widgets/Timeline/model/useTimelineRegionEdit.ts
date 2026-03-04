@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
-import * as engine from '@/shared/api/engine';
-import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useRegionEditStore } from '@/shared/stores/useRegionEditStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import {
+    normalizeRegion,
+    duplicateRegion,
+    moveRegion,
+    swapRegions,
+    type RegionBox,
+} from '@/shared/hooks/keyboardShortcuts/transportAndEditingRegions';
 
-
-type Region = { startBeat: number; endBeat: number; startTrack: number; endTrack: number };
+type Region = RegionBox;
 
 interface UseTimelineRegionEditArgs {
     marqueeSelection: Region | null;
@@ -34,101 +37,22 @@ export function useTimelineRegionEdit({
     const setStatusInfo = useStatusStore((s) => s.setInfo);
     const setStatusError = useStatusStore((s) => s.setError);
 
-    const normalizeRegion = (m: Region | null) => {
-        if (!m) return null;
-        const startBeat = Math.min(m.startBeat, m.endBeat);
-        const endBeat = Math.max(m.startBeat, m.endBeat);
-        const startTrack = Math.min(m.startTrack, m.endTrack);
-        const endTrack = Math.max(m.startTrack, m.endTrack);
-        if (!Number.isFinite(startBeat) || !Number.isFinite(endBeat) || endBeat - startBeat <= 1e-6) return null;
-        return { startBeat, endBeat, startTrack, endTrack };
-    };
-
-    const collectRegionClips = (range: Region) => {
-        const EPS = 1e-6;
-        const clipsNow = useEngineStore.getState().timelineClips;
-        return clipsNow.filter((clip) => {
-            if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
-            const clipStart = clip.startBeat;
-            const clipEnd = clip.startBeat + clip.durationBeats;
-            return clipStart >= range.startBeat - EPS && clipEnd <= range.endBeat + EPS;
-        });
-    };
-
-    const splitRegionBoundaries = async (range: Region) => {
-        const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.transport.bpm);
-        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const splitBeats = [range.startBeat, range.endBeat];
-        const EPS = 1e-6;
-        for (const splitBeat of splitBeats) {
-            const splitFrame = Math.max(0, beatToFrame(splitBeat, currentBpm, sampleRate));
-            const clipsNow = useEngineStore.getState().timelineClips.filter((clip) => {
-                if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
-                const clipStart = clip.startBeat;
-                const clipEnd = clip.startBeat + clip.durationBeats;
-                return splitBeat > clipStart + EPS && splitBeat < clipEnd - EPS;
-            });
-            if (clipsNow.length === 0) continue;
-            // BUG-013 FIX: Collect all IPC deltas first, then apply in a single batch.
-            // Previously each concurrent split called applyProjectDeltas inside Promise.all,
-            // causing racing state reads where later splits saw stale clip data.
-            const responses = await Promise.all(clipsNow.map((clip) => engine.splitClipWithDeltas(clip.id, splitFrame)));
-            const batchedDeltas = responses.flatMap((response) => response.deltas);
-            await useEngineStore.getState().applyProjectDeltas(
-                batchedDeltas,
-                'timeline:region-boundary-split',
-            );
-        }
-    };
+    // ── SSOT: All region logic delegates to transportAndEditingRegions.ts ──
 
     const runDuplicateRegion = async () => {
         const range = normalizeRegion(marqueeSelection);
         if (!range) return setStatusError('Region Duplicate: marquee selection required');
-        await splitRegionBoundaries(range);
-        const sourceClips = collectRegionClips(range);
-        if (sourceClips.length === 0) return setStatusInfo('Region Duplicate: nothing to duplicate');
-        const lenBeats = Math.max(0.0001, range.endBeat - range.startBeat);
-        const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.transport.bpm);
-        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const response = await engine.duplicateMultipleClipsWithDeltas(
-            sourceClips.map((clip) => ({
-                id: clip.id,
-                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + lenBeats, currentBpm, sampleRate)),
-            }))
-        );
-        await useEngineStore.getState().applyProjectDeltas(
-            response.deltas,
-            'timeline:region-duplicate',
-        );
-        setStatusInfo(`Region Duplicate: ${sourceClips.length} clip(s)`);
+        const newIds = await duplicateRegion(range);
+        if (newIds.length === 0) return setStatusInfo('Region Duplicate: nothing to duplicate');
+        setStatusInfo(`Region Duplicate: ${newIds.length} clip(s)`);
     };
 
     const runMoveRegion = async (direction: -1 | 1) => {
         const range = normalizeRegion(marqueeSelection);
         if (!range) return setStatusError('Region Move: marquee selection required');
-        await splitRegionBoundaries(range);
-        const sourceClips = collectRegionClips(range);
-        if (sourceClips.length === 0) return setStatusInfo('Region Move: nothing to move');
-        const lenBeats = Math.max(0.0001, range.endBeat - range.startBeat);
-        let deltaBeats = direction * lenBeats;
-        if (deltaBeats < 0) deltaBeats = Math.max(deltaBeats, -range.startBeat);
-        const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.transport.bpm);
-        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const response = await engine.moveMultipleClipsWithDeltas(
-            sourceClips.map((clip) => ({
-                id: clip.id,
-                newTrackIndex: clip.trackIndex,
-                newPositionFrames: Math.max(0, beatToFrame(Math.max(0, clip.startBeat + deltaBeats), currentBpm, sampleRate)),
-            }))
-        );
-        await useEngineStore.getState().applyProjectDeltas(
-            response.deltas,
-            'timeline:region-move',
-        );
-        setStatusInfo(`Region Move ${direction < 0 ? 'Left' : 'Right'}: ${sourceClips.length} clip(s)`);
+        const moved = await moveRegion(range, direction);
+        if (moved === 0) return setStatusInfo('Region Move: nothing to move');
+        setStatusInfo(`Region Move ${direction < 0 ? 'Left' : 'Right'}: ${moved} clip(s)`);
     };
 
     const runSwapRegions = async () => {
@@ -139,32 +63,8 @@ export function useTimelineRegionEdit({
         const spanB = regionB.endTrack - regionB.startTrack;
         if (Math.abs(lenA - lenB) > 1e-6 || spanA !== spanB) return setStatusError('Region Swap: A/B must have same length and track span');
         if (!(regionA.endBeat <= regionB.startBeat || regionB.endBeat <= regionA.startBeat)) return setStatusError('Region Swap: A/B must not overlap');
-        await splitRegionBoundaries(regionA);
-        await splitRegionBoundaries(regionB);
-        const clipsA = collectRegionClips(regionA);
-        const clipsB = collectRegionClips(regionB);
-        const store = useEngineStore.getState();
-        const currentBpm = resolveBpm(store.transport.bpm);
-        const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-        const deltaBeat = regionB.startBeat - regionA.startBeat;
-        const deltaTrack = regionB.startTrack - regionA.startTrack;
-        const response = await engine.moveMultipleClipsWithDeltas([
-            ...clipsA.map((clip) => ({
-                id: clip.id,
-                newTrackIndex: clip.trackIndex + deltaTrack,
-                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat + deltaBeat, currentBpm, sampleRate)),
-            })),
-            ...clipsB.map((clip) => ({
-                id: clip.id,
-                newTrackIndex: clip.trackIndex - deltaTrack,
-                newPositionFrames: Math.max(0, beatToFrame(clip.startBeat - deltaBeat, currentBpm, sampleRate)),
-            })),
-        ]);
-        await useEngineStore.getState().applyProjectDeltas(
-            response.deltas,
-            'timeline:region-swap',
-        );
-        setStatusInfo(`Region Swap: ${clipsA.length + clipsB.length} clip(s)`);
+        const moved = await swapRegions(regionA, regionB);
+        setStatusInfo(`Region Swap: ${moved} clip(s)`);
     };
 
     const setRegionFromMarquee = (which: 'A' | 'B') => {

@@ -704,7 +704,10 @@ impl OfflineRenderer {
                 let indices_valid = runtime_slots.iter().all(|s| {
                     s.internal_slot_index.is_none_or(|idx| idx < chain_len)
                 });
-                if (!has_external && !has_internal_sidechain) || !indices_valid {
+                // BUG-CHAIN-001 FIX (BOUNCE PARITY): Only fall back to
+                // whole-chain when there are NO external plugins AND NO internal
+                // sidechains AND indices are valid. Mirrors the RT path fix.
+                if !has_external && !has_internal_sidechain && indices_valid {
                     if !slot.device_chain.is_empty() {
                         let pctx = ProcessContext {
                             sample_rate: ctx.sample_rate as f32,

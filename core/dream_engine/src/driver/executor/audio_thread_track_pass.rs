@@ -104,7 +104,13 @@ pub(crate) fn process_track_graph_node(
             let indices_valid = runtime_slots.iter().all(|s| {
                 s.internal_slot_index.is_none_or(|idx| idx < chain_len)
             });
-            if (!has_external && !has_internal_sidechain) || !indices_valid {
+            // BUG-CHAIN-001 FIX: Only fall back to whole-chain when there are
+            // NO external plugins AND NO internal sidechains AND indices are valid.
+            // Previously, !indices_valid caused fallback to whole-chain which
+            // silently dropped ALL external VST/AU plugins from the processing chain.
+            // Now: when external plugins exist, we always iterate per-slot so VSTs
+            // are never skipped. Invalid internal indices are individually guarded.
+            if !has_external && !has_internal_sidechain && indices_valid {
                 if !ctx.slot.device_chain.is_empty() {
                     ctx.slot.device_chain.process_with_context(
                         &mut left[..c],

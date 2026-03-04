@@ -46,14 +46,24 @@ function detectExternalEffectType(name: string, isInstrument: boolean): DeviceEf
     if (n.includes('delay') || n.includes('echo') || n.includes('h-delay') || n.includes('timeless')) return 'delay';
     if (n.includes('reverb') || n.includes('valhalla') || n.includes('room') || n.includes('plate') || n.includes('shimmer')) return 'reverb';
     if (n.includes('chorus')) return 'chorus';
-    if (n.includes('saturator') || n.includes('drum buss') || n.includes('dynamic tube')) return 'saturator';
+    // ── Wave 3: specific type detection before generic fallbacks ──
+    if (n.includes('drum buss') || n.includes('drum-buss')) return 'drumBuss';
+    if (n.includes('dynamic tube') || n.includes('dynamic-tube')) return 'dynamicTube';
+    if (n.includes('saturator')) return 'saturator';
     if (n.includes('limiter') || n.includes('pro-l')) return 'limiter';
     if (n.includes('gate')) return 'gate';
     if (n.includes('auto pan') || n.includes('auto-pan') || n.includes('autopan')) return 'autoPan';
     if (n.includes('auto filter') || n.includes('auto-filter') || n.includes('autofilter') || n.includes('vocoder')) return 'autoFilter';
+    if (n.includes('phaser-flanger') || n.includes('phaser flanger')) return 'phaserFlanger';
     if (n.includes('phaser')) return 'phaser';
     if (n.includes('flanger')) return 'flanger';
-    if (n.includes('distortion') || n.includes('amp') || n.includes('cabinet') || n.includes('overdrive') || n.includes('pedal') || n.includes('roar')) return 'distortion';
+    if (n.includes('overdrive')) return 'overdrive';
+    if (n.includes('cabinet')) return 'cabinet';
+    if (n.includes('pedal')) return 'pedal';
+    if (n.includes('roar')) return 'roar';
+    if (n.includes('erosion')) return 'erosion';
+    if (n.includes('amp')) return 'amp';
+    if (n.includes('distortion')) return 'distortion';
     if (n.includes('bitcrusher') || n.includes('bit-crusher')) return 'bitcrusher';
     if (n.includes('noise-machine') || n.includes('noise machine') || n.includes('noisemachine')) return 'noiseMachine';
     if (n.includes('spectrum')) return 'spectrum';

@@ -86,6 +86,64 @@ export function normalizeStaticLaneValueForUi(
             if (key === 'stereo') return asPct(value);
             if (key === 'pan') return asPct(value);
             break;
+        // ── Wave 3: param normalization ───────────────────────────
+        case 'overdrive':
+            if (['drive', 'tone', 'mix', 'tight'].includes(key)) return asPct(value);
+            if (key === 'bias') return Math.abs(value) <= 1.0 ? value * 100 : value;
+            break;
+        case 'transientShaper':
+            if (['attack', 'sustain'].includes(key)) return Math.abs(value) <= 1.0 ? value * 100 : value;
+            if (['speed', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'drumBuss':
+            if (['drive', 'crunch', 'boom', 'transient', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'dynamicTube':
+            if (['drive', 'envelope', 'tone', 'mix'].includes(key)) return asPct(value);
+            if (key === 'bias') return Math.abs(value) <= 1.0 ? value * 100 : value;
+            break;
+        case 'phaserFlanger':
+            if (['depth', 'blend', 'mix'].includes(key)) return asPct(value);
+            if (key === 'fb') return Math.abs(value) <= 1.0 ? value * 100 : value;
+            break;
+        case 'amp':
+            if (['gain', 'presence', 'sag', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'cabinet':
+            if (['mic pos', 'resonance', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'hybridReverb':
+            if (['size', 'decay', 'damp', 'early', 'late', 'mod depth', 'mix', 'width'].includes(key)) return asPct(value);
+            break;
+        case 'erosion':
+            if (['amount', 'width', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'pedal':
+            if (['drive', 'tone', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'roar':
+            if (['intensity', 'color', 'feedback', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'grainDelay':
+            if (['spray', 'fb', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'corpus':
+            if (['decay', 'damp', 'spread', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'spectralTime':
+            if (['amount', 'decay', 'mix'].includes(key)) return asPct(value);
+            if (key === 'tilt') return Math.abs(value) <= 1.0 ? value * 100 : value;
+            break;
+        case 'glueCompressor':
+            if (key === 'mix') return asPct(value);
+            if (key === 'soft clip') return asPct(value);
+            break;
+        case 'filterDelay':
+            if (['fb', 'mix'].includes(key)) return asPct(value);
+            break;
+        case 'multibandDynamics':
+            // All params are in native dB/Hz ranges — no normalization needed
+            break;
     }
     return value;
 }

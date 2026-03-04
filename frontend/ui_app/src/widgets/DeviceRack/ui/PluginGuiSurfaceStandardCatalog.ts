@@ -38,46 +38,42 @@ export const EFFECT_PARAM_ORDER: Partial<Record<DeviceSlot['effectType'], Map<st
     }, {} as Partial<Record<DeviceSlot['effectType'], Map<string, number>>>);
 
 export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
+    // ── EQ variants ──────────────────────────────────────────────
     'internal://effect/eq-three': new Set(['lowfreq', 'low', 'lowq', 'midfreq', 'mid', 'midq', 'highfreq', 'high', 'highq', 'out']),
     'internal://effect/channel-eq': new Set(['lowfreq', 'low', 'midfreq', 'mid', 'highfreq', 'high', 'out']),
-    'internal://effect/glue-compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'makeup', 'mix']),
-    'internal://effect/multiband-dynamics': new Set(['thr', 'ratio', 'atk', 'rel', 'knee', 'mix', 'rms']),
-    'internal://effect/transient-shaper': new Set(['atk', 'rel', 'mix']),
+    // ── Dynamics ──────────────────────────────────────────────────
+    'internal://effect/glue-compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'makeup', 'range', 'mix', 'soft clip']),
+    'internal://effect/multiband-dynamics': new Set(['xover low', 'xover high', 'lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output']),
+    'internal://effect/transient-shaper': new Set(['attack', 'sustain', 'output', 'speed', 'mix']),
+    // ── Delay variants ───────────────────────────────────────────
     'internal://effect/delay': new Set(['fb', 'filter', 'pingpong', 'mod rate', 'mod depth']),
     'internal://effect/simple-delay': new Set(['time l', 'time r', 'fb', 'dry/wet']),
-    'internal://effect/filter-delay': new Set(['time l', 'time r', 'fb', 'dry/wet']),
-    'internal://effect/grain-delay': new Set(['time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth']),
+    'internal://effect/filter-delay': new Set(['l delay', 'c delay', 'r delay', 'l filter', 'c filter', 'r filter', 'fb', 'mix']),
+    'internal://effect/grain-delay': new Set(['delay', 'grain', 'pitch', 'spray', 'fb', 'mix', 'density']),
     'internal://effect/echo': new Set(['time l', 'time r', 'fb', 'dry/wet']),
-    'internal://effect/spectral-time': new Set(['time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth']),
+    'internal://effect/spectral-time': new Set(['mode', 'amount', 'decay', 'tilt', 'mix']),
     'internal://effect/beat-repeat': new Set(['time l', 'fb', 'dry/wet']),
-    'internal://effect/hybrid-reverb': new Set([
-        'size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod rate', 'mod depth',
-        'lo cut', 'hi cut', 'diffusion', 'density', 'chorus', 'freeze',
-    ]),
-    'internal://effect/corpus': new Set([
-        'size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod rate', 'mod depth',
-        'lo cut', 'hi cut', 'diffusion', 'density', 'chorus', 'freeze',
-    ]),
-    'internal://effect/resonators': new Set([
-        'size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod rate', 'mod depth',
-        'lo cut', 'hi cut', 'diffusion', 'density', 'chorus', 'freeze',
-    ]),
-    'internal://effect/spectral-resonator': new Set([
-        'size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod rate', 'mod depth',
-        'lo cut', 'hi cut', 'diffusion', 'density', 'chorus', 'freeze',
-    ]),
-    'internal://effect/drum-buss': new Set(['drive', 'tone', 'mix']),
-    'internal://effect/dynamic-tube': new Set(['drive', 'tone', 'mix', 'mode']),
-    'internal://effect/amp': new Set(['drive', 'tone', 'output']),
-    'internal://effect/cabinet': new Set(['tone', 'output']),
-    'internal://effect/overdrive': new Set(['drive', 'tone', 'mix', 'output']),
-    'internal://effect/pedal': new Set(['drive', 'tone', 'mix', 'output']),
-    'internal://effect/roar': new Set(['drive', 'tone', 'mix', 'output', 'tight']),
-    'internal://effect/erosion': new Set(['drive', 'tone', 'mix']),
-    'internal://effect/phaser-flanger': new Set(['rate', 'depth', 'fb', 'mix', 'stages', 'spread']),
+    // ── Reverb variants ──────────────────────────────────────────
+    'internal://effect/hybrid-reverb': new Set(['size', 'decay', 'damp', 'early', 'late', 'predelay', 'mod depth', 'mix', 'width']),
+    'internal://effect/corpus': new Set(['tune', 'decay', 'damp', 'type', 'spread', 'mix']),
+    'internal://effect/resonators': new Set(['size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod depth']),
+    'internal://effect/spectral-resonator': new Set(['size', 'damp', 'predelay', 'dry/wet', 'width', 'low damp', 'mod depth']),
+    // ── Drive/Distortion variants ────────────────────────────────
+    'internal://effect/drum-buss': new Set(['drive', 'crunch', 'boom', 'boom freq', 'transient', 'trim', 'mix']),
+    'internal://effect/dynamic-tube': new Set(['drive', 'bias', 'envelope', 'tone', 'mix', 'output']),
+    'internal://effect/amp': new Set(['gain', 'bass', 'mid', 'treble', 'presence', 'master', 'sag', 'mix']),
+    'internal://effect/cabinet': new Set(['type', 'mic pos', 'lo cut', 'hi cut', 'resonance', 'output', 'mix']),
+    'internal://effect/overdrive': new Set(['drive', 'tone', 'mix', 'output', 'bias', 'tight']),
+    'internal://effect/pedal': new Set(['mode', 'drive', 'tone', 'level', 'mix']),
+    'internal://effect/roar': new Set(['character', 'intensity', 'color', 'feedback', 'output', 'mix']),
+    'internal://effect/erosion': new Set(['mode', 'frequency', 'amount', 'width', 'mix']),
+    // ── Modulation ───────────────────────────────────────────────
+    'internal://effect/phaser-flanger': new Set(['rate', 'depth', 'fb', 'blend', 'stages', 'mix', 'stereo']),
     'internal://effect/vocoder': new Set(['cutoff', 'res', 'mix']),
+    // ── Analyzers ────────────────────────────────────────────────
     'internal://effect/spectrum': new Set(['reset']),
 };
+
 
 export const PLUGIN_TITLE_MAP: Record<string, string> = {
     'internal://effect/eq-eight': 'EQ Eight',

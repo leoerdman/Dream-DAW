@@ -91,6 +91,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'SC HPF', value: 20, min: 20, max: 500, suffix: 'Hz', step: 1 },      // 7
         { name: 'Auto Gain', value: 1, min: 0, max: 1, suffix: '', step: 1 },         // 8
         { name: 'RMS', value: 0, min: 0, max: 1, suffix: '', step: 1 },               // 9
+        { name: 'Lookahead', value: 1, min: 0, max: 10, suffix: 'ms', step: 0.1 },    // 10
     ],
     delay: [
         { name: 'Time L', value: 250, min: 1, max: 2000, suffix: 'ms', step: 1 },       // 0  BUG-P02 FIX: was 'Time' at index 0

@@ -500,12 +500,11 @@ fn percent_decode(input: &str) -> String {
             let hi = chars.next().unwrap_or(b'0');
             let lo = chars.next().unwrap_or(b'0');
             let hex = [hi, lo];
-            if let Ok(s) = std::str::from_utf8(&hex) {
-                if let Ok(byte) = u8::from_str_radix(s, 16) {
+            if let Ok(s) = std::str::from_utf8(&hex)
+                && let Ok(byte) = u8::from_str_radix(s, 16) {
                     result.push(byte as char);
                     continue;
                 }
-            }
             result.push('%');
             result.push(hi as char);
             result.push(lo as char);

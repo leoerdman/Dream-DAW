@@ -228,10 +228,15 @@ pub fn resolve_als_file_path_cached(
         for normalized in normalized_candidates(raw) {
             let candidates = [
                 normalized.clone(),
+                // Dash/space normalization
                 normalized.replace(" - ", "-"),
                 normalized.replace(" -", "-"),
                 normalized.replace("- ", "-"),
                 normalized.replace("160 - 200 BPM", "160-200 BPM"),
+                // Dot/dash folder rename patterns (Ableton Pack directories)
+                // ALS may store "0. Packs" but folder is "0 - Packs" or vice versa
+                normalized.replace(". ", " - "),
+                normalized.replace(" - ", ". "),
             ];
             if let Some(found) = candidates
                 .into_iter()

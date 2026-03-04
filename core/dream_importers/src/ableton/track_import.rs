@@ -159,7 +159,7 @@ fn parse_audio_clip(
             .or_else(|| infer_warp_base_bpm_from_markers(&clip))
             .unwrap_or_else(|| bpm.max(1.0));
     }
-    hydrate_warp_source_duration_frames(&mut clip, source_duration_cache);
+    hydrate_warp_source_duration_frames(&mut clip, clip_node, sample_rate, source_duration_cache);
 
     // Pitch shift (PitchCoarse in semitones + PitchFine in cents)
     let pitch_coarse = node_child_value(clip_node, "PitchCoarse")
@@ -193,27 +193,117 @@ fn parse_audio_clip(
     Some(clip)
 }
 
+/// Hydrates `warp_source_duration_frames` using a 3-tier enterprise strategy:
+///
+///  1. **AudioReader::read_metadata** — most accurate, reads actual file header.
+///  2. **ALS XML `DefaultDuration` + `DefaultSampleRate`** — exact metadata
+///     embedded inside the ALS `<SampleRef>` node. Available even when the
+///     audio file is missing from disk (common after project relocation).
+///  3. **Warp marker inference** — last-resort fallback: the last warp marker's
+///     `SecTime` × project sample rate ≈ source frame count.
+///
+/// Without this, `warp_rate = source_len / timeline_len` evaluates to 1.0
+/// when `warp_source_duration_frames` falls back to `clip.duration`, causing
+/// warped audio to play at original speed/pitch instead of locked to tempo.
 fn hydrate_warp_source_duration_frames(
     clip: &mut AudioClip,
+    clip_node: roxmltree::Node<'_, '_>,
+    project_sample_rate: f64,
     source_duration_cache: &mut std::collections::HashMap<String, Option<i64>>,
 ) {
+    // ── Tier 1: Actual file metadata ──────────────────────────────────
     let key = clip.file_path.trim();
-    if key.is_empty() {
+    if !key.is_empty() {
+        let cached = if let Some(cached) = source_duration_cache.get(key) {
+            *cached
+        } else {
+            let resolved = AudioReader::read_metadata(key)
+                .ok()
+                .and_then(|(_, _, frames_opt)| frames_opt)
+                .and_then(|frames| i64::try_from(frames).ok())
+                .filter(|frames| *frames > 0);
+            source_duration_cache.insert(key.to_string(), resolved);
+            resolved
+        };
+        if let Some(frames) = cached {
+            clip.warp_source_duration_frames = frames.max(1);
+            return;
+        }
+    }
+
+    // ── Tier 2: ALS XML embedded metadata ─────────────────────────────
+    // Ableton stores `DefaultDuration` (in source sample frames) and
+    // `DefaultSampleRate` inside `<SampleRef>`. These are always accurate
+    // even when the audio file itself can't be found.
+    if let Some(duration_frames) = extract_als_default_duration(clip_node, project_sample_rate) {
+        clip.warp_source_duration_frames = duration_frames.max(1);
+        log::info!(
+            "[ALS Import] Warp source duration from XML metadata: {} frames (clip: {})",
+            duration_frames,
+            clip.name
+        );
         return;
     }
-    let cached = if let Some(cached) = source_duration_cache.get(key) {
-        *cached
+
+    // ── Tier 3: Infer from warp markers ───────────────────────────────
+    // The last warp marker's `SecTime` represents the end of the source
+    // audio in seconds. `sec_time × sample_rate ≈ source_frames`.
+    if clip.is_warped && clip.warp_markers.len() >= 2 {
+        let last = &clip.warp_markers[clip.warp_markers.len() - 1];
+        if last.sec_time > 0.0 && last.sec_time.is_finite() {
+            let inferred = (last.sec_time * project_sample_rate).round() as i64;
+            if inferred > 0 {
+                clip.warp_source_duration_frames = inferred.max(1);
+                log::info!(
+                    "[ALS Import] Warp source duration from markers: {} frames (clip: {})",
+                    inferred,
+                    clip.name
+                );
+            }
+        }
+    }
+}
+
+/// Extracts source file frame count from ALS `<SampleRef>` XML metadata.
+///
+/// Reads `<DefaultDuration>` (frame count at source sample rate) and
+/// `<DefaultSampleRate>`, then resamples to the project sample rate:
+///
+///   `project_frames = default_duration × (project_sr / default_sr)`
+///
+/// This provides exact source duration without reading the actual audio file.
+fn extract_als_default_duration(
+    clip_node: roxmltree::Node<'_, '_>,
+    project_sample_rate: f64,
+) -> Option<i64> {
+    // Search within SampleRef for DefaultDuration and DefaultSampleRate
+    let sample_ref = clip_node.descendants().find(|n| {
+        n.is_element() && n.has_tag_name("SampleRef")
+    });
+    let search_root = sample_ref.unwrap_or(clip_node);
+
+    let default_duration = search_root
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("DefaultDuration"))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_i64_value)
+        .filter(|&v| v > 0)?;
+
+    let default_sample_rate = search_root
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("DefaultSampleRate"))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_f64_value)
+        .filter(|&v| v > 0.0 && v.is_finite())
+        .unwrap_or(project_sample_rate);
+
+    // Resample to project sample rate
+    let resampled = (default_duration as f64) * (project_sample_rate / default_sample_rate);
+    let frames = resampled.round() as i64;
+    if frames > 0 {
+        Some(frames)
     } else {
-        let resolved = AudioReader::read_metadata(key)
-            .ok()
-            .and_then(|(_, _, frames_opt)| frames_opt)
-            .and_then(|frames| i64::try_from(frames).ok())
-            .filter(|frames| *frames > 0);
-        source_duration_cache.insert(key.to_string(), resolved);
-        resolved
-    };
-    if let Some(frames) = cached {
-        clip.warp_source_duration_frames = frames.max(1);
+        None
     }
 }
 

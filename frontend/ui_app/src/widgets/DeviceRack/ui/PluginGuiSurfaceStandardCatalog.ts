@@ -72,6 +72,21 @@ export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
     'internal://effect/vocoder': new Set(['cutoff', 'res', 'mix']),
     // ── Analyzers ────────────────────────────────────────────────
     'internal://effect/spectrum': new Set(['reset']),
+    // ── Standard Effects (curated knob sets) ─────────────────────
+    'internal://effect/compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'knee', 'makeup', 'mix', 'sc hpf']),
+    'internal://effect/limiter': new Set(['thr', 'rel', 'ceil', 'lookahead', 'link']),
+    'internal://effect/gate': new Set(['thr', 'atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis']),
+    'internal://effect/reverb': new Set(['size', 'damp', 'predelay', 'width', 'diffusion', 'lo cut', 'hi cut', 'voicing']),
+    'internal://effect/chorus': new Set(['rate', 'depth', 'mix', 'fb', 'voices', 'spread']),
+    'internal://effect/saturator': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'color']),
+    'internal://effect/distortion': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'bias']),
+    'internal://effect/bitcrusher': new Set(['bits', 'down', 'mix', 'jitter', 'pre freq', 'post freq']),
+    'internal://effect/noise-machine': new Set(['level', 'type', 'stereo', 'lpfreq', 'hpfreq', 'pan']),
+    'internal://effect/auto-filter': new Set(['cutoff', 'res', 'rate', 'depth', 'env', 'type', 'mix', 'lfo shape']),
+    'internal://effect/auto-pan': new Set(['rate', 'depth', 'phase', 'shape', 'mix']),
+    'internal://effect/phaser': new Set(['rate', 'depth', 'fb', 'stages', 'center', 'mix', 'spread']),
+    'internal://effect/flanger': new Set(['rate', 'depth', 'fb', 'delay', 'mix', 'stereo', 'fb damp']),
+    'internal://effect/utility': new Set(['gain', 'pan', 'width', 'mono']),
 };
 
 

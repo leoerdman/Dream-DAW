@@ -57,12 +57,14 @@ export const MIDI_MAX_VALUE = 127; // MIDI standard max pitch/velocity
 export const MIDI_VELOCITY_MIN_ALPHA = 0.3; // SSOT: Minimum alpha for MIDI note velocity rendering
 export const MIDI_VELOCITY_ALPHA_RANGE = 0.7; // SSOT: Alpha range for velocity (min + range × (vel/127) = alpha)
 
-// ── Fade gradient stops ──
-export const FADE_GRADIENT_OPACITY_FULL = 0.58; // SSOT: Opaque end of fade gradient
-export const FADE_GRADIENT_OPACITY_MID = 0.22; // SSOT: Midpoint opacity of fade gradient
-
 // ── Muted clip body ──
 export const MUTED_BODY_COLOR = rgba(80, 85, 95, 0.45);
+
+export const FADE_CURVE_HANDLE_RADIUS_PX = 3; // SSOT: Radius for Bezier curve handle (used in renderer + hit test)
+export const FADE_CURVE_PRESETS = [0.05, 0.25, 0.5, 0.75, 0.95]; // Range of standard curve shapes
+export const FADE_HANDLE_HOTSPOT_PX = 6; // SSOT: Hit test tolerance for fade handles
+
+export const DRAW_AUTOMATION_BACKGROUNDS = false;
 
 // ── Engine edge resize padding ──
 export const EDGE_RESIZE_PAD_PX = 2; // Extra px tolerance for edge resize hit detection

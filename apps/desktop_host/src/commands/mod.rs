@@ -219,6 +219,8 @@ pub(crate) fn invoke_handler()
         duplicate_multiple_clips_with_deltas_cmd,
         merge_clips_cmd,
         merge_clips_with_deltas_cmd,
+        consolidate_midi_region_with_deltas_cmd,
+        duplicate_clip_cmd,
         delete_clip_cmd,
         delete_clip_with_deltas_cmd,
         resize_clip_cmd,

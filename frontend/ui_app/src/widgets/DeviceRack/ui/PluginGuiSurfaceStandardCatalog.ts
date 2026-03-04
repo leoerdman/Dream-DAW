@@ -43,6 +43,7 @@ export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
     'internal://effect/glue-compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'makeup', 'mix']),
     'internal://effect/multiband-dynamics': new Set(['thr', 'ratio', 'atk', 'rel', 'knee', 'mix', 'rms']),
     'internal://effect/transient-shaper': new Set(['atk', 'rel', 'mix']),
+    'internal://effect/delay': new Set(['fb', 'filter', 'pingpong', 'mod rate', 'mod depth']),
     'internal://effect/simple-delay': new Set(['time l', 'time r', 'fb', 'dry/wet']),
     'internal://effect/filter-delay': new Set(['time l', 'time r', 'fb', 'dry/wet']),
     'internal://effect/grain-delay': new Set(['time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth']),

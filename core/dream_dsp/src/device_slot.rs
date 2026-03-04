@@ -214,6 +214,7 @@ impl DeviceProcessor for InternalDeviceSlot {
         if self.bypassed {
             return ProcessResult::Processed;
         }
+        self.processor.set_transport(context.tempo as f32, context.is_playing);
         self.processor.process_stereo_with_sidechain(
             left,
             right,

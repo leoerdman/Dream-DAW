@@ -56,6 +56,10 @@ pub trait DspProcessor: Send {
     /// Must be O(1). Called from the audio thread via command dispatch.
     fn set_param(&mut self, index: u8, value: f32);
 
+    /// Sets transport context, such as BPM and playback state.
+    /// Called immediately before processing audio. Default implementation does nothing.
+    fn set_transport(&mut self, _bpm: f32, _is_playing: bool) {}
+
     /// Resets internal state (delay lines, filter history, etc.).
     ///
     /// Called on transport seek or loop boundary to prevent artifacts.
@@ -106,8 +110,8 @@ impl SmoothedProcessor {
                 | (BuiltinEffectType::Eq, 33..=40)
                 // Compressor toggles
                 | (BuiltinEffectType::Compressor, 8 | 9)
-                // Delay toggle
-                | (BuiltinEffectType::Delay, 5)
+                // Delay toggles and sync
+                | (BuiltinEffectType::Delay, 5 | 8 | 9 | 10 | 11)
                 // Reverb toggle
                 | (BuiltinEffectType::Reverb, 8)
                 // Chorus voices (discrete)
@@ -237,6 +241,10 @@ impl DspProcessor for SmoothedProcessor {
 
         self.target[idx] = value;
         self.active[idx] = true;
+    }
+
+    fn set_transport(&mut self, bpm: f32, is_playing: bool) {
+        self.inner.set_transport(bpm, is_playing);
     }
 
     fn reset(&mut self) {

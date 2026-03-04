@@ -327,18 +327,26 @@ export const KnobParamGrid = React.memo(({
     if (params.length === 0) return null;
     const cols = Math.min(maxCols, Math.max(minCols, params.length));
     return (
-        <div style={pluginPanelKnobGrid(`repeat(${cols}, minmax(0, 1fr))`)}>
-            {params.map((p) => (
-                <PluginKnob
-                    key={p.name}
-                    param={p}
-                    onChange={handlers.onParamChange}
-                    onGestureStart={handlers.onParamGestureStart}
-                    onGestureEnd={handlers.onParamGestureEnd}
-                    onContextMenu={handlers.onParamContextMenu}
-                    compact
-                />
-            ))}
+        <div style={{
+            background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
+            borderRadius: 'var(--plugin-card-radius)',
+            border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 14%, transparent)',
+            padding: 'var(--space-1-5) var(--space-1)',
+            height: 'fit-content',
+        }}>
+            <div style={pluginPanelKnobGrid(`repeat(${cols}, minmax(0, 1fr))`)}>
+                {params.map((p) => (
+                    <PluginKnob
+                        key={p.name}
+                        param={p}
+                        onChange={handlers.onParamChange}
+                        onGestureStart={handlers.onParamGestureStart}
+                        onGestureEnd={handlers.onParamGestureEnd}
+                        onContextMenu={handlers.onParamContextMenu}
+                        compact
+                    />
+                ))}
+            </div>
         </div>
     );
 });

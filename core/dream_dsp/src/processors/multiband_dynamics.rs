@@ -28,6 +28,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::svf::SvfFilter;
 
 /// Per-band compressor state
 struct BandCompressor {
@@ -89,13 +90,10 @@ pub struct MultibandDynamicsProcessor {
     xover_high: f32,
     output_db: f32,
     bands: [BandCompressor; 3],
-    // Crossover filter state (2-pole LP/HP per xover point, 2 stages = LR4)
-    // Low-Mid split
-    lm_lp1_l: f32, lm_lp2_l: f32, lm_hp_prev_l: f32, lm_hp_out_l: f32,
-    lm_lp1_r: f32, lm_lp2_r: f32, lm_hp_prev_r: f32, lm_hp_out_r: f32,
-    // Mid-High split
-    mh_lp1_l: f32, mh_lp2_l: f32, mh_hp_prev_l: f32, mh_hp_out_l: f32,
-    mh_lp1_r: f32, mh_lp2_r: f32, mh_hp_prev_r: f32, mh_hp_out_r: f32,
+    lm_l: SvfFilter,
+    lm_r: SvfFilter,
+    mh_l: SvfFilter,
+    mh_r: SvfFilter,
     sample_rate: f32,
 }
 
@@ -111,10 +109,10 @@ impl MultibandDynamicsProcessor {
                 BandCompressor::new(sr),
                 BandCompressor::new(sr),
             ],
-            lm_lp1_l: 0.0, lm_lp2_l: 0.0, lm_hp_prev_l: 0.0, lm_hp_out_l: 0.0,
-            lm_lp1_r: 0.0, lm_lp2_r: 0.0, lm_hp_prev_r: 0.0, lm_hp_out_r: 0.0,
-            mh_lp1_l: 0.0, mh_lp2_l: 0.0, mh_hp_prev_l: 0.0, mh_hp_out_l: 0.0,
-            mh_lp1_r: 0.0, mh_lp2_r: 0.0, mh_hp_prev_r: 0.0, mh_hp_out_r: 0.0,
+            lm_l: SvfFilter::lowpass(200.0, 0.0, sr as f64),
+            lm_r: SvfFilter::lowpass(200.0, 0.0, sr as f64),
+            mh_l: SvfFilter::lowpass(3000.0, 0.0, sr as f64),
+            mh_r: SvfFilter::lowpass(3000.0, 0.0, sr as f64),
             sample_rate: sr,
         }
     }
@@ -126,51 +124,37 @@ impl DspProcessor for MultibandDynamicsProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             for b in &mut self.bands { b.update_coeffs(sr); }
+            self.lm_l.set_parameters(self.xover_low as f64, 0.0, sr as f64);
+            self.lm_r.set_parameters(self.xover_low as f64, 0.0, sr as f64);
+            self.mh_l.set_parameters(self.xover_high as f64, 0.0, sr as f64);
+            self.mh_r.set_parameters(self.xover_high as f64, 0.0, sr as f64);
         }
 
         let len = left.len().min(right.len());
-        let lm_c = (1.0 - (-std::f32::consts::TAU * self.xover_low / sr).exp()).clamp(0.0, 1.0);
-        let mh_c = (1.0 - (-std::f32::consts::TAU * self.xover_high / sr).exp()).clamp(0.0, 1.0);
-        let lm_hp = (-std::f32::consts::TAU * self.xover_low / sr).exp();
-        let mh_hp = (-std::f32::consts::TAU * self.xover_high / sr).exp();
         let out_g = db_to_linear(self.output_db);
 
         for i in 0..len {
             let in_l = left[i];
             let in_r = right[i];
 
-            // Low-Mid crossover (2-pole LP + HP)
-            self.lm_lp1_l += lm_c * (in_l - self.lm_lp1_l);
-            self.lm_lp2_l += lm_c * (self.lm_lp1_l - self.lm_lp2_l);
-            self.lm_lp1_r += lm_c * (in_r - self.lm_lp1_r);
-            self.lm_lp2_r += lm_c * (self.lm_lp1_r - self.lm_lp2_r);
-            let low_l = self.lm_lp2_l;
-            let low_r = self.lm_lp2_r;
-            self.lm_hp_out_l = lm_hp * (self.lm_hp_out_l + in_l - self.lm_hp_prev_l);
-            self.lm_hp_prev_l = in_l;
-            self.lm_hp_out_r = lm_hp * (self.lm_hp_out_r + in_r - self.lm_hp_prev_r);
-            self.lm_hp_prev_r = in_r;
-            let high_of_split1_l = self.lm_hp_out_l;
-            let high_of_split1_r = self.lm_hp_out_r;
+            // Low-Mid crossover using SVF LR2 topology (Q=0.5 -> Resonance=0.0)
+            // Low is LP, High is -HP. The sum LP - HP constitutes a perfect allpass.
+            let (ll_lp, ll_hp, _) = self.lm_l.process_all(in_l);
+            let (lr_lp, lr_hp, _) = self.lm_r.process_all(in_r);
+            
+            let mut bl = ll_lp;
+            let mut br = lr_lp;
+            let high_of_split1_l = -ll_hp;
+            let high_of_split1_r = -lr_hp;
 
-            // Mid-High crossover (on the high-pass output of first split)
-            self.mh_lp1_l += mh_c * (high_of_split1_l - self.mh_lp1_l);
-            self.mh_lp2_l += mh_c * (self.mh_lp1_l - self.mh_lp2_l);
-            self.mh_lp1_r += mh_c * (high_of_split1_r - self.mh_lp1_r);
-            self.mh_lp2_r += mh_c * (self.mh_lp1_r - self.mh_lp2_r);
-            let mid_l = self.mh_lp2_l;
-            let mid_r = self.mh_lp2_r;
-            self.mh_hp_out_l = mh_hp * (self.mh_hp_out_l + high_of_split1_l - self.mh_hp_prev_l);
-            self.mh_hp_prev_l = high_of_split1_l;
-            self.mh_hp_out_r = mh_hp * (self.mh_hp_out_r + high_of_split1_r - self.mh_hp_prev_r);
-            self.mh_hp_prev_r = high_of_split1_r;
-            let mut high_l = self.mh_hp_out_l;
-            let mut high_r = self.mh_hp_out_r;
+            // Mid-High crossover on the high-pass output of first split
+            let (hl_lp, hl_hp, _) = self.mh_l.process_all(high_of_split1_l);
+            let (hr_lp, hr_hp, _) = self.mh_r.process_all(high_of_split1_r);
 
-            let mut bl = low_l;
-            let mut br = low_r;
-            let mut ml = mid_l;
-            let mut mr = mid_r;
+            let mut ml = hl_lp;
+            let mut mr = hr_lp;
+            let mut high_l = -hl_hp;
+            let mut high_r = -hr_hp;
 
             // Compress each band
             self.bands[0].process(&mut bl, &mut br);
@@ -180,27 +164,21 @@ impl DspProcessor for MultibandDynamicsProcessor {
             // Recombine
             left[i] = (bl + ml + high_l) * out_g;
             right[i] = (br + mr + high_r) * out_g;
-
-            // Flush denormals
-            crate::processors::flush_denormal!(self.lm_lp1_l);
-            crate::processors::flush_denormal!(self.lm_lp2_l);
-            crate::processors::flush_denormal!(self.lm_lp1_r);
-            crate::processors::flush_denormal!(self.lm_lp2_r);
-            crate::processors::flush_denormal!(self.lm_hp_out_l);
-            crate::processors::flush_denormal!(self.lm_hp_out_r);
-            crate::processors::flush_denormal!(self.mh_lp1_l);
-            crate::processors::flush_denormal!(self.mh_lp2_l);
-            crate::processors::flush_denormal!(self.mh_lp1_r);
-            crate::processors::flush_denormal!(self.mh_lp2_r);
-            crate::processors::flush_denormal!(self.mh_hp_out_l);
-            crate::processors::flush_denormal!(self.mh_hp_out_r);
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => self.xover_low = value.clamp(40.0, 1000.0),
-            1 => self.xover_high = value.clamp(1000.0, 16000.0),
+            0 => {
+                self.xover_low = value.clamp(40.0, 1000.0);
+                self.lm_l.set_parameters(self.xover_low as f64, 0.0, self.sample_rate as f64);
+                self.lm_r.set_parameters(self.xover_low as f64, 0.0, self.sample_rate as f64);
+            }
+            1 => {
+                self.xover_high = value.clamp(1000.0, 16000.0);
+                self.mh_l.set_parameters(self.xover_high as f64, 0.0, self.sample_rate as f64);
+                self.mh_r.set_parameters(self.xover_high as f64, 0.0, self.sample_rate as f64);
+            }
             2 => self.bands[0].threshold_db = value.clamp(-40.0, 0.0),
             3 => self.bands[0].ratio = value.clamp(1.0, 20.0),
             4 => self.bands[0].gain_db = value.clamp(-12.0, 12.0),
@@ -216,14 +194,10 @@ impl DspProcessor for MultibandDynamicsProcessor {
     }
 
     fn reset(&mut self) {
-        self.lm_lp1_l = 0.0; self.lm_lp2_l = 0.0;
-        self.lm_hp_prev_l = 0.0; self.lm_hp_out_l = 0.0;
-        self.lm_lp1_r = 0.0; self.lm_lp2_r = 0.0;
-        self.lm_hp_prev_r = 0.0; self.lm_hp_out_r = 0.0;
-        self.mh_lp1_l = 0.0; self.mh_lp2_l = 0.0;
-        self.mh_hp_prev_l = 0.0; self.mh_hp_out_l = 0.0;
-        self.mh_lp1_r = 0.0; self.mh_lp2_r = 0.0;
-        self.mh_hp_prev_r = 0.0; self.mh_hp_out_r = 0.0;
+        self.lm_l.reset();
+        self.lm_r.reset();
+        self.mh_l.reset();
+        self.mh_r.reset();
         for b in &mut self.bands {
             b.env_l = 0.0; b.env_r = 0.0;
         }

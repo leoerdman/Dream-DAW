@@ -95,6 +95,17 @@ export const DeviceNode = React.memo(({
     const nativeEditorOpen = isNativeEditorOpen ?? false;
     const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
 
+    let rackAccent: string | undefined = undefined;
+    if (device.rack) {
+        const rackColors: Record<string, string> = {
+            Instrument: '#e066aa',
+            DrumRack: '#f0a040',
+            MidiEffect: '#40d0c0',
+            AudioEffect: '#50b8e0',
+        };
+        rackAccent = rackColors[device.rack.rack_type] ?? '#50b8e0';
+    }
+
     return (
         <div
             className="device-node"
@@ -155,9 +166,11 @@ export const DeviceNode = React.memo(({
                 width: rackWidth,
                 display: 'flex',
                 flexDirection: 'row',
-                background: 'var(--surface-card, var(--color-bg-hover))',
+                background: rackAccent ? `color-mix(in srgb, var(--surface-card) 92%, ${rackAccent} 8%)` : 'var(--surface-card, var(--color-bg-hover))',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? 'var(--space-px) solid var(--surface-card-border-selected)' : 'var(--space-px) solid var(--surface-card, var(--color-bg-hover))',
+                border: isSelected
+                    ? `var(--space-px) solid ${rackAccent ? rackAccent : 'var(--surface-card-border-selected)'}`
+                    : `var(--space-px) solid ${rackAccent ? `color-mix(in srgb, var(--surface-card) 60%, ${rackAccent} 40%)` : 'var(--surface-card, var(--color-bg-hover))'}`,
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',

@@ -101,6 +101,10 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'PingPong', value: 0, min: 0, max: 1, suffix: '', step: 1 },            // 5
         { name: 'Mod Rate', value: 0.5, min: 0, max: 5, suffix: 'Hz', step: 0.01 },     // 6
         { name: 'Mod Depth', value: 10, min: 0, max: 100, suffix: '%', step: 1 },       // 7
+        { name: 'Sync L', value: 0, min: 0, max: 1, suffix: '', step: 1 },              // 8
+        { name: 'Sync R', value: 0, min: 0, max: 1, suffix: '', step: 1 },              // 9
+        { name: 'Note L', value: 5, min: 0, max: 13, suffix: '', step: 1 },             // 10
+        { name: 'Note R', value: 6, min: 0, max: 13, suffix: '', step: 1 },             // 11
     ],
     reverb: [
         { name: 'Size', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 0  room_size

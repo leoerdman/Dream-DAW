@@ -41,6 +41,9 @@ pub struct DynamicTubeProcessor {
     dc_prev_out_l: f32,
     dc_prev_out_r: f32,
     dc_coeff: f32,
+    // Cached tone
+    cached_tone_c: f32,
+    cached_tone_freq: f32,
     // Smoothed
     drive_sm: SmoothedValue,
     bias_sm: SmoothedValue,
@@ -70,6 +73,8 @@ impl DynamicTubeProcessor {
             dc_prev_out_l: 0.0,
             dc_prev_out_r: 0.0,
             dc_coeff: 1.0 - (std::f32::consts::TAU * 15.0 / sr),
+            cached_tone_c: (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * 200.0 * crate::fast_math::fast_exp2(0.6 * 6.321928) / sr)).clamp(0.0, 1.0),
+            cached_tone_freq: 200.0 * crate::fast_math::fast_exp2(0.6 * 6.321928),
             drive_sm: SmoothedValue::new(sr, 10.0, 0.4),
             bias_sm: SmoothedValue::new(sr, 10.0, 0.2),
             env_amt_sm: SmoothedValue::new(sr, 10.0, 0.5),
@@ -110,6 +115,7 @@ impl DspProcessor for DynamicTubeProcessor {
             self.tone_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
             self.output_sm.set_sample_rate(sr);
+            self.cached_tone_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * self.cached_tone_freq / sr)).clamp(0.0, 1.0);
         }
 
         let len = left.len().min(right.len());
@@ -155,7 +161,11 @@ impl DspProcessor for DynamicTubeProcessor {
             // Tone LP filter
             // log2(80) ≈ 6.32192809
             let tone_cutoff = 200.0 * crate::fast_math::fast_exp2(tone.clamp(0.0, 1.0) * 6.321928);
-            let tc = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * tone_cutoff / sr)).clamp(0.0, 1.0);
+            if (tone_cutoff - self.cached_tone_freq).abs() > 1.0 {
+                self.cached_tone_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * tone_cutoff / sr)).clamp(0.0, 1.0);
+                self.cached_tone_freq = tone_cutoff;
+            }
+            let tc = self.cached_tone_c;
             self.tone_state_l += tc * (sat_l - self.tone_state_l);
             self.tone_state_r += tc * (sat_r - self.tone_state_r);
             let toned_l = self.tone_state_l;
@@ -210,6 +220,10 @@ impl DspProcessor for DynamicTubeProcessor {
         self.mix_sm.set_instant(self.mix);
         let out_lin = if self.output_db <= -24.0 { 0.0 } else { db_to_linear(self.output_db) };
         self.output_sm.set_instant(out_lin);
+        
+        let tone_cutoff = 200.0 * crate::fast_math::fast_exp2(self.tone.clamp(0.0, 1.0) * 6.321928);
+        self.cached_tone_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * tone_cutoff / self.sample_rate)).clamp(0.0, 1.0);
+        self.cached_tone_freq = tone_cutoff;
     }
 }
 

@@ -65,44 +65,50 @@ impl SaturatorProcessor {
     #[inline]
     fn analog_clip(x: f32, drive: f32) -> f32 {
         let g = 1.0 + drive * 20.0;
+        let inv_g = 1.0 / g.sqrt(); // Inverse gain compensation
         let d = x * g;
         let knee = 1.0 - drive * 0.5;
-        d / (1.0 + (d / knee.max(0.1)).abs()).powf(knee.max(0.1))
+        (d / (1.0 + (d / knee.max(0.1)).abs()).powf(knee.max(0.1))) * inv_g
     }
 
     #[inline]
     fn tape(x: f32, drive: f32) -> f32 {
         let g = 1.0 + drive * 15.0;
+        let inv_g = 1.0 / g.powf(0.5);
         let d = x * g;
         let pos = d.max(0.0).tanh();
         let neg = -((-d).max(0.0) * 0.85).tanh();
-        if d >= 0.0 { pos } else { neg }
+        (if d >= 0.0 { pos } else { neg }) * inv_g
     }
 
     #[inline]
     fn tube_curve(x: f32, drive: f32) -> f32 {
         let g = 1.0 + drive * 25.0;
+        let inv_g = 1.0 / g.powf(0.6);
         let d = x * g;
-        if d >= 0.0 {
+        (if d >= 0.0 {
             d / (1.0 + d * 0.5)
         } else {
-            d.max(-3.0).tanh()
-        }
+            // Asymmetric soft clip on the negative half, prevents division by zero
+            -( -d / (1.0 + (-d * 0.5).abs()) )
+        }) * inv_g
     }
 
     #[inline]
     fn diode(x: f32, drive: f32) -> f32 {
         let g = 1.0 + drive * 30.0;
+        let inv_g = 1.0 / g.powf(0.85);
         let d = x * g;
-        if d > 0.6 { 0.6 + (d - 0.6) / (1.0 + (d - 0.6) * 3.0) }
+        (if d > 0.6 { 0.6 + (d - 0.6) / (1.0 + (d - 0.6) * 3.0) }
         else if d < -0.3 { -0.3 + (d + 0.3) / (1.0 + (-d - 0.3) * 5.0) }
-        else { d }
+        else { d }) * inv_g
     }
 
     #[inline]
     fn sinefold(x: f32, drive: f32) -> f32 {
         let g = 1.0 + drive * 6.0;
-        (x * g * std::f32::consts::FRAC_PI_2).sin()
+        let inv_g = 1.0 / g.sqrt();
+        (x * g * std::f32::consts::FRAC_PI_2).sin() * inv_g
     }
 }
 
@@ -135,7 +141,6 @@ impl DspProcessor for SaturatorProcessor {
             let mix = self.mix_sm.next_value();
 
             // Pre-saturation tilt (colour)
-            // BUG-B18-003 FIX: Use fast_exp instead of per-sample std exp() for tilt coeff.
             let tilt_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * (200.0 + colour * 8000.0) / sr)).clamp(0.0, 1.0);
             self.tilt_z_l += tilt_c * (dry_l - self.tilt_z_l);
             self.tilt_z_r += tilt_c * (dry_r - self.tilt_z_r);
@@ -150,19 +155,23 @@ impl DspProcessor for SaturatorProcessor {
                 _ => (Self::sinefold(tilted_l, drive), Self::sinefold(tilted_r, drive)),
             };
 
+            // Post-saturation inverse tilt to restore tonal balance
+            let inv_tilt_l = sat_l * (1.0 - colour) + self.tilt_z_l * colour;
+            let inv_tilt_r = sat_r * (1.0 - colour) + self.tilt_z_r * colour;
+
             // DC blocker
-            let dcb_l = sat_l - self.dc_in_l + dc * self.dc_out_l;
-            self.dc_in_l = sat_l; self.dc_out_l = dcb_l;
-            let dcb_r = sat_r - self.dc_in_r + dc * self.dc_out_r;
-            self.dc_in_r = sat_r; self.dc_out_r = dcb_r;
+            let dcb_l = inv_tilt_l - self.dc_in_l + dc * self.dc_out_l;
+            self.dc_in_l = inv_tilt_l; self.dc_out_l = dcb_l;
+            let dcb_r = inv_tilt_r - self.dc_in_r + dc * self.dc_out_r;
+            self.dc_in_r = inv_tilt_r; self.dc_out_r = dcb_r;
 
             crate::processors::flush_denormal!(self.tilt_z_l);
             crate::processors::flush_denormal!(self.tilt_z_r);
             crate::processors::flush_denormal!(self.dc_out_l);
             crate::processors::flush_denormal!(self.dc_out_r);
 
-            left[i] = (dry_l * (1.0 - mix) + dcb_l * mix) * output;
-            right[i] = (dry_r * (1.0 - mix) + dcb_r * mix) * output;
+            left[i] = ((dry_l * (1.0 - mix) + dcb_l * mix) * output).clamp(-200.0, 200.0);
+            right[i] = ((dry_r * (1.0 - mix) + dcb_r * mix) * output).clamp(-200.0, 200.0);
         }
     }
 

@@ -319,6 +319,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_l = dry_l;
                 self.sc_hp_state_l
             } else {
+                self.sc_hp_prev_l = dry_l;
                 dry_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
@@ -327,6 +328,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_r = dry_r;
                 self.sc_hp_state_r
             } else {
+                self.sc_hp_prev_r = dry_r;
                 dry_r
             };
 
@@ -446,6 +448,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_l = sc_src_l;
                 self.sc_hp_state_l
             } else {
+                self.sc_hp_prev_l = sc_src_l;
                 sc_src_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
@@ -454,6 +457,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_r = sc_src_r;
                 self.sc_hp_state_r
             } else {
+                self.sc_hp_prev_r = sc_src_r;
                 sc_src_r
             };
 

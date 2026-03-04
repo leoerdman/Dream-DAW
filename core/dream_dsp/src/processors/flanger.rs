@@ -28,7 +28,7 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::sanitize_sample_rate;
 use crate::processors::smoothing::SmoothedValue;
 
-const MAX_DELAY_SAMPLES: usize = 2048;
+const MAX_DELAY_SAMPLES: usize = 8192;
 const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
 
 pub struct FlangerProcessor {

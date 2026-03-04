@@ -1311,6 +1311,16 @@ export const consolidateSelection = (payload: BounceSelectionToTrackPayload) =>
     safeInvoke<void>('consolidate_selection_cmd', { payload });
 export const consolidateSelectionWithDeltas = (payload: BounceSelectionToTrackPayload) =>
     safeInvoke<DeltaMutationResponse>('consolidate_selection_with_deltas_cmd', { payload });
+export const consolidateMidiRegionWithDeltas = (
+    trackIndex: number,
+    startFrame: number,
+    durationFrames: number,
+) =>
+    safeInvoke<MergeClipsWithDeltasResponse>('consolidate_midi_region_with_deltas_cmd', {
+        trackIndex,
+        startFrame,
+        durationFrames,
+    });
 export const splitTrackToStems = (trackId: string) =>
     safeInvoke<void>('split_track_to_stems_cmd', {
         payload: { trackId },

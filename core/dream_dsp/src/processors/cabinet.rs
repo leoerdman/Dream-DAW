@@ -28,7 +28,7 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::smoothing::SmoothedValue;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
 
-const CAB_COMB_SIZE: usize = 512;
+const CAB_COMB_SIZE: usize = 2048;
 const CAB_COMB_MASK: usize = CAB_COMB_SIZE - 1;
 
 pub struct CabinetProcessor {

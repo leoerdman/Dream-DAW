@@ -727,3 +727,48 @@ async fn merge_clips_with_deltas_cmd(
         deltas,
     })
 }
+
+#[tauri::command]
+async fn consolidate_midi_region_with_deltas_cmd(
+    track_index: usize,
+    start_frame: i64,
+    duration_frames: i64,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<MergeClipsWithDeltasResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    push_undo(&project_state)?;
+
+    let cmd = dream_orchestrator::commands::ConsolidateMidiRegionCommand {
+        track_index,
+        start_frame,
+        duration_frames,
+    };
+
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut deltas = vec![];
+
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::FullSnapshot,
+    )?;
+
+    // SSOT FIX: Append full snapshot so frontend receives authoritative
+    // merged clip state — eliminates independent MIDI note recalculation.
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(project.clone()),
+    });
+
+    Ok(MergeClipsWithDeltasResponse {
+        new_id: result.new_id.to_string(),
+        deltas,
+    })
+}

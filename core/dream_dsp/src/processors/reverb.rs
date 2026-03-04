@@ -63,8 +63,28 @@ impl CombFilter {
     }
 
     #[inline]
-    fn process(&mut self, input: f32) -> f32 {
-        let output = self.buffer[self.index];
+    fn process(&mut self, input: f32, lfo_offset: f32) -> f32 {
+        // Read with fractional offset for tape-like chorus modulation
+        // Wrap read_pos properly and handle negative values safely.
+        let lfo_int = lfo_offset.floor() as isize;
+        let frac = lfo_offset - lfo_int as f32;
+        
+        // i0 is the base index to read from. It must be wrapped to [0, buf_size).
+        // Since lfo_offset is subtracted, we use wrapping sub.
+        let mut i0 = (self.index as isize - lfo_int) % self.buf_size as isize;
+        if i0 < 0 {
+            i0 += self.buf_size as isize;
+        }
+        let i0 = i0 as usize;
+        
+        let im1 = (i0 + self.buf_size - 1) % self.buf_size;
+        let i1 = (i0 + 1) % self.buf_size;
+        let i2 = (i0 + 2) % self.buf_size;
+        
+        let output = crate::processors::hermite_interp(
+            self.buffer[im1], self.buffer[i0], self.buffer[i1], self.buffer[i2], frac
+        );
+
         self.filter_store = output * self.damp2 + self.filter_store * self.damp1;
         // SSOT: Flush denormals in feedback path.
         crate::processors::flush_denormal!(self.filter_store);
@@ -559,20 +579,24 @@ impl DspProcessor for ReverbProcessor {
             // of samples; rem_euclid guarantees [0, 1) range.
             self.lfo_phase = self.lfo_phase.rem_euclid(1.0);
 
-            // BUG-H06 FIX: Right channel gets inverted LFO for true stereo
-            // movement. Previously both channels used `(1.0 + lfo)`, producing
-            // mono pulsing instead of spatial modulation.
-            let input_l_mod = input_l * (1.0 + lfo);
-            let input_r_mod = input_r * (1.0 - lfo);
-
             // Parallel comb filters — L and R fed independently for stereo
             let mut out_l = 0.0f32;
             let mut out_r = 0.0f32;
-            for c in &mut self.combs_l {
-                out_l += c.process(input_l_mod);
+            
+            // LFO offset for Comb length modulation (1ms = 44 samples at 44.1kHz). 
+            // Max depth ~ 18 samples modulation to prevent ugly pitch swoops.
+            let mod_samples_l = lfo * 18.0;
+            // Inverted for stereo separation
+            let mod_samples_r = -lfo * 18.0;
+
+            for (i, c) in self.combs_l.iter_mut().enumerate() {
+                // Modulate combs slightly out of phase with each other natively
+                let phase_shift = if i % 2 == 0 { 1.0 } else { -1.0 };
+                out_l += c.process(input_l, 1.0 + mod_samples_l * phase_shift);
             }
-            for c in &mut self.combs_r {
-                out_r += c.process(input_r_mod);
+            for (i, c) in self.combs_r.iter_mut().enumerate() {
+                let phase_shift = if i % 2 == 0 { 1.0 } else { -1.0 };
+                out_r += c.process(input_r, 1.0 + mod_samples_r * phase_shift);
             }
 
             // Normalise summed comb output + density gain staging.

@@ -1702,9 +1702,11 @@ export class TimelineEngine {
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_ALT) : (e.shiftKey ? FINE_FACTOR_SHIFT : 1);
                 clip.fadeIn = this._clampFadeFraction((this._drag.clipOriginalFadeIn ?? 0) + deltaFraction * fineFactor);
-                // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
+                // ENTERPRISE: Dynamically push fadeOut to make room for fadeIn instead of hard-stopping
                 const maxFadeIn = 1.0 - (clip.fadeOut ?? 0);
-                if (clip.fadeIn > maxFadeIn) clip.fadeIn = Math.max(0, maxFadeIn);
+                if (clip.fadeIn > maxFadeIn) {
+                    clip.fadeOut = Math.max(0, 1.0 - clip.fadeIn);
+                }
                 this._requestRedraw();
                 break;
             }
@@ -1717,9 +1719,11 @@ export class TimelineEngine {
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
                 const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_ALT) : (e.shiftKey ? FINE_FACTOR_SHIFT : 1);
                 clip.fadeOut = this._clampFadeFraction((this._drag.clipOriginalFadeOut ?? 0) - deltaFraction * fineFactor);
-                // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
+                // ENTERPRISE: Dynamically push fadeIn to make room for fadeOut instead of hard-stopping
                 const maxFadeOut = 1.0 - (clip.fadeIn ?? 0);
-                if (clip.fadeOut > maxFadeOut) clip.fadeOut = Math.max(0, maxFadeOut);
+                if (clip.fadeOut > maxFadeOut) {
+                    clip.fadeIn = Math.max(0, 1.0 - clip.fadeOut);
+                }
                 this._requestRedraw();
                 break;
             }

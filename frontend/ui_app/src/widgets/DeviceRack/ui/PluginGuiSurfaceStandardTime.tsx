@@ -13,8 +13,122 @@ import {
     shouldShowDryWet,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
+    resolveSurfaceParam,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
+import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { renderTimeToneSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardTimeTone';
+
+const DELAY_NOTE_OPTIONS = [
+    { label: '1/32', value: 0 },
+    { label: '1/16T', value: 1 },
+    { label: '1/16', value: 2 },
+    { label: '1/16D', value: 3 },
+    { label: '1/8T', value: 4 },
+    { label: '1/8', value: 5 },
+    { label: '1/8D', value: 6 },
+    { label: '1/4T', value: 7 },
+    { label: '1/4', value: 8 },
+    { label: '1/4D', value: 9 },
+    { label: '1/2T', value: 10 },
+    { label: '1/2', value: 11 },
+    { label: '1/2D', value: 12 },
+    { label: '1/1', value: 13 },
+];
+
+function DelayChannelView({
+    channel,
+    device,
+    handlers,
+}: {
+    channel: 'L' | 'R';
+    device: DeviceSlot;
+    handlers: SurfaceHandlers;
+}) {
+    const syncParam = resolveSurfaceParam(device, `sync ${channel}`);
+    const timeParam = resolveSurfaceParam(device, `time ${channel}`);
+    const noteParam = resolveSurfaceParam(device, `note ${channel}`);
+    const isSync = (syncParam?.value ?? 0) > 0.5;
+
+    return (
+        <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+            padding: 8,
+            background: 'var(--plugin-control-bg)',
+            borderRadius: 'var(--radius-sm)',
+            border: 'var(--space-px) solid var(--color-border-subtle)',
+            position: 'relative',
+        }}>
+            <div style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: 'var(--color-text-tertiary)',
+                letterSpacing: '0.05em',
+            }}>
+                {channel === 'L' ? 'LEFT' : 'RIGHT'}
+            </div>
+
+            {/* Sync Toggle */}
+            <button
+                data-no-drag
+                onClick={() => handlers.onParamChange(`Sync ${channel}`, isSync ? 0 : 1)}
+                style={{
+                    background: isSync ? 'var(--token-color-hex-7cc4ff)' : 'transparent',
+                    color: isSync ? '#000' : 'var(--color-text-secondary)',
+                    border: `1px solid ${isSync ? 'transparent' : 'var(--color-divider)'}`,
+                    borderRadius: 3,
+                    padding: '2px 8px',
+                    fontSize: 9,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.1s',
+                }}
+            >
+                SYNC
+            </button>
+
+            {/* Time or Note Control */}
+            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {isSync ? (
+                    <select
+                        data-no-drag
+                        value={noteParam?.value ?? 5}
+                        onChange={(e) => handlers.onParamChange(`Note ${channel}`, Number(e.target.value))}
+                        style={{
+                            background: 'var(--color-bg-base)',
+                            color: 'var(--token-color-hex-7cc4ff)',
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 4,
+                            padding: '4px 6px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            outline: 'none',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                        }}
+                    >
+                        {DELAY_NOTE_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                ) : (
+                    timeParam && (
+                        <PluginKnob
+                            param={timeParam}
+                            onChange={handlers.onParamChange}
+                            onGestureStart={handlers.onParamGestureStart}
+                            onGestureEnd={handlers.onParamGestureEnd}
+                            onContextMenu={handlers.onParamContextMenu}
+                            compact
+                        />
+                    )
+                )}
+            </div>
+        </div>
+    );
+}
 
 export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
 
@@ -38,7 +152,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-delay)' }}>
                     <div style={{ display: 'grid', gap: 6 }}>
-                        <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%' , willChange: 'transform', transform: 'translateZ(0)'}}>
+                        <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
                             <rect x="0" y="0" width="280" height="52" fill="var(--token-color-rgba-14-20-30-0d6)" rx="4" />
                             {!isLooper && !isSpectralTime && !isBeatRepeat && !isEcho && !isSimpleDelay && !isFilterDelay && !isGrainDelay && Array.from({ length: 8 }).map((_, i) => {
                                 const x = 12 + i * 32;
@@ -72,7 +186,34 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     </div>
                     <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7cc4ff)" show={showDryWet} />
                 </div>
-                <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    gap: 12,
+                    alignItems: 'stretch',
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        gap: 12,
+                        background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
+                        borderRadius: 'var(--plugin-card-radius)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 14%, transparent)',
+                        padding: 'var(--space-1-5) var(--space-1)',
+                        height: 'fit-content',
+                    }}>
+                        <DelayChannelView channel="L" device={device} handlers={handlers} />
+                        <DelayChannelView channel="R" device={device} handlers={handlers} />
+                    </div>
+                    {/* Remaining Knobs (KnobParamGridMemo brings its own card visually) */}
+                    <div style={{ alignSelf: 'stretch', display: 'flex' }}>
+                        <KnobParamGridMemo
+                            device={device}
+                            handlers={handlers}
+                            options={{ omitMixWhenDryWet: showDryWet }}
+                            maxCols={6}
+                        />
+                    </div>
+                </div>
             </div>
         );
     }
@@ -93,7 +234,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-reverb)' }}>
                     <div style={{ display: 'grid', gap: 6 }}>
-                        <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%' , willChange: 'transform', transform: 'translateZ(0)'}}>
+                        <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
                             <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-10-10-12-0d45)" />
                             {isHybridReverb ? (<><path d="M 8 26 C 28 10, 48 42, 68 18 C 88 8, 110 40, 130 22 C 150 12, 174 36, 198 24 C 222 18, 246 30, 270 26" fill="none" stroke="var(--token-color-hex-c891ff)" strokeWidth="2.1" strokeLinecap="round" />{Array.from({ length: 6 }).map((_, i) => <line key={i} x1={20 + i * 40} y1={6} x2={20 + i * 40} y2={46} stroke="var(--token-color-rgba-192-145-255-0d2)" strokeWidth="0.8" strokeDasharray="2,3" />)}</>) : isCorpus || isResonators ? (<>{Array.from({ length: 8 }).map((_, i) => <circle key={i} cx={18 + i * 33} cy={26 + Math.sin(i * 0.7) * 6} r={4 + (i % 3)} fill="none" stroke="var(--token-color-rgba-192-145-255-0d45)" strokeWidth="1" />)}<path d="M 8 26 L 272 26" fill="none" stroke="var(--token-color-rgba-192-145-255-0d28)" strokeWidth="1" /></>) : isSpectralResonator ? (<>{Array.from({ length: 22 }).map((_, i) => { const x = 8 + i * 12.3; const h = 8 + ((i * 11) % 30); return <rect key={i} x={x} y={44 - h} width="7" height={h} rx="1.2" fill="var(--token-color-rgba-200-155-255-0d9)" />; })}</>) : (<><path d={`M 12 26 L 18 8 C 30 10, ${tailEnd * 0.3} ${14 + (1 - sizeNorm) * 12}, ${tailEnd * 0.6} ${22 + (1 - sizeNorm) * 4} C ${tailEnd * 0.8} ${24 + (1 - sizeNorm) * 2}, ${tailEnd} 26, ${Math.min(270, tailEnd + 20)} 26`} fill="none" stroke="var(--token-color-hex-c891ff)" strokeWidth="2.4" strokeLinecap="round" /><path d={`M 12 26 L 18 44 C 30 42, ${tailEnd * 0.3} ${38 - (1 - sizeNorm) * 12}, ${tailEnd * 0.6} ${30 - (1 - sizeNorm) * 4} C ${tailEnd * 0.8} ${28 - (1 - sizeNorm) * 2}, ${tailEnd} 26, ${Math.min(270, tailEnd + 20)} 26`} fill="none" stroke="var(--token-color-hex-c891ff)" strokeWidth="2.4" strokeLinecap="round" opacity="0.5" />{Array.from({ length: 4 }).map((_, i) => <circle key={i} cx={40 + sizeNorm * 30 + i * (35 + sizeNorm * 15)} cy="26" r={6 + i * 4} fill="none" stroke="var(--token-color-rgba-192-145-255-0d25)" strokeWidth="0.8" />)}</>)}
                         </svg>

@@ -146,3 +146,26 @@ impl Command for MergeClipsCommand {
         Ok(MergeClipsResult { new_id })
     }
 }
+
+/// Consolidate a region on a MIDI track into a single MIDI clip.
+pub struct ConsolidateMidiRegionCommand {
+    pub track_index: usize,
+    pub start_frame: i64,
+    pub duration_frames: i64,
+}
+
+impl Command for ConsolidateMidiRegionCommand {
+    type Result = MergeClipsResult;
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<MergeClipsResult> {
+        let mut project = ctx.lock_project()?;
+        let clip = dream_models::mutators::consolidate_midi_region(
+            &mut project,
+            self.track_index,
+            AbsoluteTime::new(self.start_frame),
+            AbsoluteTime::new(self.duration_frames),
+        )
+        .map_err(|e| OrchestratorError::Other(e.to_string()))?;
+        Ok(MergeClipsResult { new_id: clip.id })
+    }
+}

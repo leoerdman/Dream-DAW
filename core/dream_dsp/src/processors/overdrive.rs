@@ -39,6 +39,12 @@ pub struct OverdriveProcessor {
     tone_state_r: f32,
     tight_state_l: f32,
     tight_state_r: f32,
+    tight_prev_in_l: f32,
+    tight_prev_in_r: f32,
+    cached_tone_c: f32,
+    cached_tone_freq: f32,
+    cached_tight_c: f32,
+    cached_tight_freq: f32,
     // DC blocker
     dc_prev_in_l: f32,
     dc_prev_in_r: f32,
@@ -72,6 +78,12 @@ impl OverdriveProcessor {
             tone_state_r: 0.0,
             tight_state_l: 0.0,
             tight_state_r: 0.0,
+            tight_prev_in_l: 0.0,
+            tight_prev_in_r: 0.0,
+            cached_tone_c: Self::lp_coeff(Self::tone_to_cutoff(0.5), sr),
+            cached_tone_freq: Self::tone_to_cutoff(0.5),
+            cached_tight_c: Self::hp_coeff(Self::tight_to_cutoff(0.3), sr),
+            cached_tight_freq: Self::tight_to_cutoff(0.3),
             dc_prev_in_l: 0.0,
             dc_prev_in_r: 0.0,
             dc_prev_out_l: 0.0,
@@ -155,6 +167,8 @@ impl DspProcessor for OverdriveProcessor {
             self.output_sm.set_sample_rate(sr);
             self.bias_sm.set_sample_rate(sr);
             self.tight_sm.set_sample_rate(sr);
+            self.cached_tight_c = Self::hp_coeff(self.cached_tight_freq, sr);
+            self.cached_tone_c = Self::lp_coeff(self.cached_tone_freq, sr);
         }
 
         let len = left.len().min(right.len());
@@ -183,17 +197,19 @@ impl DspProcessor for OverdriveProcessor {
             let bias = self.bias_sm.next_value();
             let tight = self.tight_sm.next_value();
 
-            // Tightness HP (remove bass before drive)
-            let hp_c = Self::hp_coeff(Self::tight_to_cutoff(tight), sr);
-            self.tight_state_l = hp_c * (self.tight_state_l + dry_l);
-            let tight_l = self.tight_state_l;
-            self.tight_state_l -= dry_l * hp_c;
-            // Correct: y[n] = α*(y[n-1] + x[n] - x[n-1]), simplified as LP-subtract
-            let pre_l = dry_l - (dry_l - tight_l) * tight;
-            self.tight_state_r = hp_c * (self.tight_state_r + dry_r);
-            let tight_r = self.tight_state_r;
-            self.tight_state_r -= dry_r * hp_c;
-            let pre_r = dry_r - (dry_r - tight_r) * tight;
+            // Tightness HP (remove bass before drive) using proper 1-pole HP
+            let tight_cutoff = Self::tight_to_cutoff(tight);
+            if (tight_cutoff - self.cached_tight_freq).abs() > 1.0 {
+                self.cached_tight_c = Self::hp_coeff(tight_cutoff, sr);
+                self.cached_tight_freq = tight_cutoff;
+            }
+            let hp_c = self.cached_tight_c;
+            self.tight_state_l = hp_c * (self.tight_state_l + dry_l - self.tight_prev_in_l);
+            self.tight_state_r = hp_c * (self.tight_state_r + dry_r - self.tight_prev_in_r);
+            self.tight_prev_in_l = dry_l;
+            self.tight_prev_in_r = dry_r;
+            let pre_l = self.tight_state_l;
+            let pre_r = self.tight_state_r;
 
             // 2x oversampled tube saturation (process at double rate for less aliasing)
             // Phase 1: original sample
@@ -212,7 +228,11 @@ impl DspProcessor for OverdriveProcessor {
 
             // Tone LP filter
             let tone_cutoff = Self::tone_to_cutoff(tone);
-            let tone_c = Self::lp_coeff(tone_cutoff, sr);
+            if (tone_cutoff - self.cached_tone_freq).abs() > 1.0 {
+                self.cached_tone_c = Self::lp_coeff(tone_cutoff, sr);
+                self.cached_tone_freq = tone_cutoff;
+            }
+            let tone_c = self.cached_tone_c;
             self.tone_state_l += tone_c * (sat_l - self.tone_state_l);
             self.tone_state_r += tone_c * (sat_r - self.tone_state_r);
             let filtered_l = self.tone_state_l;
@@ -263,6 +283,8 @@ impl DspProcessor for OverdriveProcessor {
         self.tone_state_r = 0.0;
         self.tight_state_l = 0.0;
         self.tight_state_r = 0.0;
+        self.tight_prev_in_l = 0.0;
+        self.tight_prev_in_r = 0.0;
         self.dc_prev_in_l = 0.0;
         self.dc_prev_in_r = 0.0;
         self.dc_prev_out_l = 0.0;
@@ -280,6 +302,12 @@ impl DspProcessor for OverdriveProcessor {
         self.output_sm.set_instant(output_lin);
         self.bias_sm.set_instant(self.bias);
         self.tight_sm.set_instant(self.tight);
+        let tight_cutoff = Self::tight_to_cutoff(self.tight);
+        self.cached_tight_c = Self::hp_coeff(tight_cutoff, self.sample_rate);
+        self.cached_tight_freq = tight_cutoff;
+        let tone_cutoff = Self::tone_to_cutoff(self.tone);
+        self.cached_tone_c = Self::lp_coeff(tone_cutoff, self.sample_rate);
+        self.cached_tone_freq = tone_cutoff;
     }
 }
 

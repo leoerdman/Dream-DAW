@@ -826,7 +826,7 @@ impl OfflineRenderer {
                             let midi_to_send: &[MidiEvent] = ctx.midi_events;
                             let empty_midi: &[MidiEvent] = &[];
                             let use_midi =
-                                if runtime_slot.is_instrument && !midi_to_send.is_empty() {
+                                if !midi_to_send.is_empty() {
                                     midi_to_send
                                 } else {
                                     empty_midi
@@ -1036,9 +1036,11 @@ impl OfflineRenderer {
             // CRACKLE-FIX-5: Reuse pre-allocated MIDI events Vec instead of
             // allocating a new Vec per track per chunk.
             ctx.bounce_midi_events.clear();
-            if has_vst_instrument && has_midi {
-                // Activate the slot so it's not skipped
-                slot.active = true;
+            if has_midi {
+                if has_vst_instrument {
+                    // Activate the slot so it's not skipped
+                    slot.active = true;
+                }
 
                 let midi_clips = &ctx.midi_clips_per_track[track_idx];
                 let mut midi_schedule: Vec<ScheduledNote> = Vec::new();
@@ -1164,40 +1166,26 @@ impl OfflineRenderer {
 
             // Post-FX RMS is captured in the per-buffer digest below (Phase 3.5)
 
-            // ── PDC (Plugin Delay Compensation) ──
-            // PDC-7 FIX: Match the exact routing edge (from→to) instead of just
-            // `e.from == node_idx`. A track can have multiple outgoing edges
-            // (routing + sidechain) with different delays. The previous `.find()`
-            // by `from` alone could pick a sidechain edge with the wrong delay.
-            // We compute the destination node from the routing table and match
-            // both endpoints to find the correct routing-edge delay.
+            // PDC-7 FIX / SIDECHAIN-CORRUPTION FIX:
+            // Calculate PDC delay for the routing destination, but DO NOT apply it
+            // in-place here. Applying it here corrupts the raw `slot.buf` which
+            // downstream tracks use for sidechains. We only delay it when summing.
             let dest_node_idx = ctx.routing.get(track_idx)
                 .and_then(|r| *r)
                 .map(|parent_idx| {
-                    // Destination is a group/bus track: NodeId = parent_idx + 1
                     snapshot.dag.graph().node_indices()
                         .find(|ni| snapshot.dag.node(*ni).id.0 == (parent_idx as u64) + 1)
                 })
                 .unwrap_or_else(|| {
-                    // Destination is master output: NodeId = 0
                     snapshot.dag.graph().node_indices()
                         .find(|ni| snapshot.dag.node(*ni).id.0 == 0)
                 });
-            if let Some(dest_ni) = dest_node_idx
-                && let Some(delay_frames) = snapshot.plan.edge_delay_compensation.iter()
+            let pdc_delay_frames = if let Some(dest_ni) = dest_node_idx {
+                snapshot.plan.edge_delay_compensation.iter()
                     .find(|e| e.from == node_idx && e.to == dest_ni)
                     .map(|e| e.delay_samples)
-                && delay_frames > 0
-            {
-                let delay_buf = &mut ctx.pdc_buffers[track_idx];
-                if delay_buf.len() != delay_frames as usize {
-                    delay_buf.resize(delay_frames as usize);
-                }
-                delay_buf.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
-                );
-            }
+                    .unwrap_or(0)
+            } else { 0 };
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
@@ -1234,11 +1222,7 @@ impl OfflineRenderer {
                     if parent_idx < track_slots_len
                         && ctx.post_sum_mask.get(parent_idx).copied().unwrap_or(false)
                     {
-                        let c = frame_count
-                            .min(slot.buf_left.len())
-                            .min(slot.buf_right.len());
-                        // ENTERPRISE FIX (BUG-004): Never panic during export.
-                        // A self-routing track is a data integrity issue, not a crash justification.
+                        let c = frame_count;
                         if track_idx == parent_idx {
                             static SELF_ROUTE_COUNT: std::sync::atomic::AtomicU32 =
                                 std::sync::atomic::AtomicU32::new(0);
@@ -1254,17 +1238,51 @@ impl OfflineRenderer {
                             (&right[0], &mut left[parent_idx])
                         };
 
-                        for i in 0..c {
-                            parent_slot.buf_left[i] += src_slot.buf_left[i];
-                            parent_slot.buf_right[i] += src_slot.buf_right[i];
+                        if pdc_delay_frames > 0 {
+                            let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                            if delay_buf.len() != pdc_delay_frames as usize {
+                                delay_buf.resize(pdc_delay_frames as usize);
+                            }
+                            ctx.bounce_scratch_left[..c].copy_from_slice(&src_slot.buf_left[..c]);
+                            ctx.bounce_scratch_right[..c].copy_from_slice(&src_slot.buf_right[..c]);
+                            delay_buf.process_stereo(
+                                &mut ctx.bounce_scratch_left[..c],
+                                &mut ctx.bounce_scratch_right[..c],
+                            );
+                            for i in 0..c {
+                                parent_slot.buf_left[i] += ctx.bounce_scratch_left[i];
+                                parent_slot.buf_right[i] += ctx.bounce_scratch_right[i];
+                            }
+                        } else {
+                            for i in 0..c {
+                                parent_slot.buf_left[i] += src_slot.buf_left[i];
+                                parent_slot.buf_right[i] += src_slot.buf_right[i];
+                            }
                         }
                         parent_slot.active = true;
                     }
                 } else {
-                    render_ctx.master_bus.add_stereo(
-                        &slot.buf_left[..frame_count],
-                        &slot.buf_right[..frame_count],
-                    );
+                    if pdc_delay_frames > 0 {
+                        let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                        if delay_buf.len() != pdc_delay_frames as usize {
+                            delay_buf.resize(pdc_delay_frames as usize);
+                        }
+                        ctx.bounce_scratch_left[..frame_count].copy_from_slice(&slot.buf_left[..frame_count]);
+                        ctx.bounce_scratch_right[..frame_count].copy_from_slice(&slot.buf_right[..frame_count]);
+                        delay_buf.process_stereo(
+                            &mut ctx.bounce_scratch_left[..frame_count],
+                            &mut ctx.bounce_scratch_right[..frame_count],
+                        );
+                        render_ctx.master_bus.add_stereo(
+                            &ctx.bounce_scratch_left[..frame_count],
+                            &ctx.bounce_scratch_right[..frame_count],
+                        );
+                    } else {
+                        render_ctx.master_bus.add_stereo(
+                            &slot.buf_left[..frame_count],
+                            &slot.buf_right[..frame_count],
+                        );
+                    }
                 }
             }
         }

@@ -116,7 +116,6 @@ export function useKeyboardInteractions({
             setSelectedItemId(first.id);
             if (previewEnabled) syncPreviewForItem(first);
             focusResults();
-            void handleItemEnter(first);
             return;
         }
         const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;

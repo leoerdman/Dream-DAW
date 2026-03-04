@@ -1,5 +1,5 @@
 import * as engine from '@/shared/api/engine';
-import { beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 import type { KeyboardShortcutHandlerEnv } from './types';
@@ -79,7 +79,8 @@ export async function splitRegionBoundaries(range: RegionBox): Promise<void> {
     const bpm = resolveBpm(store.transport.bpm);
     const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
     const splitBeats = [range.startBeat, range.endBeat];
-    const EPS = 1e-6;
+    // Use 256 frames of safety margin to prevent 'ClipTooShort' mutator errors.
+    const minFramesBeat = frameToBeat(256, bpm, sampleRate);
 
     for (const splitBeat of splitBeats) {
         const splitFrame = Math.max(0, beatToFrame(splitBeat, bpm, sampleRate));
@@ -87,7 +88,7 @@ export async function splitRegionBoundaries(range: RegionBox): Promise<void> {
             if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
             const clipStart = clip.startBeat;
             const clipEnd = clip.startBeat + clip.durationBeats;
-            return splitBeat > clipStart + EPS && splitBeat < clipEnd - EPS;
+            return splitBeat > clipStart + minFramesBeat && splitBeat < clipEnd - minFramesBeat;
         });
         if (clips.length === 0) continue;
         const batchedDeltas: engine.ProjectDelta[] = [];

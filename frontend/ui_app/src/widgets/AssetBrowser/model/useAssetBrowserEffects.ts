@@ -276,7 +276,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [selectedCategoryId, activeFolderPath, prevActiveFolderRef, prevCategoryForFolderResetRef, setExpandedFolders, setFolderChildrenCache, setFolderItems, setFolderScanPath, setLoadingFolders]);
     useEffect(() => {
         if (items.length === 0) { setSelectedItemId(null); return; }
-        if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) setSelectedItemId(items[0].id);
+        if (selectedItemId && !items.some((it) => it.id === selectedItemId)) setSelectedItemId(null);
     }, [items, selectedItemId, setSelectedItemId]);
     useEffect(() => {
         if (!columnMenuPos) return;

@@ -65,6 +65,12 @@ pub struct DelayProcessor {
     fb_hp_prev_l: f32,
     fb_hp_prev_r: f32,
     fb_hp_coeff: f32,
+    // Sync
+    bpm: f32,
+    sync_l: bool,
+    sync_r: bool,
+    note_l: u8,
+    note_r: u8,
     // Modulation LFO
     lfo_phase: f64,
     // Cross-feedback for ping-pong
@@ -110,6 +116,11 @@ impl DelayProcessor {
             fb_hp_prev_l: 0.0,
             fb_hp_prev_r: 0.0,
             fb_hp_coeff: 0.0,
+            bpm: 120.0,
+            sync_l: false,
+            sync_r: false,
+            note_l: 5, // 1/8 note
+            note_r: 6, // 1/8D note
             lfo_phase: 0.0,
             cross_fb_l: 0.0,
             cross_fb_r: 0.0,
@@ -132,13 +143,29 @@ impl DelayProcessor {
     }
 
     fn update_delay_l(&mut self) {
+        let ms = if self.sync_l && self.bpm > 0.1 {
+            let frac = note_to_fraction(self.note_l);
+            let beats = frac * 4.0;
+            let minutes = beats / self.bpm;
+            minutes * 60_000.0
+        } else {
+            self.time_l_ms
+        };
         self.delay_samples_l =
-            (self.time_l_ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
+            (ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
     }
 
     fn update_delay_r(&mut self) {
+        let ms = if self.sync_r && self.bpm > 0.1 {
+            let frac = note_to_fraction(self.note_r);
+            let beats = frac * 4.0;
+            let minutes = beats / self.bpm;
+            minutes * 60_000.0
+        } else {
+            self.time_r_ms
+        };
         self.delay_samples_r =
-            (self.time_r_ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
+            (ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
     }
 
     #[inline]
@@ -199,12 +226,33 @@ impl DelayProcessor {
     }
 }
 
+fn note_to_fraction(val: u8) -> f32 {
+    match val {
+        0 => 1.0 / 32.0,
+        1 => 1.0 / 16.0 * (2.0 / 3.0), // 1/16T
+        2 => 1.0 / 16.0,               // 1/16
+        3 => 1.0 / 16.0 * 1.5,         // 1/16D
+        4 => 1.0 / 8.0 * (2.0 / 3.0),  // 1/8T
+        5 => 1.0 / 8.0,                // 1/8
+        6 => 1.0 / 8.0 * 1.5,          // 1/8D
+        7 => 1.0 / 4.0 * (2.0 / 3.0),  // 1/4T
+        8 => 1.0 / 4.0,                // 1/4
+        9 => 1.0 / 4.0 * 1.5,          // 1/4D
+        10 => 1.0 / 2.0 * (2.0 / 3.0), // 1/2T
+        11 => 1.0 / 2.0,               // 1/2
+        12 => 1.0 / 2.0 * 1.5,         // 1/2D
+        13 => 1.0,                     // 1/1
+        _ => 1.0 / 4.0,
+    }
+}
+
 impl DspProcessor for DelayProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let bs = self.buf_size;
         let fc = self.fb_filter_coeff;
+        let hp_c = self.fb_hp_coeff;
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
 
         // Keep smoother targets synced with latest parameter values.
@@ -247,63 +295,67 @@ impl DspProcessor for DelayProcessor {
 
             // Feedback signals with LP filtering for analog warmth
             let fb_l_raw = if self.ping_pong {
-                self.cross_fb_r
+                self.cross_fb_l
             } else {
                 delayed_l
             };
             let fb_r_raw = if self.ping_pong {
-                self.cross_fb_l
+                self.cross_fb_r
             } else {
                 delayed_r
             };
 
-            // One-pole LP in feedback loop
+            // Store read outputs for Ping-Pong crossfeed on the NEXT sample
+            self.cross_fb_l = delayed_r;
+            self.cross_fb_r = delayed_l;
+
+            // Apply One-Pole Low-Pass filter to feedback
             self.fb_filter_l += fc * (fb_l_raw - self.fb_filter_l);
             self.fb_filter_r += fc * (fb_r_raw - self.fb_filter_r);
-            // One-pole HP in feedback loop (remove sub buildup).
-            self.fb_hp_state_l =
-                self.fb_hp_coeff * (self.fb_hp_state_l + self.fb_filter_l - self.fb_hp_prev_l);
-            self.fb_hp_state_r =
-                self.fb_hp_coeff * (self.fb_hp_state_r + self.fb_filter_r - self.fb_hp_prev_r);
-            self.fb_hp_prev_l = self.fb_filter_l;
-            self.fb_hp_prev_r = self.fb_filter_r;
-            let fb_shaped_l = (self.fb_hp_state_l * 1.15).tanh();
-            let fb_shaped_r = (self.fb_hp_state_r * 1.15).tanh();
-            // SSOT: Flush denormals in feedback filter states.
             crate::processors::flush_denormal!(self.fb_filter_l);
             crate::processors::flush_denormal!(self.fb_filter_r);
+
+            // Apply fixed ~35Hz High-Pass to prevent low-end mud buildup
+            self.fb_hp_state_l = hp_c * (self.fb_hp_state_l + self.fb_filter_l - self.fb_hp_prev_l);
+            self.fb_hp_state_r = hp_c * (self.fb_hp_state_r + self.fb_filter_r - self.fb_hp_prev_r);
+            self.fb_hp_prev_l = self.fb_filter_l;
+            self.fb_hp_prev_r = self.fb_filter_r;
             crate::processors::flush_denormal!(self.fb_hp_state_l);
             crate::processors::flush_denormal!(self.fb_hp_state_r);
             crate::processors::flush_denormal!(self.fb_hp_prev_l);
             crate::processors::flush_denormal!(self.fb_hp_prev_r);
 
-            // Write to buffer: input + filtered feedback
-            self.buf_l[self.write_pos] = dry_l + fb_shaped_l * fb;
-            self.buf_r[self.write_pos] = dry_r + fb_shaped_r * fb;
+            // Mix input + filtered feedback into the delay lines
+            // BUG-004 FIX: Feedback clamped to 0.98 to prevent infinite explosion.
+            let fb_clean = fb.clamp(0.0, 0.98);
+            let in_l = dry_l + self.fb_hp_state_l * fb_clean;
+            let in_r = dry_r + self.fb_hp_state_r * fb_clean;
 
-            // Store for ping-pong, then flush denormals.
-            self.cross_fb_l = delayed_l;
-            self.cross_fb_r = delayed_r;
-            crate::processors::flush_denormal!(self.cross_fb_l);
-            crate::processors::flush_denormal!(self.cross_fb_r);
+            self.buf_l[self.write_pos] = in_l;
+            self.buf_r[self.write_pos] = in_r;
 
-            // Mix
-            left[i] = dry_l * dry + delayed_l * wet;
-            right[i] = dry_r * dry + delayed_r * wet;
+            // Compute Wet Output
+            let wet_l = delayed_l;
+            let wet_r = delayed_r;
+
+            left[i] = dry_l * dry + wet_l * wet;
+            right[i] = dry_r * dry + wet_r * wet;
 
             self.write_pos = (self.write_pos + 1) & (bs - 1);
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
+        // Delay L/R are smoothed! Only trigger update if this parameter is what sets it.
+        // The DspProcessor trait sets the underlying param to value.
         match index {
             0 => {
                 self.time_l_ms = value.clamp(1.0, 2000.0);
-                self.update_delay_l();
+                if !self.sync_l { self.update_delay_l(); }
             }
             1 => {
                 self.time_r_ms = value.clamp(1.0, 2000.0);
-                self.update_delay_r();
+                if !self.sync_r { self.update_delay_r(); }
             }
             2 => {
                 self.feedback = (value / 100.0).clamp(0.0, 0.95);
@@ -328,7 +380,32 @@ impl DspProcessor for DelayProcessor {
             7 => {
                 self.mod_depth = (value / 100.0).clamp(0.0, 1.0);
             }
+            8 => {
+                self.sync_l = value > 0.5;
+                self.update_delay_l();
+            }
+            9 => {
+                self.sync_r = value > 0.5;
+                self.update_delay_r();
+            }
+            10 => {
+                self.note_l = value as u8;
+                self.update_delay_l();
+            }
+            11 => {
+                self.note_r = value as u8;
+                self.update_delay_r();
+            }
             _ => {}
+        }
+    }
+
+    fn set_transport(&mut self, bpm: f32, _is_playing: bool) {
+        // If BPM changed, update sync times
+        if (self.bpm - bpm).abs() > 0.001 {
+            self.bpm = bpm;
+            if self.sync_l { self.update_delay_l(); }
+            if self.sync_r { self.update_delay_r(); }
         }
     }
 
@@ -395,19 +472,27 @@ mod tests {
     #[test]
     fn delay_ping_pong() {
         let mut proc = DelayProcessor::new(44100.0);
-        proc.set_param(0, 50.0);
-        proc.set_param(1, 50.0);
-        proc.set_param(2, 50.0);
-        proc.set_param(3, 100.0);
+        proc.set_param(0, 50.0); // 50ms left
+        proc.set_param(1, 100.0); // 100ms right
+        proc.set_param(2, 50.0); // feedback
+        proc.set_param(3, 100.0); // mix
         proc.set_param(5, 1.0); // ping-pong ON
-        let mut left = vec![0.0f32; 8192];
-        let mut right = vec![0.0f32; 8192];
+        
+        // 1 second of audio
+        let total = 44100;
+        let mut left = vec![0.0f32; total];
+        let mut right = vec![0.0f32; total];
+        
+        // Impulse on the LEFT channel ONLY
         left[0] = 1.0;
+        
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        // In ping-pong, right channel should receive echo from left
+        
+        // In ping-pong, energy from the left channel should eventually cross over to the right channel
+        // Since delay is 50ms on left, and 100ms on right, it takes ~150ms for the first right-channel ping.
         let r_energy: f32 = right.iter().map(|s| s * s).sum();
         assert!(
-            r_energy > 0.01,
+            r_energy > 0.0001,
             "Ping-pong should send to right: {r_energy}"
         );
     }

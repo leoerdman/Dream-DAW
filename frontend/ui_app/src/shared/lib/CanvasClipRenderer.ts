@@ -1264,38 +1264,7 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    // PERF #7: Pre-built fade gradient textures (created once, reused every frame)
-    private _fadeInCanvas: HTMLCanvasElement | null = null;
-    private _fadeOutCanvas: HTMLCanvasElement | null = null;
-
-    private _ensureFadeTextures(): void {
-        if (this._fadeInCanvas) return;
-        const SIZE = 256;
-
-        // Fade-in: dark→transparent
-        this._fadeInCanvas = document.createElement('canvas');
-        this._fadeInCanvas.width = SIZE;
-        this._fadeInCanvas.height = 1;
-        const ctxIn = this._fadeInCanvas.getContext('2d')!;
-        const gi = ctxIn.createLinearGradient(0, 0, SIZE, 0);
-        gi.addColorStop(0, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_FULL));
-        gi.addColorStop(0.55, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_MID));
-        gi.addColorStop(1, rgba(0, 0, 0, 0));
-        ctxIn.fillStyle = gi;
-        ctxIn.fillRect(0, 0, SIZE, 1);
-
-        // Fade-out: transparent→dark
-        this._fadeOutCanvas = document.createElement('canvas');
-        this._fadeOutCanvas.width = SIZE;
-        this._fadeOutCanvas.height = 1;
-        const ctxOut = this._fadeOutCanvas.getContext('2d')!;
-        const go = ctxOut.createLinearGradient(0, 0, SIZE, 0);
-        go.addColorStop(0, rgba(0, 0, 0, 0));
-        go.addColorStop(0.45, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_MID));
-        go.addColorStop(1, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_FULL));
-        ctxOut.fillStyle = go;
-        ctxOut.fillRect(0, 0, SIZE, 1);
-    }
+    // PERF #7: Fade gradients deleted for cleaner aesthetic
 
     private _drawFade(
         ctx: CanvasRenderingContext2D,
@@ -1307,26 +1276,21 @@ export class CanvasClipRenderer {
         if (w <= 0 || h <= 0) return;
         const t = Math.max(FADE_CURVE_CLAMP_MIN, Math.min(FADE_CURVE_CLAMP_MAX, curve));
 
-        // FADE-VIS: Gradient overlay opacity adapts to hover state.
-        const gradientAlpha = isHovered ? 1.0 : 0.55;
+        // FADE-VIS: Curve opacity adapts to hover state.
         const curveAlpha = isHovered ? 0.96 : 0.50;
 
-        // PERF #7: Use pre-built gradient texture instead of createLinearGradient per frame
-        this._ensureFadeTextures();
-        const tex = direction === 'in' ? this._fadeInCanvas! : this._fadeOutCanvas!;
-        ctx.save();
-        ctx.globalAlpha *= gradientAlpha;
-        ctx.drawImage(tex, 0, 0, tex.width, 1, x, y, w, h);
-        ctx.restore();
-
         // Bezier fade curve line
+        // Extend line 1px higher into the header area
+        const effY = y - 1;
+        const effH = h + 1;
+
         ctx.save();
         const startX = x;
         const endX = x + w;
-        const startY = direction === 'in' ? y + h : y;
-        const endY = direction === 'in' ? y : y + h;
+        const startY = direction === 'in' ? effY + effH : effY;
+        const endY = direction === 'in' ? effY : effY + effH;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
-        const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
+        const cpY = direction === 'in' ? effY + effH * (1 - t) : effY + effH * t;
         // ENTERPRISE: White fade line (was yellow)
         ctx.strokeStyle = rgba(255, 255, 255, curveAlpha);
         if (isHovered) {

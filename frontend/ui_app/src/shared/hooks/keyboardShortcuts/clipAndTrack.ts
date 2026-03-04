@@ -60,11 +60,39 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (activePanel !== 'arrangement') return false;
         e.preventDefault();
         e.stopPropagation();
-        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-        if (targets.length === 0) return true;
-        const selected = timelineClips.filter((c) => targets.includes(c.id));
-        if (selected.length === 0) return true;
+
         try {
+            // [ENTERPRISE FIX]: Support Cmd+J MIDI consolidation via Marquee
+            const range = marqueeSelection ? normalizeRegion(marqueeSelection) : null;
+            if (range && range.startTrack === range.endTrack) {
+                const track = tracksById[range.startTrack];
+                if (track?.track_type === 'midi') {
+                    const store = useEngineStore.getState();
+                    const bpm = resolveBpm(store.transport.bpm);
+                    const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
+                    const startFrame = Math.max(0, Math.floor(beatToFrame(range.startBeat, bpm, sampleRate)));
+                    const endFrame = Math.max(0, Math.floor(beatToFrame(range.endBeat, bpm, sampleRate)));
+                    const durationFrames = endFrame - startFrame;
+
+                    if (durationFrames > 0) {
+                        const response = await engine.consolidateMidiRegionWithDeltas(
+                            range.startTrack,
+                            startFrame,
+                            durationFrames
+                        );
+                        await store.applyProjectDeltas(response.deltas, 'shortcut-consolidate-midi');
+                        // marqueeSelection is automatically cleared by DawShell when setting clip selection
+                        onClipSelectionChanged([response.new_id]);
+                        return true;
+                    }
+                }
+            }
+
+            const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+            if (targets.length === 0) return true;
+            const selected = timelineClips.filter((c) => targets.includes(c.id));
+            if (selected.length === 0) return true;
+
             const hasAudio = selected.some((c) => c.type === 'audio');
             if (hasAudio) {
                 const response = await engine.consolidateSelectionWithDeltas({ clipIds: selected.map(c => c.id) });

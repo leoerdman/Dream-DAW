@@ -25,9 +25,9 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::smoothing::SmoothedValue;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
 
-/// 1024 samples is a power of 2, allowing fast bitwise wrapping.
-const MAX_LOOKAHEAD: usize = 1024;
-const LOOKAHEAD_MASK: usize = 1023;
+/// 4096 samples is a power of 2, allowing fast bitwise wrapping.
+const MAX_LOOKAHEAD: usize = 4096;
+const LOOKAHEAD_MASK: usize = 4095;
 
 pub struct LimiterProcessor {
     threshold_db: f32,

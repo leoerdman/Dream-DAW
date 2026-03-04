@@ -120,6 +120,7 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     delay: {
         'time l': 0, 'time r': 1, fb: 2, 'dry/wet': 3, mix: 3,  // BUG-P02 FIX
         filter: 4, pingpong: 5, 'mod rate': 6, 'mod depth': 7,
+        'sync l': 8, 'sync r': 9, 'note l': 10, 'note r': 11,
         time: 0,    // Legacy alias
     },
     reverb: {

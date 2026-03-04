@@ -114,9 +114,12 @@ impl DspProcessor for CabinetProcessor {
         self.output_sm.set_target(out_lin);
         self.mix_sm.set_target(self.mix);
 
-        let (sp_cut, _res_freq, _res_q) = self.cab_params();
+        let (sp_cut, res_freq, res_q) = self.cab_params();
         let sp_c = (1.0 - (-std::f32::consts::TAU * sp_cut.min(self.high_cut_hz) / sr).exp()).clamp(0.0, 1.0);
         let hp_c = (-std::f32::consts::TAU * self.low_cut_hz / sr).exp();
+        // Resonance bell filter coefficient (2nd-order bandpass approx)
+        let res_c = (1.0 - (-std::f32::consts::TAU * res_freq / sr).exp()).clamp(0.0, 1.0);
+        let res_amt = self.resonance;
 
         for i in 0..len {
             let dry_l = left[i];
@@ -141,9 +144,21 @@ impl DspProcessor for CabinetProcessor {
             let hp_l = self.hp_out_l;
             let hp_r = self.hp_out_r;
 
+            // 2b. Mid resonance bell (speaker breakup resonance)
+            // 2nd-order bandpass: state tracks the resonant frequency,
+            // mixed back proportional to resonance amount and cab Q
+            self.bell_z1_l += res_c * (hp_l - self.bell_z1_l);
+            self.bell_z2_l += res_c * (self.bell_z1_l - self.bell_z2_l);
+            self.bell_z1_r += res_c * (hp_r - self.bell_z1_r);
+            self.bell_z2_r += res_c * (self.bell_z1_r - self.bell_z2_r);
+            let bell_l = (self.bell_z1_l - self.bell_z2_l) * res_q;
+            let bell_r = (self.bell_z1_r - self.bell_z2_r) * res_q;
+            let res_l = hp_l + bell_l * res_amt;
+            let res_r = hp_r + bell_r * res_amt;
+
             // 3. Mic distance (comb filter simulation)
-            self.comb_buf_l[self.comb_pos] = hp_l;
-            self.comb_buf_r[self.comb_pos] = hp_r;
+            self.comb_buf_l[self.comb_pos] = res_l;
+            self.comb_buf_r[self.comb_pos] = res_r;
             let delay_samples = (mic * 0.005 * sr).clamp(1.0, (CAB_COMB_SIZE - 1) as f32);
             let idx = delay_samples as usize;
             let frac = delay_samples - idx as f32;
@@ -153,8 +168,8 @@ impl DspProcessor for CabinetProcessor {
             let comb_r = self.comb_buf_r[p1] * (1.0 - frac) + self.comb_buf_r[p2] * frac;
             self.comb_pos = (self.comb_pos + 1) & CAB_COMB_MASK;
 
-            let cab_l = hp_l * (1.0 - mic * 0.3) + comb_l * mic * 0.3;
-            let cab_r = hp_r * (1.0 - mic * 0.3) + comb_r * mic * 0.3;
+            let cab_l = res_l * (1.0 - mic * 0.3) + comb_l * mic * 0.3;
+            let cab_r = res_r * (1.0 - mic * 0.3) + comb_r * mic * 0.3;
 
             // Denormals
             crate::processors::flush_denormal!(self.sp_z1_l);
@@ -163,6 +178,10 @@ impl DspProcessor for CabinetProcessor {
             crate::processors::flush_denormal!(self.sp_z2_r);
             crate::processors::flush_denormal!(self.hp_out_l);
             crate::processors::flush_denormal!(self.hp_out_r);
+            crate::processors::flush_denormal!(self.bell_z1_l);
+            crate::processors::flush_denormal!(self.bell_z2_l);
+            crate::processors::flush_denormal!(self.bell_z1_r);
+            crate::processors::flush_denormal!(self.bell_z2_r);
 
             left[i] = (dry_l * (1.0 - mix) + cab_l * mix) * out_g;
             right[i] = (dry_r * (1.0 - mix) + cab_r * mix) * out_g;

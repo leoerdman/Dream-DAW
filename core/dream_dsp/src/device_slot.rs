@@ -290,6 +290,14 @@ impl DeviceProcessor for InternalDeviceSlot {
             right[i] = dry_right[i] * dry_mix + right[i] * wet_mix;
         }
 
+        // Snap ramp to exact target when within tolerance.
+        // The IIR one-pole exponentially approaches but never exactly reaches
+        // the target. Snapping at 1e-5 (-100dB) prevents near-miss residuals
+        // (e.g. 0.99999344 → 1.0) so the fast-path triggers next buffer.
+        if (self.bypass_ramp - target).abs() < 1e-5 {
+            self.bypass_ramp = target;
+        }
+
         ProcessResult::Processed
     }
 
@@ -685,9 +693,17 @@ mod tests {
         slot.set_param(0, -60.0);
         slot.set_bypass(true);
 
+        let ctx = ProcessContext::default();
+        // Warm-up: process a buffer so the bypass ramp settles to 1.0.
+        // The one-pole IIR ramp with coeff ≈0.00454 needs ~1000 samples
+        // to reach 99% of the target. 4096 samples ensures full convergence.
+        let mut warmup_l = vec![1.0f32; 4096];
+        let mut warmup_r = vec![1.0f32; 4096];
+        slot.process(&mut warmup_l, &mut warmup_r, None, None, &ctx);
+
+        // Now the ramp has settled — bypass should be pure passthrough.
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
-        let ctx = ProcessContext::default();
         slot.process(&mut left, &mut right, None, None, &ctx);
 
         // Bypassed — signal should pass through unchanged.

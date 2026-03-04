@@ -30,6 +30,8 @@ mod macos {
     const NO_ERR: OSStatus = 0;
 
     const K_AUDIO_UNIT_PROPERTY_STREAM_FORMAT: u32 = 8;
+    /// kAudioUnitProperty_Latency — Float64 seconds, Global scope.
+    const K_AUDIO_UNIT_PROPERTY_LATENCY: u32 = 12;
     const K_AUDIO_UNIT_PROPERTY_SET_RENDER_CALLBACK: u32 = 23;
     const K_AUDIO_UNIT_PROPERTY_COCOA_UI: u32 = 31;
     const K_AUDIO_UNIT_SCOPE_GLOBAL: u32 = 0;
@@ -789,7 +791,30 @@ mod macos {
         }
 
         fn latency_samples(&self) -> u32 {
-            0
+            if self.unit.is_null() || !self.is_active {
+                return 0;
+            }
+            // Query kAudioUnitProperty_Latency (Float64 seconds) from the AU.
+            // Without this, AU plugins with latency (linear-phase EQs, lookahead
+            // limiters, convolution reverbs) break PDC in the DAG.
+            let mut latency_sec: f64 = 0.0;
+            let mut size = std::mem::size_of::<f64>() as u32;
+            // SAFETY: unit is valid and initialized; out params are stack-local.
+            let status = unsafe {
+                AudioUnitGetProperty(
+                    self.unit,
+                    K_AUDIO_UNIT_PROPERTY_LATENCY,
+                    K_AUDIO_UNIT_SCOPE_GLOBAL,
+                    0,
+                    (&mut latency_sec as *mut f64).cast(),
+                    &mut size,
+                )
+            };
+            if status == NO_ERR && latency_sec > 0.0 && self.sample_rate > 0.0 {
+                (latency_sec * self.sample_rate).round() as u32
+            } else {
+                0
+            }
         }
 
         fn reset(&mut self) {

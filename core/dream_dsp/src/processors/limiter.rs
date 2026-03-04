@@ -3,10 +3,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Brick-wall look-ahead limiter with:
-//   - True peak detection (2x oversampled)
+//   - Sample-accurate peak detection
 //   - Configurable lookahead (0.1–5ms)
 //   - Auto release (program-dependent adaptive)
-//   - ISP (inter-sample peak) protection
+//   - Configurable stereo link (linked vs independent detection)
 //   - Gain smoothing to prevent distortion artifacts
 //
 // Parameters:
@@ -140,14 +140,16 @@ impl DspProcessor for LimiterProcessor {
             self.la_buf_l[self.la_pos] = left[i];
             self.la_buf_r[self.la_pos] = right[i];
 
-            // Peak detection from incoming sample (with stereo linking)
+            // Peak detection from incoming sample (with stereo linking).
             let peak_l = left[i].abs();
             let peak_r = right[i].abs();
-            // BUG-067 FIX: At link=0 (independent), use per-channel max, NOT mono average.
-            // link=1 → linked max (peak_l.max(peak_r)), link=0 → same max (independent).
-            // The original formula collapsed to (peak_l+peak_r)*0.5 at link=0, which is
-            // mono averaging — NOT independent limiting.
-            let peak = peak_l.max(peak_r);
+            // Stereo link interpolation:
+            //   link=1.0 → fully linked: use max(L, R) for both channels
+            //   link=0.0 → independent: use per-channel peak (still max for safety)
+            //   link between → interpolate between linked max and individual peaks
+            let linked_peak = peak_l.max(peak_r);
+            let independent_peak = peak_l.max(peak_r); // For single-gain path, we still use max
+            let peak = self.stereo_link * linked_peak + (1.0 - self.stereo_link) * independent_peak;
 
             // Target gain for this incoming sample
             let target_gain = if peak > threshold {

@@ -401,10 +401,27 @@ mod tests {
         assert!(tail_avg < 0.1, "Gain at -60dB should silence: {tail_avg}");
 
         chain.set_bypass(0, true);
+        // Warm-up: process enough samples so the IIR bypass ramp converges.
+        // The one-pole ramp with coeff ≈0.00454 needs ~1100 samples for 99.3%
+        // convergence. Two passes of 4096 samples guarantees full settlement
+        // even with the slight numerical drift of the IIR recurrence.
+        for _ in 0..2 {
+            let mut warmup_l = vec![1.0f32; 4096];
+            let mut warmup_r = vec![1.0f32; 4096];
+            chain.process_stereo(&mut warmup_l, &mut warmup_r, 44100.0);
+        }
+
+        // Now the ramp has settled — bypass should be near-perfect passthrough.
+        // BUG-BYPASS-TEST FIX: IIR ramp converges asymptotically, never reaches
+        // exactly 1.0. Use tolerance-based assertion (matching device_slot tests).
         let mut left2 = vec![1.0f32; 64];
         let mut right2 = vec![1.0f32; 64];
         chain.process_stereo(&mut left2, &mut right2, 44100.0);
-        assert_eq!(left2, vec![1.0f32; 64]);
+        assert!(
+            left2.iter().all(|s| (*s - 1.0).abs() < 0.001),
+            "Bypassed signal should be near-passthrough, got {:?}",
+            &left2[..4],
+        );
     }
 
     #[test]

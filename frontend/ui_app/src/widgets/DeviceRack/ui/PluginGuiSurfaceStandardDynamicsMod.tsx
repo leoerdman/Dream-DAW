@@ -57,7 +57,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const showDryWet = shouldShowDryWet(device);
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
-    const rangeParam = readSurfaceParam(device, 'range', -80, 'dB');
+    const rangeParam = readSurfaceParam(device, 'range', -96, 'dB');
     const gateAtkParam = readSurfaceParam(device, ['atk', 'attack'], 0.1, 'ms');
     const gateRelParam = readSurfaceParam(device, ['rel', 'release'], 50, 'ms');
     const thrNorm = clamp01((thrParam.value + 60) / 60);

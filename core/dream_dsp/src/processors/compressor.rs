@@ -313,7 +313,7 @@ impl DspProcessor for CompressorProcessor {
             let dry_mix = 1.0 - mix;
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
-            let sc_l = if self.sc_hpf_freq > 25.0 {
+            let sc_l = if self.sc_hpf_freq > 21.0 {
                 self.sc_hp_state_l =
                     self.sc_hp_coeff * (self.sc_hp_state_l + dry_l - self.sc_hp_prev_l);
                 self.sc_hp_prev_l = dry_l;
@@ -322,7 +322,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_l = dry_l;
                 dry_l
             };
-            let sc_r = if self.sc_hpf_freq > 25.0 {
+            let sc_r = if self.sc_hpf_freq > 21.0 {
                 self.sc_hp_state_r =
                     self.sc_hp_coeff * (self.sc_hp_state_r + dry_r - self.sc_hp_prev_r);
                 self.sc_hp_prev_r = dry_r;
@@ -442,7 +442,7 @@ impl DspProcessor for CompressorProcessor {
                 .unwrap_or(dry_r);
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
-            let sc_l = if self.sc_hpf_freq > 25.0 {
+            let sc_l = if self.sc_hpf_freq > 21.0 {
                 self.sc_hp_state_l =
                     self.sc_hp_coeff * (self.sc_hp_state_l + sc_src_l - self.sc_hp_prev_l);
                 self.sc_hp_prev_l = sc_src_l;
@@ -451,7 +451,7 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_prev_l = sc_src_l;
                 sc_src_l
             };
-            let sc_r = if self.sc_hpf_freq > 25.0 {
+            let sc_r = if self.sc_hpf_freq > 21.0 {
                 self.sc_hp_state_r =
                     self.sc_hp_coeff * (self.sc_hp_state_r + sc_src_r - self.sc_hp_prev_r);
                 self.sc_hp_prev_r = sc_src_r;

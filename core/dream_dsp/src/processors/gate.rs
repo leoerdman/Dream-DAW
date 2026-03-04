@@ -5,7 +5,6 @@
 // Professional noise gate with:
 //   - 5-state machine: Closed → Attack → Open → Hold → Release
 //   - Sidechain HPF (rumble rejection)
-//   - Lookahead for transient preservation
 //   - Range control (how much to attenuate when closed)
 //   - Hysteresis (separate open/close thresholds)
 //   - Duck mode (inverted gate for ducking/sidechaining)
@@ -149,6 +148,98 @@ impl GateProcessor {
     fn linear_to_db(x: f32) -> f32 {
         if x < 1e-10 { -96.0 } else { 20.0 * x.log10() }
     }
+
+    /// SC HPF bypass threshold: 21 Hz matches param min of 20 Hz with margin.
+    /// Previous value of 25.0 created a dead-zone where param values 20-25 Hz
+    /// would pass through the HPF check but not actually filter.
+    const SC_HPF_BYPASS_HZ: f32 = 21.0;
+
+    /// Shared state machine + gain computation. Called by both `process_stereo`
+    /// and `process_stereo_with_sidechain` to eliminate 100+ lines of duplication.
+    /// Returns the gain factor for this sample.
+    #[inline]
+    fn apply_gate_sample(
+        &mut self,
+        sc_l_in: f32,
+        sc_r_in: f32,
+    ) -> f32 {
+        let thresh_open = self.threshold_sm_db.next_value();
+        let thresh_close = thresh_open - self.hysteresis;
+        let range = self.range_sm_lin.next_value();
+
+        // SC HPF
+        let sc_l = if self.sc_hpf_freq > Self::SC_HPF_BYPASS_HZ {
+            self.sc_state_l = self.sc_coeff * (self.sc_state_l + sc_l_in - self.sc_prev_l);
+            self.sc_prev_l = sc_l_in;
+            self.sc_state_l
+        } else {
+            sc_l_in
+        };
+        let sc_r = if self.sc_hpf_freq > Self::SC_HPF_BYPASS_HZ {
+            self.sc_state_r = self.sc_coeff * (self.sc_state_r + sc_r_in - self.sc_prev_r);
+            self.sc_prev_r = sc_r_in;
+            self.sc_state_r
+        } else {
+            sc_r_in
+        };
+
+        let level_db = Self::linear_to_db(sc_l.abs().max(sc_r.abs()));
+
+        // 5-state machine
+        match self.state {
+            GateState::Closed => {
+                if level_db > thresh_open {
+                    self.state = GateState::Attack;
+                }
+            }
+            GateState::Attack => {
+                self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff);
+                if self.envelope >= 0.999 {
+                    self.envelope = 1.0;
+                    self.state = GateState::Open;
+                }
+            }
+            GateState::Open => {
+                self.envelope = 1.0;
+                if level_db < thresh_close {
+                    self.state = GateState::Hold;
+                    self.hold_counter = 0;
+                }
+            }
+            GateState::Hold => {
+                self.envelope = 1.0;
+                self.hold_counter += 1;
+                if level_db > thresh_open {
+                    self.state = GateState::Open;
+                } else if self.hold_counter >= self.hold_samples {
+                    self.state = GateState::Release;
+                }
+            }
+            GateState::Release => {
+                self.envelope *= self.release_coeff;
+                if level_db > thresh_open {
+                    self.state = GateState::Attack;
+                } else if self.envelope <= 0.001 {
+                    self.envelope = 0.0;
+                    self.state = GateState::Closed;
+                }
+            }
+        }
+
+        // Flush denormals in SC HPF and envelope states
+        crate::processors::flush_denormal!(self.sc_state_l);
+        crate::processors::flush_denormal!(self.sc_state_r);
+        crate::processors::flush_denormal!(self.envelope);
+        crate::processors::flush_denormal!(self.sc_prev_l);
+        crate::processors::flush_denormal!(self.sc_prev_r);
+
+        // Compute gain
+        if self.duck_mode {
+            range + (1.0 - range) * (1.0 - self.envelope)
+        } else {
+            range + (1.0 - range) * self.envelope
+        }
+    }
 }
 
 impl DspProcessor for GateProcessor {
@@ -171,87 +262,7 @@ impl DspProcessor for GateProcessor {
         }
 
         for i in 0..len {
-            let thresh_open = self.threshold_sm_db.next_value();
-            let thresh_close = thresh_open - self.hysteresis;
-            let range = self.range_sm_lin.next_value();
-            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
-            let sc_l = if self.sc_hpf_freq > 25.0 {
-                self.sc_state_l = self.sc_coeff * (self.sc_state_l + left[i] - self.sc_prev_l);
-                self.sc_prev_l = left[i];
-                self.sc_state_l
-            } else {
-                left[i]
-            };
-            let sc_r = if self.sc_hpf_freq > 25.0 {
-                self.sc_state_r = self.sc_coeff * (self.sc_state_r + right[i] - self.sc_prev_r);
-                self.sc_prev_r = right[i];
-                self.sc_state_r
-            } else {
-                right[i]
-            };
-
-            let level_db = Self::linear_to_db(sc_l.abs().max(sc_r.abs()));
-
-            // State machine
-            match self.state {
-                GateState::Closed => {
-                    if level_db > thresh_open {
-                        self.state = GateState::Attack;
-                    }
-                }
-                GateState::Attack => {
-                    self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff);
-                    if self.envelope >= 0.999 {
-                        self.envelope = 1.0;
-                        self.state = GateState::Open;
-                    }
-                }
-                GateState::Open => {
-                    self.envelope = 1.0;
-                    if level_db < thresh_close {
-                        self.state = GateState::Hold;
-                        self.hold_counter = 0;
-                    }
-                }
-                GateState::Hold => {
-                    self.envelope = 1.0;
-                    self.hold_counter += 1;
-                    if level_db > thresh_open {
-                        self.state = GateState::Open;
-                    } else if self.hold_counter >= self.hold_samples {
-                        self.state = GateState::Release;
-                    }
-                }
-                GateState::Release => {
-                    // BUG-043 FIX: Simplified — (1.0 - release_coeff) * 0.0 is always 0.
-                    self.envelope *= self.release_coeff;
-                    if level_db > thresh_open {
-                        self.state = GateState::Attack;
-                    } else if self.envelope <= 0.001 {
-                        self.envelope = 0.0;
-                        self.state = GateState::Closed;
-                    }
-                }
-            }
-
-            // SSOT: Use flush_denormal! macro for SC HPF states.
-            crate::processors::flush_denormal!(self.sc_state_l);
-            crate::processors::flush_denormal!(self.sc_state_r);
-            // BUG-C12 FIX: Flush denormals in envelope state.
-            crate::processors::flush_denormal!(self.envelope);
-            // BUG-027 FIX: Flush sc_prev states too — they participate in
-            // the HP filter difference equation and can go denormal.
-            crate::processors::flush_denormal!(self.sc_prev_l);
-            crate::processors::flush_denormal!(self.sc_prev_r);
-
-            // Apply gain (range to 1.0)
-            let mut gain = range + (1.0 - range) * self.envelope;
-
-            // Duck mode: invert
-            if self.duck_mode {
-                gain = range + (1.0 - range) * (1.0 - self.envelope);
-            }
-
+            let gain = self.apply_gate_sample(left[i], right[i]);
             left[i] *= gain;
             right[i] *= gain;
         }
@@ -278,7 +289,6 @@ impl DspProcessor for GateProcessor {
             self.sc_state_r = 0.0;
             if len > 0 {
                 let sc_in_l = sidechain_left
-                    // BUG-024 FIX: .get(0) → .first() per clippy::get_first.
                     .and_then(|sc| sc.first().copied())
                     .unwrap_or(left[0]);
                 let sc_in_r = sidechain_right
@@ -290,88 +300,13 @@ impl DspProcessor for GateProcessor {
         }
 
         for i in 0..len {
-            let thresh_open = self.threshold_sm_db.next_value();
-            let thresh_close = thresh_open - self.hysteresis;
-            let range = self.range_sm_lin.next_value();
             let sc_in_l = sidechain_left
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(left[i]);
             let sc_in_r = sidechain_right
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(right[i]);
-
-            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
-            let sc_l = if self.sc_hpf_freq > 25.0 {
-                self.sc_state_l = self.sc_coeff * (self.sc_state_l + sc_in_l - self.sc_prev_l);
-                self.sc_prev_l = sc_in_l;
-                self.sc_state_l
-            } else {
-                sc_in_l
-            };
-            let sc_r = if self.sc_hpf_freq > 25.0 {
-                self.sc_state_r = self.sc_coeff * (self.sc_state_r + sc_in_r - self.sc_prev_r);
-                self.sc_prev_r = sc_in_r;
-                self.sc_state_r
-            } else {
-                sc_in_r
-            };
-
-            let level_db = Self::linear_to_db(sc_l.abs().max(sc_r.abs()));
-
-            match self.state {
-                GateState::Closed => {
-                    if level_db > thresh_open {
-                        self.state = GateState::Attack;
-                    }
-                }
-                GateState::Attack => {
-                    self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff);
-                    if self.envelope >= 0.999 {
-                        self.envelope = 1.0;
-                        self.state = GateState::Open;
-                    }
-                }
-                GateState::Open => {
-                    self.envelope = 1.0;
-                    if level_db < thresh_close {
-                        self.state = GateState::Hold;
-                        self.hold_counter = 0;
-                    }
-                }
-                GateState::Hold => {
-                    self.envelope = 1.0;
-                    self.hold_counter += 1;
-                    if level_db > thresh_open {
-                        self.state = GateState::Open;
-                    } else if self.hold_counter >= self.hold_samples {
-                        self.state = GateState::Release;
-                    }
-                }
-                GateState::Release => {
-                    // BUG-043 FIX: Simplified — (1.0 - release_coeff) * 0.0 is always 0.
-                    self.envelope *= self.release_coeff;
-                    if level_db > thresh_open {
-                        self.state = GateState::Attack;
-                    } else if self.envelope <= 0.001 {
-                        self.envelope = 0.0;
-                        self.state = GateState::Closed;
-                    }
-                }
-            }
-
-            crate::processors::flush_denormal!(self.sc_state_l);
-            crate::processors::flush_denormal!(self.sc_state_r);
-            // BUG-019 FIX: Flush envelope denormal in sidechain path too.
-            crate::processors::flush_denormal!(self.envelope);
-            // BUG-027 FIX: Flush sc_prev states in sidechain path too.
-            crate::processors::flush_denormal!(self.sc_prev_l);
-            crate::processors::flush_denormal!(self.sc_prev_r);
-
-            let mut gain = range + (1.0 - range) * self.envelope;
-            if self.duck_mode {
-                gain = range + (1.0 - range) * (1.0 - self.envelope);
-            }
-
+            let gain = self.apply_gate_sample(sc_in_l, sc_in_r);
             left[i] *= gain;
             right[i] *= gain;
         }

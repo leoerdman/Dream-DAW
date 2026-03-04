@@ -46,8 +46,11 @@ pub struct ExternalDeviceSlot {
     instance_id: Uuid,
     /// Whether this is an instrument (vs effect).
     is_instrument: bool,
-    /// Whether this slot is bypassed.
+    /// Whether this slot is bypassed (target state).
     bypassed: bool,
+    /// Bypass crossfade ramp: 0.0 = fully active (wet), 1.0 = fully bypassed (dry).
+    /// Smoothly interpolated per-sample to prevent clicks — mirrors InternalDeviceSlot.
+    bypass_ramp: f32,
     /// Pre-allocated input buffers for plugin I/O format conversion.
     /// Plugins expect `&[&[f32]]` / `&mut [&mut [f32]]`, not in-place.
     input_left: Vec<f32>,
@@ -77,6 +80,7 @@ impl ExternalDeviceSlot {
             instance_id,
             is_instrument,
             bypassed: false,
+            bypass_ramp: 0.0,
             input_left: vec![0.0; MAX_BUFFER_FRAMES],
             input_right: vec![0.0; MAX_BUFFER_FRAMES],
             output_left: vec![0.0; MAX_BUFFER_FRAMES],
@@ -129,10 +133,15 @@ impl DeviceProcessor for ExternalDeviceSlot {
         sidechain_right: Option<&[f32]>,
         context: &ProcessContext,
     ) -> ProcessResult {
-        if self.bypassed {
+        let bypass_target = if self.bypassed { 1.0f32 } else { 0.0f32 };
+
+        // Fast path: fully bypassed AND ramp has settled → pure passthrough.
+        if self.bypassed && (self.bypass_ramp - 1.0).abs() < 1e-6 {
             self.midi_events.clear();
             return ProcessResult::Processed;
         }
+
+        let needs_crossfade = (self.bypass_ramp - bypass_target).abs() > 1e-6;
 
         let n = left.len().min(right.len()).min(MAX_BUFFER_FRAMES);
 
@@ -217,13 +226,42 @@ impl DeviceProcessor for ExternalDeviceSlot {
 
         match result {
             Ok(()) => {
-                // NaN/Inf sanitization — prevent poisoned signal from propagating.
-                for i in 0..n {
-                    let ol = self.output_left[i];
-                    let or = self.output_right[i];
-                    left[i] = if ol.is_finite() { ol } else { 0.0 };
-                    right[i] = if or.is_finite() { or } else { 0.0 };
+                if needs_crossfade {
+                    // ── Crossfade path: ramp between dry and wet ──
+                    // Same 5ms IIR ramp as InternalDeviceSlot.
+                    let ramp_time_sec = 0.005;
+                    let coeff = (1.0 / (ramp_time_sec * context.sample_rate).max(1.0)).min(1.0);
+
+                    for i in 0..n {
+                        self.bypass_ramp += (bypass_target - self.bypass_ramp) * coeff;
+                        let dry_mix = self.bypass_ramp;
+                        let wet_mix = 1.0 - dry_mix;
+
+                        // input_left/right = dry signal (copied before plugin processing)
+                        // output_left/right = wet signal (plugin output)
+                        let ol = self.output_left[i];
+                        let or_val = self.output_right[i];
+                        let wet_l = if ol.is_finite() { ol } else { 0.0 };
+                        let wet_r = if or_val.is_finite() { or_val } else { 0.0 };
+
+                        left[i] = self.input_left[i] * dry_mix + wet_l * wet_mix;
+                        right[i] = self.input_right[i] * dry_mix + wet_r * wet_mix;
+                    }
+
+                    // Snap ramp to exact target (prevents IIR infinite tail residuals).
+                    if (self.bypass_ramp - bypass_target).abs() < 1e-5 {
+                        self.bypass_ramp = bypass_target;
+                    }
+                } else if !self.bypassed {
+                    // Fully active, ramp settled — pure wet output.
+                    for i in 0..n {
+                        let ol = self.output_left[i];
+                        let or_val = self.output_right[i];
+                        left[i] = if ol.is_finite() { ol } else { 0.0 };
+                        right[i] = if or_val.is_finite() { or_val } else { 0.0 };
+                    }
                 }
+                // If bypassed and ramp settled, we already returned above (fast path).
                 ProcessResult::Processed
             }
             Err(_) => {
@@ -268,5 +306,7 @@ impl DeviceProcessor for ExternalDeviceSlot {
 
     fn set_bypass(&mut self, bypassed: bool) {
         self.bypassed = bypassed;
+        // Note: bypass_ramp will converge to the new target during process().
+        // We do NOT snap it here — that would cause the same click we're fixing.
     }
 }

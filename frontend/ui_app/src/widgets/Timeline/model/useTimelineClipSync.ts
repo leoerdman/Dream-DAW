@@ -9,12 +9,14 @@ import { isTrackActive } from '@/shared/utils/routing';
 interface UseTimelineClipSyncArgs {
     engineRef: React.RefObject<TimelineEngine | null>;
     clips: TimelineClip[];
+    selectedClipIds: string[];
     selectedClipIdsRef: React.MutableRefObject<string[]>;
 }
 
 export function useTimelineClipSync({
     engineRef,
     clips,
+    selectedClipIds,
     selectedClipIdsRef,
 }: UseTimelineClipSyncArgs) {
     // BUG-N06 FIX: Select allIds + byId separately with shallow equality
@@ -77,6 +79,15 @@ export function useTimelineClipSync({
         // from the engine, but React may have changed selectedClipIds independently.
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates, selectedClipIdsRef]);
+
+    // SSOT FIX: Sync clip selection independently of the full clips array.
+    // This allows shift-click (which updates selectedClipIds in React but doesn't
+    // change the clips array) to immediately reflect in the engine.
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        engine.setClipSelection(selectedClipIds);
+    }, [engineRef, selectedClipIds]);
 
     // ── Group track miniature metadata ────────────────────────────────
     useEffect(() => {

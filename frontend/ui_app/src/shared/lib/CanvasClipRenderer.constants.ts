@@ -36,7 +36,7 @@ export const rgba = (r: number, g: number, b: number, a: number): string => `rgb
 export const hex = (r: number, g: number, b: number): string =>
     `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
-export const SELECTION_HIGHLIGHT_COLOR = rgba(100, 160, 255, 0.32);
+export const SELECTION_HIGHLIGHT_COLOR = rgba(255, 255, 255, 0.2); // SSOT: One white color for marquee and clip body highlight
 export const FADE_CURVE_HANDLE_FILL = rgba(255, 196, 96, 0.98);
 export const FADE_CURVE_HANDLE_STROKE = rgba(0, 0, 0, 0.75);
 

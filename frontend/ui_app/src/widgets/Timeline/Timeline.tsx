@@ -281,6 +281,7 @@ export const Timeline = (props: TimelineProps) => {
     useTimelineClipSync({
         engineRef,
         clips,
+        selectedClipIds,
         selectedClipIdsRef,
     });
     useEffect(() => {

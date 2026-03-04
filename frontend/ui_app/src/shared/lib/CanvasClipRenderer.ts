@@ -1409,7 +1409,7 @@ export class CanvasClipRenderer {
             const groupY = rulerH + vp.trackOffsetY(groupIdx) - vp.scrollY;
             if (groupY + trackH < rulerH || groupY > vpH) continue;
 
-            // ENTERPRISE: Miniatures start from very top, min 4px per lane
+            // ENTERPRISE: Miniatures start from very top, max 4px per lane
             const paddingTop = 0;
             const paddingBottom = 0;
             const usableH = trackH - paddingTop - paddingBottom;
@@ -1417,7 +1417,8 @@ export class CanvasClipRenderer {
 
             const laneGap = childCount > 1 ? 1 : 0;
             const totalGap = laneGap * (childCount - 1);
-            const laneH2 = Math.max(4, Math.floor((usableH - totalGap) / childCount));
+            // Height is max 4px, but shrinks if there are too many tracks to fit
+            const laneH2 = Math.min(4, Math.max(1, Math.floor((usableH - totalGap) / childCount)));
             const laneStartY = groupY + paddingTop;
 
             ctx.save();

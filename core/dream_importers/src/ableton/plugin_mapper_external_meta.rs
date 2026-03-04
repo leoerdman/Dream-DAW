@@ -124,6 +124,20 @@ pub fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPl
                 .find(|n| n.is_element() && n.has_tag_name("VstPreset"))
         });
     if let Some(preset) = preset_node {
+        // In Live 12, Vst3PluginInfo may be absent entirely — UIDs and
+        // format info live inside Vst3Preset instead. Extract them here
+        // as a fallback so UID-based plugin resolution still works.
+        if meta.uid.is_none() {
+            meta.uid = parse_uid(preset);
+        }
+        if meta.format.is_none() {
+            let tag = preset.tag_name().name();
+            if tag == "Vst3Preset" {
+                meta.format = Some("vst3".to_string());
+            } else if tag == "VstPreset" {
+                meta.format = Some("vst2".to_string());
+            }
+        }
         meta.preset_name = node_value(preset, "Name");
         meta.program_number = node_value(preset, "ProgramNumber")
             .as_deref()

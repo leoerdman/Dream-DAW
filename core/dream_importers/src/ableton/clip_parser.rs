@@ -141,7 +141,10 @@ pub fn parse_audio_clip_warp(
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
         });
-        markers.dedup_by(|a, b| a.beat_time <= b.beat_time || a.sec_time <= b.sec_time);
+        markers.dedup_by(|a, b| {
+            (a.beat_time - b.beat_time).abs() < 1e-9
+                && (a.sec_time - b.sec_time).abs() < 1e-9
+        });
     }
     (is_warped, warp_mode, markers)
 }

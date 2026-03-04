@@ -400,10 +400,13 @@ pub fn parse_als_rack_chains(
             .and_then(parse_bool_value)
             .unwrap_or(false);
 
-        // ── Parse devices from InsertEffectsChain ──────────────────────────
+        // ── Parse devices from InsertEffectsChain/DeviceChain ─────────────
         let device_chain = branch
             .children()
-            .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"));
+            .find(|n| {
+                n.is_element()
+                    && (n.has_tag_name("InsertEffectsChain") || n.has_tag_name("DeviceChain"))
+            });
 
         if let Some(dc) = device_chain {
             let devices_node = find_first_devices_container(dc);

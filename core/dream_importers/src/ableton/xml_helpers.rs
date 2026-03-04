@@ -272,10 +272,17 @@ pub fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(us
     sends
 }
 
+/// Returns `true` if the tag is a device-chain-like container.
+/// Ableton Live ≤11 uses `InsertEffectsChain`, Live 12+ uses `DeviceChain`.
+#[inline]
+pub fn is_device_chain_tag(tag: &str) -> bool {
+    tag == "InsertEffectsChain" || tag == "DeviceChain"
+}
+
 pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+        .find(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -291,7 +298,7 @@ pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
 pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+        .find(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -307,7 +314,7 @@ pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Optio
 pub fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+        .find(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -396,12 +403,12 @@ fn collect_devices_in_container_inner<'a, 'input>(
         out.push(device);
 
         // Ableton can nest rack chains deeply:
-        // Device -> ... -> InsertEffectsChain -> ... -> Devices.
-        // Walk descendant InsertEffectsChain nodes and recurse into each nested
+        // Device -> ... -> InsertEffectsChain/DeviceChain -> ... -> Devices.
+        // Walk descendant chain nodes and recurse into each nested
         // Devices container we can find.
         for nested_chain in device
             .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+            .filter(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
         {
             if let Some(nested_devices) = find_first_devices_container(nested_chain) {
                 collect_devices_in_container_inner(nested_devices, out, visited);
@@ -429,13 +436,14 @@ pub fn find_first_devices_container<'a, 'input>(
 }
 
 /// Collects all top-level device XML nodes from a track node.
+/// Supports both `InsertEffectsChain` (Live ≤11) and `DeviceChain` (Live 12+).
 pub fn collect_track_devices<'a, 'input>(
     track_node: roxmltree::Node<'a, 'input>,
 ) -> Vec<roxmltree::Node<'a, 'input>> {
     let mut devices = Vec::new();
     for chain in track_node
         .children()
-        .filter(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+        .filter(|n| n.is_element() && is_device_chain_tag(n.tag_name().name()))
     {
         if let Some(root_devices) = find_first_devices_container(chain) {
             collect_devices_in_container(root_devices, &mut devices);

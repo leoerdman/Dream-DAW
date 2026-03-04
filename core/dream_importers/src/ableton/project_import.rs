@@ -214,6 +214,7 @@ pub fn import_als_project_with_target_sample_rate(
         };
         let is_return_track = tag == "ReturnTrack";
 
+
         let track_name = track_node
             .children()
             .find(|n| n.is_element() && n.has_tag_name("Name"))
@@ -246,9 +247,18 @@ pub fn import_als_project_with_target_sample_rate(
 
         if let Some(mixer) = track_node
             .children()
-            .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+            .find(|n| {
+                n.is_element()
+                    && (n.has_tag_name("InsertEffectsChain") || n.has_tag_name("DeviceChain"))
+            })
             .and_then(|dc| {
                 dc.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+            })
+            // Fallback: Mixer may be nested deeper in some ALS versions
+            .or_else(|| {
+                track_node
+                    .descendants()
                     .find(|n| n.is_element() && n.has_tag_name("Mixer"))
             })
         {
@@ -574,8 +584,53 @@ pub fn import_als_project_with_target_sample_rate(
         );
     }
 
+    // ── Import Diagnostics Summary ──────────────────────────────────────
+    {
+        let total_tracks = project.tracks.len();
+        let total_audio_clips: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
+        let total_midi_clips: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
+        let muted_tracks = project.tracks.iter().filter(|t| t.is_disabled).count();
+        let solo_tracks = project.tracks.iter().filter(|t| t.is_solo).count();
+        let armed_tracks = project.tracks.iter().filter(|t| t.is_armed).count();
+
+        let mut resolved_plugins = 0usize;
+        let mut missing_plugins = 0usize;
+        let mut placeholder_plugins = 0usize;
+        for track in &project.tracks {
+            let all_slots: Vec<_> = track
+                .effects
+                .iter()
+                .flat_map(|d| d.collect_plugin_slots())
+                .chain(track.instrument.iter().flat_map(|d| d.collect_plugin_slots()))
+                .collect();
+            for slot in &all_slots {
+                if slot.plugin_id.starts_with("missing://") {
+                    if slot.name.contains("placeholder") || slot.name.contains("Placeholder") {
+                        placeholder_plugins += 1;
+                    } else {
+                        missing_plugins += 1;
+                    }
+                } else {
+                    resolved_plugins += 1;
+                }
+            }
+        }
+
+        log::info!(
+            "[ALS Import] ═══ IMPORT SUMMARY ═══\n  \
+             Tracks: {} total ({} muted, {} soloed, {} armed)\n  \
+             Clips:  {} audio, {} MIDI\n  \
+             Plugins: {} resolved, {} missing, {} placeholder\n  \
+             Tempo: {} BPM, Sample rate: {} Hz",
+            total_tracks, muted_tracks, solo_tracks, armed_tracks,
+            total_audio_clips, total_midi_clips,
+            resolved_plugins, missing_plugins, placeholder_plugins,
+            tempo, sample_rate,
+        );
+    }
+
     Ok(project)
 }
 
-// #[cfg(test)]
-// mod project_import_tests;
+#[cfg(test)]
+mod project_import_tests;

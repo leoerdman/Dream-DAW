@@ -186,8 +186,8 @@ mod tests {
         let live_set = doc.root_element();
         let markers = parse_project_markers(live_set);
         assert_eq!(markers.len(), 2);
-        assert_eq!(markers[0].color, Some(TrackColor::Blue));
-        assert_eq!(markers[1].color, Some(TrackColor::Teal));
+        assert_eq!(markers[0].color, Some(TrackColor::Indigo));
+        assert_eq!(markers[1].color, Some(TrackColor::Yellow));
     }
 
     #[test]
@@ -206,6 +206,6 @@ mod tests {
         let live_set = doc.root_element();
         let scenes = parse_project_scenes(live_set);
         assert_eq!(scenes.len(), 1);
-        assert_eq!(scenes[0].color, Some(TrackColor::Blue));
+        assert_eq!(scenes[0].color, Some(TrackColor::Indigo));
     }
 }

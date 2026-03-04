@@ -161,6 +161,20 @@ fn parse_audio_clip(
     }
     hydrate_warp_source_duration_frames(&mut clip, source_duration_cache);
 
+    // Pitch shift (PitchCoarse in semitones + PitchFine in cents)
+    let pitch_coarse = node_child_value(clip_node, "PitchCoarse")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .unwrap_or(0.0);
+    let pitch_fine = node_child_value(clip_node, "PitchFine")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .unwrap_or(0.0);
+    let pitch_total = pitch_coarse + (pitch_fine / 100.0);
+    if pitch_total.abs() > f64::EPSILON {
+        clip.pitch_shift_semitones = pitch_total.clamp(-48.0, 48.0);
+    }
+
     // Take ID
     clip.take_id = parse_i64_child(clip_node, "TakeId")
         .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);

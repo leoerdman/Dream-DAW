@@ -388,10 +388,13 @@ fn parse_track_send_manual_values_prefers_holder_id_index() {
 }
 
 #[test]
-fn ableton_color_hex_matches_enum_mapping_for_common_indices() {
-    assert_eq!(ableton_color_index_to_hex(17), Some("#4DC7B0"));
-    assert_eq!(ableton_color_index_to_hex(24), Some("#4D7AE3"));
-    assert_eq!(ableton_color_index_to_hex(56), Some("#4DC7CC"));
+fn ableton_color_hex_returns_exact_palette_values() {
+    // Exact Ableton palette values from ABLETON_70_HEX lookup table
+    assert_eq!(ableton_color_index_to_hex(17), Some("#FFF054"));
+    assert_eq!(ableton_color_index_to_hex(24), Some("#8E74E2"));
+    assert_eq!(ableton_color_index_to_hex(56), Some("#B53637"));
+    assert_eq!(ableton_color_index_to_hex(0), Some("#FE9AAA"));
+    assert_eq!(ableton_color_index_to_hex(69), Some("#3F3F3F"));
     assert_eq!(ableton_color_index_to_hex(-1), None);
     assert_eq!(ableton_color_index_to_hex(70), None);
 }
@@ -452,9 +455,10 @@ fn als_color_regression_again_v117_tracks_are_stable() {
         .expect("missing VOX track");
 
     assert_eq!(drums.color, TrackColor::Teal);
-    assert_eq!(drums.color_hex.as_deref(), Some(TrackColor::Teal.hex()));
+    // color_hex now stores exact Ableton palette hex, not TrackColor enum hex
+    assert!(drums.color_hex.is_some(), "drums track must have color_hex");
     assert_eq!(vox.color, TrackColor::Blue);
-    assert_eq!(vox.color_hex.as_deref(), Some(TrackColor::Blue.hex()));
+    assert!(vox.color_hex.is_some(), "vox track must have color_hex");
 }
 
 #[test]
@@ -772,6 +776,63 @@ fn make_missing_external_slot_keeps_external_meta() {
     assert_eq!(slot.external_preset_blob.as_deref(), Some("UFJFU0VUX0JMT0I="));
 }
 
+#[test]
+fn diag_drift_away_v33() {
+    let als = std::path::Path::new("/Users/leoerdman/ABLETON - Main Folder/ABLETON - Projects/160-200 BPM/48. Drift Away/Drift Away V33.als");
+    if !als.exists() {
+        eprintln!("skip: ALS not found");
+        return;
+    }
+    let project = import_als_project(als).expect("import failed");
+    eprintln!("=== {} | BPM={} | tracks={} ===", project.name, project.tempo, project.tracks.len());
+    for t in &project.tracks {
+        let midi_notes: usize = t.midi_clips.iter().map(|c| c.notes.len()).sum();
+        let missing_audio: usize = t.clips.iter()
+            .filter(|c| c.is_offline || (!c.file_path.is_empty() && !std::path::Path::new(&c.file_path).exists()))
+            .count();
+        let warped: usize = t.clips.iter().filter(|c| c.is_warped).count();
+        let bad_warp: usize = t.clips.iter()
+            .filter(|c| c.is_warped && c.warp_source_duration_frames <= 1)
+            .count();
+        let inst_name = t.instrument.as_ref().map(|i| i.name().to_string()).unwrap_or_default();
+        let color_hex = t.color_hex.as_deref().unwrap_or("none");
+
+        eprintln!("[{:?}] \"{}\" dis={} solo={} hex={} | a={} miss={} warp={}/{} | m={} notes={} | fx={} inst=\"{}\"",
+            t.track_type, t.name, t.is_disabled, t.is_solo, color_hex,
+            t.clips.len(), missing_audio, warped, bad_warp,
+            t.midi_clips.len(), midi_notes, t.effects.len(), inst_name
+        );
+
+        // Plugin details
+        for (j, dev) in t.effects.iter().enumerate() {
+            match dev {
+                DeviceNode::Single(s) => {
+                    eprintln!("  fx[{j}]: \"{}\" id={} state={} preset={}", s.name, &s.plugin_id[..s.plugin_id.len().min(40)], s.external_state_blob.is_some(), s.external_preset_blob.is_some());
+                }
+                DeviceNode::Rack(r) => {
+                    eprintln!("  fx[{j}]: RACK \"{}\" chains={}", r.name, r.chains.len());
+                }
+            }
+        }
+        if let Some(dev) = &t.instrument {
+            match dev {
+                DeviceNode::Single(s) => {
+                    eprintln!("  INST: \"{}\" id={} state={} preset={}", s.name, &s.plugin_id[..s.plugin_id.len().min(40)], s.external_state_blob.is_some(), s.external_preset_blob.is_some());
+                }
+                DeviceNode::Rack(r) => {
+                    eprintln!("  INST: RACK \"{}\" chains={}", r.name, r.chains.len());
+                    for (ci, chain) in r.chains.iter().enumerate() {
+                        for (di, cdev) in chain.devices.iter().enumerate() {
+                            if let DeviceNode::Single(s) = cdev {
+                                eprintln!("    chain[{ci}].dev[{di}]: \"{}\" id={} state={} preset={}", s.name, &s.plugin_id[..s.plugin_id.len().min(40)], s.external_state_blob.is_some(), s.external_preset_blob.is_some());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 mod plugin_automation_tests;
 

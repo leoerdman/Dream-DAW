@@ -17,8 +17,8 @@ interface Props {
 export function OscillatorControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
-    const waveform = node.data?.waveform || 'sine';
-    const freq = node.data?.frequency ?? 440;
+    const waveform = String(node.data?.waveform || 'sine');
+    const freq = Number(node.data?.frequency ?? 440);
 
     const updateData = useCallback((patch: Record<string, unknown>) => {
         updateNodeData(node.id, patch);

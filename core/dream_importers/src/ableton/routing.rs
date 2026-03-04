@@ -85,7 +85,10 @@ pub fn parse_output_target(
 
     let routing_node = track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
+        .find(|n| {
+            n.is_element()
+                && (n.has_tag_name("InsertEffectsChain") || n.has_tag_name("DeviceChain"))
+        })
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name(routing_tag))

@@ -18,7 +18,7 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd, onApplyUtilityScene, onParamContextMenu } = handlers;
+    const { onParamChange: _onParamChange, onParamGestureStart: _onParamGestureStart, onParamGestureEnd: _onParamGestureEnd, onApplyUtilityScene, onParamContextMenu: _onParamContextMenu } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
 
     if (device.effectType === 'utility') {

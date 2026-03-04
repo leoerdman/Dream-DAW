@@ -371,7 +371,7 @@ impl RenderContext {
         frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
-        _current_bpm: f64,
+        current_bpm: f64,
     ) {
         let playhead_pos = self.playhead.position();
 
@@ -504,35 +504,51 @@ impl RenderContext {
                         audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {
-                        // WARP-001 FIX (Enterprise): Compute warped playback rate from the
-                        // ratio of source-domain frames to timeline-domain frames.
-                        // The previous BPM-only ratio (`current_bpm / warp_base_bpm`) caused
-                        // source position overshoot when warp_base_bpm didn't accurately
-                        // reflect the actual source/timeline relationship, cutting audio
-                        // off mid-clip.
-                        //
-                        // New formula: rate = (source_frames / timeline_frames) * sr_ratio
-                        // This guarantees the entire source fits exactly within the clip's
-                        // timeline duration, regardless of warp_base_bpm calibration.
+                        // WARP-001 FIX (Enterprise): Compute warped playback using warp markers
+                        // when available, falling back to linear source/timeline ratio.
                         let clip_source_len = if clip.warp_source_duration_frames > 0 {
                             clip.warp_source_duration_frames as f64
                         } else {
-                            // WARP-005 FIX: Use actual source file frame count, not timeline duration
                             audio.num_frames.max(1) as f64
                         };
                         let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
-                        let warp_rate = (clip_source_len / clip_timeline_len)
+                        let linear_warp_rate = (clip_source_len / clip_timeline_len)
                             * source_to_timeline_ratio;
-                        // Apply pitch shift on top (tape-style until rubberband integration).
-                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
-                        // Source start: offset + how far into source we are.
-                        // clip_local_timeline_start is in timeline frames;
-                        // multiply by warp_rate to convert to source frames.
-                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * warp_rate;
+
+                        // WARP-MARKERS FIX: Use piecewise-linear warp marker interpolation
+                        // to map beat position → source seconds when markers are available.
+                        // Ableton's warp markers define anchor points: SecTime (source) ↔ BeatTime (timeline).
+                        let (source_start, warp_rate) = if clip.warp_markers.len() >= 2 {
+                            let source_sr = audio.sample_rate.max(1) as f64;
+                            // Convert timeline-frame offset to beats for marker interpolation.
+                            // Beat = frame / (sample_rate * 60 / bpm). But warp markers use
+                            // absolute beat times relative to clip start.
+                            let timeline_beat_offset = clip_local_timeline_start
+                                / self.timeline_sample_rate.max(1.0)
+                                * (current_bpm / 60.0);
+                            // BeatTime in markers is relative to clip's CurrentStart
+                            let abs_beat = clip.warp_markers[0].beat_time + timeline_beat_offset;
+                            let source_sec = warp_markers_beat_to_source_seconds(
+                                &clip.warp_markers, abs_beat,
+                            );
+                            let source_frame = source_sec * source_sr;
+                            // Compute local warp rate from marker derivative for playback speed
+                            let marker_rate = warp_markers_local_rate(
+                                &clip.warp_markers, abs_beat, source_sr,
+                                self.timeline_sample_rate.max(1.0),
+                                current_bpm,
+                            );
+                            (source_frame, marker_rate)
+                        } else {
+                            let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                                + clip_local_timeline_start * linear_warp_rate;
+                            (source_start, linear_warp_rate)
+                        };
+
+                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
@@ -579,21 +595,43 @@ impl RenderContext {
                         window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {
-                        // WARP-001 FIX (streaming path): Same fix as pool path.
+                        // WARP-MARKERS FIX (streaming path): Same logic as pool path.
                         let clip_source_len = if clip.warp_source_duration_frames > 0 {
                             clip.warp_source_duration_frames as f64
                         } else {
                             window.total_frames().max(1) as f64
                         };
                         let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
-                        let warp_rate = (clip_source_len / clip_timeline_len)
+                        let linear_warp_rate = (clip_source_len / clip_timeline_len)
                             * source_to_timeline_ratio;
-                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
-                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * warp_rate;
+
+                        let (source_start, warp_rate) = if clip.warp_markers.len() >= 2 {
+                            let source_sr = window.sample_rate().max(1) as f64;
+                            let timeline_beat_offset = clip_local_timeline_start
+                                / self.timeline_sample_rate.max(1.0)
+                                * (current_bpm / 60.0);
+                            let abs_beat = clip.warp_markers[0].beat_time + timeline_beat_offset;
+                            let source_sec = warp_markers_beat_to_source_seconds(
+                                &clip.warp_markers, abs_beat,
+                            );
+                            let source_frame = source_sec * source_sr;
+                            let marker_rate = warp_markers_local_rate(
+                                &clip.warp_markers, abs_beat, source_sr,
+                                self.timeline_sample_rate.max(1.0),
+                                current_bpm,
+                            );
+                            (source_frame, marker_rate)
+                        } else {
+                            let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                                + clip_local_timeline_start * linear_warp_rate;
+                            (source_start, linear_warp_rate)
+                        };
+
+                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
+
                         window.read_into_rate(
                             source_start,
                             playback_rate * source_to_device_rate / source_to_timeline_ratio,
@@ -872,6 +910,119 @@ impl RenderContext {
     pub fn track_count(&self) -> usize {
         self.track_slots.len()
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Warp Marker Interpolation — Piecewise-Linear Beat↔Source Mapping
+// ═══════════════════════════════════════════════════════════════════════════
+// Ableton's warp markers define anchor points mapping:
+//   BeatTime (timeline beats) → SecTime (source audio seconds)
+// Between markers, the mapping is linear. This is the same algorithm
+// Ableton Live uses internally.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Maps a beat position to source audio seconds using piecewise-linear
+/// interpolation between warp markers.
+///
+/// Zero-allocation, O(n) where n = number of markers (typically 2-20).
+/// Called from the audio render callback hot path.
+#[inline]
+fn warp_markers_beat_to_source_seconds(
+    markers: &[dream_models::project::WarpMarkerPoint],
+    beat: f64,
+) -> f64 {
+    debug_assert!(markers.len() >= 2);
+
+    // Before first marker: extrapolate from first segment
+    if beat <= markers[0].beat_time {
+        let m0 = &markers[0];
+        let m1 = &markers[1];
+        let beat_span = m1.beat_time - m0.beat_time;
+        if beat_span.abs() > f64::EPSILON {
+            let ratio = (m1.sec_time - m0.sec_time) / beat_span;
+            return m0.sec_time + (beat - m0.beat_time) * ratio;
+        }
+        return markers[0].sec_time;
+    }
+
+    // After last marker: extrapolate from last segment
+    let last_idx = markers.len() - 1;
+    if beat >= markers[last_idx].beat_time {
+        let m0 = &markers[last_idx - 1];
+        let m1 = &markers[last_idx];
+        let beat_span = m1.beat_time - m0.beat_time;
+        if beat_span.abs() > f64::EPSILON {
+            let ratio = (m1.sec_time - m0.sec_time) / beat_span;
+            return m1.sec_time + (beat - m1.beat_time) * ratio;
+        }
+        return markers[last_idx].sec_time;
+    }
+
+    // Between markers: find the segment and interpolate
+    for i in 0..markers.len() - 1 {
+        let m0 = &markers[i];
+        let m1 = &markers[i + 1];
+        if beat >= m0.beat_time && beat < m1.beat_time {
+            let beat_span = m1.beat_time - m0.beat_time;
+            if beat_span.abs() <= f64::EPSILON {
+                return m0.sec_time;
+            }
+            let t = (beat - m0.beat_time) / beat_span;
+            return m0.sec_time + t * (m1.sec_time - m0.sec_time);
+        }
+    }
+
+    // Fallback (shouldn't reach here)
+    markers[last_idx].sec_time
+}
+
+/// Computes the local playback rate (source frames per timeline frame) at
+/// a given beat position, derived from the derivative of the warp marker mapping.
+///
+/// This gives the instantaneous stretch/compress factor needed for the
+/// audio resampler.
+#[inline]
+fn warp_markers_local_rate(
+    markers: &[dream_models::project::WarpMarkerPoint],
+    beat: f64,
+    source_sr: f64,
+    timeline_sr: f64,
+    bpm: f64,
+) -> f64 {
+    debug_assert!(markers.len() >= 2);
+
+    // Find the segment containing this beat
+    let (m0, m1) = if beat <= markers[0].beat_time || markers.len() < 2 {
+        (&markers[0], &markers[1])
+    } else {
+        let last = markers.len() - 1;
+        if beat >= markers[last].beat_time {
+            (&markers[last - 1], &markers[last])
+        } else {
+            let mut pair = (&markers[0], &markers[1]);
+            for i in 0..markers.len() - 1 {
+                if beat >= markers[i].beat_time && beat < markers[i + 1].beat_time {
+                    pair = (&markers[i], &markers[i + 1]);
+                    break;
+                }
+            }
+            pair
+        }
+    };
+
+    let beat_span = (m1.beat_time - m0.beat_time).abs();
+    let sec_span = (m1.sec_time - m0.sec_time).abs();
+
+    if beat_span <= f64::EPSILON || sec_span <= f64::EPSILON {
+        return 1.0; // Unity rate fallback
+    }
+
+    // d(source_seconds) / d(beat) = sec_span / beat_span
+    // d(source_frames) / d(timeline_frames) =
+    //   (sec_span / beat_span) * source_sr * (bpm / 60.0) / timeline_sr
+    let sec_per_beat = sec_span / beat_span;
+    let beats_per_sec_timeline = bpm / 60.0;
+    (sec_per_beat * source_sr * beats_per_sec_timeline) / timeline_sr.max(1.0)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

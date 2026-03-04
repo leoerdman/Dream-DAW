@@ -18,7 +18,7 @@ interface Props {
 export function AutoFilterControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
-    const filterType = node.data?.filterType || 'lowpass';
+    const filterType = String(node.data?.filterType || 'lowpass');
     const rate = Number(node.data?.rate ?? 1.0);
     const depth = Number(node.data?.depth ?? 0.5);
 

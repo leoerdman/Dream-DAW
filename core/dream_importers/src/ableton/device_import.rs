@@ -127,6 +127,43 @@ pub fn import_track_devices(
     }
 }
 
+// ── Device Bypass State ────────────────────────────────────────────────
+
+/// Parses the device bypass state from an ALS device XML node.
+///
+/// Ableton stores bypass as `<On><Manual Value="false"/></On>` on each device.
+/// `On = true` means the device is active (not bypassed).
+/// `On = false` means the device is bypassed.
+fn parse_device_bypass_state(device: roxmltree::Node<'_, '_>) -> bool {
+    device
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("On"))
+        .and_then(|on_node| maybe_parse_bool_manual(on_node, "On")
+            .or_else(|| {
+                // Direct <On><Manual Value="..."/></On> form
+                on_node
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_bool_value)
+            }))
+        .map(|on| !on) // Ableton stores "On", we need "is_bypassed"
+        .unwrap_or(false)
+}
+
+/// Applies the bypass state to a DeviceNode.
+fn apply_device_bypass(node: &mut DeviceNode, device: roxmltree::Node<'_, '_>) {
+    let bypass = parse_device_bypass_state(device);
+    match node {
+        DeviceNode::Single(slot) => {
+            slot.is_bypassed = bypass;
+        }
+        DeviceNode::Rack(rack) => {
+            rack.is_bypassed = bypass;
+        }
+    }
+}
+
 // ── External Plugin Device Import ──────────────────────────────────────
 
 fn import_external_plugin_device(
@@ -138,12 +175,18 @@ fn import_external_plugin_device(
 ) {
     let meta = parse_external_plugin_meta(device);
     let user_name = node_child_value(device, "UserName").unwrap_or_default();
+    let plug_name = node_child_value(device, "PlugName").unwrap_or_default();
 
     let vst3_name = extract_plugin_info_field(device, "Vst3PluginInfo", "Name");
     let vst2_name = extract_plugin_info_field(device, "VstPluginInfo", "PlugName");
     let au_name = extract_plugin_info_field(device, "AuPluginInfo", "Name");
     let vst3_path = extract_plugin_info_field(device, "Vst3PluginInfo", "Path");
     let vst2_path = extract_plugin_info_field(device, "VstPluginInfo", "Path");
+
+    // Extract plugin UID and name from BranchDeviceId
+    // (e.g. "device:vst3:audiofx:72c4db71-..." or "device:vst:audiofx:123?n=Name")
+    let branch_uid = extract_branch_device_uid(device);
+    let branch_name = extract_branch_device_name(device);
 
     let is_placeholder = device
         .descendants()
@@ -153,7 +196,8 @@ fn import_external_plugin_device(
         .unwrap_or(false);
 
     let preferred_name = resolve_preferred_plugin_name(
-        &user_name, &vst3_name, &vst2_name, &au_name, &vst3_path, &vst2_path, device,
+        &user_name, &plug_name, &vst3_name, &vst2_name, &au_name,
+        &vst3_path, &vst2_path, branch_name.as_deref(), device,
     );
 
     let dev_idx = device
@@ -174,6 +218,8 @@ fn import_external_plugin_device(
         }
     }
 
+    // Merge UIDs: prefer ALS metadata UID, fallback to BranchDeviceId UID
+    let effective_uid = meta.uid.as_deref().or(branch_uid.as_deref());
     let resolved_plugin_id = resolve_plugin_id(
         &vst2_path,
         &vst3_path,
@@ -181,7 +227,7 @@ fn import_external_plugin_device(
         &vst2_name,
         &au_name,
         &preferred_name,
-        meta.uid.as_deref(),
+        effective_uid,
         external_plugins,
     );
 
@@ -228,6 +274,10 @@ fn import_external_plugin_device(
         })
     };
 
+    // Apply device bypass state
+    let mut slot = slot;
+    apply_device_bypass(&mut slot, device);
+
     if is_instrument_slot {
         track.instrument = Some(slot);
     } else {
@@ -248,7 +298,8 @@ fn import_internal_ableton_device(
     let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
 
     if let Some((plugin_id, plugin_name, slot_kind)) = canonical {
-        let slot = DeviceNode::Single(PluginSlot::new(plugin_name, plugin_id));
+        let mut slot = DeviceNode::Single(PluginSlot::new(plugin_name, plugin_id));
+        apply_device_bypass(&mut slot, device);
         import_internal_device_static_params(track, plugin_id, device);
 
         if slot_kind == "instrument" && is_instrument_slot {
@@ -335,6 +386,9 @@ fn import_midi_fx_static_params(
 // ── Private Helpers ────────────────────────────────────────────────────
 
 /// Extracts a named field from a VST plugin info container.
+///
+/// Uses `descendants()` to find the field, since some ALS versions
+/// nest fields deeper than direct children of the container element.
 fn extract_plugin_info_field(
     device: roxmltree::Node<'_, '_>,
     container_tag: &str,
@@ -345,7 +399,7 @@ fn extract_plugin_info_field(
         .find(|n| n.is_element() && n.has_tag_name(container_tag))
         .and_then(|container| {
             container
-                .children()
+                .descendants()
                 .find(|n| n.is_element() && n.has_tag_name(field_tag))
                 .and_then(|n| n.attribute("Value"))
         })
@@ -354,17 +408,33 @@ fn extract_plugin_info_field(
 }
 
 /// Determines the best display name for an external plugin.
+///
+/// Resolution order (most reliable → least reliable):
+///   1. UserName (explicitly set by user in Ableton)
+///   2. Top-level PlugName (from PluginDevice XML element)
+///   3. Vst3PluginInfo/Name
+///   4. VstPluginInfo/PlugName
+///   5. AuPluginInfo/Name
+///   6. File stem from VST2 path
+///   7. File stem from VST3 path
+///   8. BranchDeviceId `?n=` parameter (URL-encoded name)
+///   9. BrowserContentPath query string fragment
+///  10. infer_device_display_name() fallback
 fn resolve_preferred_plugin_name(
     user_name: &str,
+    plug_name: &str,
     vst3_name: &str,
     vst2_name: &str,
     au_name: &str,
     vst3_path: &str,
     vst2_path: &str,
+    branch_name: Option<&str>,
     device: roxmltree::Node<'_, '_>,
 ) -> String {
     if !user_name.trim().is_empty() {
         user_name.trim().to_string()
+    } else if !plug_name.trim().is_empty() {
+        plug_name.trim().to_string()
     } else if !vst3_name.trim().is_empty() {
         vst3_name.trim().to_string()
     } else if !vst2_name.trim().is_empty() {
@@ -383,8 +453,126 @@ fn resolve_preferred_plugin_name(
             .and_then(|s| s.to_str())
             .unwrap_or("Unknown Plugin")
             .to_string()
+    } else if let Some(name) = branch_name.filter(|s| !s.trim().is_empty()) {
+        name.trim().to_string()
+    } else if let Some(name) = extract_browser_query_plugin_name(device) {
+        name
     } else {
         infer_device_display_name(device, "Unknown Plugin")
+    }
+}
+
+/// Extracts the plugin name from Ableton's `BrowserContentPath` query string.
+///
+/// Ableton 12 stores the browser context as:
+///   `<BrowserContentPath Value="query:Everything#Serum%202" />`
+///
+/// This is the last reliable name source for plugins whose Vst3/Vst2/AU
+/// PluginInfo `Name` elements are empty (e.g. Serum 2).
+fn extract_browser_query_plugin_name(device: roxmltree::Node<'_, '_>) -> Option<String> {
+    device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("BrowserContentPath"))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(|val| {
+            // Format: "query:Everything#Plugin%20Name"
+            let fragment = val.split('#').nth(1)?;
+            if fragment.trim().is_empty() {
+                return None;
+            }
+            // URL-decode: %20 → space, %25 → %, etc.
+            let decoded = percent_decode(fragment);
+            let trimmed = decoded.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+}
+
+/// Minimal percent-decoding for Ableton browser query strings.
+fn percent_decode(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.bytes();
+    while let Some(b) = chars.next() {
+        if b == b'%' {
+            let hi = chars.next().unwrap_or(b'0');
+            let lo = chars.next().unwrap_or(b'0');
+            let hex = [hi, lo];
+            if let Ok(s) = std::str::from_utf8(&hex) {
+                if let Ok(byte) = u8::from_str_radix(s, 16) {
+                    result.push(byte as char);
+                    continue;
+                }
+            }
+            result.push('%');
+            result.push(hi as char);
+            result.push(lo as char);
+        } else {
+            result.push(b as char);
+        }
+    }
+    result
+}
+
+/// Extracts a VST3 GUID or VST2 numeric ID from `BranchDeviceId`.
+///
+/// Ableton's `SourceContext/BranchSourceContext/BranchDeviceId` stores
+/// stable identifiers for plugins:
+///   - VST3:  `device:vst3:audiofx:72c4db71-7a4d-459a-b97e-51745d84b39d`
+///   - VST3:  `device:vst3:instr:56534558-6573-5073-6572-756d20320000`
+///   - VST2:  `device:vst:audiofx:1179726960?n=FabFilter%20Pro-Q%204`
+///
+/// Returns the UID portion (GUID or numeric ID) when available.
+fn extract_branch_device_uid(device: roxmltree::Node<'_, '_>) -> Option<String> {
+    let branch_id = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("BranchDeviceId"))
+        .and_then(|n| n.attribute("Value"))?;
+
+    // Skip Ableton internal devices (e.g. "device:ableton:audiofx:Eq8")
+    if branch_id.contains(":ableton:") {
+        return None;
+    }
+
+    // Extract the UID segment after the last ':'
+    // "device:vst3:audiofx:72c4db71-..." → "72c4db71-..."
+    // "device:vst:audiofx:1179726960?n=..." → "1179726960"
+    let uid_segment = branch_id.rsplit(':').next()?;
+    // Strip query parameters if present
+    let uid = uid_segment.split('?').next().unwrap_or(uid_segment);
+    if uid.is_empty() {
+        return None;
+    }
+    Some(uid.to_string())
+}
+
+/// Extracts a plugin display name from the `BranchDeviceId` `?n=` parameter.
+///
+/// Some ALS entries encode the name directly:
+///   `device:vst:audiofx:1179726960?n=FabFilter%20Pro-Q%204`
+///
+/// Returns the URL-decoded name when the `?n=` parameter is present.
+fn extract_branch_device_name(device: roxmltree::Node<'_, '_>) -> Option<String> {
+    let branch_id = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("BranchDeviceId"))
+        .and_then(|n| n.attribute("Value"))?;
+
+    // Look for ?n= parameter
+    let name_param = branch_id.split("?n=").nth(1)?;
+    // Take everything up to the next '&' or end of string
+    let raw_name = name_param.split('&').next().unwrap_or(name_param);
+    if raw_name.is_empty() {
+        return None;
+    }
+    let decoded = percent_decode(raw_name);
+    let trimmed = decoded.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 

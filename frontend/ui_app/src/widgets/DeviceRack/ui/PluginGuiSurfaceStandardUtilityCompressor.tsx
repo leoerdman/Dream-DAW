@@ -62,7 +62,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         );
     }
 
-    if (device.effectType === 'compressor') {
+    if (device.effectType === 'compressor' || device.effectType === 'glueCompressor' || device.effectType === 'multibandDynamics' || device.effectType === 'transientShaper') {
         const isTransientShaper = normalizedInternalId === 'internal://effect/transient-shaper';
         const isGlueCompressor = normalizedInternalId === 'internal://effect/glue-compressor';
         const isMultibandDynamics = normalizedInternalId === 'internal://effect/multiband-dynamics';

@@ -134,7 +134,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
 
     const normalizedInternalId = getDevicePluginKey(device);
 
-    if (device.effectType === 'delay') {
+    if (device.effectType === 'delay' || device.effectType === 'filterDelay' || device.effectType === 'grainDelay' || device.effectType === 'spectralTime') {
         const showDryWet = shouldShowDryWet(device);
         const delayTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Delay';
         const isBeatRepeat = delayTitle === 'Beat Repeat';
@@ -218,7 +218,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
         );
     }
 
-    if (device.effectType === 'reverb') {
+    if (device.effectType === 'reverb' || device.effectType === 'hybridReverb' || device.effectType === 'corpus') {
         const showDryWet = shouldShowDryWet(device);
         const reverbTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Reverb';
         const isHybridReverb = normalizedInternalId === 'internal://effect/hybrid-reverb';

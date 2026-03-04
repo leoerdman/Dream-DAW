@@ -97,6 +97,6 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
 
 export function renderTimeToneSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     if (device.effectType === 'chorus') return renderChorusSurface(device, handlers);
-    if (device.effectType === 'saturator') return renderSaturatorSurface(device, handlers);
+    if (device.effectType === 'saturator' || device.effectType === 'drumBuss' || device.effectType === 'dynamicTube') return renderSaturatorSurface(device, handlers);
     return null;
 }

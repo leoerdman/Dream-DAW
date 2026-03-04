@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::project::{ClipEnvelope, TrackColor};
+use crate::project::{ClipEnvelope, ClipGrid, TrackColor};
 use crate::time::AbsoluteTime;
 
 // ── MIDI Note ──────────────────────────────────────────────────────────
@@ -50,6 +50,10 @@ pub struct MidiNote {
     /// Corresponds to `IsEnabled="false"` on `MidiNoteEvent` in ALS.
     #[serde(default)]
     pub is_muted: bool,
+
+    /// Unique Ableton NoteId (useful for mapping to MPE / Probability groups).
+    #[serde(default)]
+    pub note_id: Option<i32>,
 }
 
 fn default_off_velocity() -> u8 {
@@ -71,6 +75,7 @@ impl MidiNote {
             start_frame,
             duration_frames: duration_frames.max(1),
             is_muted: false,
+            note_id: None,
         }
     }
 
@@ -89,6 +94,7 @@ impl MidiNote {
             start_frame,
             duration_frames: duration_frames.max(1),
             is_muted: false,
+            note_id: None,
         }
     }
 
@@ -310,6 +316,14 @@ pub struct MidiClip {
     /// Per-clip user annotation text.
     #[serde(default)]
     pub annotation: Option<String>,
+
+    /// Local clip quantization grid.
+    #[serde(default)]
+    pub grid: Option<ClipGrid>,
+
+    /// Expression grid (MPE/Envelope quantization grid).
+    #[serde(default)]
+    pub expression_grid: Option<ClipGrid>,
 }
 
 impl MidiClip {
@@ -361,6 +375,8 @@ impl MidiClip {
             hidden_loop_start_beats: None,
             hidden_loop_end_beats: None,
             annotation: None,
+            grid: None,
+            expression_grid: None,
         }
     }
 

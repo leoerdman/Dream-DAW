@@ -32,4 +32,8 @@ duration_frames: bigint,
  * Whether this note is muted (visible but does not play).
  * Corresponds to `IsEnabled="false"` on `MidiNoteEvent` in ALS.
  */
-is_muted: boolean, };
+is_muted: boolean, 
+/**
+ * Unique Ableton NoteId (useful for mapping to MPE / Probability groups).
+ */
+note_id: number | null, };

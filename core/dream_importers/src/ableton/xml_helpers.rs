@@ -406,16 +406,29 @@ pub fn parse_track_key_note_target_broad(track_node: roxmltree::Node<'_, '_>) ->
 
 /// Broad descendant-search i64 parser for ALS import.
 pub fn parse_track_i64_value_broad(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
-    node_child_value(track_node, tag)
-        .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name(tag))
-                .and_then(|n| n.attribute("Value"))
-                .map(ToString::to_string)
-        })
-        .as_deref()
-        .and_then(parse_i64_value)
+    let node_found = track_node
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name(tag));
+
+    let Some(n) = node_found else { return None; };
+
+    if let Some(val_str) = n.attribute("Value") {
+        return parse_i64_value(val_str);
+    }
+
+    if let Some(child_val) = n
+        .children()
+        .find(|c| c.is_element() && c.has_tag_name("Value"))
+        .and_then(|c| c.attribute("Value"))
+    {
+        return parse_i64_value(child_val);
+    }
+
+    if let Some(manual_val) = direct_manual_value(n) {
+        return parse_i64_value(&manual_val);
+    }
+
+    None
 }
 
 // ── Device Container Helpers ───────────────────────────────────────────

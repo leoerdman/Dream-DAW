@@ -163,6 +163,21 @@ pub fn parse_clip_loop(clip_node: roxmltree::Node<'_, '_>) -> LoopInfo {
     }
 }
 
+pub fn parse_local_clip_grid(clip_node: roxmltree::Node<'_, '_>, tag_name: &str) -> Option<project::ClipGrid> {
+    let grid_node = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name(tag_name))?;
+
+    Some(project::ClipGrid {
+        fixed_numerator: first_child_i32(grid_node, "FixedNumerator").unwrap_or(1),
+        fixed_denominator: first_child_i32(grid_node, "FixedDenominator").unwrap_or(16),
+        grid_interval_pixel: first_child_i32(grid_node, "GridIntervalPixel").unwrap_or(20),
+        ntoles: first_child_i32(grid_node, "Ntoles").unwrap_or(0),
+        snap_to_grid: first_child_bool(grid_node, "SnapToGrid").unwrap_or(true),
+        fixed: first_child_bool(grid_node, "Fixed").unwrap_or(false),
+    })
+}
+
 pub fn parse_audio_clip_warp(
     clip_node: roxmltree::Node<'_, '_>,
 ) -> (bool, Option<i32>, Vec<project::WarpMarkerPoint>) {

@@ -55,6 +55,18 @@ pub struct ProjectMarker {
     pub color: Option<TrackColor>,
 }
 
+/// Local quantization grid settings for an audio or MIDI clip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ClipGrid {
+    pub fixed_numerator: i32,
+    pub fixed_denominator: i32,
+    pub grid_interval_pixel: i32,
+    pub ntoles: i32,
+    pub snap_to_grid: bool,
+    pub fixed: bool,
+}
+
 /// A Session scene imported from ALS `<Scenes>`.
 ///
 /// Stores scene metadata needed for future Session View parity and relaunch.
@@ -1274,6 +1286,10 @@ pub struct AudioClip {
     /// Per-clip user annotation text.
     #[serde(default)]
     pub annotation: Option<String>,
+
+    /// Local clip quantization grid.
+    #[serde(default)]
+    pub grid: Option<ClipGrid>,
 }
 
 impl AudioClip {
@@ -1353,6 +1369,7 @@ impl AudioClip {
             is_default_fade_out: true,
             is_song_tempo_leader: false,
             annotation: None,
+            grid: None,
         }
     }
 

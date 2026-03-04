@@ -20,7 +20,7 @@ use dream_models::time::AbsoluteTime;
 use super::clip_parser::{
     parse_audio_clip_warp, parse_audio_clip_warp_base_bpm, parse_clip_envelopes,
     parse_clip_follow_action, parse_clip_groove, parse_clip_launch, parse_clip_loop,
-    parse_clip_scale_info, parse_clip_time_signature,
+    parse_clip_scale_info, parse_clip_time_signature, parse_local_clip_grid,
 };
 use super::color_map::{
     ableton_color_index_to_hex, ableton_color_to_track_color, extract_ableton_color_index,
@@ -489,6 +489,7 @@ fn import_midi_notes(
             if !is_enabled {
                 midi_note.is_muted = true;
             }
+            midi_note.note_id = note.attribute("NoteId").and_then(|v| v.parse::<i32>().ok());
             clip.add_note(midi_note);
         }
     }
@@ -676,12 +677,13 @@ fn apply_common_clip_metadata_audio(clip: &mut AudioClip, clip_node: roxmltree::
         clip.transient_resolution = v as i32;
     }
 
-    // Per-clip HiQ, IsSongTempoLeader, Annotation
+    // Per-clip HiQ, IsSongTempoLeader, Annotation, and Grid
     clip.hi_q = parse_bool_child(clip_node, "HiQ");
     clip.is_song_tempo_leader = parse_bool_child(clip_node, "IsSongTempoLeader");
     if let Some(v) = node_child_value(clip_node, "Annotation").filter(|s| !s.trim().is_empty()) {
         clip.annotation = Some(v);
     }
+    clip.grid = parse_local_clip_grid(clip_node, "Grid");
 }
 
 fn apply_common_clip_metadata_midi(clip: &mut MidiClip, clip_node: roxmltree::Node<'_, '_>) {
@@ -711,10 +713,12 @@ fn apply_common_clip_metadata_midi(clip: &mut MidiClip, clip_node: roxmltree::No
     clip.hidden_loop_start_beats = li.hidden_loop_start;
     clip.hidden_loop_end_beats = li.hidden_loop_end;
 
-    // Per-clip annotation
+    // Per-clip annotation and grids
     if let Some(v) = node_child_value(clip_node, "Annotation").filter(|s| !s.trim().is_empty()) {
         clip.annotation = Some(v);
     }
+    clip.grid = parse_local_clip_grid(clip_node, "Grid");
+    clip.expression_grid = parse_local_clip_grid(clip_node, "ExpressionGrid");
 }
 
 fn parse_bool_child(node: roxmltree::Node<'_, '_>, tag: &str) -> bool {

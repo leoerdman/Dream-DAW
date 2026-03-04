@@ -57,7 +57,7 @@ pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_delete::DeleteClipCommand;
 pub use clip_duplicate::{DuplicateClipCommand, DuplicateClipResult, DuplicateMultipleClipsCommand};
 pub use clip_fades::SetClipFadesCommand;
-pub use clip_merge::{MergeClipsCommand, MergeClipsResult};
+pub use clip_merge::{ConsolidateMidiRegionCommand, MergeClipsCommand, MergeClipsResult};
 pub use clip_midi_update::{UpdateMidiClipCommand, SetMidiClipEnvelopesCommand};
 pub use clip_move::{MoveClipCommand, MoveClipResult, MoveMultipleClipsCommand};
 pub use clip_mute::{MuteClipCommand, MuteClipsBatchCommand};

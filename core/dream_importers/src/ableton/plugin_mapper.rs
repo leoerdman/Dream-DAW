@@ -17,16 +17,19 @@ pub fn canonical_internal_plugin_for_import(
             "eq8" | "eqeight" | "channeleq" | "eqthree" => {
                 return Some(("internal://effect/eq-eight", "EQ", "effect"));
             }
-            "compressor2" | "compressor" | "gluecompressor" | "drumbuss" | "multibanddynamics"
+            "compressor2" | "compressor" | "compressor3" | "gluecompressor" | "drumbuss" | "multibanddynamics"
             | "transientshaper" => {
                 return Some(("internal://effect/compressor", "Compressor", "effect"));
             }
-            "delay" | "echo" | "pingpongdelay" | "filterdelay" | "beatrepeat" | "graindelay"
-            | "spectraltime" => return Some(("internal://effect/delay", "Delay", "effect")),
-            "reverb" | "hybridreverb" | "corpus" | "resonators" | "spectralresonator" => {
+            "delay" | "echo" | "pingpongdelay" | "crossdelay" | "filterdelay" | "beatrepeat"
+            | "beatrepeat2" | "graindelay" | "spectraltime" => {
+                return Some(("internal://effect/delay", "Delay", "effect"));
+            }
+            "reverb" | "hybridreverb" | "corpus" | "corpus2" | "resonators"
+            | "spectralresonator" => {
                 return Some(("internal://effect/reverb", "Reverb", "effect"));
             }
-            "chorus" | "chorus2" | "ensemble" | "vibrato" => {
+            "chorus" | "chorus2" | "chorus3" | "ensemble" | "vibrato" => {
                 return Some(("internal://effect/chorus", "Chorus", "effect"));
             }
             "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift"
@@ -42,15 +45,15 @@ pub fn canonical_internal_plugin_for_import(
             "spectrumanalyzer" | "spectrum" => {
                 return Some(("internal://effect/spectrum", "Spectrum", "effect"));
             }
-            "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
-            "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
+            "limiter" | "limiter2" => return Some(("internal://effect/limiter", "Limiter", "effect")),
+            "gate" | "gate2" => return Some(("internal://effect/gate", "Gate", "effect")),
             "redux" | "redux2" | "bitcrusher" => {
                 return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
             }
             "autofilter" | "autofilter2" | "vocoder" => {
                 return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
             }
-            "phasernew" | "phaser" | "phaserflanger" => {
+            "phasernew" | "phaser" | "phaser3" | "phaserflanger" => {
                 return Some(("internal://effect/phaser", "Phaser", "effect"));
             }
             "flanger" => return Some(("internal://effect/flanger", "Flanger", "effect")),
@@ -66,7 +69,13 @@ pub fn canonical_internal_plugin_for_import(
                 return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
             }
             "mxdeviceaudioeffect" => {
-                return Some(("internal://effect/utility", "Utility", "effect"));
+                return Some(("internal://effect/utility", "M4L Audio Effect", "effect"));
+            }
+            "mxdeviceinstrument" => {
+                return Some(("internal://instrument/wave-synth", "M4L Instrument", "instrument"));
+            }
+            "mxdevicemidieffect" => {
+                return Some(("internal://midi-fx/random", "M4L MIDI Effect", "effect"));
             }
             "mxdevicevelocity" | "midinotelength" | "midivelocity" => {
                 return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
@@ -74,7 +83,8 @@ pub fn canonical_internal_plugin_for_import(
             "mxdevicerandom" | "midiarpeggiator" | "midirandom" => {
                 return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
             }
-            "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => {
+            "originalsimpler" | "simpler" | "simplersampler" | "multisampler" | "drumcell"
+            | "instrumentimpulse" | "impulse" => {
                 return Some(("internal://instrument/sampler", "Sampler", "instrument"));
             }
             "wavetable" | "operator" | "analog" | "collision" | "tension" | "electricpiano"

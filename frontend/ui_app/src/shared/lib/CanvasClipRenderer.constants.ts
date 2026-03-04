@@ -1,6 +1,6 @@
 import { clamp01 } from '@/shared/lib/audioMath';
 export const HEADER_HEIGHT = 20;
-export const CLIP_RADIUS = 4;
+export const CLIP_RADIUS = 0;
 export const FADE_GRAB_RADIUS = 3;
 export const SELECTION_BORDER_WIDTH = 2;
 
@@ -8,7 +8,7 @@ export const rgba = (r: number, g: number, b: number, a: number): string => `rgb
 export const hex = (r: number, g: number, b: number): string =>
     `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
-export const SELECTION_GLOW_COLOR = rgba(255, 255, 255, 0.9);
+export const SELECTION_HIGHLIGHT_COLOR = rgba(100, 160, 255, 0.18);
 export const DROP_TARGET_COLOR = rgba(255, 255, 255, 0.2);
 export const DROP_TARGET_BORDER = rgba(255, 255, 255, 0.6);
 export const GHOST_CLIP_ALPHA = 0.45;

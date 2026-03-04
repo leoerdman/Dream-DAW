@@ -45,7 +45,7 @@ use crate::ableton::xml_helpers::{
     parse_track_bool_flag_broad as parse_track_bool_flag,
     parse_track_i64_value_broad as parse_track_i64_value,
     parse_track_key_note_target_broad as parse_track_key_note_target,
-    parse_track_send_manual_values,
+    parse_track_send_full,
 };
 
 fn parse_project_markers(
@@ -247,7 +247,7 @@ pub fn import_als_project_with_target_sample_rate(
         };
 
         let mut track = Track::with_type(track_name, track_type, index);
-        let mut static_send_values = Vec::<(usize, f64)>::new();
+        let mut static_send_values = Vec::<(usize, f64, bool, bool)>::new();
         let mut static_mixer_values = Vec::<(String, f64)>::new();
 
         // ── Component 4: Ableton Color Index Mapping ──────────────────
@@ -334,7 +334,7 @@ pub fn import_als_project_with_target_sample_rate(
             if let Some(v) = split_pan_r {
                 static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
             }
-            static_send_values = parse_track_send_manual_values(mixer);
+            static_send_values = parse_track_send_full(mixer);
         }
         if let Some(monitoring_mode) = node_child_value(track_node, "MonitoringEnum")
             .or_else(|| {
@@ -430,15 +430,28 @@ pub fn import_als_project_with_target_sample_rate(
                 .root_note = root_note;
             upsert_static_import_lane_if_missing(&mut track, "sampler.root_note", root_note as f64);
         }
-        for (send_idx, send_value) in static_send_values {
-            if send_idx >= 26 {
+        for (send_idx, send_value, is_pre_fader, is_active) in &static_send_values {
+            if *send_idx >= 26 {
                 continue;
             }
-            let send_letter = (b'A' + send_idx as u8) as char;
+            let send_letter = (b'A' + *send_idx as u8) as char;
             upsert_static_import_lane_if_missing(
                 &mut track,
                 &format!("send.{send_letter}"),
-                send_value,
+                *send_value,
+            );
+            // ENTERPRISE: Store send pre/post fader state.
+            // Ableton <SendPreBool Value="true"/> means pre-fader send.
+            upsert_static_import_lane_if_missing(
+                &mut track,
+                &format!("send.{send_letter}.pre_fader"),
+                if *is_pre_fader { 1.0 } else { 0.0 },
+            );
+            // ENTERPRISE: Store send active/enabled state.
+            upsert_static_import_lane_if_missing(
+                &mut track,
+                &format!("send.{send_letter}.active"),
+                if *is_active { 1.0 } else { 0.0 },
             );
         }
 

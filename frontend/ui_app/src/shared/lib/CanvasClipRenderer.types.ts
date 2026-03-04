@@ -30,6 +30,10 @@ export interface TimelineClipData {
         durationBeats: number;
         velocity: number;
     }>;
+    /** Start of the selected region relative to clip's startBeat (0 = clip start). */
+    selectionStartBeat?: number;
+    /** End of the selected region relative to clip's startBeat (durationBeats = clip end). */
+    selectionEndBeat?: number;
 
 }
 

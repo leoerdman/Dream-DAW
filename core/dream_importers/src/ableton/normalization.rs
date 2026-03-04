@@ -32,7 +32,7 @@ pub fn canonical_internal_plugin_for_import(
             }
 
             // ── Dynamics ──────────────────────────────────────────────
-            "compressor2" | "compressor" => {
+            "compressor2" | "compressor" | "compressor3" => {
                 return Some(("internal://effect/compressor", "Compressor", "effect"));
             }
             "gluecompressor" => {
@@ -49,13 +49,13 @@ pub fn canonical_internal_plugin_for_import(
             }
 
             // ── Delay / Time ──────────────────────────────────────────
-            "delay" | "echo" | "pingpongdelay" => {
+            "delay" | "echo" | "pingpongdelay" | "crossdelay" => {
                 return Some(("internal://effect/delay", "Delay", "effect"));
             }
             "filterdelay" => {
                 return Some(("internal://effect/filter-delay", "Filter Delay", "effect"));
             }
-            "beatrepeat" => {
+            "beatrepeat" | "beatrepeat2" => {
                 return Some(("internal://effect/beat-repeat", "Beat Repeat", "effect"));
             }
             "graindelay" => {
@@ -72,7 +72,7 @@ pub fn canonical_internal_plugin_for_import(
             "hybridreverb" => {
                 return Some(("internal://effect/hybrid-reverb", "Hybrid Reverb", "effect"));
             }
-            "corpus" => {
+            "corpus" | "corpus2" => {
                 return Some(("internal://effect/corpus", "Corpus", "effect"));
             }
             "resonators" | "spectralresonator" => {
@@ -80,7 +80,7 @@ pub fn canonical_internal_plugin_for_import(
             }
 
             // ── Modulation ────────────────────────────────────────────
-            "chorus" | "chorus2" | "ensemble" => {
+            "chorus" | "chorus2" | "chorus3" | "ensemble" => {
                 return Some(("internal://effect/chorus", "Chorus", "effect"));
             }
             "vibrato" => {
@@ -144,8 +144,8 @@ pub fn canonical_internal_plugin_for_import(
             "spectrumanalyzer" | "spectrum" => {
                 return Some(("internal://effect/spectrum", "Spectrum", "effect"));
             }
-            "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
-            "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
+            "limiter" | "limiter2" => return Some(("internal://effect/limiter", "Limiter", "effect")),
+            "gate" | "gate2" => return Some(("internal://effect/gate", "Gate", "effect")),
             "redux" | "redux2" | "bitcrusher" => {
                 return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
             }
@@ -155,7 +155,7 @@ pub fn canonical_internal_plugin_for_import(
             "vocoder" => {
                 return Some(("internal://effect/vocoder", "Vocoder", "effect"));
             }
-            "phasernew" | "phaser" => {
+            "phasernew" | "phaser" | "phaser3" => {
                 return Some(("internal://effect/phaser", "Phaser", "effect"));
             }
             "phaserflanger" => {
@@ -179,7 +179,8 @@ pub fn canonical_internal_plugin_for_import(
             }
 
             // ── Instruments ───────────────────────────────────────────
-            "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => {
+            "originalsimpler" | "simpler" | "simplersampler" | "multisampler" | "drumcell"
+            | "instrumentimpulse" | "impulse" => {
                 return Some(("internal://instrument/sampler", "Sampler", "instrument"));
             }
             "wavetable" | "operator" | "analog" | "collision" | "tension" | "electricpiano"
@@ -192,6 +193,16 @@ pub fn canonical_internal_plugin_for_import(
                 ));
             }
 
+            // ── Max for Live devices ────────────────────────────────
+            "mxdeviceaudioeffect" => {
+                return Some(("internal://effect/utility", "M4L Audio Effect", "effect"));
+            }
+            "mxdeviceinstrument" => {
+                return Some(("internal://instrument/wave-synth", "M4L Instrument", "instrument"));
+            }
+            "mxdevicemidieffect" => {
+                return Some(("internal://midi-fx/random", "M4L MIDI Effect", "effect"));
+            }
             _ => {}
         }
     }

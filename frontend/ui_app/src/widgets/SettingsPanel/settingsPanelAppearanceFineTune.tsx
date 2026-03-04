@@ -1,28 +1,24 @@
 import type { AppSettings } from '@/shared/api/engine';
-import { SettingRow, Toggle } from './settingsPanelParts';
+import { SettingRow } from './settingsPanelParts';
 import { chipStyle, inputStyle, valueStyle, sliderStyle } from './settingsPanelStyles';
 
 interface AppearanceFineTuneProps {
     settings: AppSettings;
     draftShade: number;
-    draftTintPercent: number;
     draftForestCanopyPercent: number;
     draftForestFogPercent: number;
     draftLightTexturePercent: number;
     draftThemeDetailPercent: number;
     draftThemePanelsDetailPercent: number;
     draftThemeTimelineDetailPercent: number;
-    draftThemeMotionPercent: number;
     clamp: (value: number, min: number, max: number) => number;
     setDraftShade: (value: number) => void;
-    setDraftTintPercent: (value: number) => void;
     setDraftForestCanopyPercent: (value: number) => void;
     setDraftForestFogPercent: (value: number) => void;
     setDraftLightTexturePercent: (value: number) => void;
     setDraftThemeDetailPercent: (value: number) => void;
     setDraftThemePanelsDetailPercent: (value: number) => void;
     setDraftThemeTimelineDetailPercent: (value: number) => void;
-    setDraftThemeMotionPercent: (value: number) => void;
     resetDarkTuning: () => void;
     updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 }
@@ -30,24 +26,20 @@ interface AppearanceFineTuneProps {
 export function AppearanceFineTune({
     settings,
     draftShade,
-    draftTintPercent,
     draftForestCanopyPercent,
     draftForestFogPercent,
     draftLightTexturePercent,
     draftThemeDetailPercent,
     draftThemePanelsDetailPercent,
     draftThemeTimelineDetailPercent,
-    draftThemeMotionPercent,
     clamp,
     setDraftShade,
-    setDraftTintPercent,
     setDraftForestCanopyPercent,
     setDraftForestFogPercent,
     setDraftLightTexturePercent,
     setDraftThemeDetailPercent,
     setDraftThemePanelsDetailPercent,
     setDraftThemeTimelineDetailPercent,
-    setDraftThemeMotionPercent,
     resetDarkTuning,
     updateSetting,
 }: AppearanceFineTuneProps) {
@@ -55,7 +47,7 @@ export function AppearanceFineTune({
         <>
             {settings.theme === 'dark' && (
                 <>
-                    <SettingRow label="Dark Shade (0-255, 0 = black, 255 = white)">
+                    <SettingRow label="Brightness">
                         <input
                             type="range"
                             min={0}
@@ -77,20 +69,6 @@ export function AppearanceFineTune({
                             onBlur={() => updateSetting('darkThemeShade', draftShade)}
                             style={inputStyle}
                         />
-                    </SettingRow>
-                    <SettingRow label="Dark Tint Strength (%)">
-                        <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={draftTintPercent}
-                            onChange={(e) => setDraftTintPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
-                            onTouchEnd={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
-                            style={sliderStyle}
-                        />
-                        <span style={valueStyle}>{draftTintPercent}%</span>
                     </SettingRow>
                     <SettingRow label="Dark Tuning">
                         <button
@@ -196,25 +174,6 @@ export function AppearanceFineTune({
                 />
                 <span style={valueStyle}>{draftThemeTimelineDetailPercent}%</span>
             </SettingRow>
-            <SettingRow label="Theme Motion">
-                <Toggle value={settings.themeMotionEnabled} onChange={(v) => updateSetting('themeMotionEnabled', v)} />
-            </SettingRow>
-            {settings.themeMotionEnabled && (
-                <SettingRow label="Theme Motion Speed (%)">
-                    <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={draftThemeMotionPercent}
-                        onChange={(e) => setDraftThemeMotionPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                        onMouseUp={() => updateSetting('themeMotionPercent', draftThemeMotionPercent)}
-                        onTouchEnd={() => updateSetting('themeMotionPercent', draftThemeMotionPercent)}
-                        style={{ width: 180 }}
-                    />
-                    <span style={valueStyle}>{draftThemeMotionPercent}%</span>
-                </SettingRow>
-            )}
             <SettingRow label="Waveform Style">
                 <div style={{ display: 'flex', gap: 8 }}>
                     {(['colored', 'classic'] as const).map((styleKey) => (

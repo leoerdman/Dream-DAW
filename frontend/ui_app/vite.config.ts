@@ -12,6 +12,7 @@ function autoVersionPlugin() {
   const versionPath = resolve(__dirname, 'version.json')
   const tauriConfPath = resolve(__dirname, '../../apps/desktop_host/tauri.conf.json')
   const cargoTomlPath = resolve(__dirname, '../../Cargo.toml')
+  const splashHtmlPath = resolve(__dirname, 'public/splash.html')
 
   return {
     name: 'dream-daw-auto-version',
@@ -53,6 +54,19 @@ function autoVersionPlugin() {
         writeFileSync(cargoTomlPath, cargoRaw)
       } catch (e) {
         console.warn('  ⚠ Could not sync Cargo.toml:', e)
+      }
+
+      // ── Sync splash.html version display ──
+      try {
+        let splashRaw = readFileSync(splashHtmlPath, 'utf-8')
+        // Replace the version text inside <span class="splash-version" id="version-display">...</span>
+        splashRaw = splashRaw.replace(
+          /(<span\s+class="splash-version"\s+id="version-display">)v[^<]*(<\/span>)/,
+          `$1v${versionString}$2`
+        )
+        writeFileSync(splashHtmlPath, splashRaw)
+      } catch (e) {
+        console.warn('  ⚠ Could not sync splash.html:', e)
       }
 
       console.log(`\n  🎹 Dream DAW v${versionString}\n`)

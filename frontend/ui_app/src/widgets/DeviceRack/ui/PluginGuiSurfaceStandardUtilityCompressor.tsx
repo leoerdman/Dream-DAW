@@ -22,19 +22,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
     const normalizedInternalId = getDevicePluginKey(device);
 
     if (device.effectType === 'utility') {
-        const utilityTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Utility';
-        const isTuner = normalizedInternalId === 'internal://effect/tuner';
-        const isExternalFx = normalizedInternalId === 'internal://effect/external-audio-effect';
-        const isAutoShift = normalizedInternalId === 'internal://effect/auto-shift';
-        const isShifter = normalizedInternalId === 'internal://effect/shifter';
-        const isUtilityVariant = isTuner || isExternalFx || isAutoShift || isShifter;
-        const pan = getParamValue(device, ['pan'], 0);
-        const width = getParamValue(device, ['width', 'stereo'], 100);
         const mono = getParamValue(device, ['mono'], 0) > 0.5;
-        const panPct = Math.max(-1, Math.min(1, pan / 100));
-        const widthPct = clamp01(width / 200);
-        const hasUtilityCoreParams = device.params.some((p) => ['gain', 'pan', 'width', 'mono'].includes(p.name.toLowerCase()));
-        const showCoreUtilityPanel = hasUtilityCoreParams && !isUtilityVariant;
         const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         return (
@@ -42,125 +30,34 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-utility)',
-                    display: 'grid',
-                    gridTemplateColumns: showDryWet ? '1fr 1fr auto' : '1fr 1fr',
-                    gap: 'var(--space-2-5)',
-                    alignItems: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--space-2)',
+                    alignItems: 'stretch',
                 }}>
-                    {showCoreUtilityPanel ? (
-                        <>
-                            <div>
-                                <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-9fa7b5)', marginBottom: 4 }}>Pan</div>
-                                <div style={{ position: 'relative', height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)' }}>
-                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-rgba-255-255-255-0d2)' }} />
-                                    <div style={{
-                                        position: 'absolute',
-                                        top: -3,
-                                        left: `calc(${(panPct * 50 + 50).toFixed(3)}% - var(--token-size-px-5))`,
-                                        width: 10,
-                                        height: 14,
-                                        borderRadius: 'var(--radius-md)',
-                                        background: 'var(--token-color-hex-56a7ff)',
-                                        boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-86-167-255-0d45)',
-                                    }} />
-                                </div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-9fa7b5)', marginBottom: 4 }}>Stereo Width</div>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                    <div style={{
-                                        width: `${(widthPct * 100).toFixed(2)}%`,
-                                        height: '100%',
-                                        background: mono ? 'var(--color-bg-muted)' : 'var(--color-accent-primary)',
-                                    }} />
-                                </div>
-                            </div>
-                            <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
-                                {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-role-data)' }}>{formatSurfaceParam(readSurfaceParam(device, ['gain', 'output', 'level'], 0, 'dB'))}</span>
-                            </div>
-                            <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
-                                {mono ? 'Mono Enabled' : 'Stereo'}
-                            </div>
-                            <div style={{ gridColumn: '1 / span 2', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                <button
-                                    type="button"
-                                    onClick={() => onApplyUtilityScene?.('center')}
-                                    className="utility-scene-btn"
-                                >Center</button>
-                                <button
-                                    type="button"
-                                    onClick={() => onApplyUtilityScene?.('mono')}
-                                    className={`utility-scene-btn${mono ? ' active' : ''}`}
-                                >Mono</button>
-                                <button
-                                    type="button"
-                                    onClick={() => onApplyUtilityScene?.('wide')}
-                                    className="utility-scene-btn"
-                                >Wide</button>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d9e3f2)' }}>{utilityTitle}</div>
-                            {isTuner && (
-                                <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-a9d2ff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>A</div>
-                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1f2a36)', position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-hex-7ab6ff)' }} />
-                                    </div>
-                                    <svg viewBox="0 0 220 26" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
-                                        <rect x="0" y="0" width="220" height="26" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
-                                        <line x1="110" y1="4" x2="110" y2="22" stroke="var(--token-color-rgba-122-182-255-0d55)" strokeWidth="1.3" />
-                                        <path d="M 24 14 Q 64 6, 102 14" fill="none" stroke="var(--token-color-rgba-122-182-255-0d65)" strokeWidth="1.8" strokeLinecap="round" />
-                                        <path d="M 118 14 Q 156 22, 196 14" fill="none" stroke="var(--token-color-rgba-122-182-255-0d65)" strokeWidth="1.8" strokeLinecap="round" />
-                                    </svg>
-                                </div>
-                            )}
-                            {(isAutoShift || isShifter) && (
-                                <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mode</div>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-role-data)' }}>
-                                        Utility profile
-                                    </div>
-                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
-                                        <rect x="0" y="0" width="220" height="28" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
-                                        {isAutoShift ? (
-                                            <>
-                                                <path d="M 12 20 L 54 8 L 96 20 L 138 8 L 180 20 L 208 12" fill="none" stroke="var(--token-color-rgba-110-205-255-0d92)" strokeWidth="2" strokeLinecap="round" />
-                                                <line x1="110" y1="4" x2="110" y2="24" stroke="var(--token-color-rgba-110-205-255-0d3)" strokeWidth="1" strokeDasharray="2,2" />
-                                            </>
-                                        ) : (
-                                            <>
-                                                <path d="M 14 20 Q 40 6, 64 20 T 112 20 T 160 20 T 206 20" fill="none" stroke="var(--token-color-rgba-165-190-245-0d92)" strokeWidth="2" strokeLinecap="round" />
-                                                <path d="M 14 12 Q 40 26, 64 12 T 112 12 T 160 12 T 206 12" fill="none" stroke="var(--token-color-rgba-165-190-245-0d42)" strokeWidth="1.6" strokeLinecap="round" />
-                                            </>
-                                        )}
-                                    </svg>
-                                </div>
-                            )}
-                            {isExternalFx && (
-                                <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c2cfdb)', lineHeight: 1.4 }}>
-                                        External routing host. Use device params below for send/return balance and compensation.
-                                    </div>
-                                    <svg viewBox="0 0 220 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 20, willChange: 'transform', transform: 'translateZ(0)' }}>
-                                        <rect x="0" y="0" width="220" height="28" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />
-                                        <rect x="14" y="7" width="56" height="14" rx="3" fill="var(--token-color-rgba-122-182-255-0d28)" />
-                                        <rect x="150" y="7" width="56" height="14" rx="3" fill="var(--token-color-rgba-122-182-255-0d28)" />
-                                        <path d="M 70 14 L 150 14" stroke="var(--token-color-rgba-122-182-255-0d72)" strokeWidth="1.8" />
-                                        <path d="M 145 10 L 152 14 L 145 18" fill="none" stroke="var(--token-color-rgba-122-182-255-0d92)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                </div>
-                            )}
-                        </>
-                    )}
+                    <KnobParamGrid params={knobParams} handlers={handlers} />
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', paddingTop: 'var(--space-1)' }}>
+                        <button
+                            type="button"
+                            onClick={() => onApplyUtilityScene?.('mono')}
+                            className={`utility-scene-btn${mono ? ' active' : ''}`}
+                            style={{
+                                padding: '3px 14px',
+                                borderRadius: 'var(--radius-md)',
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                background: mono ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                color: mono ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'background 0.15s ease, color 0.15s ease',
+                            }}
+                        >Mono</button>
+                    </div>
                     {showDryWet && (
-                        <div style={{ gridColumn: '3', gridRow: '1 / -1', justifySelf: 'end', alignSelf: 'center' }}>
-                            <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />
-                        </div>
+                        <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />
                     )}
                 </div>
-                <KnobParamGrid params={knobParams} handlers={handlers} />
             </div>
         );
     }

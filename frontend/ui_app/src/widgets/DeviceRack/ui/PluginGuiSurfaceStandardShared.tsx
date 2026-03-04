@@ -29,7 +29,7 @@ export const pluginPanelCardBaseStyle: React.CSSProperties = {
 };
 
 export const pluginPanelTitleStyle: React.CSSProperties = {
-    fontSize: 'var(--font-size-xs)',
+    fontSize: 'var(--font-size-sm)',
     color: 'var(--plugin-title-color)',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',

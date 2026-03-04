@@ -283,15 +283,52 @@ pub fn parse_clip_envelopes(
                 .attribute("Value")
                 .and_then(parse_f64_value)
                 .unwrap_or(0.0);
+
+            // ENTERPRISE FIX: Parse Bezier control points for smooth curves.
+            // Ableton stores CurveControl1X/Y and CurveControl2X/Y on FloatEvent
+            // nodes that have non-linear curves. Without this, all clip envelope
+            // curves were flattened to linear — losing smooth filter sweeps, etc.
+            let has_curve = event.attribute("CurveControl1X").is_some();
+            let (curve_type, bezier_cp1x, bezier_cp1y, bezier_cp2x, bezier_cp2y, tension) =
+                if has_curve {
+                    let cp1x = event
+                        .attribute("CurveControl1X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.0);
+                    let cp1y = event
+                        .attribute("CurveControl1Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
+                    let cp2x = event
+                        .attribute("CurveControl2X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(1.0);
+                    let cp2y = event
+                        .attribute("CurveControl2Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
+                    let tension = (cp2y - cp1y).clamp(-1.0, 1.0);
+                    (
+                        "bezier".to_string(),
+                        Some(cp1x),
+                        Some(cp1y),
+                        Some(cp2x),
+                        Some(cp2y),
+                        Some(tension),
+                    )
+                } else {
+                    ("linear".to_string(), None, None, None, None, None)
+                };
+
             points.push(project::AutomationPoint {
                 beat,
                 value,
-                curve_type: "linear".to_string(),
-                tension: None,
-                bezier_cp1x: None,
-                bezier_cp1y: None,
-                bezier_cp2x: None,
-                bezier_cp2y: None,
+                curve_type,
+                tension,
+                bezier_cp1x,
+                bezier_cp1y,
+                bezier_cp2x,
+                bezier_cp2y,
             });
         }
         // ENTERPRISE FIX: BoolEvent + EnumEvent in clip envelopes.

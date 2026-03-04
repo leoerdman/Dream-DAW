@@ -243,6 +243,24 @@ pub fn parse_root_midi_editor_lanes(
 // ── Track-Level Helpers ────────────────────────────────────────────────
 
 pub fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize, f64)> {
+    parse_track_send_full(mixer)
+        .into_iter()
+        .map(|(idx, value, _, _)| (idx, value))
+        .collect()
+}
+
+/// ENTERPRISE: Full send data extraction including pre/post fader and active state.
+/// Returns Vec of (index, value, is_pre_fader, is_active).
+///
+/// Ableton XML structure:
+/// ```xml
+/// <TrackSendHolder Id="0">
+///   <Send><Manual Value="0.5"/></Send>
+///   <SendPreBool Value="true"/>
+///   <Active Value="true"/>
+/// </TrackSendHolder>
+/// ```
+pub fn parse_track_send_full(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize, f64, bool, bool)> {
     let mut sends = Vec::new();
     for (seq_idx, holder) in mixer
         .descendants()
@@ -267,7 +285,26 @@ pub fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(us
             .and_then(parse_f64_value)
             .unwrap_or(0.0)
             .clamp(0.0, 2.0);
-        sends.push((idx, value));
+
+        // Pre/post fader: Ableton stores <SendPreBool Value="true/false"/>
+        // true = pre-fader send, false = post-fader send (default)
+        let is_pre_fader = holder
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("SendPreBool"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+
+        // Active state: Ableton stores <Active Value="true/false"/>
+        // Controls whether this send is enabled at all
+        let is_active = holder
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Active"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_bool_value)
+            .unwrap_or(true);
+
+        sends.push((idx, value, is_pre_fader, is_active));
     }
     sends
 }

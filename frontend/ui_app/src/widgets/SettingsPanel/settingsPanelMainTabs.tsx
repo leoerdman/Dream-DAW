@@ -74,7 +74,7 @@ export function AppearanceTab({ settings, updateSetting, updateAllSettings }: Ap
                 />
             </SettingsSection>
 
-            <SettingsSection title="Appearance Tuning" description="Fine-tune overlays, interface scaling, and waveform rendering.">
+            <SettingsSection title="Appearance Tuning" description="Fine-tune theme overlays and brightness.">
                 <AppearanceAdvancedControls
                     settings={settings}
                     draftShade={draftShade}
@@ -91,23 +91,9 @@ export function AppearanceTab({ settings, updateSetting, updateAllSettings }: Ap
                     updateSetting={updateSetting}
                     resetDarkTuning={resetDarkTuning}
                 />
-                <SettingRow label="Waveform Style">
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        {(['colored', 'classic'] as const).map((styleKey) => (
-                            <button
-                                key={styleKey}
-                                onClick={() => updateSetting('waveformStyle', styleKey)}
-                                style={{
-                                    ...chipStyle,
-                                    background: settings.waveformStyle === styleKey ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                    color: settings.waveformStyle === styleKey ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                                }}
-                            >
-                                {styleKey === 'colored' ? 'Colored' : 'Classic Black'}
-                            </button>
-                        ))}
-                    </div>
-                </SettingRow>
+            </SettingsSection>
+
+            <SettingsSection title="Timeline" description="Grid and waveform display settings.">
                 <SettingRow label="Grid Intensity">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
@@ -128,6 +114,26 @@ export function AppearanceTab({ settings, updateSetting, updateAllSettings }: Ap
                         </span>
                     </div>
                 </SettingRow>
+                <SettingRow label="Waveform Style">
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        {(['colored', 'classic'] as const).map((styleKey) => (
+                            <button
+                                key={styleKey}
+                                onClick={() => updateSetting('waveformStyle', styleKey)}
+                                style={{
+                                    ...chipStyle,
+                                    background: settings.waveformStyle === styleKey ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                    color: settings.waveformStyle === styleKey ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                                }}
+                            >
+                                {styleKey === 'colored' ? 'Colored' : 'Classic Black'}
+                            </button>
+                        ))}
+                    </div>
+                </SettingRow>
+            </SettingsSection>
+
+            <SettingsSection title="Display" description="Application scaling.">
                 <SettingRow label="Application Scale">
                     <Select
                         value={`${appScale}%`}

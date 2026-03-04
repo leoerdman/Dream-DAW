@@ -1,6 +1,6 @@
 import type { AppSettings } from '@/shared/api/engine';
-import { SettingRow, Toggle } from './settingsPanelParts';
-import { chipStyle, inputStyle, valueStyle, sliderStyle } from './settingsPanelStyles';
+import { SettingRow } from './settingsPanelParts';
+import { chipStyle, inputStyle, sliderStyle } from './settingsPanelStyles';
 
 interface AppearanceAdvancedProps {
     settings: AppSettings;
@@ -24,8 +24,6 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
         settings,
         draftShade,
         setDraftShade,
-        draftTintPercent,
-        setDraftTintPercent,
         draftForestCanopyPercent,
         setDraftForestCanopyPercent,
         draftForestFogPercent,
@@ -41,7 +39,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
         <>
             {settings.theme === 'dark' && (
                 <>
-                    <SettingRow label="Dark Shade (0-255, 0 = black, 255 = white)">
+                    <SettingRow label="Brightness">
                         <input
                             type="range"
                             min={0}
@@ -63,20 +61,6 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onBlur={() => updateSetting('darkThemeShade', draftShade)}
                             style={inputStyle}
                         />
-                    </SettingRow>
-                    <SettingRow label="Dark Tint Strength (%)">
-                        <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={draftTintPercent}
-                            onChange={(e) => setDraftTintPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
-                            onTouchEnd={() => updateSetting('darkThemeTintPercent', draftTintPercent)}
-                            style={sliderStyle}
-                        />
-                        <span style={valueStyle}>{draftTintPercent}%</span>
                     </SettingRow>
                     <SettingRow label="Dark Tuning">
                         <button
@@ -106,7 +90,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onTouchEnd={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             style={sliderStyle}
                         />
-                        <span style={valueStyle}>{draftForestCanopyPercent}%</span>
+                        <span style={{ minWidth: 42, textAlign: 'right', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)' }}>{draftForestCanopyPercent}%</span>
                     </SettingRow>
                     <SettingRow label="Forest Fog Intensity (%)">
                         <input
@@ -120,7 +104,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             onTouchEnd={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             style={sliderStyle}
                         />
-                        <span style={valueStyle}>{draftForestFogPercent}%</span>
+                        <span style={{ minWidth: 42, textAlign: 'right', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)' }}>{draftForestFogPercent}%</span>
                     </SettingRow>
                 </>
             )}
@@ -137,12 +121,9 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                         onTouchEnd={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
                         style={{ width: 180 }}
                     />
-                    <span style={valueStyle}>{draftLightTexturePercent}%</span>
+                    <span style={{ minWidth: 42, textAlign: 'right', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)' }}>{draftLightTexturePercent}%</span>
                 </SettingRow>
             )}
-            <SettingRow label="Theme Motion">
-                <Toggle value={settings.themeMotionEnabled} onChange={(v) => updateSetting('themeMotionEnabled', v)} />
-            </SettingRow>
         </>
     );
 }

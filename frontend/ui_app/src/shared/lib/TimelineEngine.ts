@@ -262,15 +262,39 @@ export class TimelineEngine {
             const flags = this._fadeCurvePoints[clip.id];
             const showIn = Boolean(flags?.in);
             const showOut = Boolean(flags?.out);
-            // Fast path: if flags match existing clip object, reuse it
+
+            // SSOT FIX: Carry over selection state from old internal clip objects.
+            // React provides fresh clip objects without selectionStartBeat/selectionEndBeat.
+            // We must preserve these fields from the engine's internal state so that
+            // marquee-computed partial selection ranges survive React re-renders.
+            const oldClip = this._clipById.get(clip.id);
+            const sel = oldClip?.selected ?? clip.selected;
+            const priSel = oldClip?.primarySelected ?? clip.primarySelected;
+            const selStart = oldClip?.selectionStartBeat;
+            const selEnd = oldClip?.selectionEndBeat;
+
+            // Fast path: if all flags match existing clip object, reuse it
             if (
                 clip.hovered === hovered &&
                 clip.showFadeInCurvePoint === showIn &&
-                clip.showFadeOutCurvePoint === showOut
+                clip.showFadeOutCurvePoint === showOut &&
+                clip.selected === sel &&
+                clip.primarySelected === priSel &&
+                clip.selectionStartBeat === selStart &&
+                clip.selectionEndBeat === selEnd
             ) {
                 nextClips[i] = clip;
             } else {
-                nextClips[i] = { ...clip, hovered, showFadeInCurvePoint: showIn, showFadeOutCurvePoint: showOut };
+                nextClips[i] = {
+                    ...clip,
+                    hovered,
+                    showFadeInCurvePoint: showIn,
+                    showFadeOutCurvePoint: showOut,
+                    selected: sel,
+                    primarySelected: priSel,
+                    selectionStartBeat: sel ? selStart : undefined,
+                    selectionEndBeat: sel ? selEnd : undefined,
+                };
             }
         }
         this._clips = nextClips;
@@ -326,6 +350,13 @@ export class TimelineEngine {
         const primarySelectedId = selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null;
         let changed = false;
 
+        // SSOT FIX: When a marquee is active, _selectClipsWithinMarquee has already
+        // computed partial selectionStartBeat/selectionEndBeat on the internal clips.
+        // If React re-renders and calls setClipSelection (via useTimelineClipSync),
+        // we must PRESERVE those partial ranges rather than overwriting them with
+        // full-clip ranges (0 → durationBeats).
+        const hasMarquee = this._marquee !== null;
+
         // PERF FIX: Mutate in-place instead of .map() to avoid O(N) object allocation.
         // Only create new objects for clips whose selection state actually changed.
         for (let i = 0, len = this._clips.length; i < len; i++) {
@@ -334,11 +365,34 @@ export class TimelineEngine {
             const nextPrimarySelected = primarySelectedId === clip.id;
             if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected) continue;
             changed = true;
-            const updated = { ...clip, selected: nextSelected, primarySelected: nextPrimarySelected };
+
+            // Determine selection ranges:
+            // - If marquee is active AND this clip already has partial ranges from
+            //   _selectClipsWithinMarquee, preserve them.
+            // - Otherwise, use full-clip range (0 → durationBeats).
+            let selStart: number | undefined;
+            let selEnd: number | undefined;
+            if (nextSelected) {
+                if (hasMarquee && clip.selectionStartBeat !== undefined && clip.selectionEndBeat !== undefined) {
+                    // Preserve existing partial selection ranges from marquee
+                    selStart = clip.selectionStartBeat;
+                    selEnd = clip.selectionEndBeat;
+                } else {
+                    // Full clip highlight (header click or non-marquee selection)
+                    selStart = 0;
+                    selEnd = clip.durationBeats;
+                }
+            }
+
+            const updated: TimelineClipData = {
+                ...clip,
+                selected: nextSelected,
+                primarySelected: nextPrimarySelected,
+                selectionStartBeat: selStart,
+                selectionEndBeat: selEnd,
+            };
             this._clips[i] = updated;
-            // CRITICAL FIX: Keep _clipById in sync — stale Map entries caused
-            // all 27 _clipById.get() lookups (move, fade, resize, duplicate) to
-            // return outdated clip data with wrong selection state.
+            // CRITICAL FIX: Keep _clipById in sync
             this._clipById.set(updated.id, updated);
         }
 
@@ -868,51 +922,83 @@ export class TimelineEngine {
         const maxTrack = Math.max(startTrack, endTrack);
 
         // ── ENTERPRISE: Floating-point tolerant overlap detection ─────────
-        // Clip positions are derived from frame→beat conversion:
-        //   beat = (frame × bpm) / (60 × sampleRate)
-        // After round-tripping (beats → frames → beats), values that SHOULD
-        // equal X may differ by ~1e-14. Without tolerance, a clip whose end
-        // equals the marquee start (touching, not overlapping) can pass the
-        // overlap check due to this imprecision.
-        //
-        // 1e-6 beats at 175 BPM = ~0.34μs — imperceptible, but safely above
-        // IEEE 754 double-precision noise (~1e-14).
         const OVERLAP_EPS = 1e-6;
 
-        // Pixel-level Y overlap: if content-Y coordinates are available, use
-        // them to exclude clips whose visual bounding box doesn't actually
-        // overlap the marquee rectangle. This prevents selecting clips when
-        // the marquee only barely grazes the edge of a boundary track.
         const usePixelY = startContentY != null && endContentY != null;
         const marqueeYMin = usePixelY ? Math.min(startContentY, endContentY) : 0;
         const marqueeYMax = usePixelY ? Math.max(startContentY, endContentY) : 0;
-        // Pixel tolerance: 0.5px prevents sub-pixel rounding from selecting
-        // clips on adjacent tracks whose pixel boundary exactly coincides.
         const PX_EPS = 0.5;
 
-        const selectedIds = this._clips
-            .filter((clip) => {
-                const clipStart = clip.startBeat;
-                const clipEnd = clip.startBeat + clip.durationBeats;
-                // Skip clips on hidden (zero-height) tracks — e.g. collapsed group children
-                const clipTrackHeight = this._viewport.trackHeightAt(clip.trackIndex);
-                if (clipTrackHeight <= 0) return false;
-                // Beat axis overlap: clip must STRICTLY overlap the marquee,
-                // not merely touch its boundary. EPS absorbs float noise.
-                if (clipEnd <= minBeat + OVERLAP_EPS || clipStart >= maxBeat - OVERLAP_EPS) return false;
+        const selectedIds: string[] = [];
 
-                if (usePixelY) {
-                    // Pixel-level Y overlap check (with sub-pixel tolerance)
-                    const clipTopPx = this._viewport.trackOffsetY(clip.trackIndex);
-                    const clipBottomPx = clipTopPx + clipTrackHeight;
-                    return clipBottomPx > marqueeYMin + PX_EPS && clipTopPx < marqueeYMax - PX_EPS;
+        // ── Ableton-style per-clip partial selection ranges ───────────────
+        // For each clip that overlaps the marquee, compute the intersection
+        // of the marquee beat range with the clip's beat range and store it
+        // as selectionStartBeat/selectionEndBeat (relative to clip start).
+        // This enables the renderer to highlight only the overlapping portion.
+        for (let i = 0, len = this._clips.length; i < len; i++) {
+            const clip = this._clips[i];
+            const clipStart = clip.startBeat;
+            const clipEnd = clip.startBeat + clip.durationBeats;
+
+            // Skip clips on hidden (zero-height) tracks
+            const clipTrackHeight = this._viewport.trackHeightAt(clip.trackIndex);
+            if (clipTrackHeight <= 0) {
+                // Clear any stale selection on hidden clips
+                if (clip.selected) {
+                    this._clips[i] = { ...clip, selected: false, primarySelected: false, selectionStartBeat: undefined, selectionEndBeat: undefined };
+                    this._clipById.set(clip.id, this._clips[i]);
                 }
+                continue;
+            }
 
-                // Fallback: integer track index range check
-                return clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack;
-            })
-            .map((clip) => clip.id);
+            // Beat axis overlap check
+            if (clipEnd <= minBeat + OVERLAP_EPS || clipStart >= maxBeat - OVERLAP_EPS) {
+                // No overlap — clear selection
+                if (clip.selected) {
+                    this._clips[i] = { ...clip, selected: false, primarySelected: false, selectionStartBeat: undefined, selectionEndBeat: undefined };
+                    this._clipById.set(clip.id, this._clips[i]);
+                }
+                continue;
+            }
 
+            // Track axis overlap check
+            let trackOverlaps: boolean;
+            if (usePixelY) {
+                const clipTopPx = this._viewport.trackOffsetY(clip.trackIndex);
+                const clipBottomPx = clipTopPx + clipTrackHeight;
+                trackOverlaps = clipBottomPx > marqueeYMin + PX_EPS && clipTopPx < marqueeYMax - PX_EPS;
+            } else {
+                trackOverlaps = clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack;
+            }
+
+            if (!trackOverlaps) {
+                if (clip.selected) {
+                    this._clips[i] = { ...clip, selected: false, primarySelected: false, selectionStartBeat: undefined, selectionEndBeat: undefined };
+                    this._clipById.set(clip.id, this._clips[i]);
+                }
+                continue;
+            }
+
+            // Compute intersection relative to clip start
+            const overlapStart = Math.max(0, minBeat - clipStart);
+            const overlapEnd = Math.min(clip.durationBeats, maxBeat - clipStart);
+
+            selectedIds.push(clip.id);
+
+            // Update clip with partial selection range
+            const updated: TimelineClipData = {
+                ...clip,
+                selected: true,
+                primarySelected: false,
+                selectionStartBeat: overlapStart,
+                selectionEndBeat: overlapEnd,
+            };
+            this._clips[i] = updated;
+            this._clipById.set(updated.id, updated);
+        }
+
+        this._renderer.setHasClipSelection(selectedIds.length > 0);
         this.onClipBoxSelection?.(selectedIds);
         this._setMarquee({
             startBeat: minBeat,

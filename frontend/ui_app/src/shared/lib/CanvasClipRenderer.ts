@@ -16,8 +16,7 @@ import {
     hex,
     OFFLINE_STRIPE_COLOR,
     rgba,
-
-    SELECTION_GLOW_COLOR,
+    SELECTION_HIGHLIGHT_COLOR,
 } from './CanvasClipRenderer.constants';
 
 export type { GhostClipData, LoopRegion, TimelineClipData } from './CanvasClipRenderer.types';
@@ -222,9 +221,9 @@ export class CanvasClipRenderer {
         this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack, selectedTracks);
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
-        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
-        this._drawGroupMiniatures(ctx, vp, clips, range);
         this._drawMarquee(ctx, vp, marquee);
+        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible, marquee !== null);
+        this._drawGroupMiniatures(ctx, vp, clips, range);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
@@ -499,6 +498,7 @@ export class CanvasClipRenderer {
         range: VisibleRange,
         sampleRate: number,
         automationVisible: boolean,
+        marqueeActive: boolean,
     ): void {
         const bufferBeats = 2;
         // ── P5: Reuse pre-allocated buffer instead of filter() ──
@@ -527,7 +527,7 @@ export class CanvasClipRenderer {
         }
 
         for (const clip of filtered) {
-            this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible);
+            this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible, marqueeActive);
         }
     }
 
@@ -537,6 +537,7 @@ export class CanvasClipRenderer {
         clip: TimelineClipData,
         sampleRate: number,
         automationVisible: boolean,
+        marqueeActive: boolean,
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
@@ -581,9 +582,8 @@ export class CanvasClipRenderer {
             ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
             ctx.fillRect(x, y, Math.max(px, w), h);
             if (clip.selected) {
-                ctx.strokeStyle = SELECTION_GLOW_COLOR;
-                ctx.lineWidth = 1;
-                ctx.strokeRect(x, y, Math.max(px, w), h);
+                ctx.fillStyle = SELECTION_HIGHLIGHT_COLOR;
+                ctx.fillRect(x, y, Math.max(px, w), h);
             }
             return;
         }
@@ -659,6 +659,25 @@ export class CanvasClipRenderer {
             }
         }
 
+        // ── Ableton-style selection highlight: fill selected body region with light blue ──
+        // Skip during active marquee drag — the marquee fill (drawn behind) already
+        // tints the body; drawing both creates double-tint.
+        if (clip.selected && !isTrackDisabled && !marqueeActive) {
+            const selStartRel = clip.selectionStartBeat ?? 0;
+            const selEndRel = clip.selectionEndBeat ?? clip.durationBeats;
+            const ppbLocal = vp.pixelsPerBeat;
+
+            const selLeftPx = x + Math.max(0, selStartRel * ppbLocal);
+            const selRightPx = x + Math.min(w, selEndRel * ppbLocal);
+            const selW = selRightPx - selLeftPx;
+
+            if (selW > 0) {
+                ctx.fillStyle = SELECTION_HIGHLIGHT_COLOR;
+                // Fill BODY only — header keeps its original color
+                ctx.fillRect(selLeftPx, bodyY, selW, bodyH);
+            }
+        }
+
         const showFadeUi = Boolean(clip.hovered);
 
         // FADE-VIS FIX: Always draw fade overlay + curve when values > 0.
@@ -709,57 +728,6 @@ export class CanvasClipRenderer {
         }
 
         ctx.restore();
-
-        // ── Dual-color 1px inset border via stroke() ──
-        // PERF #3: Eliminated 2× extra ctx.clip() (the most expensive Canvas 2D op).
-        // Previously: clip to header zone → stroke full roundRect, clip to body zone →
-        // stroke full roundRect. Now: two simple rect strokes within the existing
-        // main body clip from line 555. Reduces ctx.clip() from 3× to 1× per clip.
-        {
-            const bw = 1;
-            const inset = bw / 2;
-            const borderR = Math.max(0, r - inset);
-
-            if (clip.selected && !isTrackDisabled) {
-                // Single white stroke
-                ctx.save();
-                ctx.strokeStyle = SELECTION_GLOW_COLOR;
-                ctx.lineWidth = bw;
-                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
-                ctx.stroke();
-                ctx.restore();
-            } else {
-                // PERF #6: Use pre-computed color strings for borders
-                const hdrColor = clip.muted
-                    ? 'rgba(110, 115, 125, 0.8)'
-                    : (isTrackDisabled ? (colorStrings ? colorStrings.headerDisabled : `rgba(${headerR},${headerG},${headerB},0.95)`)
-                        : (colorStrings ? colorStrings.headerBorder : `rgb(${headerR},${headerG},${headerB})`));
-                const bR = Math.max(0, Math.round(headerR * 0.60)), bG = Math.max(0, Math.round(headerG * 0.60)), bB = Math.max(0, Math.round(headerB * 0.60));
-                const bdyColor = clip.muted
-                    ? 'rgba(80, 85, 95, 0.8)'
-                    : (isTrackDisabled ? (colorStrings ? colorStrings.bodyDisabled : `rgba(${bR},${bG},${bB},0.85)`)
-                        : (colorStrings ? colorStrings.bodyBorder : `rgb(${bR},${bG},${bB})`));
-
-                ctx.save();
-                if (isTrackDisabled) ctx.globalAlpha = 0.25;
-                ctx.lineWidth = bw;
-
-                // Step 1: Full roundRect stroke with body color (no clip needed)
-                ctx.strokeStyle = bdyColor;
-                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
-                ctx.stroke();
-
-                // Step 2: Overdraw header portion with header color (1 clip — was 2)
-                ctx.beginPath();
-                ctx.rect(x - 1, y - 1, w + 2, headerH + 2);
-                ctx.clip();
-                ctx.strokeStyle = hdrColor;
-                this._roundRect(ctx, x + inset, y + inset, w - bw, h - bw, borderR);
-                ctx.stroke();
-
-                ctx.restore();
-            }
-        }
 
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;
@@ -1142,18 +1110,8 @@ export class CanvasClipRenderer {
         const y1 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY);
         const y2 = snapPhysical(vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY);
 
-        ctx.fillStyle = rgba(255, 255, 255, 0.06);
+        ctx.fillStyle = rgba(100, 160, 255, 0.18);
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-
-        const sx1 = snapPhysical(x1);
-        const sx2 = snapPhysical(x2);
-        const sy1 = snapPhysical(y1);
-        const sy2 = snapPhysical(y2);
-        ctx.fillStyle = rgba(255, 255, 255, 0.78);
-        ctx.fillRect(sx1, sy1, sx2 - sx1, 1);
-        ctx.fillRect(sx1, sy2 - 1, sx2 - sx1, 1);
-        ctx.fillRect(sx1, sy1, 1, sy2 - sy1);
-        ctx.fillRect(sx2 - 1, sy1, 1, sy2 - sy1);
     }
 
     private _drawGhostClip(

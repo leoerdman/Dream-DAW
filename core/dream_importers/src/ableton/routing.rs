@@ -144,7 +144,11 @@ pub fn choose_preferred_output_target(
     midi_output: Option<String>,
 ) -> Option<String> {
     match track_type {
-        TrackType::Midi => audio_output.or(midi_output),
+        // ENTERPRISE FIX: MIDI tracks should prefer MIDI output routing.
+        // Previously both branches were identical (audio_output.or(midi_output)).
+        // Ableton MIDI tracks route MIDI to instruments and audio to master —
+        // the MIDI routing target determines the instrument destination.
+        TrackType::Midi => midi_output.or(audio_output),
         _ => audio_output.or(midi_output),
     }
 }

@@ -20,30 +20,124 @@ pub fn canonical_internal_plugin_for_import(
     let is_vst = pid == "plugindevice" || pid == "auplugindevice";
     if !is_vst {
         match pid.as_str() {
-            "eq8" | "eqeight" | "channeleq" | "eqthree" => {
-                return Some(("internal://effect/eq-eight", "EQ", "effect"));
+            // ── EQ ────────────────────────────────────────────────────
+            "eq8" | "eqeight" => {
+                return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
             }
-            "compressor2" | "compressor" | "gluecompressor" | "drumbuss" | "multibanddynamics"
-            | "transientshaper" => {
+            "channeleq" => {
+                return Some(("internal://effect/channel-eq", "Channel EQ", "effect"));
+            }
+            "eqthree" => {
+                return Some(("internal://effect/eq-three", "EQ Three", "effect"));
+            }
+
+            // ── Dynamics ──────────────────────────────────────────────
+            "compressor2" | "compressor" => {
                 return Some(("internal://effect/compressor", "Compressor", "effect"));
             }
-            "delay" | "echo" | "pingpongdelay" | "filterdelay" | "beatrepeat" | "graindelay"
-            | "spectraltime" => return Some(("internal://effect/delay", "Delay", "effect")),
-            "reverb" | "hybridreverb" | "corpus" | "resonators" | "spectralresonator" => {
+            "gluecompressor" => {
+                return Some(("internal://effect/glue-compressor", "Glue Compressor", "effect"));
+            }
+            "drumbuss" => {
+                return Some(("internal://effect/drum-buss", "Drum Buss", "effect"));
+            }
+            "multibanddynamics" => {
+                return Some(("internal://effect/multiband-dynamics", "Multiband Dynamics", "effect"));
+            }
+            "transientshaper" => {
+                return Some(("internal://effect/transient-shaper", "Transient Shaper", "effect"));
+            }
+
+            // ── Delay / Time ──────────────────────────────────────────
+            "delay" | "echo" | "pingpongdelay" => {
+                return Some(("internal://effect/delay", "Delay", "effect"));
+            }
+            "filterdelay" => {
+                return Some(("internal://effect/filter-delay", "Filter Delay", "effect"));
+            }
+            "beatrepeat" => {
+                return Some(("internal://effect/beat-repeat", "Beat Repeat", "effect"));
+            }
+            "graindelay" => {
+                return Some(("internal://effect/grain-delay", "Grain Delay", "effect"));
+            }
+            "spectraltime" => {
+                return Some(("internal://effect/spectral-time", "Spectral Time", "effect"));
+            }
+
+            // ── Reverb / Space ────────────────────────────────────────
+            "reverb" => {
                 return Some(("internal://effect/reverb", "Reverb", "effect"));
             }
-            "chorus" | "chorus2" | "ensemble" | "vibrato" => {
+            "hybridreverb" => {
+                return Some(("internal://effect/hybrid-reverb", "Hybrid Reverb", "effect"));
+            }
+            "corpus" => {
+                return Some(("internal://effect/corpus", "Corpus", "effect"));
+            }
+            "resonators" | "spectralresonator" => {
+                return Some(("internal://effect/resonators", "Resonators", "effect"));
+            }
+
+            // ── Modulation ────────────────────────────────────────────
+            "chorus" | "chorus2" | "ensemble" => {
                 return Some(("internal://effect/chorus", "Chorus", "effect"));
             }
-            "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift" => {
+            "vibrato" => {
+                return Some(("internal://effect/chorus", "Vibrato", "effect"));
+            }
+
+            // ── Utility / Tools ───────────────────────────────────────
+            "utility" => {
                 return Some(("internal://effect/utility", "Utility", "effect"));
             }
+            "tuner" => {
+                return Some(("internal://effect/tuner", "Tuner", "effect"));
+            }
+            "looper" => {
+                return Some(("internal://effect/looper", "Looper", "effect"));
+            }
+            "frequencyshifter" | "shifter" | "autoshift" => {
+                return Some(("internal://effect/frequency-shifter", "Frequency Shifter", "effect"));
+            }
+
             "autopan" | "autopan2" => {
                 return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
             }
-            "saturator" | "dynamictube" => {
+
+            // ── Saturation / Distortion ───────────────────────────────
+            "saturator" => {
                 return Some(("internal://effect/saturator", "Saturator", "effect"));
             }
+            "dynamictube" => {
+                return Some(("internal://effect/dynamic-tube", "Dynamic Tube", "effect"));
+            }
+            "distortion" => {
+                return Some(("internal://effect/distortion", "Distortion", "effect"));
+            }
+            "overdrive" => {
+                return Some(("internal://effect/overdrive", "Overdrive", "effect"));
+            }
+            "erosion" => {
+                return Some(("internal://effect/erosion", "Erosion", "effect"));
+            }
+            "vinyldistortion" => {
+                return Some(("internal://effect/vinyl-distortion", "Vinyl Distortion", "effect"));
+            }
+            "amp" => {
+                return Some(("internal://effect/amp", "Amp", "effect"));
+            }
+            "cabinet" => {
+                return Some(("internal://effect/cabinet", "Cabinet", "effect"));
+            }
+            "pedal" => {
+                return Some(("internal://effect/pedal", "Pedal", "effect"));
+            }
+            "roar" => {
+                return Some(("internal://effect/roar", "Roar", "effect"));
+            }
+
+            // ── Analysis ──────────────────────────────────────────────
             "spectrumanalyzer" | "spectrum" => {
                 return Some(("internal://effect/spectrum", "Spectrum", "effect"));
             }
@@ -52,21 +146,24 @@ pub fn canonical_internal_plugin_for_import(
             "redux" | "bitcrusher" => {
                 return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
             }
-            "autofilter" | "vocoder" => {
+            "autofilter" => {
                 return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
             }
-            "phasernew" | "phaser" | "phaserflanger" => {
+            "vocoder" => {
+                return Some(("internal://effect/vocoder", "Vocoder", "effect"));
+            }
+            "phasernew" | "phaser" => {
                 return Some(("internal://effect/phaser", "Phaser", "effect"));
             }
-            "flanger" => return Some(("internal://effect/flanger", "Flanger", "effect")),
-            "erosion" | "vinyldistortion" | "distortion" | "overdrive" | "amp" | "cabinet"
-            | "pedal" | "roar" => {
-                return Some(("internal://effect/distortion", "Distortion", "effect"));
+            "phaserflanger" => {
+                return Some(("internal://effect/phaser-flanger", "Phaser-Flanger", "effect"));
             }
+            "flanger" => return Some(("internal://effect/flanger", "Flanger", "effect")),
             "noisemachine" => {
                 return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
             }
 
+            // ── MIDI Effects ──────────────────────────────────────────
             "midipitcher" => return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect")),
             "mxdevicescale" | "midichord" => {
                 return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
@@ -78,6 +175,7 @@ pub fn canonical_internal_plugin_for_import(
                 return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
             }
 
+            // ── Instruments ───────────────────────────────────────────
             "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => {
                 return Some(("internal://instrument/sampler", "Sampler", "instrument"));
             }

@@ -160,10 +160,22 @@ pub fn import_als_project_with_target_sample_rate(
     let live_set = find_live_set_from_importer(&doc)?;
 
     let tempo = parse_main_tempo_from_importer(live_set);
+    // ENTERPRISE FIX: Validate tempo to prevent division-by-zero in
+    // beats_to_frames(). Ableton projects always have positive BPM but
+    // corrupted files could provide 0.0 or negative values.
+    let tempo = if tempo.is_finite() && tempo > 0.0 { tempo } else {
+        log::warn!("[ALS Import] Invalid tempo {}, defaulting to 120 BPM", tempo);
+        120.0
+    };
     let project_name = parse_project_name_from_importer(file_path);
     let imported_sample_rate = parse_imported_sample_rate_from_importer(live_set);
     let sample_rate =
         resolve_timeline_sample_rate_from_importer(imported_sample_rate, target_sample_rate);
+    // ENTERPRISE FIX: Validate sample_rate to prevent division-by-zero.
+    let sample_rate = if sample_rate.is_finite() && sample_rate > 0.0 { sample_rate } else {
+        log::warn!("[ALS Import] Invalid sample rate {}, defaulting to 44100", sample_rate);
+        44100.0
+    };
     log::info!(
         "[ALS Import] Sample rate: imported={} Hz, timeline={} Hz",
         imported_sample_rate,
@@ -284,7 +296,13 @@ pub fn import_als_project_with_target_sample_rate(
             }
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
-            track.is_disabled = on == Some(false) || speaker == Some(false);
+            // ENTERPRISE FIX: Ableton's `On` and `Speaker` are INDEPENDENT:
+            //   - `On = false`      → track completely disabled (no processing)
+            //   - `Speaker = false`  → output silenced but effects still process
+            // Previously both were OR'd, causing `Speaker=false` to fully disable.
+            // Only `On = false` should set `is_disabled`. `Speaker = false` sets
+            // output muting (handled by mixer strip output gating).
+            track.is_disabled = on == Some(false);
             let solo = maybe_parse_bool_manual(mixer, "Solo")
                 .or_else(|| {
                     node_child_value(mixer, "SoloSink")

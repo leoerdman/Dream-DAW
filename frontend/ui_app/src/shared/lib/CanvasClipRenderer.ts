@@ -1373,6 +1373,24 @@ export class CanvasClipRenderer {
         const rangeStart = range.startBeat - bufferBeats;
         const rangeEnd = range.endBeat + bufferBeats;
 
+        // ENTERPRISE PERF: Build per-track clip index in O(N) once,
+        // instead of scanning all clips for each child lane (was O(childCount × N)).
+        // For 71 tracks × 1412 clips = ~100K iterations → now ~1412.
+        const childTrackSet = new Set<number>();
+        for (const [, childIndices] of this._groupTracks) {
+            for (const idx of childIndices) childTrackSet.add(idx);
+        }
+        const clipsByTrack = new Map<number, TimelineClipData[]>();
+        for (let k = 0, len = clips.length; k < len; k++) {
+            const clip = clips[k];
+            if (!childTrackSet.has(clip.trackIndex)) continue;
+            const clipEnd = clip.startBeat + clip.durationBeats;
+            if (clipEnd < rangeStart || clip.startBeat > rangeEnd) continue;
+            let arr = clipsByTrack.get(clip.trackIndex);
+            if (!arr) { arr = []; clipsByTrack.set(clip.trackIndex, arr); }
+            arr.push(clip);
+        }
+
         for (const [groupIdx, childIndices] of this._groupTracks) {
             const childCount = childIndices.length;
             if (childCount === 0) continue;
@@ -1397,26 +1415,22 @@ export class CanvasClipRenderer {
             ctx.rect(0, Math.max(rulerH, groupY), vpW, trackH);
             ctx.clip();
 
-            // Direct iteration: for each child lane, scan clips array inline
             for (let ci = 0; ci < childCount; ci++) {
                 const childIdx = childIndices[ci];
                 const laneY = laneStartY + ci * (laneH + laneGap);
+                const trackClips = clipsByTrack.get(childIdx);
+                if (!trackClips) continue;
 
-                for (let k = 0, len = clips.length; k < len; k++) {
-                    const clip = clips[k];
-                    if (clip.trackIndex !== childIdx) continue;
-
-                    const clipEnd = clip.startBeat + clip.durationBeats;
-                    if (clipEnd < rangeStart || clip.startBeat > rangeEnd) continue;
+                for (let k = 0, len = trackClips.length; k < len; k++) {
+                    const clip = trackClips[k];
 
                     const x = snapPhysical(clip.startBeat * ppb - scrollX);
-                    const endX = snapPhysical(clipEnd * ppb - scrollX);
+                    const endX = snapPhysical((clip.startBeat + clip.durationBeats) * ppb - scrollX);
                     const w = Math.max(1, endX - x);
                     if (x + w < 0 || x > vpW) continue;
 
                     const rawColor = clip.color || this._trackColors.get(childIdx) || '#6a8ccc';
                     const rawRgb = this._parseColor(rawColor);
-                    // Muted clips → grey; disabled tracks → original color but more transparent
                     const rgb = clip.muted ? this._toMutedGray(rawRgb) : rawRgb;
                     const alpha = clip.muted ? 0.175
                         : clip.trackDisabled ? 0.15

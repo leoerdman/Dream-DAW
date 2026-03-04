@@ -73,7 +73,7 @@ pub fn import_track_devices(
     let mut plugin_xml_id_to_idx = HashMap::<String, usize>::new();
     for (idx, plugin_node) in track_node
         .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+        .filter(|n| n.is_element() && (n.has_tag_name("PluginDevice") || n.has_tag_name("AuPluginDevice")))
         .enumerate()
     {
         if let Some(xml_id) = plugin_node.attribute("Id")
@@ -110,8 +110,11 @@ pub fn import_track_devices(
             continue;
         }
 
-        // External VST/VST3 PluginDevice.
-        if tag == "PluginDevice" {
+        // External VST/VST3/AU PluginDevice or AuPluginDevice.
+        // ENTERPRISE FIX: AuPluginDevice was previously unhandled at the
+        // top-level import, causing AU plugins to fall through to the
+        // internal device mapper where they were misidentified or dropped.
+        if tag == "PluginDevice" || tag == "AuPluginDevice" {
             import_external_plugin_device(
                 device,
                 track,
@@ -491,9 +494,10 @@ fn extract_browser_query_plugin_name(device: roxmltree::Node<'_, '_>) -> Option<
         })
 }
 
-/// Minimal percent-decoding for Ableton browser query strings.
+/// ENTERPRISE percent-decoding for Ableton browser query strings.
+/// Handles multi-byte UTF-8 sequences (e.g., %C3%A9 → 'é') correctly.
 fn percent_decode(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
+    let mut bytes = Vec::with_capacity(input.len());
     let mut chars = input.bytes();
     while let Some(b) = chars.next() {
         if b == b'%' {
@@ -502,17 +506,19 @@ fn percent_decode(input: &str) -> String {
             let hex = [hi, lo];
             if let Ok(s) = std::str::from_utf8(&hex)
                 && let Ok(byte) = u8::from_str_radix(s, 16) {
-                    result.push(byte as char);
+                    bytes.push(byte);
                     continue;
                 }
-            result.push('%');
-            result.push(hi as char);
-            result.push(lo as char);
+            bytes.push(b'%');
+            bytes.push(hi);
+            bytes.push(lo);
         } else {
-            result.push(b as char);
+            bytes.push(b);
         }
     }
-    result
+    // ENTERPRISE FIX: Decode accumulated bytes as UTF-8 instead of per-byte char cast.
+    // This correctly handles multi-byte sequences like %C3%A9 (é) which span two %XX tokens.
+    String::from_utf8(bytes).unwrap_or_else(|_| input.to_string())
 }
 
 /// Extracts a VST3 GUID or VST2 numeric ID from `BranchDeviceId`.

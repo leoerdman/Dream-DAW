@@ -194,11 +194,12 @@ export function useTrackInspectorContextActions({
     const handleGroupTrack = useCallback((trackId: string) => {
         // Capture source track color before group creation
         const sourceTrack = tracks.find((t) => t.id === trackId);
-        const sourceColor = sourceTrack?.color;
+        // ENTERPRISE: Always use a valid hex color — fallback if color is falsy or CSS var
+        const sourceColor = sourceTrack?.color && sourceTrack.color.startsWith('#') ? sourceTrack.color : '#808080';
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');
             // ENTERPRISE: Inherit the source track's color on the newly created group
-            if (sourceColor && response.group_id) {
+            if (response.group_id) {
                 try {
                     const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
                     await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
@@ -214,14 +215,43 @@ export function useTrackInspectorContextActions({
 
     const handleUngroupTrack = useCallback((trackId: string) => {
         const target = tracks.find((t) => t.id === trackId);
-        const op = target?.type === 'group'
-            ? engineApi.ungroupTrackWithDeltas(trackId)
-            : engineApi.setTrackGroupWithDeltas(trackId, null);
-        void op.then(async (response) => {
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
-        }).catch((err) => {
-            console.error('[Dream] ungroup failed:', err);
-        });
+        if (target?.type === 'group') {
+            // Dissolve the entire group
+            void engineApi.ungroupTrackWithDeltas(trackId).then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
+            }).catch((err) => {
+                console.error('[Dream] ungroup failed:', err);
+            });
+        } else {
+            // Remove single track from its group
+            const oldGroupId = target?.groupId ?? null;
+            void engineApi.setTrackGroupWithDeltas(trackId, null).then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
+                // ENTERPRISE: Auto-delete empty group after removing last child.
+                if (oldGroupId) {
+                    const freshTracks = useEngineStore.getState().tracks;
+                    const groupTrack = freshTracks.byId[oldGroupId];
+                    if (groupTrack) {
+                        const childCount = freshTracks.allIds.filter(
+                            (id) => freshTracks.byId[id]?.parent_track_id === oldGroupId,
+                        ).length;
+                        if (childCount === 0) {
+                            try {
+                                const ungroupResp = await engineApi.ungroupTrackWithDeltas(oldGroupId);
+                                await useEngineStore.getState().applyProjectDeltas(
+                                    ungroupResp.deltas,
+                                    'track-inspector:auto-delete-empty-group',
+                                );
+                            } catch (err) {
+                                console.warn('[Dream] auto-delete empty group failed:', err);
+                            }
+                        }
+                    }
+                }
+            }).catch((err) => {
+                console.error('[Dream] ungroup failed:', err);
+            });
+        }
         setContextMenu(null);
     }, [tracks]);
 

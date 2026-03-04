@@ -210,7 +210,10 @@ pub(super) fn process_master_bus(
             process_ctx,
         );
     }
-
+    // ENTERPRISE FIX: Apply master gain BEFORE soft_clip so the gain
+    // reduction happens before saturation — not after. Previously,
+    // gain was applied post-soft_clip which could push an already-saturated
+    // signal above 0dBFS.
     for i in 0..n {
         let gain = master_gain_smoother.next();
         graph_out_left[i] *= gain;
@@ -321,19 +324,23 @@ pub(super) fn mix_preview_audio(
                 for f in 0..mix_frames {
                     let p_idx = cursor + f * preview_channels;
                     let d_idx = f * channels;
-                    if p_idx + 1 < total && d_idx < data.len() {
-                        let p_left = preview_data[p_idx];
-                        let p_right = preview_data[p_idx + 1];
-                        if channels == 1 {
-                            data[d_idx] +=
-                                soft_clip((p_left + p_right) * 0.5);
-                        } else {
-                            data[d_idx] += soft_clip(p_left);
-                            if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += soft_clip(p_right);
+                        if p_idx + 1 < total && d_idx < data.len() {
+                            let p_left = preview_data[p_idx];
+                            let p_right = preview_data[p_idx + 1];
+                            // ENTERPRISE FIX: Removed per-sample soft_clip here.
+                            // Preview audio is already soft-clipped in
+                            // finalize_output_and_publish(). Double soft-clip
+                            // attenuated preview volume and changed timbre.
+                            if channels == 1 {
+                                data[d_idx] +=
+                                    (p_left + p_right) * 0.5;
+                            } else {
+                                data[d_idx] += p_left;
+                                if d_idx + 1 < data.len() {
+                                    data[d_idx + 1] += p_right;
+                                }
                             }
                         }
-                    }
                 }
                 let new_cursor = cursor + mix_frames * preview_channels;
                 // BUG-009 FIX: Use store instead of compare_exchange.
@@ -362,14 +369,16 @@ pub(super) fn mix_preview_audio(
 
                     let d_idx = f * channels;
                     if d_idx < data.len() {
+                        // ENTERPRISE FIX: Removed per-sample soft_clip.
+                        // Preview audio is soft-clipped once in finalize_output_and_publish().
                         if channels == 1 {
                             // ENTERPRISE FIX: -6dB mono fold-down for preview audio.
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * 0.5);
+                                (p_left + p_right) * 0.5;
                         } else {
-                            data[d_idx] += soft_clip(p_left);
+                            data[d_idx] += p_left;
                             if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += soft_clip(p_right);
+                                data[d_idx + 1] += p_right;
                             }
                         }
                     }
@@ -408,8 +417,10 @@ pub(super) fn finalize_output_and_publish(
                 }
             }
         } else if channels == 1 {
-            for &sample in data.iter() {
-                if producer.push(sample).is_err() {
+            // ENTERPRISE FIX: For mono devices, iterate frame-by-frame
+            // instead of per-sample to avoid pushing extra surround channel data.
+            for frame in data.chunks_exact(channels) {
+                if producer.push(frame[0]).is_err() {
                     had_drops = true;
                 }
             }

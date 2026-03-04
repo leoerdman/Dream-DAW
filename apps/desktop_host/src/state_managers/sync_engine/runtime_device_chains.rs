@@ -633,14 +633,24 @@ pub fn rebuild_runtime_device_chains_from_project(
         Ok(())
     }
 
-    fn selected_runtime_chain(
+    /// ENTERPRISE FIX: Returns ALL applicable runtime chains from a rack.
+    /// Ableton racks process chains IN PARALLEL — all enabled chains contribute
+    /// devices simultaneously, their outputs are summed.
+    ///
+    /// Solo logic: when any chain is solo'd, ONLY solo'd+enabled chains play.
+    /// When no chains are solo'd, ALL non-disabled chains contribute.
+    /// Previously `selected_runtime_chain()` only returned ONE chain, which
+    /// meant only 1 chain's effects ran — completely breaking multi-chain racks.
+    fn collect_applicable_runtime_chains(
         rack: &dream_models::project::DeviceRack,
-    ) -> Option<&dream_models::project::RackChain> {
+    ) -> Vec<&dream_models::project::RackChain> {
         let has_solo = rack.chains.iter().any(|c| c.is_solo);
         if has_solo {
-            rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
+            // Only solo'd + enabled chains
+            rack.chains.iter().filter(|c| c.is_solo && !c.is_disabled).collect()
         } else {
-            rack.chains.iter().find(|c| !c.is_disabled)
+            // All non-disabled chains
+            rack.chains.iter().filter(|c| !c.is_disabled).collect()
         }
     }
 
@@ -668,7 +678,8 @@ pub fn rebuild_runtime_device_chains_from_project(
                 }
                 DeviceNode::Rack(rack) => {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
-                    if let Some(chain) = selected_runtime_chain(rack) {
+                    // ENTERPRISE FIX: Iterate ALL applicable chains, not just one.
+                    for chain in collect_applicable_runtime_chains(rack) {
                         collect_runtime_internal_effects(&chain.devices, rack_bypassed, out);
                     }
                 }
@@ -786,7 +797,8 @@ pub fn rebuild_runtime_device_chains_from_project(
                 }
                 DeviceNode::Rack(rack) => {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
-                    if let Some(chain) = selected_runtime_chain(rack) {
+                    // ENTERPRISE FIX: Iterate ALL applicable chains.
+                    for chain in collect_applicable_runtime_chains(rack) {
                         for child in &chain.devices {
                             collect_master_internal_effects(child, rack_bypassed, out);
                         }

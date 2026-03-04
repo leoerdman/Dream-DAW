@@ -322,7 +322,9 @@ fn infer_warp_base_bpm_from_markers(clip: &AudioClip) -> Option<f64> {
         return None;
     }
     let bpm = (beat_span * 60.0) / sec_span;
-    if bpm.is_finite() && (20.0..=320.0).contains(&bpm) {
+    // ENTERPRISE FIX: Raised from 320 to 500 BPM to support DnB,
+    // halftime, and extreme tempo projects.
+    if bpm.is_finite() && (20.0..=500.0).contains(&bpm) {
         return Some(bpm);
     }
     None
@@ -364,11 +366,10 @@ fn parse_midi_clip(
         AbsoluteTime::new(beats_to_frames(duration_beats, bpm, sample_rate).max(1)),
     );
 
-    // Fades
-    let (fade_in, fade_out) =
-        super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
-    clip.fade_in_frames = fade_in;
-    clip.fade_out_frames = fade_out;
+    // ENTERPRISE FIX: MIDI clips do NOT have audio fades in Ableton.
+    // Previously called `parse_fade_frames_from_audio_clip` which parsed
+    // audio-specific XML fields, producing garbage values for MIDI clips.
+    // MIDI clip fades are handled by the engine's note-level velocity curves.
 
     // Muted
     apply_clip_disabled(clip_node, &mut clip.is_disabled);

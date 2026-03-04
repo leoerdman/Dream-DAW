@@ -16,14 +16,59 @@ export function normalizeRegion(marquee: KeyboardShortcutHandlerEnv['ctx']['marq
     return { startBeat, endBeat, startTrack, endTrack };
 }
 
+/**
+ * ENTERPRISE: Collects clips FULLY CONTAINED within the region (after split).
+ * Used by destructive operations (Cut, Delete, Duplicate, Mute) where
+ * splitRegionBoundaries has already been called to slice clips at boundaries.
+ */
 export function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
+    const EPS = 1e-6;
+    const clips = useEngineStore.getState().timelineClips;
+    const result = clips.filter((clip) => {
+        if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
+        const clipStart = clip.startBeat;
+        const clipEnd = clip.startBeat + clip.durationBeats;
+        return clipStart >= range.startBeat - EPS && clipEnd <= range.endBeat + EPS;
+    });
+
+    // Diagnostic: if we expected clips but found none, log details
+    if (result.length === 0) {
+        const overlapping = clips.filter((clip) => {
+            if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
+            const clipEnd = clip.startBeat + clip.durationBeats;
+            return clip.startBeat < range.endBeat + EPS && clipEnd > range.startBeat - EPS;
+        });
+        if (overlapping.length > 0) {
+            console.warn(
+                '[collectRegionClips] 0 fully contained, but %d overlapping clips exist.',
+                overlapping.length,
+                'Region:', range,
+                'First overlapping:', {
+                id: overlapping[0].id,
+                start: overlapping[0].startBeat,
+                end: overlapping[0].startBeat + overlapping[0].durationBeats,
+                track: overlapping[0].trackIndex,
+            },
+            );
+        }
+    }
+    return result;
+}
+
+/**
+ * ENTERPRISE: Collects clips that OVERLAP the region (intersection semantics).
+ * Used by non-destructive operations (Copy) where we don't want to modify the
+ * project. Per Ableton/Logic best practices: Copy should not split clips.
+ */
+export function collectOverlappingClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
     const EPS = 1e-6;
     const clips = useEngineStore.getState().timelineClips;
     return clips.filter((clip) => {
         if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
         const clipStart = clip.startBeat;
         const clipEnd = clip.startBeat + clip.durationBeats;
-        return clipStart >= range.startBeat - EPS && clipEnd <= range.endBeat + EPS;
+        // Overlap test: clip intersects region (not just touches)
+        return clipStart < range.endBeat - EPS && clipEnd > range.startBeat + EPS;
     });
 }
 

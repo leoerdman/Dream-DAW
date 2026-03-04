@@ -9,6 +9,7 @@ import {
     normalizeRegion,
     splitRegionBoundaries,
     collectRegionClips,
+    collectOverlappingClips,
 } from './transportAndEditingRegions';
 
 /**
@@ -86,12 +87,12 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.preventDefault();
         e.stopPropagation();
 
-        // ENTERPRISE: Region-based copy with split-then-operate
+        // ENTERPRISE: Non-destructive region-based copy (per Ableton/Logic best practice).
+        // Copy does NOT split clips. It captures overlapping clips with region bounds.
+        // Splitting only happens during destructive operations (Cut/Delete/Duplicate).
         const range = normalizeRegion(marqueeSelection);
         if (range) {
-            // Split clips at marquee boundaries, then copy only portions within
-            await splitRegionBoundaries(range);
-            const regionClips = collectRegionClips(range);
+            const regionClips = collectOverlappingClips(range);
             if (regionClips.length > 0) {
                 clipboardRef.current = regionClips.map((c) => ({ ...c }));
                 _clipboardRegionBounds = {

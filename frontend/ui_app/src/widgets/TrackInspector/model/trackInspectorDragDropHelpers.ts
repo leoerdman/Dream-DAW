@@ -150,13 +150,32 @@ export function resolveDropTargetFromClientY(
         const insertBefore = clientY < rect.top + rect.height / 2;
         const insertIndex = insertBefore ? i : i + 1;
         const boundaryGroupId = resolveGroupAtVisibleInsertIndex(visibleTracks, insertIndex);
+        // ENTERPRISE: If the dragged track already belongs to this group AND the
+        // insert position is at the edge (first or last slot), allow the track to
+        // LEAVE the group by returning groupId: null. This enables drag-out-of-group.
         if (boundaryGroupId && canDropTrackIntoGroup(tracks, dragId, boundaryGroupId)) {
+            if (draggingTrack?.groupId === boundaryGroupId) {
+                // Check if inserting at the boundary of the group (first or last visible child).
+                const groupChildren = visibleTracks.filter(
+                    (t) => t.groupId === boundaryGroupId || t.id === boundaryGroupId,
+                );
+                const firstChildIdx = visibleTracks.indexOf(groupChildren[0]);
+                const lastChildIdx = visibleTracks.indexOf(groupChildren[groupChildren.length - 1]);
+                if (insertIndex <= firstChildIdx || insertIndex > lastChildIdx + 1) {
+                    return { groupId: null, insertIndex };
+                }
+            }
             return { groupId: boundaryGroupId, insertIndex };
         }
         return { groupId: null, insertIndex };
     }
+    // ENTERPRISE: Bottom-of-list drop — allow tracks to escape groups.
+    // If the dragged track's current group is the boundary group, return null.
     const boundaryGroupId = resolveGroupAtVisibleInsertIndex(visibleTracks, visibleTracks.length);
     if (boundaryGroupId && canDropTrackIntoGroup(tracks, dragId, boundaryGroupId)) {
+        if (draggingTrack?.groupId === boundaryGroupId) {
+            return { groupId: null, insertIndex: visibleTracks.length };
+        }
         return { groupId: boundaryGroupId, insertIndex: visibleTracks.length };
     }
     return { groupId: null, insertIndex: visibleTracks.length };

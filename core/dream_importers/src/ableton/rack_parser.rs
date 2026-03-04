@@ -428,8 +428,10 @@ pub fn parse_als_rack_chains(
                         continue;
                     }
 
-                    // PluginDevice → external VST/VST3.
-                    if child_tag == "PluginDevice" {
+                    // PluginDevice / AuPluginDevice → external VST/VST3/AU.
+                    // ENTERPRISE FIX: AuPluginDevice was previously unhandled,
+                    // causing AU plugins inside racks to be silently dropped.
+                    if child_tag == "PluginDevice" || child_tag == "AuPluginDevice" {
                         let node = resolve_external_plugin_device(
                             child_device,
                             external_plugins,

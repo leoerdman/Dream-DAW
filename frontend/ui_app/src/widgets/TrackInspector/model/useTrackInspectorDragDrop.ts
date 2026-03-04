@@ -59,21 +59,54 @@ export function useTrackInspectorDragDrop({
     }, []);
 
     const commitTrackReorder = useCallback((trackId: string, visibleInsertIndex: number) => {
+        const draggingTrack = tracks.find((t) => t.id === trackId);
         const fullIndex = tracks.findIndex((t) => t.id === trackId);
         if (fullIndex < 0) return;
 
         const rawInsertIndex = computeRawInsert(visibleInsertIndex);
         const adjustedInsert = rawInsertIndex > fullIndex ? rawInsertIndex - 1 : rawInsertIndex;
         const clamped = Math.max(0, Math.min(tracks.length - 1, adjustedInsert));
-        if (clamped === fullIndex || trackMoveInFlightRef.current) return;
+        if (clamped === fullIndex && !draggingTrack?.groupId) return;
+        if (trackMoveInFlightRef.current) return;
 
+        const oldGroupId = draggingTrack?.groupId ?? null;
         trackMoveInFlightRef.current = true;
-        void engineApi.moveTrackToIndexWithDeltas(trackId, clamped)
+
+        // ENTERPRISE: When the track has a parent group, use moveTrackWithParent
+        // with null parentGroupId to clear the group assignment (drag-out-of-group).
+        // When no parent, use the simpler moveTrackToIndex for plain reorder.
+        const movePromise = oldGroupId
+            ? engineApi.moveTrackWithParentWithDeltas(trackId, clamped, null)
+            : engineApi.moveTrackToIndexWithDeltas(trackId, clamped);
+
+        void movePromise
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-track');
+                // ENTERPRISE: Auto-delete empty group after drag-out.
+                // If the old group has zero remaining children, dissolve it.
+                if (oldGroupId) {
+                    const freshTracks = useEngineStore.getState().tracks;
+                    const groupTrack = freshTracks.byId[oldGroupId];
+                    if (groupTrack) {
+                        const childCount = freshTracks.allIds.filter(
+                            (id) => freshTracks.byId[id]?.parent_track_id === oldGroupId,
+                        ).length;
+                        if (childCount === 0) {
+                            try {
+                                const ungroupResp = await engineApi.ungroupTrackWithDeltas(oldGroupId);
+                                await useEngineStore.getState().applyProjectDeltas(
+                                    ungroupResp.deltas,
+                                    'track-inspector:auto-delete-empty-group',
+                                );
+                            } catch (err) {
+                                console.warn('[Dream] auto-delete empty group failed:', err);
+                            }
+                        }
+                    }
+                }
             })
             .catch((err) => {
-                console.error('[Dream] moveTrackToIndexWithDeltas(reorder) failed:', err);
+                console.error('[Dream] moveTrack(reorder) failed:', err);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;

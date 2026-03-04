@@ -27,4 +27,9 @@ start_frame: bigint,
 /**
  * Duration in sample frames.
  */
-duration_frames: bigint, };
+duration_frames: bigint, 
+/**
+ * Whether this note is muted (visible but does not play).
+ * Corresponds to `IsEnabled="false"` on `MidiNoteEvent` in ALS.
+ */
+is_muted: boolean, };

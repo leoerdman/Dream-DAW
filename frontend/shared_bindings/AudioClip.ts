@@ -251,4 +251,36 @@ groove_amount: number,
 /**
  * Intra-clip automation envelopes.
  */
-envelopes: Array<ClipEnvelope>, };
+envelopes: Array<ClipEnvelope>, 
+/**
+ * High quality interpolation flag (per-clip `<HiQ>`).
+ */
+hi_q: boolean, 
+/**
+ * Loop out marker position in beats (`<Loop><OutMarker>`).
+ */
+out_marker_beats: number | null, 
+/**
+ * Hidden loop start boundary in beats (`<Loop><HiddenLoopStart>`).
+ */
+hidden_loop_start_beats: number | null, 
+/**
+ * Hidden loop end boundary in beats (`<Loop><HiddenLoopEnd>`).
+ */
+hidden_loop_end_beats: number | null, 
+/**
+ * Whether fade-in is the Ableton default (auto-generated).
+ */
+is_default_fade_in: boolean, 
+/**
+ * Whether fade-out is the Ableton default (auto-generated).
+ */
+is_default_fade_out: boolean, 
+/**
+ * Whether this clip controls the project tempo (`IsSongTempoLeader`).
+ */
+is_song_tempo_leader: boolean, 
+/**
+ * Per-clip user annotation text.
+ */
+annotation: string | null, };

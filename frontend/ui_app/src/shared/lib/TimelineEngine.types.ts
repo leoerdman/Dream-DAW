@@ -1,6 +1,8 @@
 import type { LoopRegion, TimelineClipData } from './CanvasClipRenderer';
 import type { ViewportConfig } from './ViewportMatrix';
 
+import { HEADER_HEIGHT, DEFAULT_FADE_CURVE as _DEFAULT_FADE_CURVE } from './CanvasClipRenderer.constants';
+
 export interface TimelineEngineConfig {
     beatsPerBar: number;
     bpm: number;
@@ -43,19 +45,34 @@ export interface TrimPreviewState {
 }
 
 export const EDGE_GRIP_PX = 8;
-export const CLIP_HEADER_HEIGHT_PX = 22;
+/** SSOT: Re-exported from CanvasClipRenderer.constants.HEADER_HEIGHT */
+export const CLIP_HEADER_HEIGHT_PX = HEADER_HEIGHT;
 export const DEFAULT_TRACK_HEIGHT_PX = 80;
 export const MIN_LOOP_BEATS = 4;
 export const FADE_HANDLE_HOTSPOT_PX = 12;
 export const FADE_CURVE_HANDLE_RADIUS_PX = 6;
-export const FADE_CURVE_PRESETS = [0.2, 0.35, 0.5, 0.65, 0.8] as const;
-export const DEFAULT_FADE_CURVE = 0.5;
+export const FADE_CURVE_PRESETS = [0.2, 0.35, _DEFAULT_FADE_CURVE, 0.65, 0.8] as const;
+/** SSOT: Re-exported from CanvasClipRenderer.constants.DEFAULT_FADE_CURVE */
+export const DEFAULT_FADE_CURVE = _DEFAULT_FADE_CURVE;
 export const CLIP_DRAG_START_THRESHOLD_PX = 4;
+export const MIN_RESIZE_DURATION_BEATS = 0.25; // SSOT: Minimum clip duration during resize
 export const CURSOR_BLINK_MS = 500;
 export const WAVEFORM_PREFETCH_BUFFER_BEATS = 10;
 export const BEAT_COMMIT_THRESHOLD = 0.05;
 export const TRACK_COMMIT_THRESHOLD = 0.5;
 export const FALLBACK_SAMPLES_PER_BEAT = 1024;
+export const RESIZE_BOUNDARY_EPS = 0.001; // SSOT: Epsilon for clip boundary collision during resize
+export const CURVE_X_WEIGHT = 0.7; // SSOT: Horizontal weight in fade curve blend
+export const CURVE_Y_WEIGHT = 0.3; // SSOT: Vertical weight in fade curve blend
+export const EDGE_WIDTH_MIN_PX = 4; // SSOT: Minimum edge grip width in px
+export const EDGE_WIDTH_MIN_RATIO = 0.1; // SSOT: Edge grip as fraction of clip width (min)
+export const EDGE_WIDTH_MAX_RATIO = 0.4; // SSOT: Edge grip as fraction of clip width (max)
+// SSOT: Fine-factor multipliers for fade/fadeCurve drag precision
+export const FINE_FACTOR_ALT_SHIFT = 0.08;
+export const FINE_FACTOR_ALT = 0.14;
+export const FINE_FACTOR_SHIFT = 0.28;
+export const FINE_FACTOR_CURVE_ALT = 0.12;
+export const FINE_FACTOR_CURVE_SHIFT = 0.22;
 
 export type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 export const DragMode = {

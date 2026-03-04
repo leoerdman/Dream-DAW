@@ -129,18 +129,38 @@ pub fn parse_clip_launch(clip_node: roxmltree::Node<'_, '_>) -> (i32, i32) {
     )
 }
 
-pub fn parse_clip_loop(clip_node: roxmltree::Node<'_, '_>) -> (Option<f64>, Option<f64>, bool) {
+/// Parsed loop data from ALS clip.
+pub struct LoopInfo {
+    pub loop_start: Option<f64>,
+    pub loop_end: Option<f64>,
+    pub loop_on: bool,
+    pub out_marker: Option<f64>,
+    pub hidden_loop_start: Option<f64>,
+    pub hidden_loop_end: Option<f64>,
+}
+
+pub fn parse_clip_loop(clip_node: roxmltree::Node<'_, '_>) -> LoopInfo {
     let loop_node = clip_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("Loop"));
     let Some(loop_node) = loop_node else {
-        return (None, None, false);
+        return LoopInfo {
+            loop_start: None,
+            loop_end: None,
+            loop_on: false,
+            out_marker: None,
+            hidden_loop_start: None,
+            hidden_loop_end: None,
+        };
     };
-    (
-        first_child_f64(loop_node, "LoopStart"),
-        first_child_f64(loop_node, "LoopEnd"),
-        first_child_bool(loop_node, "LoopOn").unwrap_or(false),
-    )
+    LoopInfo {
+        loop_start: first_child_f64(loop_node, "LoopStart"),
+        loop_end: first_child_f64(loop_node, "LoopEnd"),
+        loop_on: first_child_bool(loop_node, "LoopOn").unwrap_or(false),
+        out_marker: first_child_f64(loop_node, "OutMarker"),
+        hidden_loop_start: first_child_f64(loop_node, "HiddenLoopStart"),
+        hidden_loop_end: first_child_f64(loop_node, "HiddenLoopEnd"),
+    }
 }
 
 pub fn parse_audio_clip_warp(

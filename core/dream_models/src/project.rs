@@ -1242,6 +1242,38 @@ pub struct AudioClip {
     /// Intra-clip automation envelopes.
     #[serde(default)]
     pub envelopes: Vec<ClipEnvelope>,
+
+    /// High quality interpolation flag (per-clip `<HiQ>`).
+    #[serde(default)]
+    pub hi_q: bool,
+
+    /// Loop out marker position in beats (`<Loop><OutMarker>`).
+    #[serde(default)]
+    pub out_marker_beats: Option<f64>,
+
+    /// Hidden loop start boundary in beats (`<Loop><HiddenLoopStart>`).
+    #[serde(default)]
+    pub hidden_loop_start_beats: Option<f64>,
+
+    /// Hidden loop end boundary in beats (`<Loop><HiddenLoopEnd>`).
+    #[serde(default)]
+    pub hidden_loop_end_beats: Option<f64>,
+
+    /// Whether fade-in is the Ableton default (auto-generated).
+    #[serde(default)]
+    pub is_default_fade_in: bool,
+
+    /// Whether fade-out is the Ableton default (auto-generated).
+    #[serde(default)]
+    pub is_default_fade_out: bool,
+
+    /// Whether this clip controls the project tempo (`IsSongTempoLeader`).
+    #[serde(default)]
+    pub is_song_tempo_leader: bool,
+
+    /// Per-clip user annotation text.
+    #[serde(default)]
+    pub annotation: Option<String>,
 }
 
 impl AudioClip {
@@ -1313,6 +1345,14 @@ impl AudioClip {
             groove_name: None,
             groove_amount: 0.0,
             envelopes: Vec::new(),
+            hi_q: false,
+            out_marker_beats: None,
+            hidden_loop_start_beats: None,
+            hidden_loop_end_beats: None,
+            is_default_fade_in: true,
+            is_default_fade_out: true,
+            is_song_tempo_leader: false,
+            annotation: None,
         }
     }
 
@@ -1520,6 +1560,10 @@ pub struct Track {
     /// Automation lanes for this track (volume/pan/plugin params).
     #[serde(default)]
     pub automation_lanes: Vec<AutomationLane>,
+
+    /// Mixer pan mode (0 = stereo balance, 6 = split stereo).
+    #[serde(default)]
+    pub pan_mode: i32,
 }
 
 impl Track {
@@ -1551,6 +1595,7 @@ impl Track {
             sample_rack: None,
             flow_synth: None,
             automation_lanes: Vec::new(),
+            pan_mode: 0,
         }
     }
 

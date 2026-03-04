@@ -1328,6 +1328,7 @@ mod tests {
             pitch: 60,
             velocity: 100,
             off_velocity: 64,
+            is_muted: false,
         });
         midi_clip.notes.push(crate::midi::MidiNote {
             start_frame: 22050,
@@ -1335,6 +1336,7 @@ mod tests {
             pitch: 64,
             velocity: 100,
             off_velocity: 64,
+            is_muted: false,
         });
         midi_clip.notes.push(crate::midi::MidiNote {
             start_frame: 44100,
@@ -1342,6 +1344,7 @@ mod tests {
             pitch: 67,
             velocity: 100,
             off_velocity: 64,
+            is_muted: false,
         });
         let clip_id = midi_clip.id;
         project.tracks[0].midi_clips.push(midi_clip);

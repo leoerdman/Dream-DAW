@@ -895,6 +895,8 @@ pub struct FadeInfo {
     pub fade_out_curve_skew: f64,
     pub fade_out_curve_slope: f64,
     pub crossfade_in_state: i32,
+    pub is_default_fade_in: bool,
+    pub is_default_fade_out: bool,
 }
 
 /// Parses fade-in and fade-out info from an audio clip XML node.
@@ -916,6 +918,8 @@ pub fn parse_fade_info_from_audio_clip(
             fade_out_curve_skew: 0.0,
             fade_out_curve_slope: 0.0,
             crossfade_in_state: 0,
+            is_default_fade_in: true,
+            is_default_fade_out: true,
         };
     };
     let fade_in_beats = first_child_f64(fades, "FadeInLength").unwrap_or(0.0);
@@ -936,6 +940,8 @@ pub fn parse_fade_info_from_audio_clip(
             .unwrap_or(0.0)
             .clamp(-1.0, 1.0),
         crossfade_in_state: first_child_i32(fades, "CrossfadeInState").unwrap_or(0),
+        is_default_fade_in: first_child_bool(fades, "IsDefaultFadeIn").unwrap_or(true),
+        is_default_fade_out: first_child_bool(fades, "IsDefaultFadeOut").unwrap_or(true),
     }
 }
 

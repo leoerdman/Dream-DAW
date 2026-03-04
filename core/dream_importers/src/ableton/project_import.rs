@@ -277,6 +277,14 @@ pub fn import_als_project_with_target_sample_rate(
             let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
             let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
 
+            // PanMode: 0 = stereo balance, 6 = split stereo
+            if let Some(pm) = node_child_value(mixer, "PanMode")
+                .as_deref()
+                .and_then(parse_i64_value)
+            {
+                track.pan_mode = pm as i32;
+            }
+
             if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
                 track.volume = ableton_volume_to_linear_gain(volume);
                 static_mixer_values.push(("volume".to_string(), track.volume));

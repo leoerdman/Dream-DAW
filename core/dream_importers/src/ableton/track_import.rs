@@ -136,6 +136,8 @@ fn parse_audio_clip(
     clip.fade_out_curve_skew = fade_info.fade_out_curve_skew;
     clip.fade_out_curve_slope = fade_info.fade_out_curve_slope;
     clip.crossfade_in_state = fade_info.crossfade_in_state;
+    clip.is_default_fade_in = fade_info.is_default_fade_in;
+    clip.is_default_fade_out = fade_info.is_default_fade_out;
 
     // Source offset
     if let Some(start_relative_beats) = clip_node
@@ -440,16 +442,13 @@ fn import_midi_notes(
             .descendants()
             .filter(|n| n.is_element() && n.has_tag_name("MidiNoteEvent"))
         {
-            // Skip muted/disabled notes (IsEnabled="false" in Live 11+).
-            // Dream DAW's MidiNote has no per-note mute field, and muted
-            // notes produce no sound in Ableton, so filtering is correct.
+            // SSOT FIX: Preserve muted/disabled notes (IsEnabled="false" in Live 11+).
+            // Previously these were skipped, losing 346 notes in real projects.
+            // Now imported with is_muted=true so they are visible but don't play.
             let is_enabled = note
                 .attribute("IsEnabled")
                 .and_then(parse_bool_value)
                 .unwrap_or(true);
-            if !is_enabled {
-                continue;
-            }
 
             let time_beats = note
                 .attribute("Time")
@@ -486,7 +485,11 @@ fn import_midi_notes(
                 .unwrap_or(64);
             let start_frame = beats_to_frames(time_beats.max(0.0), bpm, sample_rate).max(0);
             let duration_frames = beats_to_frames(duration_note_beats, bpm, sample_rate).max(1);
-            clip.add_note(MidiNote::with_off_velocity(pitch, velocity, off_velocity, start_frame, duration_frames));
+            let mut midi_note = MidiNote::with_off_velocity(pitch, velocity, off_velocity, start_frame, duration_frames);
+            if !is_enabled {
+                midi_note.is_muted = true;
+            }
+            clip.add_note(midi_note);
         }
     }
 }
@@ -615,10 +618,13 @@ fn apply_common_clip_metadata_audio(clip: &mut AudioClip, clip_node: roxmltree::
     clip.is_in_key = in_key;
     clip.scale_root = scale_root;
     clip.scale_name = scale_name;
-    let (loop_start_beats, loop_end_beats, loop_on) = parse_clip_loop(clip_node);
-    clip.loop_start_beats = loop_start_beats;
-    clip.loop_end_beats = loop_end_beats;
-    clip.loop_on = loop_on;
+    let li = parse_clip_loop(clip_node);
+    clip.loop_start_beats = li.loop_start;
+    clip.loop_end_beats = li.loop_end;
+    clip.loop_on = li.loop_on;
+    clip.out_marker_beats = li.out_marker;
+    clip.hidden_loop_start_beats = li.hidden_loop_start;
+    clip.hidden_loop_end_beats = li.hidden_loop_end;
 
     // Warp algorithm parameters (SSOT fix: these affect how warped audio sounds)
     if let Some(v) = node_child_value(clip_node, "ComplexProFormants")
@@ -669,6 +675,13 @@ fn apply_common_clip_metadata_audio(clip: &mut AudioClip, clip_node: roxmltree::
     {
         clip.transient_resolution = v as i32;
     }
+
+    // Per-clip HiQ, IsSongTempoLeader, Annotation
+    clip.hi_q = parse_bool_child(clip_node, "HiQ");
+    clip.is_song_tempo_leader = parse_bool_child(clip_node, "IsSongTempoLeader");
+    if let Some(v) = node_child_value(clip_node, "Annotation").filter(|s| !s.trim().is_empty()) {
+        clip.annotation = Some(v);
+    }
 }
 
 fn apply_common_clip_metadata_midi(clip: &mut MidiClip, clip_node: roxmltree::Node<'_, '_>) {
@@ -690,10 +703,18 @@ fn apply_common_clip_metadata_midi(clip: &mut MidiClip, clip_node: roxmltree::No
     clip.is_in_key = in_key;
     clip.scale_root = scale_root;
     clip.scale_name = scale_name;
-    let (loop_start_beats, loop_end_beats, loop_on) = parse_clip_loop(clip_node);
-    clip.loop_start_beats = loop_start_beats;
-    clip.loop_end_beats = loop_end_beats;
-    clip.loop_on = loop_on;
+    let li = parse_clip_loop(clip_node);
+    clip.loop_start_beats = li.loop_start;
+    clip.loop_end_beats = li.loop_end;
+    clip.loop_on = li.loop_on;
+    clip.out_marker_beats = li.out_marker;
+    clip.hidden_loop_start_beats = li.hidden_loop_start;
+    clip.hidden_loop_end_beats = li.hidden_loop_end;
+
+    // Per-clip annotation
+    if let Some(v) = node_child_value(clip_node, "Annotation").filter(|s| !s.trim().is_empty()) {
+        clip.annotation = Some(v);
+    }
 }
 
 fn parse_bool_child(node: roxmltree::Node<'_, '_>, tag: &str) -> bool {

@@ -31,36 +31,46 @@ export function useTimelineClipSync({
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        const clipData: TimelineClipData[] = clips.map((c) => ({
-            fadeIn: (c.durationSamples && c.durationSamples > 0)
+        const clipData: TimelineClipData[] = clips.map((c) => {
+            let fadeIn = (c.durationSamples && c.durationSamples > 0)
                 ? clamp01((c.fadeIn ?? 0) / c.durationSamples)
-                : 0,
-            fadeOut: (c.durationSamples && c.durationSamples > 0)
+                : 0;
+            let fadeOut = (c.durationSamples && c.durationSamples > 0)
                 ? clamp01((c.fadeOut ?? 0) / c.durationSamples)
-                : 0,
-            id: c.id,
-            name: c.name,
-            trackIndex: c.trackIndex,
-            startBeat: c.startBeat,
-            durationBeats: c.durationBeats,
-            type: c.type,
-            color: c.color,
-            // SSOT: Engine's setClips() carries over selection from internal state.
-            // We pass selected: false here — the engine overwrites it with oldClip.selected.
-            selected: false,
-            filePath: c.filePath,
-            durationSamples: c.durationSamples,
-            sourceOffset: c.sourceOffset,
-            fadeInCurve: c.fadeInCurve,
-            fadeOutCurve: c.fadeOutCurve,
-            isOffline: c.isOffline,
-            muted: c.muted,
-            trackDisabled: !trackActiveStates[c.trackIndex],
-            isWarped: c.isWarped,
-            warpSourceDurationFrames: c.warpSourceDurationFrames,
-            pitchShiftSemitones: c.pitchShiftSemitones,
-            midiNotes: c.midiNotes,
-        }));
+                : 0;
+            // ENTERPRISE: Cross-clamp to prevent fadeIn+fadeOut > 1.0
+            if (fadeIn + fadeOut > 1.0 && (fadeIn + fadeOut) > 0) {
+                const total = fadeIn + fadeOut;
+                fadeIn = fadeIn / total;
+                fadeOut = fadeOut / total;
+            }
+            return ({
+                fadeIn,
+                fadeOut,
+                id: c.id,
+                name: c.name,
+                trackIndex: c.trackIndex,
+                startBeat: c.startBeat,
+                durationBeats: c.durationBeats,
+                type: c.type,
+                color: c.color,
+                // SSOT: Engine's setClips() carries over selection from internal state.
+                // We pass selected: false here — the engine overwrites it with oldClip.selected.
+                selected: false,
+                filePath: c.filePath,
+                durationSamples: c.durationSamples,
+                sourceOffset: c.sourceOffset,
+                fadeInCurve: c.fadeInCurve,
+                fadeOutCurve: c.fadeOutCurve,
+                isOffline: c.isOffline,
+                muted: c.muted,
+                trackDisabled: !trackActiveStates[c.trackIndex],
+                isWarped: c.isWarped,
+                warpSourceDurationFrames: c.warpSourceDurationFrames,
+                pitchShiftSemitones: c.pitchShiftSemitones,
+                midiNotes: c.midiNotes,
+            });
+        });
         engine.setClips(clipData);
         // SSOT: setClipSelection ensures the engine's selection state matches React's
         // selectedClipIds. This is needed because setClips carries over OLD selection

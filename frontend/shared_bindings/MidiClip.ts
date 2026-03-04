@@ -175,4 +175,20 @@ groove_amount: number,
 /**
  * Intra-clip automation envelopes.
  */
-envelopes: Array<ClipEnvelope>, };
+envelopes: Array<ClipEnvelope>, 
+/**
+ * Loop out marker position in beats (`<Loop><OutMarker>`).
+ */
+out_marker_beats: number | null, 
+/**
+ * Hidden loop start boundary in beats.
+ */
+hidden_loop_start_beats: number | null, 
+/**
+ * Hidden loop end boundary in beats.
+ */
+hidden_loop_end_beats: number | null, 
+/**
+ * Per-clip user annotation text.
+ */
+annotation: string | null, };

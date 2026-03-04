@@ -45,6 +45,11 @@ pub struct MidiNote {
 
     /// Duration in sample frames.
     pub duration_frames: i64,
+
+    /// Whether this note is muted (visible but does not play).
+    /// Corresponds to `IsEnabled="false"` on `MidiNoteEvent` in ALS.
+    #[serde(default)]
+    pub is_muted: bool,
 }
 
 fn default_off_velocity() -> u8 {
@@ -65,6 +70,7 @@ impl MidiNote {
             off_velocity: 64,
             start_frame,
             duration_frames: duration_frames.max(1),
+            is_muted: false,
         }
     }
 
@@ -82,6 +88,7 @@ impl MidiNote {
             off_velocity: off_velocity.min(127),
             start_frame,
             duration_frames: duration_frames.max(1),
+            is_muted: false,
         }
     }
 
@@ -287,6 +294,22 @@ pub struct MidiClip {
     /// Intra-clip automation envelopes.
     #[serde(default)]
     pub envelopes: Vec<ClipEnvelope>,
+
+    /// Loop out marker position in beats (`<Loop><OutMarker>`).
+    #[serde(default)]
+    pub out_marker_beats: Option<f64>,
+
+    /// Hidden loop start boundary in beats.
+    #[serde(default)]
+    pub hidden_loop_start_beats: Option<f64>,
+
+    /// Hidden loop end boundary in beats.
+    #[serde(default)]
+    pub hidden_loop_end_beats: Option<f64>,
+
+    /// Per-clip user annotation text.
+    #[serde(default)]
+    pub annotation: Option<String>,
 }
 
 impl MidiClip {
@@ -334,6 +357,10 @@ impl MidiClip {
             groove_name: None,
             groove_amount: 0.0,
             envelopes: Vec::new(),
+            out_marker_beats: None,
+            hidden_loop_start_beats: None,
+            hidden_loop_end_beats: None,
+            annotation: None,
         }
     }
 

@@ -1,25 +1,41 @@
 
 import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
-import { FADE_HANDLE_SIZE } from './CanvasClipRenderer.constants';
+import { FADE_HANDLE_SIZE, FADE_HANDLE_EDGE_PAD, CLIP_BODY_INSET, EDGE_RESIZE_PAD_PX, FADE_CURVE_CLAMP_MIN, FADE_CURVE_CLAMP_MAX, MIN_FADE_WIDTH_PX, MIN_FADE_BODY_HEIGHT_PX } from './CanvasClipRenderer.constants';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames, framesToBeatDuration } from './audioMath';
 import { normalizeTimelineClips } from './clipNormalization';
 import { cancelIdle, scheduleIdle, type IdleHandle } from './idleScheduler';
 import {
+    BEAT_COMMIT_THRESHOLD,
     CLIP_DRAG_START_THRESHOLD_PX,
     CLIP_HEADER_HEIGHT_PX,
+    CURVE_X_WEIGHT,
+    CURVE_Y_WEIGHT,
+    DEFAULT_FADE_CURVE,
     DragMode,
     EDGE_GRIP_PX,
+    EDGE_WIDTH_MAX_RATIO,
+    EDGE_WIDTH_MIN_PX,
+    EDGE_WIDTH_MIN_RATIO,
     FADE_CURVE_HANDLE_RADIUS_PX,
     FADE_CURVE_PRESETS,
     FADE_HANDLE_HOTSPOT_PX,
+    FINE_FACTOR_ALT,
+    FINE_FACTOR_ALT_SHIFT,
+    FINE_FACTOR_CURVE_ALT,
+    FINE_FACTOR_CURVE_SHIFT,
+    FINE_FACTOR_SHIFT,
     MIN_LOOP_BEATS,
+    MIN_RESIZE_DURATION_BEATS,
+    RESIZE_BOUNDARY_EPS,
+    TRACK_COMMIT_THRESHOLD,
     type DragState,
     type HitTestResult,
     type MarqueeSelection,
     type TimelineEngineConfig,
     type TrimPreviewState,
+    isLoopRegionChanged,
 } from './TimelineEngine.types';
 
 export class TimelineEngine {
@@ -418,14 +434,7 @@ export class TimelineEngine {
                 selectionStartBeat: selStart,
                 selectionEndBeat: selEnd,
             };
-            this._clips[i] = updated;
-            // Keep both lookup maps in sync with new object reference
-            this._clipById.set(updated.id, updated);
-            const trackArr = this._clipsByTrack.get(updated.trackIndex);
-            if (trackArr) {
-                const tIdx = trackArr.indexOf(clip);
-                if (tIdx >= 0) trackArr[tIdx] = updated;
-            }
+            this._updateClipInStores(i, clip, updated);
         }
 
         if (!changed) return;
@@ -482,10 +491,7 @@ export class TimelineEngine {
                 this._requestRedraw();
             }
         } else {
-            const changed = !this._loop ||
-                Math.abs(this._loop.start - loop.start) > 0.000001 ||
-                Math.abs(this._loop.end - loop.end) > 0.000001 ||
-                this._loop.enabled !== loop.enabled;
+            const changed = isLoopRegionChanged(this._loop, loop);
 
             if (changed) {
                 this._loop = { ...loop };
@@ -741,8 +747,8 @@ export class TimelineEngine {
             if ((a.sourceOffset ?? 0) !== (b.sourceOffset ?? 0)) return true;
             if ((a.fadeIn ?? 0) !== (b.fadeIn ?? 0)) return true;
             if ((a.fadeOut ?? 0) !== (b.fadeOut ?? 0)) return true;
-            if ((a.fadeInCurve ?? 0.5) !== (b.fadeInCurve ?? 0.5)) return true;
-            if ((a.fadeOutCurve ?? 0.5) !== (b.fadeOutCurve ?? 0.5)) return true;
+            if ((a.fadeInCurve ?? DEFAULT_FADE_CURVE) !== (b.fadeInCurve ?? DEFAULT_FADE_CURVE)) return true;
+            if ((a.fadeOutCurve ?? DEFAULT_FADE_CURVE) !== (b.fadeOutCurve ?? DEFAULT_FADE_CURVE)) return true;
             if ((a.muted ?? false) !== (b.muted ?? false)) return true;
             if ((a.isOffline ?? false) !== (b.isOffline ?? false)) return true;
             if ((a.color ?? '') !== (b.color ?? '')) return true;
@@ -840,10 +846,10 @@ export class TimelineEngine {
                 const endPx = this._viewport.beatsToScreenX(this._loop.end);
                 const localX = clientX - rect.left;
 
-                if (Math.abs(localX - startPx) <= EDGE_GRIP_PX + 4) {
+                if (Math.abs(localX - startPx) <= FADE_HANDLE_HOTSPOT_PX) {
                     return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'start' };
                 }
-                if (Math.abs(localX - endPx) <= EDGE_GRIP_PX + 4) {
+                if (Math.abs(localX - endPx) <= FADE_HANDLE_HOTSPOT_PX) {
                     return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'end' };
                 }
             }
@@ -874,7 +880,7 @@ export class TimelineEngine {
                 const localYPx = clientY - rect.top;
                 const trackH = this._viewport.trackHeightAt(clip.trackIndex);
                 const region: 'header' | 'body' =
-                    localYInClip <= Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2)
+                    localYInClip <= Math.min(CLIP_HEADER_HEIGHT_PX, trackH - CLIP_BODY_INSET)
                         ? 'header'
                         : 'body';
 
@@ -898,8 +904,8 @@ export class TimelineEngine {
                 if (inFadeBody) {
                     // ENTERPRISE: Square handles pressed to header bottom — rectangular hit test
                     const handleTopY = fadeBody.top; // Top of body = bottom of header
-                    const inHandleX = clipLeftPx + Math.max(4, Math.min(clipWidthPx - 4, fadeInWidthPx));
-                    const outHandleX = clipRightPx - Math.max(4, Math.min(clipWidthPx - 4, fadeOutWidthPx));
+                    const inHandleX = clipLeftPx + Math.max(FADE_HANDLE_EDGE_PAD, Math.min(clipWidthPx - FADE_HANDLE_EDGE_PAD, fadeInWidthPx));
+                    const outHandleX = clipRightPx - Math.max(FADE_HANDLE_EDGE_PAD, Math.min(clipWidthPx - FADE_HANDLE_EDGE_PAD, fadeOutWidthPx));
                     const pad = FADE_HANDLE_HOTSPOT_PX;
                     if (
                         localX >= inHandleX - FADE_HANDLE_SIZE / 2 - pad &&
@@ -934,10 +940,10 @@ export class TimelineEngine {
                 }
 
                 let edge: 'left' | 'right' | undefined;
-                const edgeWidth = Math.min(clipWidthPx * 0.4, Math.max(4, clipWidthPx * 0.1));
-                if (localX >= clipLeftPx - 2 && localX <= clipLeftPx + edgeWidth) {
+                const edgeWidth = Math.min(clipWidthPx * EDGE_WIDTH_MAX_RATIO, Math.max(EDGE_WIDTH_MIN_PX, clipWidthPx * EDGE_WIDTH_MIN_RATIO));
+                if (localX >= clipLeftPx - EDGE_RESIZE_PAD_PX && localX <= clipLeftPx + edgeWidth) {
                     edge = 'left';
-                } else if (localX <= clipRightPx + 2 && localX >= clipRightPx - edgeWidth) {
+                } else if (localX <= clipRightPx + EDGE_RESIZE_PAD_PX && localX >= clipRightPx - edgeWidth) {
                     edge = 'right';
                 }
 
@@ -966,19 +972,26 @@ export class TimelineEngine {
         }
     }
 
+    /**
+     * SSOT: Atomically updates clip in all 3 stores (_clips, _clipById, _clipsByTrack).
+     * Prevents the duplicated sync pattern that was previously in 5 places.
+     */
+    private _updateClipInStores(index: number, oldClip: TimelineClipData, newClip: TimelineClipData): void {
+        this._clips[index] = newClip;
+        this._clipById.set(newClip.id, newClip);
+        const trackArr = this._clipsByTrack.get(newClip.trackIndex);
+        if (trackArr) {
+            const tIdx = trackArr.indexOf(oldClip);
+            if (tIdx >= 0) trackArr[tIdx] = newClip;
+        }
+    }
+
     /** Clears selection state on a single clip by index (avoids copy-paste). */
     private _deselectClipAt(i: number): void {
         const clip = this._clips[i];
         if (!clip.selected) return;
         const cleared: TimelineClipData = { ...clip, selected: false, primarySelected: false, selectionStartBeat: undefined, selectionEndBeat: undefined };
-        this._clips[i] = cleared;
-        this._clipById.set(cleared.id, cleared);
-        // Keep _clipsByTrack in sync: replace old object reference with new one
-        const trackArr = this._clipsByTrack.get(cleared.trackIndex);
-        if (trackArr) {
-            const idx = trackArr.indexOf(clip);
-            if (idx >= 0) trackArr[idx] = cleared;
-        }
+        this._updateClipInStores(i, clip, cleared);
     }
 
     /**
@@ -997,13 +1010,7 @@ export class TimelineEngine {
             selectionEndBeat: freshClip.durationBeats,
         };
         const clipIdx = this._clips.indexOf(freshClip);
-        if (clipIdx >= 0) this._clips[clipIdx] = selectedClip;
-        this._clipById.set(selectedClip.id, selectedClip);
-        const trackClips = this._clipsByTrack.get(selectedClip.trackIndex);
-        if (trackClips) {
-            const tIdx = trackClips.indexOf(freshClip);
-            if (tIdx >= 0) trackClips[tIdx] = selectedClip;
-        }
+        if (clipIdx >= 0) this._updateClipInStores(clipIdx, freshClip, selectedClip);
         this._renderer.setHasClipSelection(true);
     }
 
@@ -1096,14 +1103,7 @@ export class TimelineEngine {
                 selectionStartBeat: overlapStart,
                 selectionEndBeat: overlapEnd,
             };
-            this._clips[i] = updated;
-            this._clipById.set(updated.id, updated);
-            // Keep _clipsByTrack in sync with new object reference
-            const trackArr = this._clipsByTrack.get(updated.trackIndex);
-            if (trackArr) {
-                const tIdx = trackArr.indexOf(clip);
-                if (tIdx >= 0) trackArr[tIdx] = updated;
-            }
+            this._updateClipInStores(i, clip, updated);
         }
 
         this._renderer.setHasClipSelection(selectedIds.length > 0);
@@ -1117,7 +1117,7 @@ export class TimelineEngine {
     }
 
     private _clampFadeCurve(value: number): number {
-        return Math.max(0.05, Math.min(0.95, value));
+        return Math.max(FADE_CURVE_CLAMP_MIN, Math.min(FADE_CURVE_CLAMP_MAX, value));
     }
 
     private _nextFadeCurvePreset(current: number): number {
@@ -1128,10 +1128,10 @@ export class TimelineEngine {
     }
 
     private _getFadeBodyBounds(clipTopPx: number, trackH: number): { top: number; bottom: number } {
-        const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2);
+        const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, trackH - CLIP_BODY_INSET);
         // Match renderer: bodyY = y + headerH, bodyBottom = bodyY + bodyH - 2
         const bodyTop = clipTopPx + headerH;
-        const bodyBottom = clipTopPx + trackH - 2;
+        const bodyBottom = clipTopPx + trackH - CLIP_BODY_INSET;
         return { top: bodyTop, bottom: Math.max(bodyTop + 6, bodyBottom) };
     }
 
@@ -1145,10 +1145,10 @@ export class TimelineEngine {
         const clipWidth = Math.max(1, clipRightPx - clipLeftPx);
         const fadeAmount = side === 'in' ? (clip.fadeIn ?? 0) : (clip.fadeOut ?? 0);
         if (fadeAmount <= 0) return null;
-        const fadeWidth = Math.max(8, clipWidth * this._clampFadeFraction(fadeAmount));
+        const fadeWidth = Math.max(MIN_FADE_WIDTH_PX, clipWidth * this._clampFadeFraction(fadeAmount));
         const curve = side === 'in'
-            ? this._clampFadeCurve(clip.fadeInCurve ?? 0.5)
-            : this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+            ? this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE)
+            : this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE);
         const body = this._getFadeBodyBounds(clipTopPx, this._viewport.trackHeightAt(clip.trackIndex));
         const bodyH = body.bottom - body.top;
         const handleY = side === 'in'
@@ -1275,8 +1275,8 @@ export class TimelineEngine {
                         clipOriginalDuration: clip.durationBeats,
                         clipOriginalFadeIn: this._clampFadeFraction(clip.fadeIn ?? 0),
                         clipOriginalFadeOut: this._clampFadeFraction(clip.fadeOut ?? 0),
-                        clipOriginalFadeInCurve: this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
-                        clipOriginalFadeOutCurve: this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
+                        clipOriginalFadeInCurve: this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE),
+                        clipOriginalFadeOutCurve: this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE),
                     };
                     break;
                 }
@@ -1397,6 +1397,23 @@ export class TimelineEngine {
 
                 if (!preserveMultiSelect) {
                     this.onClipClick?.(hit.clipId, isShift, isCtrl);
+                }
+
+                // SSOT FIX (Bug 35): For Ctrl+click, toggle the clicked clip's
+                // engine-side selection IMMEDIATELY so coMovers reflects the
+                // correct set. Without this, a Ctrl-deselected clip is still
+                // included in coMovers and moves when dragging.
+                if (isCtrl && !preserveMultiSelect) {
+                    if (isAlreadySelected) {
+                        // Ctrl+click on selected clip → deselect it in engine
+                        const idx = this._clips.findIndex((c) => c.id === hit.clipId);
+                        if (idx >= 0) this._deselectClipAt(idx);
+                    } else {
+                        // Ctrl+click on unselected clip → select it in engine
+                        this._selectSingleClip(hit.clipId);
+                    }
+                    this._renderer.setHasClipSelection(this._clips.some((c) => c.selected));
+                    this._requestRedraw();
                 }
 
                 const coMovers = new Map<string, { beat: number; track: number }>();
@@ -1618,21 +1635,21 @@ export class TimelineEngine {
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
-                const maxNewStart = clipEnd - 0.25;
+                const maxNewStart = clipEnd - MIN_RESIZE_DURATION_BEATS;
 
                 const clipTrack = this._drag.clipOriginalTrack;
                 let leftBound = 0;
                 for (const c of this._clips) {
                     if (c.id === this._drag.clipId || c.trackIndex !== clipTrack) continue;
                     const cEnd = c.startBeat + c.durationBeats;
-                    if (cEnd <= this._drag.clipOriginalBeat + 0.001 && cEnd > leftBound) {
+                    if (cEnd <= this._drag.clipOriginalBeat + RESIZE_BOUNDARY_EPS && cEnd > leftBound) {
                         leftBound = cEnd;
                     }
                 }
                 const clampedStart = Math.max(leftBound, Math.min(maxNewStart, rawNewStart));
                 const newStart = this._snapBeat(clampedStart);
                 const safeStart = Math.max(leftBound, newStart);
-                const newDuration = Math.max(0.25, clipEnd - safeStart);
+                const newDuration = Math.max(MIN_RESIZE_DURATION_BEATS, clipEnd - safeStart);
                 this._trimPreview = {
                     clipId: this._drag.clipId,
                     startBeat: safeStart,
@@ -1656,14 +1673,14 @@ export class TimelineEngine {
                 let rightBound = Infinity;
                 for (const c of this._clips) {
                     if (c.id === this._drag.clipId || c.trackIndex !== rClipTrack) continue;
-                    if (c.startBeat >= originalEnd - 0.001 && c.startBeat < rightBound) {
+                    if (c.startBeat >= originalEnd - RESIZE_BOUNDARY_EPS && c.startBeat < rightBound) {
                         rightBound = c.startBeat;
                     }
                 }
                 const clampedEnd = Math.min(rightBound, rawNewEnd);
-                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, clampedEnd));
+                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + MIN_RESIZE_DURATION_BEATS, clampedEnd));
                 const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
-                const newDuration = Math.max(0.25, finalEnd - this._drag.clipOriginalBeat);
+                const newDuration = Math.max(MIN_RESIZE_DURATION_BEATS, finalEnd - this._drag.clipOriginalBeat);
                 this._trimPreview = {
                     clipId: this._drag.clipId,
                     startBeat: this._drag.clipOriginalBeat,
@@ -1683,7 +1700,7 @@ export class TimelineEngine {
                 const clip = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
-                const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
+                const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_ALT) : (e.shiftKey ? FINE_FACTOR_SHIFT : 1);
                 clip.fadeIn = this._clampFadeFraction((this._drag.clipOriginalFadeIn ?? 0) + deltaFraction * fineFactor);
                 // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
                 const maxFadeIn = 1.0 - (clip.fadeOut ?? 0);
@@ -1698,7 +1715,7 @@ export class TimelineEngine {
                 const clip = this._clipById.get(this._drag.clipId);
                 if (!clip || clip.durationBeats <= 0) break;
                 const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
-                const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
+                const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_ALT) : (e.shiftKey ? FINE_FACTOR_SHIFT : 1);
                 clip.fadeOut = this._clampFadeFraction((this._drag.clipOriginalFadeOut ?? 0) - deltaFraction * fineFactor);
                 // ENTERPRISE: Prevent fadeIn+fadeOut > 1.0 (Ableton-style cross-clamp)
                 const maxFadeOut = 1.0 - (clip.fadeIn ?? 0);
@@ -1720,23 +1737,23 @@ export class TimelineEngine {
                 const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
                 const clipTopPx = this._viewport.rulerHeight + this._viewport.trackOffsetY(clip.trackIndex) - this._viewport.scrollY;
                 const body = this._getFadeBodyBounds(clipTopPx, this._viewport.trackHeightAt(clip.trackIndex));
-                const bodyHeight = Math.max(6, body.bottom - body.top);
+                const bodyHeight = Math.max(MIN_FADE_BODY_HEIGHT_PX, body.bottom - body.top);
                 const yCurveIn = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
                 const yCurveOut = this._clampFadeCurve((localY - body.top) / bodyHeight);
 
                 if (this._drag.mode === DragMode.ClipFadeInCurve) {
-                    const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeIn ?? 0));
+                    const fadeWidth = Math.max(MIN_FADE_WIDTH_PX, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeIn ?? 0));
                     const xCurve = this._clampFadeCurve((localX - clipLeftPx) / Math.max(1, fadeWidth));
-                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveIn * 0.3));
-                    const origin = this._drag.clipOriginalFadeInCurve ?? 0.5;
-                    const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.12) : (e.shiftKey ? 0.22 : 1);
+                    const target = this._clampFadeCurve((xCurve * CURVE_X_WEIGHT) + (yCurveIn * CURVE_Y_WEIGHT));
+                    const origin = this._drag.clipOriginalFadeInCurve ?? DEFAULT_FADE_CURVE;
+                    const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_CURVE_ALT) : (e.shiftKey ? FINE_FACTOR_CURVE_SHIFT : 1);
                     clip.fadeInCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);
                 } else {
-                    const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeOut ?? 0));
+                    const fadeWidth = Math.max(MIN_FADE_WIDTH_PX, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeOut ?? 0));
                     const xCurve = this._clampFadeCurve((clipRightPx - localX) / Math.max(1, fadeWidth));
-                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveOut * 0.3));
-                    const origin = this._drag.clipOriginalFadeOutCurve ?? 0.5;
-                    const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.12) : (e.shiftKey ? 0.22 : 1);
+                    const target = this._clampFadeCurve((xCurve * CURVE_X_WEIGHT) + (yCurveOut * CURVE_Y_WEIGHT));
+                    const origin = this._drag.clipOriginalFadeOutCurve ?? DEFAULT_FADE_CURVE;
+                    const fineFactor = e.altKey ? (e.shiftKey ? FINE_FACTOR_ALT_SHIFT : FINE_FACTOR_CURVE_ALT) : (e.shiftKey ? FINE_FACTOR_CURVE_SHIFT : 1);
                     clip.fadeOutCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);
                 }
                 this._requestRedraw();
@@ -1876,10 +1893,10 @@ export class TimelineEngine {
                     const deltaBeat = beat - this._drag.startBeat;
                     const deltaTrack = track - this._drag.startTrack;
                     const beatCommitThreshold = this._snapEnabled
-                        ? Math.max(0.05, this._snapBeats * 0.5)
-                        : 0.05;
+                        ? Math.max(BEAT_COMMIT_THRESHOLD, this._snapBeats * TRACK_COMMIT_THRESHOLD)
+                        : BEAT_COMMIT_THRESHOLD;
                     const isTinyMove =
-                        Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
+                        Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < TRACK_COMMIT_THRESHOLD;
                     if (isTinyMove) {
                         const clipToRestore = this._drag.clipId ? this._clipById.get(this._drag.clipId) : undefined;
                         if (clipToRestore) {
@@ -2027,10 +2044,10 @@ export class TimelineEngine {
                 if (this._drag.clipId) {
                     const clip = this._clipById.get(this._drag.clipId);
                     if (clip) {
-                        const nextIn = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
-                        const nextOut = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
-                        const prevIn = this._clampFadeCurve(this._drag.clipOriginalFadeInCurve ?? 0.5);
-                        const prevOut = this._clampFadeCurve(this._drag.clipOriginalFadeOutCurve ?? 0.5);
+                        const nextIn = this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE);
+                        const nextOut = this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE);
+                        const prevIn = this._clampFadeCurve(this._drag.clipOriginalFadeInCurve ?? DEFAULT_FADE_CURVE);
+                        const prevOut = this._clampFadeCurve(this._drag.clipOriginalFadeOutCurve ?? DEFAULT_FADE_CURVE);
                         if (Math.abs(nextIn - prevIn) > 0.0001 || Math.abs(nextOut - prevOut) > 0.0001) {
                             this.onClipFadeCurves?.(clip.id, nextIn, nextOut);
                             // SSOT FIX: Optimistic update for pending clips
@@ -2186,23 +2203,23 @@ export class TimelineEngine {
                             if (hit.fadeCurveHandle === 'in') {
                                 flags.in = true;
                                 clip.showFadeInCurvePoint = true;
-                                clip.fadeInCurve = 0.5;
+                                clip.fadeInCurve = DEFAULT_FADE_CURVE;
                             } else {
                                 flags.out = true;
                                 clip.showFadeOutCurvePoint = true;
-                                clip.fadeOutCurve = 0.5;
+                                clip.fadeOutCurve = DEFAULT_FADE_CURVE;
                             }
                             this._fadeCurvePoints[clip.id] = flags;
                             this.onClipFadeCurves?.(
                                 clip.id,
-                                this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
-                                this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
+                                this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE),
+                                this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE),
                             );
                             // ENTERPRISE: Sync pending clips with reset fadeCurve values
                             if (this._pendingClips) {
                                 const curveResetId = clip.id;
-                                const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
-                                const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+                                const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE);
+                                const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE);
                                 this._pendingClips = this._pendingClips.map((c) =>
                                     c.id === curveResetId
                                         ? { ...c, fadeInCurve: nextInC, fadeOutCurve: nextOutC }
@@ -2272,24 +2289,24 @@ export class TimelineEngine {
         if (side === 'in') {
             flags.in = true;
             clip.showFadeInCurvePoint = true;
-            clip.fadeInCurve = this._nextFadeCurvePreset(clip.fadeInCurve ?? 0.5);
+            clip.fadeInCurve = this._nextFadeCurvePreset(clip.fadeInCurve ?? DEFAULT_FADE_CURVE);
         } else {
             flags.out = true;
             clip.showFadeOutCurvePoint = true;
-            clip.fadeOutCurve = this._nextFadeCurvePreset(clip.fadeOutCurve ?? 0.5);
+            clip.fadeOutCurve = this._nextFadeCurvePreset(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE);
         }
         this._fadeCurvePoints[clip.id] = flags;
 
         this.onClipFadeCurves?.(
             clip.id,
-            this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
-            this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
+            this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE),
+            this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE),
         );
         // ENTERPRISE: Sync pending clips with cycled fadeCurve values
         if (this._pendingClips) {
             const cycleId = clip.id;
-            const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
-            const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+            const nextInC = this._clampFadeCurve(clip.fadeInCurve ?? DEFAULT_FADE_CURVE);
+            const nextOutC = this._clampFadeCurve(clip.fadeOutCurve ?? DEFAULT_FADE_CURVE);
             this._pendingClips = this._pendingClips.map((c) =>
                 c.id === cycleId
                     ? { ...c, fadeInCurve: nextInC, fadeOutCurve: nextOutC }

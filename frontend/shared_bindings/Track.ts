@@ -124,4 +124,8 @@ flow_synth: FlowSynthConfig | null,
 /**
  * Automation lanes for this track (volume/pan/plugin params).
  */
-automation_lanes: Array<AutomationLane>, };
+automation_lanes: Array<AutomationLane>, 
+/**
+ * Mixer pan mode (0 = stereo balance, 6 = split stereo).
+ */
+pan_mode: number, };

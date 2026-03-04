@@ -6,18 +6,52 @@ import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from 
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
     applyAlphaMultiplier,
+    AUTOMATION_DIM_ALPHA,
     CLIP_LABEL_FONT,
     CLIP_RADIUS,
+    CLIP_BODY_COLOR_MULTIPLIER,
+    CLIP_BODY_ALPHA,
+    CLIP_BODY_INSET,
+    CLIP_DISABLED_ALPHA,
+    CLIP_DIVIDER_ALPHA,
+    CLIP_DIVIDER_COLOR_MULTIPLIER,
+    CLIP_HEADER_ALPHA,
+    CLIP_MUTED_ALPHA,
     DROP_TARGET_BORDER,
     DROP_TARGET_COLOR,
+    DEFAULT_FADE_CURVE,
+    FADE_CURVE_CLAMP_MAX,
+    FADE_CURVE_CLAMP_MIN,
+    FADE_CURVE_HANDLE_FILL,
+    FADE_CURVE_HANDLE_STROKE,
+    FADE_CURVE_POINT_RADIUS,
+    FADE_GRADIENT_OPACITY_FULL,
+    FADE_GRADIENT_OPACITY_MID,
+    FADE_HANDLE_EDGE_PAD,
     FADE_HANDLE_SIZE,
 
+    DEFAULT_WAVEFORM_GRAY_R,
+    DEFAULT_WAVEFORM_GRAY_G,
+    DEFAULT_WAVEFORM_GRAY_B,
     GHOST_CLIP_ALPHA,
     HEADER_HEIGHT,
     hex,
+    MIN_FADE_UI_BODY_PX,
+    MIN_FADE_UI_WIDTH_PX,
+    MIN_WAVEFORM_BODY_PX,
+    MUTED_GRAY_R,
+    MUTED_GRAY_G,
+    MUTED_GRAY_B,
+    MUTED_BODY_COLOR,
+    MUTED_WAVEFORM_FILL_ALPHA,
+    MIDI_MAX_VALUE,
+    MIDI_VELOCITY_MIN_ALPHA,
+    MIDI_VELOCITY_ALPHA_RANGE,
     OFFLINE_STRIPE_COLOR,
     rgba,
     SELECTION_HIGHLIGHT_COLOR,
+    SMALL_CLIP_THRESHOLD_PX,
+    type WaveformStyle,
 } from './CanvasClipRenderer.constants';
 
 export type { GhostClipData, LoopRegion, TimelineClipData } from './CanvasClipRenderer.types';
@@ -33,7 +67,7 @@ export class CanvasClipRenderer {
 
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
-    private _waveformStyle: 'default' | 'classic' | 'colored' = 'default';
+    private _waveformStyle: WaveformStyle = 'default';
 
     // (removed: _editCursorPlacedMs / _prevEditCursorBeat — replaced by quantized blink P4)
 
@@ -61,16 +95,16 @@ export class CanvasClipRenderer {
         if (cached) return cached;
         const rgb = this._parseColor(hexColor);
         const r = rgb.r, g = rgb.g, b = rgb.b;
-        const dR = Math.max(0, Math.round(r * 0.5)), dG = Math.max(0, Math.round(g * 0.5)), dB = Math.max(0, Math.round(b * 0.5));
-        const bR = Math.max(0, Math.round(r * 0.60)), bG = Math.max(0, Math.round(g * 0.60)), bB = Math.max(0, Math.round(b * 0.60));
+        const dR = Math.max(0, Math.round(r * CLIP_DIVIDER_COLOR_MULTIPLIER)), dG = Math.max(0, Math.round(g * CLIP_DIVIDER_COLOR_MULTIPLIER)), dB = Math.max(0, Math.round(b * CLIP_DIVIDER_COLOR_MULTIPLIER));
+        const bR = Math.max(0, Math.round(r * CLIP_BODY_COLOR_MULTIPLIER)), bG = Math.max(0, Math.round(g * CLIP_BODY_COLOR_MULTIPLIER)), bB = Math.max(0, Math.round(b * CLIP_BODY_COLOR_MULTIPLIER));
         const result = {
-            header: `rgba(${r},${g},${b},0.95)`,
-            divider: `rgba(${dR},${dG},${dB},0.8)`,
-            body: `rgba(${bR},${bG},${bB},0.85)`,
+            header: `rgba(${r},${g},${b},${CLIP_HEADER_ALPHA})`,
+            divider: `rgba(${dR},${dG},${dB},${CLIP_DIVIDER_ALPHA})`,
+            body: `rgba(${bR},${bG},${bB},${CLIP_BODY_ALPHA})`,
             headerBorder: `rgb(${r},${g},${b})`,
             bodyBorder: `rgb(${bR},${bG},${bB})`,
-            bodyDisabled: `rgba(${bR},${bG},${bB},0.85)`,
-            headerDisabled: `rgba(${r},${g},${b},0.95)`,
+            bodyDisabled: `rgba(${bR},${bG},${bB},${CLIP_BODY_ALPHA})`,
+            headerDisabled: `rgba(${r},${g},${b},${CLIP_HEADER_ALPHA})`,
         };
         CanvasClipRenderer._clipColorStringCache.set(hexColor, result);
         return result;
@@ -174,7 +208,7 @@ export class CanvasClipRenderer {
             trackDivider: s.getPropertyValue('--color-border-subtle').trim() || rgba(255, 255, 255, 0.08),
         };
         // BUG-061 FIX: Cache waveformStyle here (max 1x/sec) instead of per-clip in _drawWaveform
-        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic' | 'colored';
+        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as WaveformStyle;
         this._lastThemeSync = now;
     }
 
@@ -270,7 +304,7 @@ export class CanvasClipRenderer {
             const clippedH = clippedBottom - clippedTop;
             if (clippedH <= 0) continue;
             ctx.save();
-            ctx.globalAlpha = (t === selectedTrack) ? 1.0 : 0.55;
+            ctx.globalAlpha = (t === selectedTrack) ? 1.0 : AUTOMATION_DIM_ALPHA;
             ctx.fillStyle = theme.trackSelected;
             ctx.fillRect(0, clippedTop, vp.viewportWidth, clippedH);
             ctx.restore();
@@ -379,7 +413,7 @@ export class CanvasClipRenderer {
         else if (vp.pixelsPerBeat >= 120) markStep = 0.5;
         else if (vp.pixelsPerBeat >= 40) markStep = 1;
 
-        ctx.font = '10px Inter, -apple-system, sans-serif';
+        ctx.font = CLIP_LABEL_FONT;
         ctx.fillStyle = theme.rulerText;
         ctx.textBaseline = 'top';
         ctx.textAlign = 'center';
@@ -577,11 +611,11 @@ export class CanvasClipRenderer {
         // For sub-4px clips, none of that detail is visible. Drawing a single
         // colored fillRect is visually indistinguishable and ~50× faster.
         // ═══════════════════════════════════════════════════════════════════
-        if (w < 4) {
+        if (w < SMALL_CLIP_THRESHOLD_PX) {
             const isTrackDisabled = clip.trackDisabled === true;
             const rgbBase = this._parseColor(clip.color);
             const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
-            const alpha = isTrackDisabled ? 0.25 : (clip.muted ? 0.5 : 0.85);
+            const alpha = isTrackDisabled ? CLIP_DISABLED_ALPHA : (clip.muted ? CLIP_MUTED_ALPHA : CLIP_BODY_ALPHA);
             ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
             ctx.fillRect(x, y, Math.max(px, w), h);
             if (clip.selected) {
@@ -595,11 +629,11 @@ export class CanvasClipRenderer {
 
         const isTrackDisabled = clip.trackDisabled === true;
         if (isTrackDisabled) {
-            ctx.globalAlpha = 0.25;
+            ctx.globalAlpha = CLIP_DISABLED_ALPHA;
         } else if (automationVisible) {
             // BUG-052 FIX: 0.35 was too dim — clips were unreadable.
             // 0.55 keeps automation visible while keeping clip content legible.
-            ctx.globalAlpha = 0.55;
+            ctx.globalAlpha = AUTOMATION_DIM_ALPHA;
         }
 
         // Premium Ableton-style borders and colors
@@ -627,23 +661,23 @@ export class CanvasClipRenderer {
         // PERF #6: Use pre-computed color strings (avoids per-frame rgba() string creation)
         const colorStrings = clip.muted ? null : this._getClipColorStrings(clip.color);
 
-        const headerH = Math.min(HEADER_HEIGHT, h - 2); // SSOT: matches engine's Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2)
+        const headerH = Math.min(HEADER_HEIGHT, h - CLIP_BODY_INSET); // SSOT: matches engine's Math.min(CLIP_HEADER_HEIGHT_PX, trackH - CLIP_BODY_INSET)
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
-        ctx.fillStyle = colorStrings ? colorStrings.header : `rgba(${headerR},${headerG},${headerB},0.95)`;
+        ctx.fillStyle = colorStrings ? colorStrings.header : `rgba(${headerR},${headerG},${headerB},${CLIP_HEADER_ALPHA})`;
         ctx.fillRect(x, y, w, headerH);
 
         // Crisp 1px dark divider
-        ctx.fillStyle = colorStrings ? colorStrings.divider : `rgba(${Math.max(0, Math.round(headerR * 0.5))},${Math.max(0, Math.round(headerG * 0.5))},${Math.max(0, Math.round(headerB * 0.5))},0.8)`;
+        ctx.fillStyle = colorStrings ? colorStrings.divider : `rgba(${Math.max(0, Math.round(headerR * CLIP_DIVIDER_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerG * CLIP_DIVIDER_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerB * CLIP_DIVIDER_COLOR_MULTIPLIER))},${CLIP_DIVIDER_ALPHA})`;
         ctx.fillRect(x, y + headerH, w, 1);
 
         if (h > headerH + 1) {
             // Sleek darker body background
-            ctx.fillStyle = colorStrings ? colorStrings.body : `rgba(${Math.max(0, Math.round(headerR * 0.60))},${Math.max(0, Math.round(headerG * 0.60))},${Math.max(0, Math.round(headerB * 0.60))},0.85)`;
+            ctx.fillStyle = colorStrings ? colorStrings.body : `rgba(${Math.max(0, Math.round(headerR * CLIP_BODY_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerG * CLIP_BODY_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerB * CLIP_BODY_COLOR_MULTIPLIER))},${CLIP_BODY_ALPHA})`;
             ctx.fillRect(x, y + 1 + headerH, w, h - headerH - 1);
         }
 
         if (clip.muted) {
-            ctx.fillStyle = rgba(80, 85, 95, 0.45);
+            ctx.fillStyle = MUTED_BODY_COLOR;
             ctx.fillRect(x, y, w, h);
         }
 
@@ -654,7 +688,7 @@ export class CanvasClipRenderer {
         const bodyY = y + headerH;
         const bodyH = Math.max(0, h - headerH);
 
-        if (bodyH > 8) {
+        if (bodyH > MIN_WAVEFORM_BODY_PX) {
             if (clip.type === 'audio' && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true, x, w);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
@@ -691,7 +725,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeIn,
                 bodyH,
                 'in',
-                clip.fadeInCurve ?? 0.5,
+                clip.fadeInCurve ?? DEFAULT_FADE_CURVE,
                 showFadeUi,
             );
         }
@@ -703,7 +737,7 @@ export class CanvasClipRenderer {
                 w * clip.fadeOut,
                 bodyH,
                 'out',
-                clip.fadeOutCurve ?? 0.5,
+                clip.fadeOutCurve ?? DEFAULT_FADE_CURVE,
                 showFadeUi,
             );
         }
@@ -730,16 +764,16 @@ export class CanvasClipRenderer {
 
         ctx.restore();
 
-        if (showFadeUi && w >= 14 && bodyH >= 10) {
+        if (showFadeUi && w >= MIN_FADE_UI_WIDTH_PX && bodyH >= MIN_FADE_UI_BODY_PX) {
             // ENTERPRISE: Square handles pressed against header bottom
             const handleY = bodyY; // Top of body = bottom of header
             const fadeInWidth = w * Math.max(0, Math.min(1.0, clip.fadeIn ?? 0));
             const fadeOutWidth = w * Math.max(0, Math.min(1.0, clip.fadeOut ?? 0));
-            const leftX = x + Math.max(4, Math.min(w - 4, fadeInWidth));
-            const rightX = x + w - Math.max(4, Math.min(w - 4, fadeOutWidth));
+            const leftX = x + Math.max(FADE_HANDLE_EDGE_PAD, Math.min(w - FADE_HANDLE_EDGE_PAD, fadeInWidth));
+            const rightX = x + w - Math.max(FADE_HANDLE_EDGE_PAD, Math.min(w - FADE_HANDLE_EDGE_PAD, fadeOutWidth));
 
             ctx.save();
-            if (isTrackDisabled) ctx.globalAlpha = 0.25;
+            if (isTrackDisabled) ctx.globalAlpha = CLIP_DISABLED_ALPHA;
             ctx.fillStyle = clip.selected ? rgba(255, 255, 255, 0.98) : rgba(238, 245, 255, 0.9);
             ctx.strokeStyle = rgba(0, 0, 0, 0.65);
             ctx.lineWidth = 1;
@@ -752,18 +786,18 @@ export class CanvasClipRenderer {
             ctx.fillRect(rightX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
             ctx.strokeRect(rightX - FADE_HANDLE_SIZE / 2, handleY, FADE_HANDLE_SIZE, FADE_HANDLE_SIZE);
 
-            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
-            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
-            const bodyBottom = bodyY + bodyH - 2;
+            const curveIn = Math.max(FADE_CURVE_CLAMP_MIN, Math.min(FADE_CURVE_CLAMP_MAX, clip.fadeInCurve ?? DEFAULT_FADE_CURVE));
+            const curveOut = Math.max(FADE_CURVE_CLAMP_MIN, Math.min(FADE_CURVE_CLAMP_MAX, clip.fadeOutCurve ?? DEFAULT_FADE_CURVE));
+            const bodyBottom = bodyY + bodyH - CLIP_BODY_INSET;
 
             if (clip.showFadeInCurvePoint && fadeInWidth > 0) {
                 const pX = x + fadeInWidth * curveIn;
                 const pY = bodyBottom - (bodyH * curveIn);
                 ctx.beginPath();
-                ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = rgba(255, 196, 96, 0.98);
+                ctx.arc(pX, pY, FADE_CURVE_POINT_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = FADE_CURVE_HANDLE_FILL;
                 ctx.fill();
-                ctx.strokeStyle = rgba(0, 0, 0, 0.75);
+                ctx.strokeStyle = FADE_CURVE_HANDLE_STROKE;
                 ctx.stroke();
             }
 
@@ -771,10 +805,10 @@ export class CanvasClipRenderer {
                 const pX = x + w - fadeOutWidth * curveOut;
                 const pY = bodyY + bodyH * curveOut;
                 ctx.beginPath();
-                ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = rgba(255, 196, 96, 0.98);
+                ctx.arc(pX, pY, FADE_CURVE_POINT_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = FADE_CURVE_HANDLE_FILL;
                 ctx.fill();
-                ctx.strokeStyle = rgba(0, 0, 0, 0.75);
+                ctx.strokeStyle = FADE_CURVE_HANDLE_STROKE;
                 ctx.stroke();
             }
             ctx.restore();
@@ -896,7 +930,7 @@ export class CanvasClipRenderer {
             // ENTERPRISE: Colored waveform — use the clip's own color for waveform fill
             const rgb = this._parseColor(clip.color);
             if (muted) {
-                ctx.fillStyle = rgba(120, 120, 120, 0.55);
+                ctx.fillStyle = rgba(MUTED_GRAY_R, MUTED_GRAY_G, MUTED_GRAY_B, MUTED_WAVEFORM_FILL_ALPHA);
             } else {
                 // Bright, saturated version of clip color for the waveform
                 const boost = 40;
@@ -912,7 +946,7 @@ export class CanvasClipRenderer {
         } else {
             // 'default' style — contrast-based black/white
             if (muted) {
-                ctx.fillStyle = rgba(162, 168, 178, 0.62);
+                ctx.fillStyle = rgba(DEFAULT_WAVEFORM_GRAY_R, DEFAULT_WAVEFORM_GRAY_G, DEFAULT_WAVEFORM_GRAY_B, 0.62);
             } else {
                 ctx.fillStyle = contrastColor === 'black'
                     ? rgba(0, 0, 0, 0.62)
@@ -957,7 +991,7 @@ export class CanvasClipRenderer {
         if (this._waveformStyle === 'colored') {
             const rgb = this._parseColor(clip.color);
             ctx.strokeStyle = muted
-                ? rgba(120, 120, 120, 0.25)
+                ? rgba(MUTED_GRAY_R, MUTED_GRAY_G, MUTED_GRAY_B, CLIP_DISABLED_ALPHA)
                 : rgba(rgb.r, rgb.g, rgb.b, 0.3);
         } else if (this._waveformStyle === 'classic') {
             ctx.strokeStyle = muted
@@ -992,7 +1026,7 @@ export class CanvasClipRenderer {
 
         const contrastColor = this._getContrastColorCached(clip.color);
         ctx.fillStyle = muted
-            ? rgba(156, 163, 173, 0.62)
+            ? rgba(DEFAULT_WAVEFORM_GRAY_R, DEFAULT_WAVEFORM_GRAY_G, DEFAULT_WAVEFORM_GRAY_B, 0.62)
             : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));
 
         // PERF #9: Batch notes by velocity bucket (8 buckets → 8 globalAlpha changes
@@ -1005,14 +1039,14 @@ export class CanvasClipRenderer {
             const minVel = bucket * bucketSize;
             const maxVel = minVel + bucketSize - 1;
             const avgVel = (minVel + maxVel) / 2;
-            ctx.globalAlpha = 0.3 + (avgVel / 127) * 0.7;
+            ctx.globalAlpha = MIDI_VELOCITY_MIN_ALPHA + (avgVel / MIDI_MAX_VALUE) * MIDI_VELOCITY_ALPHA_RANGE;
 
             for (const note of clip.midiNotes) {
                 if (note.velocity < minVel || note.velocity > maxVel) continue;
                 const clampedPitch = clampMidiPitch(note.pitch);
                 const noteX = clipX + note.startBeat * ppb;
                 const noteW = Math.max(1, note.durationBeats * ppb);
-                const pitchIndexFromTop = 127 - clampedPitch;
+                const pitchIndexFromTop = MIDI_MAX_VALUE - clampedPitch;
                 const noteY = bodyY + pitchIndexFromTop * midiRowStep;
                 ctx.fillRect(noteX, noteY, noteW, noteH);
             }
@@ -1244,8 +1278,8 @@ export class CanvasClipRenderer {
         this._fadeInCanvas.height = 1;
         const ctxIn = this._fadeInCanvas.getContext('2d')!;
         const gi = ctxIn.createLinearGradient(0, 0, SIZE, 0);
-        gi.addColorStop(0, rgba(0, 0, 0, 0.58));
-        gi.addColorStop(0.55, rgba(0, 0, 0, 0.22));
+        gi.addColorStop(0, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_FULL));
+        gi.addColorStop(0.55, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_MID));
         gi.addColorStop(1, rgba(0, 0, 0, 0));
         ctxIn.fillStyle = gi;
         ctxIn.fillRect(0, 0, SIZE, 1);
@@ -1257,8 +1291,8 @@ export class CanvasClipRenderer {
         const ctxOut = this._fadeOutCanvas.getContext('2d')!;
         const go = ctxOut.createLinearGradient(0, 0, SIZE, 0);
         go.addColorStop(0, rgba(0, 0, 0, 0));
-        go.addColorStop(0.45, rgba(0, 0, 0, 0.22));
-        go.addColorStop(1, rgba(0, 0, 0, 0.58));
+        go.addColorStop(0.45, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_MID));
+        go.addColorStop(1, rgba(0, 0, 0, FADE_GRADIENT_OPACITY_FULL));
         ctxOut.fillStyle = go;
         ctxOut.fillRect(0, 0, SIZE, 1);
     }
@@ -1271,7 +1305,7 @@ export class CanvasClipRenderer {
         isHovered: boolean = true,
     ): void {
         if (w <= 0 || h <= 0) return;
-        const t = Math.max(0.05, Math.min(0.95, curve));
+        const t = Math.max(FADE_CURVE_CLAMP_MIN, Math.min(FADE_CURVE_CLAMP_MAX, curve));
 
         // FADE-VIS: Gradient overlay opacity adapts to hover state.
         const gradientAlpha = isHovered ? 1.0 : 0.55;

@@ -402,12 +402,37 @@ impl PluginHostState {
             slot_map.len(),
             slot_map.as_ref()
         );
-        let host = self
-            .host
-            .lock();
-        let instance_states = host.save_all_states();
+        let mut instance_states = {
+            let host = self.host.lock();
+            host.save_all_states()
+        };
+
+        // ENTERPRISE: Synchronously fetch fresh states from all sandboxed plugins
+        let sandbox_ids: Vec<uuid::Uuid> = self
+            .loaded_sandbox_by_key
+            .lock()
+            .values()
+            .copied()
+            .collect();
+
+        if !sandbox_ids.is_empty() {
+            let mut supervisor = self.sandbox_supervisor.lock();
+            for id in sandbox_ids {
+                // This blocks the GUI thread for up to 500ms per sandbox, enforcing strict synchronous Save Project order
+                match supervisor.request_state_and_wait(id) {
+                    Ok(b64) => {
+                        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64) {
+                            instance_states.insert(id, bytes);
+                            log::info!("[PluginState-Capture] Synchronous sandbox state fetched for {} ({} bytes)", id, b64.len());
+                        }
+                    }
+                    Err(e) => log::error!("[PluginState-Capture] Sandbox sync save failed for {}: {}", id, e),
+                }
+            }
+        }
+
         log::info!(
-            "[PluginState-Capture] save_all_states returned {} instance states",
+            "[PluginState-Capture] Total synced states retrieved: {}",
             instance_states.len()
         );
         for (id, bytes) in &instance_states {
@@ -850,7 +875,7 @@ impl PluginHostState {
             .shared_region_for_instance(instance_id)
             .ok_or_else(|| "Sandbox shared region was not created".to_string())?;
         drop(supervisor);
-        {
+        let (registered_id, param_cache, latency) = {
             let mut host = self.host.lock();
             host.load_vst3_sandboxed(
                 instance_id,
@@ -860,8 +885,15 @@ impl PluginHostState {
                 shared_region.num_outputs,
                 shared_region.max_frames,
             )
-            .map_err(|e| format!("Sandbox plugin bridge registration failed: {e}"))?;
+            .map_err(|e| format!("Sandbox plugin bridge registration failed: {e}"))?
+        };
+
+        {
+            let mut supervisor = self.sandbox_supervisor.lock();
+            supervisor.register_parameter_cache(registered_id, param_cache);
+            supervisor.register_latency_state(registered_id, latency);
         }
+
         self.publish_registry();
         self.loaded_sandbox_by_key
             .lock()

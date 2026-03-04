@@ -39,7 +39,8 @@ pub struct SandboxedPluginInstance {
     /// Transport context snapshot forwarded by the audio engine each render cycle.
     transport: TransportContext,
     /// Plugin-reported latency for host PDC (plugin delay compensation).
-    latency_samples: u32,
+    /// Updated via IPC LatencyChanged events from the daemon.
+    pub latency_samples: Arc<AtomicU32>,
     /// Whether this plugin supports opening a GUI editor window.
     supports_editor: bool,
     request_seq: u32,
@@ -49,6 +50,9 @@ pub struct SandboxedPluginInstance {
     /// The audio thread checks this without taking any lock.
     /// Arc-shared with the supervisor so it can set it from another thread.
     pub is_crashed: Arc<AtomicBool>,
+    /// VST3 ENTERPRISE: Synchronous parameter cache populated by daemon IPC events.
+    /// Allows the UI thread to query knob values without blocking audio thread or waiting on IPC.
+    pub shared_parameters: Arc<std::sync::RwLock<Vec<f64>>>,
     /// LAZARUS PROTOCOL: Bypass ramp counter (smooths audio transition).
     /// When recovering from crash, starts at BYPASS_RAMP_SAMPLES and
     /// counts down to 0. Output is multiplied by (remaining / BYPASS_RAMP_SAMPLES).
@@ -110,11 +114,12 @@ impl SandboxedPluginInstance {
             shared_region,
             active: false,
             transport: TransportContext::default(),
-            latency_samples: 0,
+            latency_samples: Arc::new(AtomicU32::new(0)),
             supports_editor: false,
             request_seq: 0,
             ipc_sender: None,
             is_crashed: Arc::new(AtomicBool::new(false)),
+            shared_parameters: Arc::new(std::sync::RwLock::new(Vec::with_capacity(64))),
             bypass_ramp_remaining: 0,
             was_crashed_last_block: false,
             param_cache: Vec::with_capacity(64),
@@ -229,6 +234,20 @@ impl SandboxedPluginInstance {
             let n = input.len().min(num_frames);
             let _ = self.shared_region.write_input_channel(ch, &input[..n]);
         }
+
+        // VST3 ENTERPRISE: Lock-free Transport Sync (BPM, Timeline) via Shared Memory Padding.
+        // Prevents all VST3 LFOs, arpeggiators, and delays from running "in a vacuum".
+        let inline_transport = crate::shared_memory::InlineTransport {
+            sample_rate: self.transport.sample_rate,
+            bpm: self.transport.bpm,
+            time_sig_num: self.transport.time_sig_num,
+            time_sig_den: self.transport.time_sig_den,
+            playing: if self.transport.playing { 1 } else { 0 },
+            recording: if self.transport.recording { 1 } else { 0 },
+            current_sample_position: self.transport.current_sample_position,
+        };
+        self.shared_region.write_transport(&inline_transport);
+
         self.shared_region
             .set_requested_frames(u32::try_from(num_frames).unwrap_or(u32::MAX));
         self.request_seq = self.request_seq.wrapping_add(1);
@@ -414,7 +433,28 @@ impl PluginInstance for SandboxedPluginInstance {
     }
 
     fn latency_samples(&self) -> u32 {
-        self.latency_samples
+        self.latency_samples.load(Ordering::Relaxed)
+    }
+
+    fn refresh_latency(&mut self) -> bool {
+        // Latency is synced dynamically via IPC `LatencyChanged` from the daemon.
+        // We just return true here so the DAW re-reads `latency_samples()` and rebuilds PDC.
+        true
+    }
+
+    fn parameter_count(&self) -> u32 {
+        self.shared_parameters
+            .read()
+            .ok()
+            .map(|cache| cache.len() as u32)
+            .unwrap_or(0)
+    }
+
+    fn get_parameter(&self, index: u32) -> Option<f64> {
+        self.shared_parameters
+            .read()
+            .ok()
+            .and_then(|cache| cache.get(index as usize).copied())
     }
 
     fn reset(&mut self) {

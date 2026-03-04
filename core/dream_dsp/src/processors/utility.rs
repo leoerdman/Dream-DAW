@@ -59,7 +59,7 @@ impl UtilityProcessor {
             width: 1.0,
             mono: false,
             // ~5ms smoothing derived from actual sample rate
-            smooth_coeff: (-1.0 / (0.005 * sr)).exp(),
+            smooth_coeff: crate::fast_math::fast_exp(-1.0 / (0.005 * sr)),
             sample_rate: sr,
             pan_sm: SmoothedValue::new(sr, 8.0, 0.0),
             width_sm: SmoothedValue::new(sr, 8.0, 1.0),
@@ -89,7 +89,7 @@ impl DspProcessor for UtilityProcessor {
         let sr = sanitize_sample_rate(sample_rate);
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
-            self.smooth_coeff = (-1.0 / (0.005 * sr)).exp();
+            self.smooth_coeff = crate::fast_math::fast_exp(-1.0 / (0.005 * sr));
             self.pan_sm.set_sample_rate(sr);
             self.width_sm.set_sample_rate(sr);
             self.mono_sm.set_sample_rate(sr);

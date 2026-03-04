@@ -74,9 +74,9 @@ impl PedalProcessor {
         let g = 1.0 + drive * 50.0;
         let d = x * g;
         if d >= 0.0 {
-            1.0 - (-d.min(10.0)).exp()
+            1.0 - crate::fast_math::fast_exp(-d.min(10.0))
         } else {
-            -(1.0 - (d.max(-10.0)).exp()) * 0.8
+            -(1.0 - crate::fast_math::fast_exp(d.max(-10.0))) * 0.8
         }
     }
 
@@ -143,8 +143,8 @@ impl DspProcessor for PedalProcessor {
             };
 
             // Tone control: blend LP and HP
-            let lp_c = (1.0 - (-std::f32::consts::TAU * (500.0 + tone * 4000.0) / sr).exp()).clamp(0.0, 1.0);
-            let hp_c = (-std::f32::consts::TAU * (100.0 + (1.0 - tone) * 200.0) / sr).exp();
+            let lp_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * (500.0 + tone * 4000.0) / sr)).clamp(0.0, 1.0);
+            let hp_c = crate::fast_math::fast_exp(-std::f32::consts::TAU * (100.0 + (1.0 - tone) * 200.0) / sr);
             self.lp_l += lp_c * (clip_l - self.lp_l);
             self.lp_r += lp_c * (clip_r - self.lp_r);
             self.hp_out_l = hp_c * (self.hp_out_l + clip_l - self.hp_prev_l);

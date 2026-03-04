@@ -59,6 +59,11 @@ pub enum PluginHostControlMessage {
         /// Base64-encoded plugin state binary.
         state_blob_b64: String,
     },
+    /// VST3 ENTERPRISE: Synchronously request plugin state and block until daemon
+    /// responds with `StateSaved`. Eliminates the 5-second async race condition when saving.
+    SaveStateAndWait {
+        instance_id: Uuid,
+    },
     Shutdown,
 }
 
@@ -109,5 +114,30 @@ pub enum PluginHostEventMessage {
         instance_id: Uuid,
         /// Base64-encoded plugin state binary.
         state_blob_b64: String,
+    },
+    /// Emitted when a plugin parameter changes from the daemon's GUI thread (e.g. knob tweak).
+    /// Used by DAW to update automation lanes and UI sliders.
+    ParameterChanged {
+        instance_id: Uuid,
+        index: u32,
+        value: f64,
+    },
+    /// Emitted after a plugin GUI tweak marks the state as dirty.
+    /// Triggers the DAW's "Modified Project" asterisk (`*`).
+    StateDirty {
+        instance_id: Uuid,
+    },
+    /// Emitted once upon load to populate the host's `ParameterCache`.
+    /// `initial_values` contains up to `count` tuples of `(index, value)`.
+    ParameterLayout {
+        instance_id: Uuid,
+        count: u32,
+        initial_values: Vec<(u32, f64)>,
+    },
+    /// Emitted when the plugin dynamically changes its latency (e.g. phase mode switch).
+    /// Triggers the DAW to rebuild its Plugin Delay Compensation (PDC) graph.
+    LatencyChanged {
+        instance_id: Uuid,
+        latency_samples: u32,
     },
 }

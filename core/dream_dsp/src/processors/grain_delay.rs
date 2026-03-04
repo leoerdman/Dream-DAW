@@ -28,7 +28,7 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::smoothing::SmoothedValue;
 use crate::processors::sanitize_sample_rate;
 
-const GRAIN_BUF_SIZE: usize = 131072; // ~3 seconds at 44.1kHz
+const GRAIN_BUF_SIZE: usize = 1048576; // Accommodates 2.7 seconds at 384kHz
 const GRAIN_BUF_MASK: usize = GRAIN_BUF_SIZE - 1;
 const MAX_GRAINS: usize = 8;
 

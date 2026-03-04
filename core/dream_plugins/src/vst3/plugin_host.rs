@@ -146,7 +146,14 @@ impl PluginHost {
         num_inputs: u16,
         num_outputs: u16,
         max_frames: u32,
-    ) -> Result<Uuid, PluginError> {
+    ) -> Result<
+        (
+            Uuid,
+            std::sync::Arc<std::sync::RwLock<Vec<f64>>>,
+            std::sync::Arc<std::sync::atomic::AtomicU32>,
+        ),
+        PluginError,
+    > {
         let mut instance = SandboxedPluginInstance::create(
             instance_id,
             descriptor,
@@ -156,6 +163,10 @@ impl PluginHost {
             max_frames,
         )?;
         instance.activate(self.sample_rate, self.buffer_size)?;
+        
+        let shared_parameters = instance.shared_parameters.clone();
+        let latency_samples = instance.latency_samples.clone();
+        
         let id = instance.id();
         info!("[PluginHost] Registered sandboxed instance: {}", id);
         self.instances
@@ -163,7 +174,7 @@ impl PluginHost {
                 instance,
             ))));
         self.instance_index.insert(id, self.instances.len() - 1);
-        Ok(id)
+        Ok((id, shared_parameters, latency_samples))
     }
 
     /// Returns a mutable reference to a plugin instance by its ID.

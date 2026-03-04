@@ -370,18 +370,43 @@ pub fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
 
 // ── Broad Track Value Parsers (ALS import compatibility) ──────────────
 
-/// Broad descendant-search bool parser for ALS import.
-/// Searches direct child `<Tag Value="...">` first, then any descendant.
-/// Use this for ALS import where XML structure varies across versions.
-pub fn parse_track_bool_flag_broad(
-    track_node: roxmltree::Node<'_, '_>,
+/// Optimized BFS to find a tag within a track while pruning heavy subtrees 
+/// (Clips, Devices, Automation) to prevent O(N^2) traversal hangs.
+pub fn find_tag_in_track<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
     tag: &str,
-) -> Option<bool> {
+) -> Option<roxmltree::Node<'a, 'input>> {
+    let mut queue = vec![node];
+    let mut depth = 0;
+    while !queue.is_empty() && depth < 5 { // Unlikely to be deeper than 4-5
+        let mut next_queue = Vec::new();
+        for n in queue {
+            if n.is_element() && n.has_tag_name(tag) {
+                return Some(n);
+            }
+            for child in n.children().filter(|c| c.is_element()) {
+                let name = child.tag_name().name();
+                // Prune dense/large subtrees to guarantee O(1) performance per track property lookup
+                if name == "ArrangementClips" || name == "ClipSlotList" 
+                    || name == "Devices" || name == "AutomationEnvelopes" 
+                    || name == "MainSequencer"
+                {
+                    continue;
+                }
+                next_queue.push(child);
+            }
+        }
+        queue = next_queue;
+        depth += 1;
+    }
+    None
+}
+
+/// Broad descendant-search bool parser for ALS import.
+pub fn parse_track_bool_flag_broad(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     node_child_value(track_node, tag)
         .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name(tag))
+            find_tag_in_track(track_node, tag)
                 .and_then(|n| n.attribute("Value"))
                 .map(ToString::to_string)
         })
@@ -393,9 +418,7 @@ pub fn parse_track_bool_flag_broad(
 pub fn parse_track_key_note_target_broad(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
     node_child_value(track_node, "KeyNoteTarget")
         .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("KeyNoteTarget"))
+            find_tag_in_track(track_node, "KeyNoteTarget")
                 .and_then(|n| n.attribute("Value"))
                 .map(ToString::to_string)
         })
@@ -406,9 +429,7 @@ pub fn parse_track_key_note_target_broad(track_node: roxmltree::Node<'_, '_>) ->
 
 /// Broad descendant-search i64 parser for ALS import.
 pub fn parse_track_i64_value_broad(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
-    let node_found = track_node
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name(tag));
+    let node_found = find_tag_in_track(track_node, tag);
 
     let Some(n) = node_found else { return None; };
 

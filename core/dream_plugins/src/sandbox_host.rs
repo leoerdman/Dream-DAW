@@ -47,6 +47,8 @@ struct PluginSandboxInstance {
     last_known_state_blob: Option<String>,
     /// Tick counter for periodic state save requests.
     ticks_since_last_save: u32,
+    /// VST3 ENTERPRISE: Buffer for IPC events received while blocking for synchronous save.
+    pending_events: Vec<PluginHostEventMessage>,
 }
 
 impl Drop for PluginSandboxInstance {
@@ -82,6 +84,12 @@ pub struct PluginSandboxSupervisor {
     /// The supervisor sets these on crash (true) and recovery (false).
     /// The audio thread reads them lock-free via `Relaxed` ordering.
     crash_flags: HashMap<Uuid, Arc<AtomicBool>>,
+    /// VST3 ENTERPRISE: Parameter caches wired to `SandboxedPluginInstance`.
+    /// Updated dynamically from `ParameterLayout` and `ParameterChanged` events.
+    parameter_caches: HashMap<Uuid, Arc<std::sync::RwLock<Vec<f64>>>>,
+    /// VST3 ENTERPRISE: Shared latency reported by the plugin.
+    /// Updated dynamically from `LatencyChanged` events.
+    latency_samples: HashMap<Uuid, Arc<AtomicU32>>,
 }
 
 impl PluginSandboxSupervisor {
@@ -196,6 +204,8 @@ impl PluginSandboxSupervisor {
             crash_events: Vec::new(),
             recovery_events: Vec::new(),
             crash_flags: HashMap::new(),
+            parameter_caches: HashMap::new(),
+            latency_samples: HashMap::new(),
         }
     }
 
@@ -204,6 +214,20 @@ impl PluginSandboxSupervisor {
     /// so the supervisor can signal crash/recovery to the audio thread without locks.
     pub fn register_crash_flag(&mut self, instance_id: Uuid, flag: Arc<AtomicBool>) {
         self.crash_flags.insert(instance_id, flag);
+    }
+
+    /// VST3 ENTERPRISE: Register a shared parameter cache for synchronous DAW reads.
+    pub fn register_parameter_cache(
+        &mut self,
+        instance_id: Uuid,
+        cache: Arc<std::sync::RwLock<Vec<f64>>>,
+    ) {
+        self.parameter_caches.insert(instance_id, cache);
+    }
+
+    /// VST3 ENTERPRISE: Register shared latency state for synchronized Delay Compensation.
+    pub fn register_latency_state(&mut self, instance_id: Uuid, latency: Arc<AtomicU32>) {
+        self.latency_samples.insert(instance_id, latency);
     }
 
     /// LAZARUS PROTOCOL: Signal crash state via the shared atomic flag.
@@ -316,6 +340,7 @@ impl PluginSandboxSupervisor {
                 spawned_at: SystemTime::now(),
                 last_known_state_blob: None,
                 ticks_since_last_save: 0,
+                pending_events: Vec::new(),
             },
         );
         if let Some(inst) = self.instances.get_mut(&instance_id) {
@@ -371,9 +396,21 @@ impl PluginSandboxSupervisor {
                 }
             }
             if let Some(rx) = instance.event_rx.as_ref() {
+                // Drain pending events that arrived during synchronous blocking calls
+                let mut events_to_process = std::mem::take(&mut instance.pending_events);
                 loop {
                     match rx.try_recv() {
-                        Ok(evt) => match evt {
+                        Ok(evt) => events_to_process.push(evt),
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => {
+                            // The process check below will handle the crash
+                            break;
+                        }
+                    }
+                }
+                
+                for evt in events_to_process {
+                    match evt {
                             PluginHostEventMessage::Ready { .. } => {
                                 let should_emit_recovery =
                                     !matches!(instance.status, PluginSandboxStatus::Running)
@@ -427,6 +464,38 @@ impl PluginSandboxSupervisor {
                             PluginHostEventMessage::Loaded { .. }
                             | PluginHostEventMessage::EditorOpened { .. }
                             | PluginHostEventMessage::EditorClosed { .. } => {}
+                            PluginHostEventMessage::ParameterLayout { count, initial_values, .. } => {
+                                if let Some(cache) = self.parameter_caches.get(id)
+                                    && let Ok(mut lock) = cache.write()
+                                {
+                                    lock.clear();
+                                    lock.resize(count as usize, Default::default());
+                                    // Set the values that exist
+                                    for (idx, val) in initial_values {
+                                        if (idx as usize) < lock.len() {
+                                            lock[idx as usize] = val;
+                                        }
+                                    }
+                                }
+                            }
+                            PluginHostEventMessage::ParameterChanged { index, value, .. } => {
+                                if let Some(cache) = self.parameter_caches.get(id)
+                                    && let Ok(mut lock) = cache.write()
+                                {
+                                    if (index as usize) < lock.len() {
+                                        lock[index as usize] = value;
+                                    }
+                                }
+                            }
+                            PluginHostEventMessage::LatencyChanged { latency_samples, .. } => {
+                                if let Some(latency) = self.latency_samples.get(id) {
+                                    latency.store(latency_samples, Ordering::Release);
+                                }
+                            }
+                            PluginHostEventMessage::StateDirty { .. } => {
+                                // Trigger the global AST asterisk symbol in the DAW title bar.
+                                crate::vst3::host_objects::set_plugin_state_dirty(true);
+                            }
                             PluginHostEventMessage::StateSaved { state_blob_b64, .. } => {
                                 instance.last_known_state_blob = Some(state_blob_b64);
                                 log::info!(
@@ -438,9 +507,7 @@ impl PluginSandboxSupervisor {
                                         .map_or(0, |b| b.len())
                                 );
                             }
-                        },
-                        Err(TryRecvError::Empty) => break,
-                        Err(TryRecvError::Disconnected) => break,
+                        }
                     }
                 }
             }
@@ -872,6 +939,65 @@ impl PluginSandboxSupervisor {
             stdin,
             &PluginHostControlMessage::CloseEditor { instance_id },
         )
+    }
+
+    /// ENTERPRISE: Synchronous state fetch for project saving.
+    /// Sends SaveStateAndWait, then blocks the calling thread (up to 500ms) until StateSaved is received.
+    /// Any other IPC events received during this block are queued into `pending_events`.
+    pub fn request_state_and_wait(
+        &mut self,
+        instance_id: Uuid,
+    ) -> Result<String, PluginError> {
+        let timeout = Duration::from_millis(500);
+        let start = std::time::Instant::now();
+
+        {
+            let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+                PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+            })?;
+
+            let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
+                PluginError::InvalidState("Sandbox control pipe is not available".to_string())
+            })?;
+
+            Self::send_control_message(
+                stdin,
+                &PluginHostControlMessage::SaveStateAndWait { instance_id },
+            )?;
+        }
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(PluginError::ProcessError(
+                    "Timeout waiting for synchronous state save from daemon".to_string(),
+                ));
+            }
+
+            let instance = self.instances.get_mut(&instance_id).unwrap();
+            let rx = instance.event_rx.as_ref().ok_or_else(|| {
+                PluginError::InvalidState("Sandbox event pipe is not available".to_string())
+            })?;
+
+            match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(PluginHostEventMessage::StateSaved { state_blob_b64, .. }) => {
+                    instance.last_known_state_blob = Some(state_blob_b64.clone());
+                    return Ok(state_blob_b64);
+                }
+                Ok(other_event) => {
+                    // Queue background events like ParameterChanged so they aren't dropped
+                    instance.pending_events.push(other_event);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Keep waiting until total timeout
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(PluginError::ProcessError(
+                        "Sandbox daemon disconnected while waiting for save state".to_string(),
+                    ));
+                }
+            }
+        }
     }
 }
 

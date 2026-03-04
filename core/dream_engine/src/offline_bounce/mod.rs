@@ -200,11 +200,9 @@ impl OfflineRenderer {
             dream_models::project::DeviceNode::Rack(rack) => {
                 let rack_bypassed = parent_bypassed || rack.is_bypassed;
                 let has_solo = rack.chains.iter().any(|c| c.is_solo);
-                if let Some(chain) = if has_solo {
-                    rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-                } else {
-                    rack.chains.iter().find(|c| !c.is_disabled)
-                } {
+                for chain in &rack.chains {
+                    if chain.is_disabled { continue; }
+                    if has_solo && !chain.is_solo { continue; }
                     for child in &chain.devices {
                         Self::collect_declared_external_slot_ids(child, rack_bypassed, out);
                     }
@@ -361,11 +359,9 @@ impl OfflineRenderer {
                 dream_models::project::DeviceNode::Rack(rack) => {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
                     let has_solo = rack.chains.iter().any(|c| c.is_solo);
-                    if let Some(chain) = if has_solo {
-                        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-                    } else {
-                        rack.chains.iter().find(|c| !c.is_disabled)
-                    } {
+                    for chain in &rack.chains {
+                        if chain.is_disabled { continue; }
+                        if has_solo && !chain.is_solo { continue; }
                         Self::collect_internal_slots(&chain.devices, rack_bypassed, out);
                     }
                 }
@@ -543,12 +539,9 @@ impl OfflineRenderer {
             dream_models::project::DeviceNode::Rack(rack) => {
                 let rack_bypassed = parent_bypassed || rack.is_bypassed;
                 let has_solo = rack.chains.iter().any(|c| c.is_solo);
-                let selected = if has_solo {
-                    rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
-                } else {
-                    rack.chains.iter().find(|c| !c.is_disabled)
-                };
-                if let Some(chain) = selected {
+                for chain in &rack.chains {
+                    if chain.is_disabled { continue; }
+                    if has_solo && !chain.is_solo { continue; }
                     for n in &chain.devices {
                         Self::collect_sidechain_sources_from_node(n, project, rack_bypassed, out);
                     }

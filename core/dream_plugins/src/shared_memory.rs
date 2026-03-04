@@ -47,7 +47,11 @@ pub const HEADER_REQUEST_SEQ_OFFSET: usize = 8;
 pub const HEADER_PROCESSED_SEQ_OFFSET: usize = 12;
 pub const HEADER_MIDI_COUNT_OFFSET: usize = 16;
 pub const HEADER_MIDI_DATA_OFFSET: usize = 20;
-pub const HEADER_TOTAL_BYTES: usize = 64;
+
+// VST3 ENTERPRISE: Added 36 bytes for TransportContext (BPM, playhead, state).
+// Requires 128-byte total header to maintain alignment padding.
+pub const HEADER_TRANSPORT_OFFSET: usize = 52;
+pub const HEADER_TOTAL_BYTES: usize = 128;
 
 /// Maximum number of MIDI events that fit in the shared header.
 /// Each event = 8 bytes: (i32 sample_offset, u8 channel, [u8; 3] data).
@@ -63,6 +67,20 @@ pub struct InlineMidiEvent {
     pub sample_offset: i32,
     pub channel: u8,
     pub data: [u8; 3],
+}
+
+/// Compact Transport Context for shared-memory transport.
+/// Represents the DAW's timeline state required for tempo-synced FX.
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct InlineTransport {
+    pub sample_rate: f64,
+    pub bpm: f64,
+    pub time_sig_num: i32,
+    pub time_sig_den: i32,
+    pub playing: i32, // 0 = false, 1 = true
+    pub recording: i32, // 0 = false, 1 = true
+    pub current_sample_position: i64,
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────
@@ -280,6 +298,41 @@ impl SharedAudioBufferRegion {
     pub fn read_midi_events(&self) -> &[InlineMidiEvent] {
         let count = self.read_u32_raw(HEADER_MIDI_COUNT_OFFSET) as usize;
         let count = count.min(MAX_INLINE_MIDI_EVENTS);
+        if count == 0 {
+            return &[];
+        }
+        let bytes_len = count * MIDI_EVENT_STRIDE;
+        let end = HEADER_MIDI_DATA_OFFSET + bytes_len;
+        if end > self.mmap.len() {
+            return &[];
+        }
+        bytemuck::cast_slice(&self.mmap[HEADER_MIDI_DATA_OFFSET..end])
+    }
+
+    /// Clears the MIDI event count (call after daemon has consumed events).
+    pub fn clear_midi_events(&mut self) {
+        self.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, 0);
+    }
+
+    // ── Transport Context (zero-allocation RT-safe) ─────────────────────
+
+    pub fn write_transport(&mut self, transport: &InlineTransport) {
+        let bytes = bytemuck::bytes_of(transport);
+        let end = HEADER_TRANSPORT_OFFSET + bytes.len();
+        if end <= self.mmap.len() {
+            self.mmap[HEADER_TRANSPORT_OFFSET..end].copy_from_slice(bytes);
+        }
+    }
+
+    pub fn read_transport(&self) -> Option<InlineTransport> {
+        let bytes_len = std::mem::size_of::<InlineTransport>();
+        let end = HEADER_TRANSPORT_OFFSET + bytes_len;
+        if end > self.mmap.len() {
+            return None;
+        }
+        let bytes = &self.mmap[HEADER_TRANSPORT_OFFSET..end];
+        Some(*bytemuck::from_bytes::<InlineTransport>(bytes))
+    }
         if count == 0 {
             return &[];
         }

@@ -1,5 +1,5 @@
 use dream_models::midi::SamplerConfig;
-use dream_models::project::{Project, Track, TrackType};
+use dream_models::project::{Project, Track, TrackType, ClipSlot, TrackRouting};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -398,10 +398,18 @@ pub fn import_als_project_with_target_sample_rate(
         if let Some(height_val) = parse_track_i64_value(track_node, "TrackHeight")
             .or_else(|| parse_track_i64_value(track_node, "LaneHeight"))
         {
-            let h = (height_val as f64).clamp(20.0, 500.0);
-            track.height = h;
+            track.height = height_val as f64;
         }
 
+        // ── Phase 5: Routing & Session Slots ───────────────────────────
+        track.audio_input_routing = parse_routing(track_node, "AudioInputRouting");
+        track.audio_output_routing = parse_routing(track_node, "AudioOutputRouting");
+        track.midi_input_routing = parse_routing(track_node, "MidiInputRouting");
+        track.midi_output_routing = parse_routing(track_node, "MidiOutputRouting");
+        track.linked_track_group_id = parse_track_i64_value(track_node, "LinkedTrackGroupId").map(|v| v as i32);
+        track.clip_slots = parse_clip_slots(track_node);
+
+        // ── Component 5: Automation Parsing ───────────────────────────
         if track_type == TrackType::Midi {
             if let Some(v) = parse_track_i64_value(track_node, "PitchbendRange") {
                 static_mixer_values.push(("midi.pitchbend_range".to_string(), v as f64));
@@ -728,6 +736,62 @@ pub fn import_als_project_with_target_sample_rate(
     }
 
     Ok(project)
+}
+
+// ── Phase 5 Helpers ────────────────────────────────────────────────────
+
+fn parse_routing(track_node: roxmltree::Node<'_, '_>, tag_name: &str) -> Option<TrackRouting> {
+    let routing_node = track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name(tag_name))?;
+
+    let target = node_child_value(routing_node, "Target").unwrap_or_default();
+    let upper = node_child_value(routing_node, "UpperDisplayString").unwrap_or_default();
+    let lower = node_child_value(routing_node, "LowerDisplayString").unwrap_or_default();
+
+    if target.is_empty() {
+        return None;
+    }
+
+    Some(TrackRouting {
+        target,
+        upper_display: upper,
+        lower_display: lower,
+    })
+}
+
+fn parse_clip_slots(track_node: roxmltree::Node<'_, '_>) -> Vec<ClipSlot> {
+    let mut slots = Vec::new();
+    let Some(device_chain) = track_node.children().find(|n| n.is_element() && n.has_tag_name("DeviceChain")) else {
+        return slots;
+    };
+    let Some(clip_slot_list) = device_chain.children().find(|n| n.is_element() && n.has_tag_name("ClipSlotList")) else {
+        return slots;
+    };
+
+    for (index, slot_node) in clip_slot_list.children().filter(|n| n.is_element() && n.has_tag_name("ClipSlot")).enumerate() {
+        // Value clip slots are stored in a ClipSlot node
+        let has_clip = node_child_value(slot_node, "HasClip")
+            .as_deref()
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+
+        let name = node_child_value(slot_node, "Name")
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "".to_string());
+        
+        // Ableton colors its slots
+        let color = extract_ableton_color_index(slot_node)
+            .map(|idx| ableton_color_to_track_color(idx, index));
+
+        slots.push(ClipSlot {
+            index: index as i32,
+            has_clip,
+            name,
+            color,
+        });
+    }
+    slots
 }
 
 // #[cfg(test)]

@@ -172,7 +172,7 @@ impl AutoFilterProcessor {
             }
             _ => {
                 // 0 (Sine) or any unknown: fast Bhaskara approximation
-                crate::fast_math::fast_sin(phase)
+                crate::processors::fast_sin_phase(phase)
             }
         }
     }

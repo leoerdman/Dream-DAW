@@ -28,7 +28,7 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::smoothing::SmoothedValue;
 use crate::processors::sanitize_sample_rate;
 
-const FD_BUF_SIZE: usize = 131072;
+const FD_BUF_SIZE: usize = 1048576;
 const FD_BUF_MASK: usize = FD_BUF_SIZE - 1;
 
 struct DelayTap {

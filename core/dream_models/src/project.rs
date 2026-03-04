@@ -67,6 +67,25 @@ pub struct ClipGrid {
     pub fixed: bool,
 }
 
+/// Routing target information for a track's audio or MIDI input/output.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TrackRouting {
+    pub target: String,
+    pub upper_display: String,
+    pub lower_display: String,
+}
+
+/// A clip slot in the Session View matrix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ClipSlot {
+    pub index: i32,
+    pub has_clip: bool,
+    pub name: String,
+    pub color: Option<TrackColor>,
+}
+
 /// A Session scene imported from ALS `<Scenes>`.
 ///
 /// Stores scene metadata needed for future Session View parity and relaunch.
@@ -1581,6 +1600,31 @@ pub struct Track {
     /// Mixer pan mode (0 = stereo balance, 6 = split stereo).
     #[serde(default)]
     pub pan_mode: i32,
+
+    // ── Phase 5 additions ─────────────────────────────────────────────
+    /// Audio input routing.
+    #[serde(default)]
+    pub audio_input_routing: Option<TrackRouting>,
+
+    /// Audio output routing.
+    #[serde(default)]
+    pub audio_output_routing: Option<TrackRouting>,
+
+    /// MIDI input routing.
+    #[serde(default)]
+    pub midi_input_routing: Option<TrackRouting>,
+
+    /// MIDI output routing.
+    #[serde(default)]
+    pub midi_output_routing: Option<TrackRouting>,
+
+    /// Linked track group for multi-selection editing.
+    #[serde(default)]
+    pub linked_track_group_id: Option<i32>,
+
+    /// Session View clip slots.
+    #[serde(default)]
+    pub clip_slots: Vec<ClipSlot>,
 }
 
 impl Track {
@@ -1613,6 +1657,14 @@ impl Track {
             flow_synth: None,
             automation_lanes: Vec::new(),
             pan_mode: 0,
+            
+            // Phase 5 additions defaulting to empty
+            audio_input_routing: None,
+            audio_output_routing: None,
+            midi_input_routing: None,
+            midi_output_routing: None,
+            linked_track_group_id: None,
+            clip_slots: Vec::new(),
         }
     }
 

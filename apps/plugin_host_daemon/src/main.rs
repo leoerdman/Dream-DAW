@@ -323,7 +323,28 @@ fn main() {
                                         }
                                         let latency = inst.latency_samples();
                                         let editor = inst.supports_editor();
+                                        
+                                        // ENTERPRISE: Extract initial parameter layout
+                                        let count = inst.parameter_count();
+                                        let mut initial_values = Vec::with_capacity(count as usize);
+                                        for idx in 0..count {
+                                            if let Some(val) = inst.get_parameter(idx) {
+                                                initial_values.push((idx, val));
+                                            }
+                                        }
+
                                         vacant.insert(Box::new(inst));
+
+                                        // Send Layout
+                                        let layout_evt = PluginHostEventMessage::ParameterLayout {
+                                            instance_id,
+                                            count,
+                                            initial_values,
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&layout_evt) {
+                                            println!("{json}");
+                                        }
+
                                         let evt = PluginHostEventMessage::Loaded {
                                             instance_id,
                                             latency_samples: latency,
@@ -573,6 +594,48 @@ fn main() {
 
             // Process through plugin or passthrough.
             if let Some(plugin) = loaded_instances.get_mut(&daemon_instance_id) {
+                // Read lock-free transport block synced from UI thread
+                let transport = region.read_transport();
+                plugin.set_transport_context(transport);
+
+                // ENTERPRISE: Sync GUI Parameter Edits to DSP & sent them Host
+                if dream_plugins::vst3_host::take_param_values_changed() {
+                    dream_plugins::vst3_host::drain_gui_param_edits(|param_id, value| {
+                        if let Err(e) = plugin.set_parameter(param_id, value) {
+                            log::warn!("[plugin_host_daemon] set_parameter failed: {}", e);
+                        }
+                        let evt = PluginHostEventMessage::ParameterChanged {
+                            instance_id: daemon_instance_id,
+                            index: param_id,
+                            value,
+                        };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                    });
+                }
+
+                // ENTERPRISE: Sync Asterisk dirty state
+                if dream_plugins::vst3_host::take_plugin_state_dirty() {
+                    let evt = PluginHostEventMessage::StateDirty {
+                        instance_id: daemon_instance_id,
+                    };
+                    if let Ok(json) = serde_json::to_string(&evt) {
+                        println!("{json}");
+                    }
+                }
+
+                // ENTERPRISE: Sync Latency changes for Delay Compensation graph rebuilds
+                if dream_plugins::vst3_host::take_latency_changed() {
+                    let evt = PluginHostEventMessage::LatencyChanged {
+                        instance_id: daemon_instance_id,
+                        latency_samples: plugin.latency_samples(),
+                    };
+                    if let Ok(json) = serde_json::to_string(&evt) {
+                        println!("{json}");
+                    }
+                }
+
                 process_audio_block(
                     region,
                     plugin.as_mut(),

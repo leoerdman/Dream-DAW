@@ -70,14 +70,22 @@ fn sync_flow_graph_cmd(
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct FlowSynthDeltaResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
 #[tauri::command]
 fn save_flow_synth_config_cmd(
     track_index: u16,
     config_json: String,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
-) -> Result<super::DeltaMutationResponse, String> {
+    app: tauri::AppHandle,
+) -> Result<FlowSynthDeltaResponse, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    
+    push_undo(&project_state)?;
     
     let config: dream_models::project::FlowSynthConfig = serde_json::from_str(&config_json)
         .map_err(|e| format!("Invalid FlowSynthConfig JSON: {}", e))?;
@@ -87,24 +95,20 @@ fn save_flow_synth_config_cmd(
         config: Some(config),
     };
     
-    let deltas = project_state
-        .orchestrator
-        .execute_and_push_undo(
-            cmd,
-            &project_state.project_id.to_string(),
-            |res| {
-                vec![dream_models::delta::ProjectDelta::TrackFlowSynthConfigChanged {
-                    track_id: res.track_id,
-                    config: res.config,
-                }]
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let _ = project_state.mark_dirty(&project_state.project_id.to_string(), None);
-    project_state.broadcast_deltas(deltas.clone());
+    let project_name = {
+        let project = project_state.project.lock().map_err(|_| "Application state error.".to_string())?;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
     
-    Ok(super::DeltaMutationResponse { deltas })
+    Ok(FlowSynthDeltaResponse { 
+        deltas: vec![dream_models::delta::ProjectDelta::TrackFlowSynthConfigChanged {
+            track_id: result.track_id,
+            config: result.config,
+        }]
+    })
 }
 
 #[tauri::command]

@@ -955,3 +955,33 @@ useEngineStore.subscribe((state) => {
     }
 });
 
+// Subscribe to global Undo/Redo track config changes. 
+// When the Orchestrator pops an undo delta, it patches `track.flow_synth` in `useEngineStore`.
+// We need to reflect that in `useFlowSynthStore` if the track is active.
+let _prevFlowSynthConfigObj: unknown = null;
+useEngineStore.subscribe((state) => {
+    const activeTrackId = useFlowSynthStore.getState().activeTrackId;
+    if (!activeTrackId) return;
+    const track = state.tracks.byId[activeTrackId];
+    if (!track) return;
+
+    // Check if the object reference changed (Zustand updates it on Delta patch)
+    const currentConfig = track.flow_synth;
+    if (currentConfig === _prevFlowSynthConfigObj) return;
+    _prevFlowSynthConfigObj = currentConfig;
+
+    if (currentConfig) {
+        useFlowSynthStore.setState((s) => ({
+            nodes: (currentConfig.nodes as unknown as SynthNode[]) || s.nodes,
+            connections: (currentConfig.connections as unknown as SynthConnection[]) || s.connections,
+        }));
+    } else {
+        // Fallback to default if config was wiped
+        const defaultGraph = cloneDefaultGraph();
+        useFlowSynthStore.setState({
+            nodes: defaultGraph.nodes,
+            connections: defaultGraph.connections,
+        });
+    }
+});
+

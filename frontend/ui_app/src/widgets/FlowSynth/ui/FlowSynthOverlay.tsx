@@ -3,7 +3,6 @@ import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { FlowCanvas } from './FlowCanvas';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
-import { flowUndo, flowRedo, resetFlowUndoRedo } from '../model/flowUndoRedo';
 import { FACTORY_PRESETS } from '../model/flowPresets';
 
 // ── Floating Preset Bar (sits above the canvas, top-right) ────────────

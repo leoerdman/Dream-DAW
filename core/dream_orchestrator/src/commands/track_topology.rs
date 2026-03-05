@@ -132,6 +132,13 @@ impl Command for UngroupTrackCommand {
 
         project.tracks.remove(group_index);
 
+        // SIDECHAIN-UNGROUP-FIX: Clean up dangling references (routing,
+        // parenting, sidechain_source_track_id) from the removed group track.
+        // Without this, plugins pointing at the group's UUID as a sidechain
+        // source would retain zombie refs — causing silent SC dropout and
+        // stale UI assignments.
+        super::track_delete::detach_removed_track_references(&mut project, self.group_id);
+
         Ok(UngroupTrackResult {
             removed_index: group_index,
             reassigned_children,

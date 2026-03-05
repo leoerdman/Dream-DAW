@@ -33,6 +33,15 @@ async fn undo_cmd(
     let project_name = project.name.clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
+    // SIDECHAIN-UNDO-FIX: Rebuild ExternalFX snapshot immediately after full
+    // snapshot rebuild. Previously this was missing, leaving the audio thread
+    // with stale sidechain_track_index and sidechain_send_mode for up to 500ms
+    // (until the background safety net caught up). After undo, the project
+    // topology may have completely different sidechain assignments.
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
@@ -71,6 +80,11 @@ async fn undo_with_deltas_cmd(
     let project_name = project.name.clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
+    // SIDECHAIN-UNDO-FIX: (deltas variant)
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
@@ -126,6 +140,11 @@ async fn redo_cmd(
     let project_name = project.name.clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
+    // SIDECHAIN-REDO-FIX: Rebuild ExternalFX snapshot immediately.
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
@@ -164,6 +183,11 @@ async fn redo_with_deltas_cmd(
     let project_name = project.name.clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
+    // SIDECHAIN-REDO-FIX: (deltas variant)
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);

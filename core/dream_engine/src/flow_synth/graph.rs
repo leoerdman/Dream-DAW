@@ -557,6 +557,8 @@ mod tests {
         let mut g = FlowGraph::new();
         g.add_node(1, "audioIn");
         g.add_node(2, "output");
+        // Set gain to 1.0 for exact pass-through validation (default is 0.8)
+        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         g.set_audio_in_sample(0.37);
@@ -665,4 +667,40 @@ mod tests {
         let off_tail = off.iter().rev().take(128).map(|v| v.abs()).sum::<f32>() / 128.0;
         assert!(off_tail < 0.04, "expected envelope to release after gate off, tail={off_tail}");
     }
+
+    #[test]
+    fn output_node_muted_produces_silence() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "output");
+        g.set_node_params(2, &[("muted".to_string(), "true".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
+        assert!(peak < 0.0001, "expected silence when output is muted, got peak={peak}");
+    }
+
+    #[test]
+    fn output_node_gain_scales_level() {
+        let mut full = FlowGraph::new();
+        full.add_node(1, "oscillator");
+        full.add_node(2, "output");
+        full.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        full.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let mut half = FlowGraph::new();
+        half.add_node(1, "oscillator");
+        half.add_node(2, "output");
+        half.set_node_params(2, &[("gain".to_string(), "0.5".to_string())]);
+        half.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let full_out = render(&mut full, 44_100.0, 512);
+        let half_out = render(&mut half, 44_100.0, 512);
+        let full_rms = rms(&full_out);
+        let half_rms = rms(&half_out);
+        assert!(half_rms < full_rms * 0.65,
+            "expected half gain to be significantly quieter: full_rms={full_rms}, half_rms={half_rms}");
+    }
 }
+

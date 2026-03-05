@@ -88,7 +88,7 @@ function PortDot({
             : 'var(--color-signal-control)';
 
     // ENTERPRISE: All ports are filled circles, differentiated only by color per signal type
-    const dotSize = 10;
+    const dotSize = 11;
     const HIT_PAD = 8;
 
     const handlePointerDown = (e: React.PointerEvent) => {
@@ -166,7 +166,7 @@ function PortDot({
                 zIndex: isHovered ? 10 : 5,
                 padding: HIT_PAD,
                 margin: -HIT_PAD,
-                backgroundClip: 'content-box',
+
             }}
         />
     );

@@ -110,7 +110,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
 
     // ENTERPRISE: Cable type differentiation
     const isControlSignal = signalType === 'control';
-    const coreStrokeWidth = isSelected ? 3 : (isControlSignal ? 1.5 : 2.5);
+    const coreStrokeWidth = isSelected ? 3.5 : (isControlSignal ? 2 : 3);
     const controlDash = isControlSignal ? '8 4' : 'none';
 
     const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);

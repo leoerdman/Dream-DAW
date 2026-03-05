@@ -106,7 +106,27 @@ impl Command for DeleteTracksByIdsCommand {
     }
 }
 
-fn detach_removed_track_references(project: &mut dream_models::project::Project, removed_id: Uuid) {
+pub(crate) fn detach_removed_track_references(project: &mut dream_models::project::Project, removed_id: Uuid) {
+    let removed_id_str = removed_id.to_string();
+
+    // Helper: clear sidechain_source_track_id on all PluginSlots within a DeviceNode tree.
+    fn clear_sidechain_refs_in_node(node: &mut dream_models::project::DeviceNode, removed_id_str: &str) {
+        match node {
+            dream_models::project::DeviceNode::Single(slot) => {
+                if slot.sidechain_source_track_id.as_deref() == Some(removed_id_str) {
+                    slot.sidechain_source_track_id = None;
+                }
+            }
+            dream_models::project::DeviceNode::Rack(rack) => {
+                for chain in &mut rack.chains {
+                    for child in &mut chain.devices {
+                        clear_sidechain_refs_in_node(child, removed_id_str);
+                    }
+                }
+            }
+        }
+    }
+
     for track in &mut project.tracks {
         if track.parent_track_id == Some(removed_id) {
             track.parent_track_id = None;
@@ -117,5 +137,26 @@ fn detach_removed_track_references(project: &mut dream_models::project::Project,
         track
             .child_track_ids
             .retain(|child_id| *child_id != removed_id);
+
+        // SIDECHAIN-CLEANUP: Clear dangling sidechain_source_track_id refs
+        // on ALL plugins (instrument + effects, including nested racks).
+        // Previously these zombie refs persisted, causing:
+        //  - Silent sidechain dropout (source track no longer exists)
+        //  - Stale UI showing dead sidechain assignment
+        //  - DAG edges resolving to None on next rebuild (safe but wrong)
+        if let Some(inst) = &mut track.instrument {
+            clear_sidechain_refs_in_node(inst, &removed_id_str);
+        }
+        for effect in &mut track.effects {
+            clear_sidechain_refs_in_node(effect, &removed_id_str);
+        }
+    }
+
+    // Also clean master track sidechain refs (master can have SC plugins too).
+    if let Some(inst) = &mut project.master_track.instrument {
+        clear_sidechain_refs_in_node(inst, &removed_id_str);
+    }
+    for effect in &mut project.master_track.effects {
+        clear_sidechain_refs_in_node(effect, &removed_id_str);
     }
 }

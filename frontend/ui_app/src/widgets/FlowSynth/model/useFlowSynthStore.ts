@@ -5,8 +5,10 @@ import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { portNameToIndex, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType } from './portRegistry';
 import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
+import { FACTORY_PRESETS, clonePreset, type FlowPreset } from './flowPresets';
 
 export type { SynthNodeType };
+export type { FlowPreset };
 
 export interface SynthNode {
     id: string;
@@ -54,6 +56,10 @@ interface FlowSynthState {
     pendingConnection: PendingConnection | null;
     graphsByDeviceId: Record<string, FlowGraph>;
 
+    // ── Preset state ───────────────────────────────────────────────────
+    presetName: string;
+    presetIndex: number;
+
     openFlowEditor: (deviceId: string, trackId: string) => void;
     closeFlowEditor: () => void;
 
@@ -76,6 +82,11 @@ interface FlowSynthState {
     pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi' | 'control') => void;
     pulseConnection: (connectionId: string) => void;
     syncFlowGraphToEngine: () => Promise<void>;
+
+    // ── Preset actions ─────────────────────────────────────────────────
+    loadPreset: (index: number) => void;
+    nextPreset: () => void;
+    prevPreset: () => void;
 }
 
 
@@ -238,6 +249,10 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     connectionPulseById: {},
     pendingConnection: null,
     graphsByDeviceId: {},
+
+    // ── Preset initial state ───────────────────────────────────────────
+    presetName: FACTORY_PRESETS[0].name,
+    presetIndex: 0,
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
         let graph = state.graphsByDeviceId[deviceId];
@@ -774,5 +789,37 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             engine.syncFlowGraph(trackIndex, nodes, connections),
             engine.saveFlowSynthConfig(trackIndex, configJson)
         ]);
+    },
+
+    // ── Preset Actions ─────────────────────────────────────────────────
+    loadPreset: (index: number) => {
+        const total = FACTORY_PRESETS.length;
+        if (total === 0) return;
+        const safeIndex = ((index % total) + total) % total;
+        const preset = clonePreset(FACTORY_PRESETS[safeIndex]);
+
+        set({
+            nodes: preset.nodes,
+            connections: preset.connections,
+            presetName: preset.name,
+            presetIndex: safeIndex,
+            selectedNodeIds: [],
+            selectedConnectionId: null,
+            pendingConnection: null,
+        });
+
+        // Sync new graph to engine + save to disk
+        _scheduleSyncFlowGraph(get);
+        _scheduleSaveConfig(get);
+    },
+
+    nextPreset: () => {
+        const { presetIndex, loadPreset } = get();
+        loadPreset(presetIndex + 1);
+    },
+
+    prevPreset: () => {
+        const { presetIndex, loadPreset } = get();
+        loadPreset(presetIndex - 1);
     },
 }));

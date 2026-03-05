@@ -12,6 +12,11 @@ export function FlowSynthOverlay() {
     const nodes = useFlowSynthStore((state) => state.nodes);
     const connections = useFlowSynthStore((state) => state.connections);
 
+    // ── Preset controls ────────────────────────────────────────────────
+    const presetName = useFlowSynthStore((state) => state.presetName);
+    const nextPreset = useFlowSynthStore((state) => state.nextPreset);
+    const prevPreset = useFlowSynthStore((state) => state.prevPreset);
+
     // Close on Escape key
     useEffect(() => {
         if (!isOpen) return;
@@ -116,7 +121,10 @@ export function FlowSynthOverlay() {
             height={700}
             initialX={140}
             initialY={84}
-            showPresetControls={false}
+            showPresetControls={true}
+            presetName={presetName}
+            onNextPreset={nextPreset}
+            onPrevPreset={prevPreset}
             showBypassControl={false}
             headerBackground="color-mix(in srgb, var(--color-bg-header) 92%, black 8%)"
             headerBorderColor="color-mix(in srgb, var(--color-divider) 82%, transparent)"
@@ -129,3 +137,4 @@ export function FlowSynthOverlay() {
         </PluginWindow>
     );
 }
+

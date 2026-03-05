@@ -204,7 +204,7 @@ export function useTimelineClipHandlers({
         trackCountRaw,
     ]);
 
-    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
+    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, optSourceOffset?: number) => {
         // BUG-008: Validate inputs before IPC — reject negative, NaN, zero-duration.
         if (!Number.isFinite(newStartBeat) || newStartBeat < 0) return;
         if (!Number.isFinite(newDurationBeats) || newDurationBeats <= 0) return;
@@ -219,6 +219,24 @@ export function useTimelineClipHandlers({
         const sampleRate = projectSampleRate;
         const newPositionFrames = Math.round(beatToFrame(newStartBeat, bpm, sampleRate));
         const newDurationFrames = Math.round(Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate)));
+
+        // ENTERPRISE FIX: Apply optimistic Zustand update BEFORE async IPC logic.
+        // This bridges the 100-200ms gap, preventing the TimelineEngine from 
+        // collapsing to stare store values (causing micro-movements) on mouseUp.
+        useEngineStore.setState((state) => {
+            const nextClips = state.timelineClips.map((c) => {
+                if (c.id === clipId) {
+                    return {
+                        ...c,
+                        position: newPositionFrames,
+                        duration: newDurationFrames,
+                        ...(typeof optSourceOffset === 'number' ? { source_offset: Math.round(optSourceOffset) } : {})
+                    };
+                }
+                return c;
+            });
+            return { timelineClips: nextClips };
+        });
 
         void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)
             .then(async (response) => {

@@ -613,13 +613,40 @@ export class CanvasClipRenderer {
             const isTrackDisabled = clip.trackDisabled === true;
             const rgbBase = this._parseColor(clip.color);
             const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
-            const alpha = isTrackDisabled ? CLIP_DISABLED_ALPHA : (clip.muted ? CLIP_MUTED_ALPHA : CLIP_BODY_ALPHA);
-            ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
-            ctx.fillRect(x, y, Math.max(px, w), h);
+            const colorStrings = clip.muted ? null : this._getClipColorStrings(clip.color);
+            const headerH = Math.min(HEADER_HEIGHT, h - CLIP_BODY_INSET);
+            const drawW = Math.max(px, w);
+
+            // 1. Header
+            const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
+            if (isTrackDisabled) ctx.globalAlpha = CLIP_DISABLED_ALPHA;
+
+            ctx.fillStyle = colorStrings ? colorStrings.header : `rgba(${headerR},${headerG},${headerB},${CLIP_HEADER_ALPHA})`;
+            ctx.fillRect(x, y, drawW, headerH);
+
+            // 2. Divider
+            ctx.fillStyle = colorStrings ? colorStrings.divider : `rgba(${Math.max(0, Math.round(headerR * CLIP_DIVIDER_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerG * CLIP_DIVIDER_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerB * CLIP_DIVIDER_COLOR_MULTIPLIER))},${CLIP_DIVIDER_ALPHA})`;
+            ctx.fillRect(x, y + headerH, drawW, 1);
+
+            // 3. Body
+            if (h > headerH + 1) {
+                ctx.fillStyle = colorStrings ? colorStrings.body : `rgba(${Math.max(0, Math.round(headerR * CLIP_BODY_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerG * CLIP_BODY_COLOR_MULTIPLIER))},${Math.max(0, Math.round(headerB * CLIP_BODY_COLOR_MULTIPLIER))},${CLIP_BODY_ALPHA})`;
+                ctx.fillRect(x, y + 1 + headerH, drawW, h - headerH - 1);
+            }
+
+            // 4. Muted blackout
+            if (clip.muted) {
+                ctx.fillStyle = MUTED_BODY_COLOR;
+                ctx.fillRect(x, y, drawW, h);
+            }
+
+            // 5. Selection (Ableton style: highlight body only)
             if (clip.selected) {
                 ctx.fillStyle = SELECTION_HIGHLIGHT_COLOR;
-                ctx.fillRect(x, y, Math.max(px, w), h);
+                ctx.fillRect(x, y + headerH, drawW, Math.max(0, h - headerH));
             }
+
+            if (isTrackDisabled) ctx.globalAlpha = 1.0; // Reset alpha for next clip
             return;
         }
 

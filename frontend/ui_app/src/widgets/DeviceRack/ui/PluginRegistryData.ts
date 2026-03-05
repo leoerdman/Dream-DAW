@@ -61,9 +61,12 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [
             { label: 'Rate', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
-            { label: 'Stages', paramNames: 'stages', fallback: 4, suffix: '' },
+            { label: 'Stages', paramNames: 'stages', fallback: 4, suffix: ' stages' },
         ],
-        settingsPanel: { params: ['center', 'spread', 'fb', 'lfo shape', 'range'] },
+        settingsPanel: {
+            params: ['center', 'spread', 'fb', 'lfo shape', 'range'],
+            enumLabels: { 'lfo shape': ['Sine', 'Triangle', 'Saw', 'Square', 'S&H'] },
+        },
     },
     phaserFlanger: {
         background: 'var(--plugin-bg-mod)',
@@ -103,8 +106,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         // P-FLA-03: Flanger TZ mode enum labels and mix
         settingsPanel: {
             params: ['delay', 'stereo', 'fb damp', 'lfo shape', 'tz mode', 'mix'],
-            enumLabels: { 'tz mode': ['Off', 'Through-Zero'] },
-            toggleParams: ['tz mode'],
+            enumLabels: { 'tz mode': ['Off', 'Through-Zero'], 'lfo shape': ['Sine', 'Triangle', 'Saw', 'Square', 'S&H'] },
+            toggleParams: ['tz mode', 'stereo'],
         },
     },
 
@@ -332,7 +335,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         // AutoFilter type enum labels
         settingsPanel: {
             params: ['rate', 'depth', 'env', 'type', 'lfo shape', 'drive', 'env speed', 'mix'],
-            enumLabels: { 'type': ['Low Pass', 'High Pass', 'Band Pass', 'Notch'] },
+            enumLabels: { 'type': ['Low Pass', 'High Pass', 'Band Pass', 'Notch'], 'lfo shape': ['Sine', 'Triangle', 'Saw', 'Square', 'S&H'] },
         },
     },
 
@@ -370,7 +373,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         ],
         // P-GC-02: soft_clip as toggle (enterprise Glue Compressor behavior)
         settingsPanel: {
-            params: ['atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'],
+            params: ['ratio', 'atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'],
+            enumLabels: { 'ratio': ['2', '4', '10'] },
             toggleParams: ['soft clip'],
         },
     },
@@ -384,8 +388,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             ratioParam: 'mid ratio', ratioFallback: 4,
         },
         meta: [
-            { label: 'Lo', paramNames: 'xover low', fallback: 200, suffix: 'Hz' },
-            { label: 'Hi', paramNames: 'xover high', fallback: 4000, suffix: 'Hz' },
+            { label: 'X-Lo', paramNames: 'xover low', fallback: 200, suffix: 'Hz' },
+            { label: 'X-Hi', paramNames: 'xover high', fallback: 4000, suffix: 'Hz' },
             { label: 'Out', paramNames: 'output', fallback: 0, suffix: 'dB' },
         ],
         // P-MB-01: maxCols 2→3 for 10 params (was extremely cramped)
@@ -575,8 +579,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             staticDataGenerator: () => Array.from({ length: 14 }, (_, i) => i % 2 === 0 || i % 5 === 0 ? 0.75 : 0.35),
         },
         meta: [
-            { label: 'Bits', paramNames: 'bits', fallback: 16, suffix: '' },
-            { label: '↓', paramNames: ['down', 'downsample'], fallback: 1, suffix: 'x' },
+            { label: 'Bits', paramNames: 'bits', fallback: 16, suffix: 'bit' },
+            { label: 'Down', paramNames: ['down', 'downsample'], fallback: 1, suffix: 'x' },
         ],
         settingsPanel: { params: ['jitter', 'pre freq', 'post freq', 'stereo', 'dither'] },
     },

@@ -112,7 +112,7 @@ export class TimelineEngine {
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipDuplicate?: (clipId: string, newBeat: number, newTrack: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean, optSourceOffset?: number) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onClipContextMenu?: (clipId: string, beat: number, trackIndex: number, clientX: number, clientY: number) => void;
@@ -1988,11 +1988,15 @@ export class TimelineEngine {
                             preview.startBeat !== this._drag.clipOriginalBeat ||
                             preview.durationBeats !== this._drag.clipOriginalDuration
                         ) {
+                            const composedPreview = this._composeDrawClips();
+                            const previewClip = composedPreview.find((c) => c.id === this._drag.clipId);
+
                             this.onClipResize?.(
                                 this._drag.clipId,
                                 preview.startBeat,
                                 preview.durationBeats,
                                 preview.allowStretch,
+                                previewClip?.sourceOffset
                             );
 
                             // ENTERPRISE: Optimistic in-place update — keep the clip
@@ -2002,8 +2006,6 @@ export class TimelineEngine {
                             // producing a visible snap-back to the old position for 1-2
                             // frames until the backend delta response updates the store.
                             // This mirrors the ClipMove pattern (lines 1870-1978).
-                            const composedPreview = this._composeDrawClips();
-                            const previewClip = composedPreview.find((c) => c.id === this._drag.clipId);
                             const currentClip = this._clipById.get(this._drag.clipId!);
                             if (currentClip) {
                                 const clipIdx = this._clips.indexOf(currentClip);

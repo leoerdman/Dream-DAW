@@ -106,7 +106,7 @@ const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     midiArpeggiator: 320,
     midiVelocity: 320,
     midiRandom: 320,
-    utility: 360,
+    utility: 200,
     vst: 160,
     rack: 720,
     // ── Wave 3: Full effect processor widths ─────────────────────

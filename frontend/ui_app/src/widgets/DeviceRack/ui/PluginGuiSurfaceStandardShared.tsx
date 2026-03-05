@@ -15,6 +15,7 @@ export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateRows: 'var(--token-size-px-90) auto',
     gap: 'var(--plugin-grid-gap)',
+    height: '100%',
 };
 
 export const pluginPanelCardBaseStyle: React.CSSProperties = {
@@ -406,3 +407,44 @@ export const DryWetSection = React.memo(({
     );
 });
 DryWetSection.displayName = 'DryWetSection';
+
+/* ── Phase D: Fader param grid (horizontal mini-faders) ── */
+
+import { PluginFader } from '@/widgets/DeviceRack/StandardPluginControls';
+
+/**
+ * Shared fader parameter grid — renders a stack of horizontal PluginFaders.
+ * For parameters that don't fit as knobs within the fixed plugin height.
+ */
+export const FaderParamGrid = React.memo(({
+    params,
+    handlers,
+}: {
+    params: DeviceSlot['params'];
+    handlers: SurfaceHandlers;
+}) => {
+    if (params.length === 0) return null;
+    return (
+        <div style={{
+            background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
+            borderRadius: 'var(--plugin-card-radius)',
+            border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 14%, transparent)',
+            padding: 'var(--space-1) var(--space-1-5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+        }}>
+            {params.map((p) => (
+                <PluginFader
+                    key={p.name}
+                    param={p}
+                    onChange={handlers.onParamChange}
+                    onGestureStart={handlers.onParamGestureStart}
+                    onGestureEnd={handlers.onParamGestureEnd}
+                    onContextMenu={handlers.onParamContextMenu}
+                />
+            ))}
+        </div>
+    );
+});
+FaderParamGrid.displayName = 'FaderParamGrid';

@@ -113,9 +113,11 @@ export function PluginGuiSurfaceSampler({
             style={{
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',
+                height: '100%',
                 gap: 'var(--space-1)',
                 borderRadius: 'var(--radius-lg)',
                 background: 'var(--surface-tab-inactive)',
+                overflow: 'hidden',
             }}
         >
             <div

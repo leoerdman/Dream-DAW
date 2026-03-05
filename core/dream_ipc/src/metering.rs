@@ -33,9 +33,13 @@ pub const CLIP_THRESHOLD: f32 = 1.0;
 /// `0.99^30 ≈ 0.74`, `0.99^60 ≈ 0.545`.
 pub const DEFAULT_PEAK_DECAY: f32 = 0.99;
 
-/// Target meter fall time: ~300ms from 0dBFS to –60dB.
-/// Industry standard for professional DAW VU/peak meters (IEC 60268-18).
-const METER_FALL_TIME_SECS: f64 = 0.3;
+/// Target meter fall time: ~1.7s from 0dBFS to –60dB.
+/// Enterprise-grade professional DAW peak meter standard (IEC 60268-18 Type I).
+/// Original 300ms was too fast — peak bars dropped to floor before the frontend
+/// smoother could latch `peak_hold` values, defeating the 4-second peak hold.
+/// At 1.7s the bars decay smoothly and provide reliable input to the frontend
+/// peak hold system. Matches Logic Pro / Pro Tools peak bar behavior.
+const METER_FALL_TIME_SECS: f64 = 1.7;
 
 /// Computes the per-block peak decay factor for a given sample rate and block size.
 ///

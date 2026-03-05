@@ -122,6 +122,7 @@ impl FlowGraph {
             "delay" => Box::new(DelayNode::new()),
             "mixer" => Box::new(MixerNode::new()),
             "vca" => Box::new(VcaNode::new()),
+            "pitch" => Box::new(PitchNode::new()),
             _ => return,
         };
 

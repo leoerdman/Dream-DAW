@@ -70,7 +70,7 @@ pub(crate) fn process_track_graph_node(
     left: &mut [f32],
     right: &mut [f32],
     ctx: &mut TrackPassContext,
-    _sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
+    sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
 ) {
     let c = ctx.c;
     // 1. Unify Working Buffer
@@ -135,20 +135,35 @@ pub(crate) fn process_track_graph_node(
                     if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
                         continue;
                     }
-                    // SC-FIX: Sidechain source resolution strategy:
+                    // SC-001 FIX: Sidechain source resolution strategy:
                     //
-                    // All modes use flat-array reads from TrackSlot tap/output buffers.
-                    // DAG topological ordering guarantees the source track has already
-                    // been processed before the consumer runs.
+                    // 1. Try the graph renderer's sidechain_resolver FIRST.
+                    //    It returns PDC-compensated buffers via EdgeDelayRuntime
+                    //    scratch buffers. This ensures sidechain triggers are
+                    //    time-aligned even when the source track has high-latency
+                    //    plugins (e.g., 512-sample reverb on a kick track).
                     //
-                    // NOTE: The graph renderer's sidechain_resolver is intentionally
-                    // NOT used. Sidechain edges are excluded from PDC EdgeDelayCompensation
-                    // (pdc.rs:84) and never get EdgeDelayRuntime entries, so the resolver
-                    // always returns None. Per industry standard (Ableton/Logic), PDC is
-                    // NOT applied to sidechain signals.
+                    // 2. Fall back to direct tap buffer reads ONLY when the
+                    //    resolver returns None (no PDC edge exists for this
+                    //    source→consumer pair).
+                    //
+                    // DAG NodeId mapping: track_idx K → NodeId(K+1) → NodeIndex(K+1).
                     let safe_source_ptrs = runtime_slot
                         .sidechain_track_index
                         .and_then(|src_idx| {
+                            // SC-001: Try PDC-compensated resolver first.
+                            // DAG NodeId = track_idx + 1 (master is 0).
+                            let src_node_idx = src_idx + 1;
+                            if let Some((pdc_l, pdc_r)) = sidechain_resolver(src_node_idx) {
+                                // SAFETY: pointers come from GraphRenderer's
+                                // EdgeDelayRuntime scratch buffers which are
+                                // valid for the duration of this render() call.
+                                let sl = unsafe { std::slice::from_raw_parts(pdc_l, c) };
+                                let sr = unsafe { std::slice::from_raw_parts(pdc_r, c) };
+                                return Some((sl, sr));
+                            }
+
+                            // Fallback: direct tap buffer reads (no PDC).
                             let mode = runtime_slot.sidechain_send_mode;
                             match mode {
                                 // Pre-FX: read from source's pre-FX tap buffer
@@ -177,13 +192,8 @@ pub(crate) fn process_track_graph_node(
                                         } else { None }
                                     } else { None }
                                 }
-                        // Post-Mixer (default): read from source's buf_left/buf_right
+                                // Post-Mixer (default): read from source's buf_left/buf_right
                                 // which contains the post-strip (volume/pan) signal.
-                                // NOTE: sidechain_resolver is NOT used because sidechain
-                                // edges are excluded from PDC EdgeDelayCompensation
-                                // (pdc.rs:84), so the resolver always returns None.
-                                // Per industry standard (Ableton/Logic), PDC is NOT
-                                // applied to sidechain signals.
                                 _ => {
                                     if src_idx < ctx.track_idx {
                                         let target_slot = &ctx.left_tracks[src_idx];

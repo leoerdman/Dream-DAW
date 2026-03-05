@@ -68,7 +68,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             type: 'spectrumBars',
             staticDataGenerator: (device) => {
                 const depth = clamp01(safeParamValue(device, 'depth', 60) / 100);
-                const stages = Math.max(2, Math.min(12, Math.round(safeParamValue(device, 'stages', 6))));
+                const stages = Math.max(2, Math.min(12, Math.round(safeParamValue(device, 'stages', 4))));
                 return Array.from({ length: stages }, (_, i) => {
                     const n = 0.3 + depth * 0.55;
                     return i % 2 === 0 ? n : n * 0.6;
@@ -87,7 +87,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'spectrumBars',
             staticDataGenerator: (device) => {
-                const fb = clamp01(Math.abs(safeParamValue(device, 'fb', 40)) / 100);
+                const fb = clamp01(Math.abs(safeParamValue(device, 'fb', 50)) / 100);
                 return Array.from({ length: 10 }, (_, i) => 0.24 + fb * 0.6 * Math.pow(0.85, i));
             },
         },
@@ -346,7 +346,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         background: 'var(--plugin-bg-saturator)',
         accent: 'var(--token-color-hex-ffac59)',
         viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
-        meta: [{ label: 'Drive', paramNames: 'drive', fallback: 3, suffix: 'dB' }],
+        meta: [{ label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' }],
         settingsPanel: { params: ['mode', 'output', 'color'] },
     },
     drumBuss: {

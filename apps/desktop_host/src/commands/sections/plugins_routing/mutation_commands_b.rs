@@ -198,8 +198,21 @@ fn eager_activate_external_plugins(
 /// Set the bypass state for any plugin slot (instrument or effect) on a track.
 /// Updates the project model `is_bypassed` flag and rebuilds the external FX
 /// snapshot so bypassed plugins are excluded from the audio processing pipeline.
-/// For instrument slots, also sends a `BypassInstrument` engine command so the
-/// internal sampler on the real-time thread stops producing audio immediately.
+///
+/// ENTERPRISE-BYPASS-FIX: Uses `sync_bypass_only_and_mark_dirty` instead of
+/// `sync_plugin_runtime_and_mark_dirty`. The latter sends `ClearAllDeviceChains`
+/// which destroys ALL device chains across ALL tracks, killing reverb/delay
+/// tails and causing metallic artifacts during the 1-2 callback rebuild window.
+/// Bypass doesn't change device chain topology — it only changes the processing
+/// state of an existing slot. The lightweight sync path updates the FX snapshot
+/// and PDC routing without touching device chains.
+///
+/// For internal effects, we also send a targeted `BypassDevice` engine command
+/// so the `InternalDeviceSlot::set_bypass()` triggers a smooth 5ms IIR crossfade
+/// ramp between wet and dry signals, preventing audible clicks.
+///
+/// For instrument slots, sends `BypassInstrument` so the internal sampler
+/// stops producing audio immediately.
 #[tauri::command]
 fn set_slot_bypass_cmd(
     track_id: String,
@@ -228,13 +241,16 @@ fn set_slot_bypass_cmd(
         track_id, slot_id, bypassed, result.is_instrument, result.plugin_id
     );
 
-    sync_plugin_runtime_and_mark_dirty(
+    // ENTERPRISE-BYPASS-FIX: Use lightweight bypass-only sync instead of full
+    // device chain rebuild. This eliminates ClearAllDeviceChains which causes:
+    // 1. Metallic artifacts from instantaneous dry/wet signal discontinuity
+    // 2. Reverb/delay tail loss across ALL tracks
+    // 3. Cross-track volume contamination from redundant PDC edge delay shifts
+    sync_bypass_only_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &plugin_host_state,
-        &handle,
         &app,
-        true,
     )?;
 
     // For instrument slots, send BypassInstrument to the real-time audio thread
@@ -252,6 +268,85 @@ fn set_slot_bypass_cmd(
                 result.track_index,
                 e
             );
+        }
+    }
+
+    // ENTERPRISE-BYPASS-FIX: For internal effects (plugin_id starts with "internal://"),
+    // send a targeted BypassDevice command so the DeviceChain's per-slot bypass
+    // flag triggers the smooth 5ms IIR crossfade ramp (wet→dry or dry→wet).
+    // Without this, internal effects would only see the bypass via the next full
+    // device chain rebuild, which we no longer trigger.
+    //
+    // Resolve the DeviceChain slot_index by iterating the track's effects in the
+    // same order as collect_runtime_internal_effects in runtime_device_chains.rs.
+    if !result.is_instrument && result.plugin_id.starts_with("internal://") {
+        if let Ok(project) = project_state.project.lock() {
+            if let Some(track) = project.tracks.get(result.track_index) {
+                // Walk the effects tree in the same order as
+                // collect_runtime_internal_effects to find the DeviceChain index
+                // for the target slot_id.
+                fn find_slot_index_in_nodes(
+                    nodes: &[dream_models::project::DeviceNode],
+                    target_slot_id: uuid::Uuid,
+                    parent_bypassed: bool,
+                    running: &mut usize,
+                ) -> Option<usize> {
+                    for node in nodes {
+                        match node {
+                            dream_models::project::DeviceNode::Single(slot) => {
+                                if slot.plugin_id.starts_with("internal://") {
+                                    // Check if builtin_effect_type_from_plugin_id resolves
+                                    if builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some() {
+                                        if slot.id == target_slot_id {
+                                            return Some(*running);
+                                        }
+                                        *running += 1;
+                                    }
+                                }
+                            }
+                            dream_models::project::DeviceNode::Rack(rack) => {
+                                for chain in &rack.chains {
+                                    if let Some(idx) = find_slot_index_in_nodes(
+                                        &chain.devices,
+                                        target_slot_id,
+                                        parent_bypassed || rack.is_bypassed,
+                                        running,
+                                    ) {
+                                        return Some(idx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None
+                }
+                let mut idx = 0usize;
+                device_chain_slot_index =
+                    find_slot_index_in_nodes(&track.effects, slot_uuid, false, &mut idx);
+
+                if let Some(si) = device_chain_slot_index {
+                    if let Err(e) = push_command(
+                        &handle,
+                        EngineCommand::BypassDevice {
+                            track_index: result.track_index as u16,
+                            slot_index: si.min(u8::MAX as usize) as u8,
+                            bypassed,
+                        },
+                    ) {
+                        log::error!(
+                            "[IPC] Failed to push BypassDevice for track {} slot {}: {}",
+                            result.track_index,
+                            si,
+                            e
+                        );
+                    }
+                } else {
+                    log::warn!(
+                        "[IPC] set_slot_bypass_cmd: could not resolve DeviceChain slot_index for internal slot {}",
+                        slot_id
+                    );
+                }
+            }
         }
     }
 

@@ -64,10 +64,20 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
         resettedByUser: false,  // flag for manual click-to-reset
     });
 
-    // Read instantaneous peaks from the smoothed meter store
-    const peakL = meterPair?.[0]?.peak ?? -160;
-    const peakR = meterPair?.[1]?.peak ?? -160;
-    const currentPeak = Math.max(peakL, peakR);
+    // ENTERPRISE-PEAK-FIX: Read peak_hold from the smoothing pipeline instead
+    // of the IIR-smoothed `peak` value. The smoother in actionsTelemetrySmoothing.ts
+    // computes `peak_hold` using RAW backend peak values with a 4-second hold
+    // window (lines 48-67). Previously this component read the IIR-smoothed `peak`
+    // which has a 420ms release tau — causing the display to drop to -∞ almost
+    // immediately after audio stops, completely defeating the 4-second hold.
+    //
+    // Data flow:
+    //   Audio Thread → store_peak_decay(300ms) → binary IPC → decodeMetersBinaryPacket
+    //   → smoothMeterSnapshot (computes peak_hold with 4s window) → Zustand meters
+    //   → THIS COMPONENT reads peak_hold (not peak)
+    const peakHoldL = meterPair?.[0]?.peak_hold ?? meterPair?.[0]?.peak ?? -160;
+    const peakHoldR = meterPair?.[1]?.peak_hold ?? meterPair?.[1]?.peak ?? -160;
+    const currentPeak = Math.max(peakHoldL, peakHoldR);
 
     // BUG-022 FIX: useLayoutEffect for synchronous DOM mutations — prevents
     // visual flicker that useEffect causes (deferred to next paint).
@@ -119,11 +129,14 @@ export const MixerChannelPeakLabel = memo(function MixerChannelPeakLabel({
         holdRef.current.peakDb = -Infinity;
         holdRef.current.lastPeakTs = 0;
         holdRef.current.resettedByUser = true;
+        // ENTERPRISE-PEAK-FIX: Also reset the smoother's peak hold state
+        // so it re-latches from the next raw peak instead of holding the old value.
+        useEngineStore.getState().resetMeterPeakHold(trackIndex);
         if (displayRef.current) {
             displayRef.current.textContent = '-∞';
             displayRef.current.style.color = 'var(--color-text-secondary)';
         }
-    }, []);
+    }, [trackIndex]);
 
     return (
         <div

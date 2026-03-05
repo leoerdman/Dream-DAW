@@ -3,6 +3,9 @@ use super::super::graph::{FlowNode, FlowSignal};
 
 /// A Reverse effect node.
 /// Records incoming audio to a buffer and plays it back backwards.
+///
+/// ENTERPRISE: Uses a proper grain-based reverse with linear crossfade
+/// at window boundaries to eliminate click artifacts.
 pub struct ReverseNode {
     buffer: Vec<f32>,
     write_pos: usize,
@@ -12,6 +15,8 @@ pub struct ReverseNode {
     mix: f32,
     reverse_phase: usize,
     last_output: f32,
+    // Crossfade between old and new grains at boundary
+    crossfade_len: usize,
 }
 
 impl ReverseNode {
@@ -29,6 +34,7 @@ impl ReverseNode {
             mix: 1.0,
             reverse_phase: 0,
             last_output: 0.0,
+            crossfade_len: 64,
         }
     }
 
@@ -57,7 +63,7 @@ impl FlowNode for ReverseNode {
         let mix = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(self.mix).clamp(0.0, 1.0);
 
         let window_samples = ((self.window_ms * 0.001 * sample_rate as f32) as usize)
-            .clamp(16, self.buffer_size.saturating_sub(1));
+            .clamp(64, self.buffer_size.saturating_sub(1));
 
         // Write dry + feedback tail.
         self.buffer[self.write_pos] = input + self.last_output * self.feedback;
@@ -68,10 +74,26 @@ impl FlowNode for ReverseNode {
         let read_pos = (window_start + reverse_idx) % self.buffer_size;
         let output_val = self.buffer[read_pos];
 
+        // ENTERPRISE: Linear crossfade at window boundary to eliminate clicks.
+        // When near the start or end of a grain window, blend with silence.
+        let phase_in_window = self.reverse_phase % window_samples;
+        let fade_len = self.crossfade_len.min(window_samples / 4);
+        let fade_gain = if phase_in_window < fade_len {
+            // Fade in at grain start
+            phase_in_window as f32 / fade_len as f32
+        } else if phase_in_window >= window_samples - fade_len {
+            // Fade out at grain end
+            (window_samples - 1 - phase_in_window) as f32 / fade_len as f32
+        } else {
+            1.0
+        };
+
+        let faded_output = output_val * fade_gain;
+
         self.reverse_phase = (self.reverse_phase + 1) % window_samples;
         self.write_pos = (self.write_pos + 1) % self.buffer_size;
 
-        let mixed = input * (1.0 - mix) + output_val * mix;
+        let mixed = input * (1.0 - mix) + faded_output * mix;
         self.last_output = mixed;
         outputs[0] = FlowSignal::Audio(mixed);
     }

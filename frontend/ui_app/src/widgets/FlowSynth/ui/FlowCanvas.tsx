@@ -38,6 +38,8 @@ const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string
     // ── Delay / FX ──
     { type: 'delay', label: 'Delay', keywords: ['delay', 'echo', 'repeat', 'time', 'feedback', 'comb'], category: 'Delay/FX' },
     { type: 'reverse', label: 'Reverse', keywords: ['fx', 'reverse', 'backwards'], category: 'Delay/FX' },
+    // ── Pitch ──
+    { type: 'pitch', label: 'Pitch', keywords: ['pitch', 'octave', 'transpose', 'tune', 'semitone'], category: 'Pitch' },
 ];
 
 
@@ -150,6 +152,7 @@ export function FlowCanvas() {
             delay: 'Delay',
             mixer: 'Mixer',
             vca: 'VCA',
+            pitch: 'Pitch',
         };
         addNode({
             id: nodeId,

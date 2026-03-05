@@ -171,6 +171,8 @@ let _syncScheduled = false;
 function _scheduleSyncFlowGraph(get: () => FlowSynthState): void {
     if (_syncScheduled) return;
     _syncScheduled = true;
+    // Mark project dirty immediately so the unsaved-changes star appears
+    useEngineStore.getState().markDirty();
     queueMicrotask(() => {
         _syncScheduled = false;
         get().syncFlowGraphToEngine();

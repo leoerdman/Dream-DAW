@@ -16,6 +16,7 @@ use plugins_routing_helpers::{
     sync_external_fx_snapshot_from_state,
     sync_routing_and_mark_dirty,
     sync_plugin_runtime_and_mark_dirty,
+    sync_bypass_only_and_mark_dirty,
 };
 
 #[tauri::command]

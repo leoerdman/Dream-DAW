@@ -44,7 +44,8 @@ export type SynthNodeType =
     | 'sampleHold'
     | 'delay'
     | 'mixer'
-    | 'vca';
+    | 'vca'
+    | 'pitch';
 
 export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
     midiIn: {
@@ -238,6 +239,17 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
+        ],
+    },
+    pitch: {
+        title: 'Pitch',
+        color: 'var(--color-synth-ctrl)',
+        inputs: [
+            { id: 'freq', label: 'Freq', type: 'control' },
+            { id: 'octave', label: 'Octave', type: 'control', fader: { min: -4, max: 4, step: 1, dataKey: 'octaveOffset' } },
+        ],
+        outputs: [
+            { id: 'freq_out', label: 'Out', type: 'control' },
         ],
     },
 };

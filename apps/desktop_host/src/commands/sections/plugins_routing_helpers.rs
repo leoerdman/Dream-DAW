@@ -228,6 +228,47 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     Ok(())
 }
 
+/// ENTERPRISE-BYPASS-FIX: Lightweight bypass-only sync path.
+///
+/// Updates the external FX snapshot (so the audio thread sees the updated
+/// `is_bypassed` flag) and rebuilds PDC routing (because bypassing a plugin
+/// with reported latency changes time-alignment for other tracks).
+///
+/// Crucially, this does NOT call `rebuild_runtime_device_chains_from_project`
+/// which sends `ClearAllDeviceChains` — that command destroys ALL device chains
+/// across ALL tracks, killing reverb/delay tails and causing metallic artifacts
+/// during the 1-2 callback rebuild window. Bypass doesn't change device chain
+/// topology, only the processing state of an existing slot.
+///
+/// For internal effects: the `BypassDevice` engine command (sent separately by
+/// the caller) sets the `InternalDeviceSlot::bypassed` flag, which triggers a
+/// smooth 5ms IIR crossfade ramp between wet and dry signals.
+///
+/// For external plugins: the `SharedExternalPluginSnapshot.is_bypassed` flag
+/// (updated via `rebuild_external_fx_snapshot`) causes `process_track_graph_node`
+/// to skip the `try_lock()` call entirely.
+pub fn sync_bypass_only_and_mark_dirty(
+    project_state: &ProjectState,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let project_name = project.name.clone();
+    // Rebuild routing for PDC recalculation: bypassing a plugin with reported
+    // latency (e.g., lookahead compressor) changes PDC edge delays for all tracks.
+    // This is correct behavior matching Ableton Live / Logic Pro.
+    clip_pool_state.rebuild_routing_only(&project);
+    // Rebuild FX snapshot so the audio thread sees the updated is_bypassed flag
+    // via the wait-free ArcSwap read in process_track_graph_node.
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
+    Ok(())
+}
+
 pub fn ensure_external_plugins_prepared_for_offline_render(
     project: &Project,
     clip_pool_state: &State<'_, ClipPoolState>,

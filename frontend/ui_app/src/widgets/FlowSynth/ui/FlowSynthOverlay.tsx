@@ -128,7 +128,6 @@ export function FlowSynthOverlay() {
             showBypassControl={false}
             headerBackground="color-mix(in srgb, var(--color-bg-header) 92%, black 8%)"
             headerBorderColor="color-mix(in srgb, var(--color-divider) 82%, transparent)"
-            leftDotColor="var(--color-signal-audio)"
             contentPadding="0"
         >
             <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', boxShadow: 'none' }}>

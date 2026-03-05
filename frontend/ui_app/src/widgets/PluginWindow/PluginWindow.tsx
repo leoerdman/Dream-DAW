@@ -62,7 +62,7 @@ export const PluginWindow = memo(function PluginWindow({
     showBypassControl = true,
     headerBackground,
     headerBorderColor,
-    leftDotColor,
+    // leftDotColor — deprecated, traffic lights replace the indicator dot
     contentPadding = 'var(--space-3)',
     onNextPreset,
     onPrevPreset,
@@ -138,15 +138,82 @@ export const PluginWindow = memo(function PluginWindow({
                     userSelect: 'none',
                 }}
             >
+                {/* ── macOS Traffic Light Buttons (left) ── */}
                 <div style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: leftDotColor ?? (isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)'),
-                    boxShadow: isBypassed ? 'none' : `0 0 var(--space-1-5) ${leftDotColor ?? 'var(--color-accent-primary)'}`,
-                    transition: 'all var(--transition-fast)',
-                }} />
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                    flexShrink: 0,
+                    paddingLeft: 'var(--space-1)',
+                }}>
+                    {/* Close */}
+                    <div
+                        onClick={(e) => { e.stopPropagation(); onClose(); }}
+                        title="Close"
+                        style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: 'var(--color-status-error)',
+                            cursor: 'pointer',
+                            transition: 'filter var(--transition-fast)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 8,
+                            color: 'transparent',
+                            lineHeight: 1,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
+                    >
+                        ✕
+                    </div>
+                    {/* Minimize (decorative) */}
+                    <div
+                        title="Minimize"
+                        style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: '#FFBD2E',
+                            cursor: 'default',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 10,
+                            color: 'transparent',
+                            lineHeight: 1,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
+                    >
+                        −
+                    </div>
+                    {/* Maximize (decorative) */}
+                    <div
+                        title="Maximize"
+                        style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: '#28C840',
+                            cursor: 'default',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 8,
+                            color: 'transparent',
+                            lineHeight: 1,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
+                    >
+                        ⤢
+                    </div>
+                </div>
 
+                {/* ── Title (centered) ── */}
                 <span style={{
                     flex: 1,
                     fontSize: 'var(--font-size-sm)',
@@ -155,12 +222,14 @@ export const PluginWindow = memo(function PluginWindow({
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
+                    textAlign: 'center',
                 }}>
                     {pluginName}
                 </span>
 
+                {/* ── Preset Controls (right) ── */}
                 {showPresetControls && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)', flexShrink: 0 }}>
                         <button
                             onClick={(e) => { e.stopPropagation(); onPrevPreset?.(); }}
                             style={presetBtnStyle}
@@ -208,28 +277,6 @@ export const PluginWindow = memo(function PluginWindow({
                         ⏻
                     </button>
                 )}
-
-                <button
-                    onClick={(e) => { e.stopPropagation(); onClose(); }}
-                    title="Close Plugin Window"
-                    style={{
-                        width: 20,
-                        height: 20,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: 'transparent',
-                        color: 'var(--color-text-tertiary)',
-                        border: 'none',
-                        borderRadius: 'var(--radius-xs)',
-                        fontSize: 'var(--font-size-xs)',
-                        cursor: 'pointer',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-status-error)'; e.currentTarget.style.color = 'var(--color-text-on-accent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
-                >
-                    ✕
-                </button>
             </div>
 
             <div style={{

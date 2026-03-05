@@ -237,7 +237,7 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
  * Row layout constants matching the reference project architecture.
  * Each port occupies one row slot.
  */
-export const FLOW_PORT_SIZE = 14;
+export const FLOW_PORT_SIZE = 8;
 export const FLOW_PORT_ROW_HEIGHT = 32;
 export const FLOW_NODE_HEADER_HEIGHT = 42;
 export const FLOW_NODE_BODY_PADDING = 12;

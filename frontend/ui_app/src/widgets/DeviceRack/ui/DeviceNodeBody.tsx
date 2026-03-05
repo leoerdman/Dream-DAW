@@ -420,6 +420,26 @@ export const DeviceNodeBody = React.memo(({
                             </option>
                         ))}
                     </select>
+                    {sidechainSourceTrackId && sidechainSourceTrackId !== 'none' && (
+                        <select
+                            value={sidechainSendMode ?? 'pre_fx'}
+                            onChange={(e) => onSidechainSendModeChange?.(e.target.value as SidechainSendMode)}
+                            style={{
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-md)',
+                                background: 'var(--plugin-control-bg)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: 'var(--space-1) var(--space-1-5)',
+                                outline: 'none',
+                                width: '100%',
+                            }}
+                        >
+                            <option value="pre_fx">Pre FX</option>
+                            <option value="post_fx">Post FX</option>
+                            <option value="post_mixer">Post Mixer</option>
+                        </select>
+                    )}
                 </div>
             )}
         </div>

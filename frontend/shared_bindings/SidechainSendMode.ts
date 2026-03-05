@@ -6,4 +6,4 @@
  *
  * Mirrors Ableton Live's Pre FX / Post FX / Post Mixer routing modes.
  */
-export type SidechainSendMode = "PreFx" | "PostFx" | "PostMixer";
+export type SidechainSendMode = "pre_fx" | "post_fx" | "post_mixer";

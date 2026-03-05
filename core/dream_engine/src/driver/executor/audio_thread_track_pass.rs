@@ -70,7 +70,7 @@ pub(crate) fn process_track_graph_node(
     left: &mut [f32],
     right: &mut [f32],
     ctx: &mut TrackPassContext,
-    sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
+    _sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
 ) {
     let c = ctx.c;
     // 1. Unify Working Buffer
@@ -127,17 +127,17 @@ pub(crate) fn process_track_graph_node(
             } else {
                 for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                     if runtime_slot.is_bypassed { continue; }
-                    // SC-100/SC-101 FIX: Sidechain source resolution strategy:
+                    // SC-FIX: Sidechain source resolution strategy:
                     //
-                    // Post-Mixer (mode 2, default): Use graph renderer's sidechain_resolver
-                    //   which provides PDC-compensated, topologically-ordered data from the
-                    //   source track's completed output buffer. Falls back to flat-array on
-                    //   resolver miss (safety net during topology transitions).
+                    // All modes use flat-array reads from TrackSlot tap/output buffers.
+                    // DAG topological ordering guarantees the source track has already
+                    // been processed before the consumer runs.
                     //
-                    // Pre-FX (mode 0) / Post-FX (mode 1): Use flat-array tap buffers
-                    //   directly. These are correct because DAG topological ordering
-                    //   guarantees the source track has already been processed (and its
-                    //   tap buffers populated) before the consumer runs.
+                    // NOTE: The graph renderer's sidechain_resolver is intentionally
+                    // NOT used. Sidechain edges are excluded from PDC EdgeDelayCompensation
+                    // (pdc.rs:84) and never get EdgeDelayRuntime entries, so the resolver
+                    // always returns None. Per industry standard (Ableton/Logic), PDC is
+                    // NOT applied to sidechain signals.
                     let safe_source_ptrs = runtime_slot
                         .sidechain_track_index
                         .and_then(|src_idx| {
@@ -169,31 +169,24 @@ pub(crate) fn process_track_graph_node(
                                         } else { None }
                                     } else { None }
                                 }
-                                // Post-Mixer (default): Use PDC-compensated graph resolver,
-                                // fall back to flat-array buf_left/buf_right
+                        // Post-Mixer (default): read from source's buf_left/buf_right
+                                // which contains the post-strip (volume/pan) signal.
+                                // NOTE: sidechain_resolver is NOT used because sidechain
+                                // edges are excluded from PDC EdgeDelayCompensation
+                                // (pdc.rs:84), so the resolver always returns None.
+                                // Per industry standard (Ableton/Logic), PDC is NOT
+                                // applied to sidechain signals.
                                 _ => {
-                                    // Graph node index = track_idx + 1 (master is 0)
-                                    let graph_src_idx = src_idx + 1;
-                                    sidechain_resolver(graph_src_idx)
-                                        .map(|(l_ptr, r_ptr)| unsafe {
-                                            (
-                                                std::slice::from_raw_parts(l_ptr, c),
-                                                std::slice::from_raw_parts(r_ptr, c),
-                                            )
-                                        })
-                                        .or_else(|| {
-                                            // Fallback: direct flat-array read
-                                            if src_idx < ctx.track_idx {
-                                                let target_slot = &ctx.left_tracks[src_idx];
-                                                Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
-                                            } else if src_idx > ctx.track_idx {
-                                                let offset_idx = src_idx - ctx.track_idx - 1;
-                                                if offset_idx < ctx.right_tracks.len() {
-                                                    let target_slot = &ctx.right_tracks[offset_idx];
-                                                    Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
-                                                } else { None }
-                                            } else { None }
-                                        })
+                                    if src_idx < ctx.track_idx {
+                                        let target_slot = &ctx.left_tracks[src_idx];
+                                        Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                    } else if src_idx > ctx.track_idx {
+                                        let offset_idx = src_idx - ctx.track_idx - 1;
+                                        if offset_idx < ctx.right_tracks.len() {
+                                            let target_slot = &ctx.right_tracks[offset_idx];
+                                            Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                        } else { None }
+                                    } else { None }
                                 }
                             }
                         });

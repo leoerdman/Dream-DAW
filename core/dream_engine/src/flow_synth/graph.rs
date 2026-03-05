@@ -321,6 +321,23 @@ impl FlowGraph {
                     _ => {}
                 }
             }
+            return;
+        }
+
+        if let Some(out) = node.as_any_mut().downcast_mut::<AudioOutNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "gain" => {
+                        if let Ok(g) = v.parse::<f32>() {
+                            out.set_gain(g);
+                        }
+                    }
+                    "muted" => {
+                        out.set_muted(v == "true" || v == "1");
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 

@@ -42,7 +42,14 @@ fn create_rack_from_devices_cmd(
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
+    // SIDECHAIN-RACK-FIX: Rebuild BOTH routing topology AND ExternalFX snapshot.
+    // Previously only rebuild_routing_only was called, leaving the audio thread
+    // with stale sidechain_track_index and sidechain_send_mode after rack ops.
     clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -77,7 +84,12 @@ fn add_chain_to_rack_cmd(
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
+    // SIDECHAIN-RACK-FIX: Rebuild BOTH routing topology AND ExternalFX snapshot.
     clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -115,7 +127,12 @@ fn add_device_to_rack_chain_cmd(
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
+    // SIDECHAIN-RACK-FIX: Rebuild BOTH routing topology AND ExternalFX snapshot.
     clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -155,7 +172,12 @@ fn remove_device_from_rack_cmd(
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
+    // SIDECHAIN-RACK-FIX: Rebuild BOTH routing topology AND ExternalFX snapshot.
     clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -256,7 +278,12 @@ fn load_device_preset_cmd(
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let project_name = project.name.clone();
+    // SIDECHAIN-RACK-FIX: Rebuild BOTH routing topology AND ExternalFX snapshot.
     clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(

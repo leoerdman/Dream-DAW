@@ -1,11 +1,22 @@
 use std::any::Any;
 use crate::flow_synth::graph::{FlowNode, FlowSignal};
 
-pub struct AudioOutNode {}
+pub struct AudioOutNode {
+    gain: f32,
+    muted: bool,
+}
 
 impl AudioOutNode {
     pub fn new() -> Self {
-        Self {}
+        Self { gain: 0.8, muted: false }
+    }
+
+    pub fn set_gain(&mut self, gain: f32) {
+        self.gain = gain.clamp(0.0, 2.0);
+    }
+
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
     }
 }
 
@@ -28,8 +39,22 @@ impl FlowNode for AudioOutNode {
             FlowSignal::None => left,
             other => other,
         };
-        outputs[0] = left;
-        outputs[1] = right;
+
+        if self.muted {
+            outputs[0] = FlowSignal::Audio(0.0);
+            outputs[1] = FlowSignal::Audio(0.0);
+        } else {
+            let g = self.gain;
+            let apply_gain = |s: FlowSignal| -> FlowSignal {
+                match s {
+                    FlowSignal::Audio(v) => FlowSignal::Audio(v * g),
+                    FlowSignal::Control(v) => FlowSignal::Audio(v * g),
+                    other => other,
+                }
+            };
+            outputs[0] = apply_gain(left);
+            outputs[1] = apply_gain(right);
+        }
     }
 
     fn reset(&mut self) {}

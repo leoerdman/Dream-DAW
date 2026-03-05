@@ -179,30 +179,40 @@ impl TrackSlot {
 /// so that internal effects with non-zero latency (Compressor lookahead,
 /// Limiter lookahead) are properly compensated.
 ///
-/// Uses `ArcSwap` for RT-safe atomic publishing (no Mutex, no blocking).
+/// Uses a flat `AtomicU32` array for TRUE RT-safety: zero allocations,
+/// zero Mutex, zero blocking. Each write is a single atomic store.
 pub struct SharedInternalLatencySnapshot {
-    inner: arc_swap::ArcSwap<Vec<u32>>,
+    latencies: Vec<std::sync::atomic::AtomicU32>,
 }
 
 impl SharedInternalLatencySnapshot {
     pub fn new(track_count: usize) -> Self {
-        Self {
-            inner: arc_swap::ArcSwap::from_pointee(vec![0u32; track_count]),
+        let mut latencies = Vec::with_capacity(track_count);
+        for _ in 0..track_count {
+            latencies.push(std::sync::atomic::AtomicU32::new(0));
+        }
+        Self { latencies }
+    }
+
+    /// RT-safe publish: single atomic store per track, zero allocations.
+    #[inline]
+    pub fn publish_track(&self, track_idx: usize, latency_samples: u32) {
+        if let Some(slot) = self.latencies.get(track_idx) {
+            slot.store(latency_samples, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
-    /// RT-safe publish: atomic pointer swap, no allocation on audio thread.
-    /// The old `Arc<Vec<u32>>` is dropped by the NEXT store, which happens
-    /// on the audio thread — but `Arc::drop` is just an atomic decrement,
-    /// perfectly RT-safe.
-    #[inline]
-    pub fn publish(&self, latencies: Vec<u32>) {
-        self.inner.store(std::sync::Arc::new(latencies));
+    /// Lock-free load for background/UI thread.
+    pub fn load_all(&self, out: &mut Vec<u32>) {
+        out.clear();
+        out.reserve(self.latencies.len());
+        for slot in &self.latencies {
+            out.push(slot.load(std::sync::atomic::Ordering::Relaxed));
+        }
     }
 
-    /// Lock-free load for background/UI thread.
-    pub fn load(&self) -> arc_swap::Guard<std::sync::Arc<Vec<u32>>> {
-        self.inner.load()
+    pub fn track_count(&self) -> usize {
+        self.latencies.len()
     }
 }
 
@@ -326,11 +336,8 @@ impl RenderContext {
         sample_rate: f64,
         channels: usize,
         meter_bank: Arc<MeterBank>,
+        internal_latency_snapshot: Arc<SharedInternalLatencySnapshot>,
     ) -> Self {
-        let actual_track_count = track_count.min(MAX_TRACKS);
-        let internal_latency_snapshot = Arc::new(
-            SharedInternalLatencySnapshot::new(actual_track_count),
-        );
         let actual_tracks = track_count.min(MAX_TRACKS);
         let mut track_slots: Vec<TrackSlot> = Vec::with_capacity(actual_tracks);
         for _ in 0..actual_tracks {
@@ -1149,7 +1156,8 @@ mod tests {
     #[test]
     fn render_context_creation() {
         let meter_bank = Arc::new(MeterBank::new(32));
-        let ctx = RenderContext::new(32, 44100.0, 2, meter_bank);
+        let int_lat = Arc::new(SharedInternalLatencySnapshot::new(32));
+        let ctx = RenderContext::new(32, 44100.0, 2, meter_bank, int_lat);
 
         assert_eq!(ctx.track_count(), 32);
         assert_eq!(ctx.channels, 2);
@@ -1176,7 +1184,8 @@ mod tests {
     #[test]
     fn max_tracks_clamped() {
         let meter_bank = Arc::new(MeterBank::new(MAX_TRACKS));
-        let ctx = RenderContext::new(500, 44100.0, 2, meter_bank);
+        let int_lat = Arc::new(SharedInternalLatencySnapshot::new(MAX_TRACKS));
+        let ctx = RenderContext::new(500, 44100.0, 2, meter_bank, int_lat);
 
         // Requesting 500 tracks should be clamped to MAX_TRACKS (256).
         assert_eq!(ctx.track_count(), MAX_TRACKS);
@@ -1185,7 +1194,8 @@ mod tests {
     #[test]
     fn render_silence_produces_silence() {
         let meter_bank = Arc::new(MeterBank::new(8));
-        let mut ctx = RenderContext::new(8, 44100.0, 2, meter_bank);
+        let int_lat = Arc::new(SharedInternalLatencySnapshot::new(8));
+        let mut ctx = RenderContext::new(8, 44100.0, 2, meter_bank, int_lat);
         let pool = ClipPool::new();
 
         let mut output = vec![1.0_f32; 512]; // Fill with 1.0 first

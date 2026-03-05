@@ -250,13 +250,38 @@ export function portCenterY(portIndex: number): number {
 }
 
 /**
- * Calculate total node height based on port count.
+ * Number of inline control rows per node type.
+ * Stateless nodes (add, sampleHold, audioIn, midiIn, noise with selector only) get 0.
+ * This drives nodeHeight so the body is never clipped or oversized.
+ */
+const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
+    oscillator: 2,
+    filter: 2,
+    envelope: 4,
+    eq: 3,
+    autofilter: 5,
+    reverse: 3,
+    output: 2,
+    midiIn: 1,
+    lfo: 3,
+    noise: 2,
+    multiply: 1,
+    delay: 3,
+    mixer: 4,
+    vca: 1,
+};
+
+const CONTROL_ROW_HEIGHT = 28;
+
+/**
+ * Calculate total node height based on port count and control row count.
  */
 export function nodeHeight(nodeType: SynthNodeType, hasControls: boolean): number {
     const config = PORT_REGISTRY[nodeType];
     const maxPorts = Math.max(config.inputs.length, config.outputs.length, 1);
     const portsHeight = maxPorts * FLOW_PORT_ROW_HEIGHT;
-    const controlsHeight = hasControls ? 72 : 0;
+    const controlRows = hasControls ? (CONTROL_ROWS[nodeType] ?? 0) : 0;
+    const controlsHeight = controlRows > 0 ? controlRows * CONTROL_ROW_HEIGHT + 16 : 0;
     return FLOW_NODE_HEADER_HEIGHT + portsHeight + controlsHeight + FLOW_NODE_BODY_PADDING;
 }
 

@@ -180,6 +180,8 @@ pub struct AudioSharedState {
     pub preview_cursor: Arc<AtomicUsize>,
     pub preview_source_sr: Arc<AtomicU32>,
     pub disk_streamers: Arc<SharedDiskStreamers>,
+    /// BUG-8 FIX: Shared internal effect latency snapshot (audio thread → background thread).
+    pub internal_latency_snapshot: Arc<crate::render_callback::SharedInternalLatencySnapshot>,
 }
 
 #[allow(clippy::too_many_arguments)]

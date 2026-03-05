@@ -49,6 +49,16 @@ pub struct ClipPoolState {
     /// Optional reference to the shared plugin registry for querying
     /// per-track plugin latencies (PDC compensation).
     plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
+
+    /// BUG-8 FIX: Shared internal effect latency snapshot from audio thread.
+    /// Used by `collect_direct_plugin_latencies` to include Compressor/Limiter
+    /// lookahead latencies in PDC calculations.
+    internal_latency_snapshot: Option<Arc<dream_engine::render_callback::SharedInternalLatencySnapshot>>,
+
+    /// BUG-8 FIX: Cached internal latency values for change detection.
+    /// The background thread compares current values against this cache
+    /// to detect when a PDC graph rebuild is needed.
+    prev_internal_latencies: std::sync::Mutex<Vec<u32>>,
 }
 
 /// Accumulates group latencies through the routing hierarchy.
@@ -125,6 +135,8 @@ impl ClipPoolState {
             sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
             external_fx_snapshot: Arc::new(SharedExternalPluginSnapshot::new()),
             plugin_registry: None,
+            internal_latency_snapshot: None,
+            prev_internal_latencies: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -132,6 +144,31 @@ impl ClipPoolState {
     /// Must be called during initialization, before the first graph rebuild.
     pub fn set_plugin_registry(&mut self, registry: Arc<dream_engine::driver::SharedPluginRegistry>) {
         self.plugin_registry = Some(registry);
+    }
+
+    /// BUG-8 FIX: Attaches the shared internal latency snapshot from the audio thread.
+    pub fn set_internal_latency_snapshot(
+        &mut self,
+        snapshot: Arc<dream_engine::render_callback::SharedInternalLatencySnapshot>,
+    ) {
+        self.internal_latency_snapshot = Some(snapshot);
+    }
+
+    /// BUG-8 FIX: Checks if internal effect latencies have changed since last check.
+    /// Returns `true` if a graph rebuild is needed.
+    pub fn check_internal_latency_changed(&self) -> bool {
+        let Some(snapshot) = &self.internal_latency_snapshot else {
+            return false;
+        };
+        let mut current = Vec::new();
+        snapshot.load_all(&mut current);
+        let mut prev = self.prev_internal_latencies.lock().unwrap();
+        if *prev != current {
+            *prev = current;
+            true
+        } else {
+            false
+        }
     }
 
     /// Collects direct plugin latency per track (own plugins only, no group cascading).
@@ -175,6 +212,25 @@ impl ClipPoolState {
             }
             latencies.push(track_latency);
         }
+
+        // BUG-8 FIX: Include internal effect latencies (Compressor/Limiter lookahead).
+        // These are published by the audio thread via SharedInternalLatencySnapshot.
+        if let Some(int_snapshot) = &self.internal_latency_snapshot {
+            let mut int_lats = Vec::new();
+            int_snapshot.load_all(&mut int_lats);
+            for (i, lat) in latencies.iter_mut().enumerate().take(track_count) {
+                if let Some(&int_lat) = int_lats.get(i) {
+                    if int_lat > 0 {
+                        log::debug!(
+                            "[PDC] track[{}] internal effect latency = {} samples",
+                            i, int_lat
+                        );
+                    }
+                    *lat = lat.saturating_add(int_lat);
+                }
+            }
+        }
+
         latencies
     }
 

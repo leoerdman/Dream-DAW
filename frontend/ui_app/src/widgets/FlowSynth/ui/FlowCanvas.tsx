@@ -541,28 +541,62 @@ export function FlowCanvas() {
                             outline: 'none',
                         }}
                     />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-0-5)', maxHeight: 240, overflowY: 'auto' }}>
-                        {filteredCatalog.map((item, idx) => (
-                            <button
-                                key={item.type}
-                                onClick={() => handleAddNode(item.type)}
-                                onMouseEnter={() => setMenuIndex(idx)}
-                                style={{
-                                    textAlign: 'left',
-                                    padding: 'var(--space-2) var(--space-3)',
-                                    background: idx === menuIndex ? 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)' : 'transparent',
-                                    border: 'none',
-                                    color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer',
-                                    borderRadius: 'var(--radius-lg)',
-                                    transition: 'background var(--transition-fast), color var(--transition-fast)',
-                                    fontWeight: 'var(--font-weight-medium)',
-                                    fontSize: 'var(--font-size-md)',
-                                }}
-                            >
-                                {item.label}
-                            </button>
-                        ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-0-5)', maxHeight: 360, overflowY: 'auto' }}>
+                        {(() => {
+                            // When searching, show flat list; otherwise group by category with headers
+                            const isSearching = menuSearch.trim().length > 0;
+                            const elements: React.ReactNode[] = [];
+                            let lastCategory = '';
+                            let globalIdx = 0;
+
+                            for (const item of filteredCatalog) {
+                                if (!isSearching && item.category !== lastCategory) {
+                                    lastCategory = item.category;
+                                    elements.push(
+                                        <div
+                                            key={`cat-${item.category}`}
+                                            style={{
+                                                padding: 'var(--space-1-5) var(--space-3)',
+                                                fontSize: '10px',
+                                                color: 'var(--color-text-tertiary)',
+                                                fontWeight: 'var(--font-weight-bold)',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.08em',
+                                                fontFamily: 'var(--font-role-data)',
+                                                borderTop: elements.length > 0 ? '1px solid var(--color-divider)' : 'none',
+                                                marginTop: elements.length > 0 ? 'var(--space-1)' : '0',
+                                                paddingTop: elements.length > 0 ? 'var(--space-2)' : 'var(--space-1-5)',
+                                            }}
+                                        >
+                                            {item.category}
+                                        </div>
+                                    );
+                                }
+                                const currentIdx = globalIdx++;
+                                elements.push(
+                                    <button
+                                        key={item.type}
+                                        onClick={() => handleAddNode(item.type)}
+                                        onMouseEnter={() => setMenuIndex(currentIdx)}
+                                        style={{
+                                            textAlign: 'left',
+                                            padding: 'var(--space-2) var(--space-3)',
+                                            background: currentIdx === menuIndex ? 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)' : 'transparent',
+                                            border: 'none',
+                                            color: 'var(--color-text-secondary)',
+                                            cursor: 'pointer',
+                                            borderRadius: 'var(--radius-lg)',
+                                            transition: 'background var(--transition-fast), color var(--transition-fast)',
+                                            fontWeight: 'var(--font-weight-medium)',
+                                            fontSize: 'var(--font-size-md)',
+                                        }}
+                                    >
+                                        {item.label}
+                                    </button>
+                                );
+                            }
+                            return elements;
+                        })()}
                         {filteredCatalog.length === 0 && (
                             <div style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-sm)' }}>
                                 No nodes found

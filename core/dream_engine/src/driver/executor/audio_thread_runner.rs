@@ -77,6 +77,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
         sample_rate_f64,
         channels,
         Arc::clone(&meter_bank),
+        Arc::clone(&shared_state.internal_latency_snapshot),
     );
 
     // ── Spectrum analyzer ring buffer (lock-free: audio thread → UI thread) ──
@@ -684,6 +685,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // processed in this graph pass. Tracks beyond track_count
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
+
+                        // BUG-8 FIX: Publish per-track internal effect latencies for PDC.
+                        // This enables the PDC system to compensate for Compressor/Limiter
+                        // lookahead and any future internal effects with non-zero latency.
+                        // RT-safe: AtomicU32 store per track, zero allocations.
+                        {
+                            let int_lat = &render_ctx.internal_latency_snapshot;
+                            for ti in 0..track_count.min(render_ctx.track_slots.len()) {
+                                let lat = render_ctx.track_slots[ti]
+                                    .device_chain
+                                    .total_latency_samples() as u32;
+                                int_lat.publish_track(ti, lat);
+                            }
+                        }
 
                         // BUG-Q002 FIX: Removed _vst_diag_counter usage (dead code).
 

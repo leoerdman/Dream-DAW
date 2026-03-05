@@ -1937,11 +1937,17 @@ impl OfflineRenderer {
         sample_rate: f64,
     ) -> RenderContext {
         let meter_bank = Arc::new(MeterBank::new(project.tracks.len().max(1)));
+        let internal_latency = Arc::new(
+            crate::render_callback::SharedInternalLatencySnapshot::new(
+                project.tracks.len().max(1),
+            ),
+        );
         let mut render_ctx = RenderContext::new(
             project.tracks.len().max(1),
             sample_rate,
             OFFLINE_CHANNELS,
             meter_bank,
+            internal_latency,
         );
 
         // ── CRITICAL: Set timeline sample rate to project SR ────────

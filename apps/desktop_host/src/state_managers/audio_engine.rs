@@ -70,6 +70,9 @@ pub struct AudioEngineHandle {
     /// The audio callback drains pending chunks via try_lock() (non-blocking).
     pub disk_streamers: Arc<SharedDiskStreamers>,
 
+    /// BUG-8 FIX: Shared internal effect latency snapshot for device hot-swap.
+    pub internal_latency_snapshot: Arc<dream_engine::render_callback::SharedInternalLatencySnapshot>,
+
     /// Estimated hardware output latency in sample frames.
     /// Captured from cpal at stream init. Passed to frontend so the
     /// visual playhead can be offset to match actual speaker output.

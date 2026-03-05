@@ -290,15 +290,23 @@ export const SettingsPanel = React.memo(function SettingsPanel({
                 {expanded ? '▴' : '▾'}
             </button>
 
-            {/* ─── Expandable knob grid ─── */}
-            {expanded && (
-                <KnobParamGrid
-                    params={params}
-                    handlers={handlers}
-                    maxCols={maxCols}
-                    minCols={2}
-                />
-            )}
+            {/* ─── Animated expandable knob grid ─── */}
+            <div
+                style={{
+                    maxHeight: expanded ? 200 : 0,
+                    overflow: 'hidden',
+                    transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+            >
+                {expanded && (
+                    <KnobParamGrid
+                        params={params}
+                        handlers={handlers}
+                        maxCols={maxCols}
+                        minCols={2}
+                    />
+                )}
+            </div>
         </div>
     );
 });
@@ -779,7 +787,7 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
 });
 
 // ─── Gain Reduction Meter ────────────────────────────────────────────────
-// Vertical GR bar with traffic-light color zones.
+// Premium segmented LED-style meter with color zones.
 
 export interface GainReductionMeterProps {
     /** Current GR in dB (positive = more reduction). */
@@ -790,34 +798,46 @@ export interface GainReductionMeterProps {
     orientation?: 'vertical' | 'horizontal';
 }
 
+const GR_SEGMENTS = 12;
+
 export const GainReductionMeter = React.memo(function GainReductionMeter({
     grDb,
     maxDb = 24,
     orientation = 'vertical',
 }: GainReductionMeterProps) {
     const normalizedGr = clamp01(Math.abs(grDb) / maxDb);
-    const color = Math.abs(grDb) > 12
-        ? 'var(--color-error)'
-        : Math.abs(grDb) > 4
-            ? 'var(--color-warning)'
-            : 'var(--color-success)';
+    const activeSegments = Math.round(normalizedGr * GR_SEGMENTS);
+
+    const segmentColor = (idx: number) => {
+        const segNorm = idx / GR_SEGMENTS;
+        if (segNorm > 0.75) return 'var(--color-error)';
+        if (segNorm > 0.45) return 'var(--color-warning)';
+        return 'var(--color-success)';
+    };
 
     if (orientation === 'horizontal') {
         return (
             <div style={{
-                height: 8,
-                borderRadius: 'var(--radius-full)',
-                background: 'var(--color-bg-tertiary)',
-                overflow: 'hidden',
-                border: 'var(--space-px) solid var(--color-divider)',
+                display: 'flex',
+                gap: 1,
+                height: 10,
+                alignItems: 'stretch',
+                padding: '1px 0',
             }}>
-                <div style={{
-                    width: `${normalizedGr * 100}%`,
-                    height: '100%',
-                    background: color,
-                    borderRadius: 'var(--radius-full)',
-                    transition: 'width 60ms linear',
-                }} />
+                {Array.from({ length: GR_SEGMENTS }).map((_, i) => (
+                    <div
+                        key={i}
+                        style={{
+                            flex: 1,
+                            borderRadius: 1.5,
+                            background: i < activeSegments
+                                ? segmentColor(i)
+                                : 'var(--color-bg-tertiary)',
+                            opacity: i < activeSegments ? 0.9 : 0.25,
+                            transition: 'background 60ms linear, opacity 60ms linear',
+                        }}
+                    />
+                ))}
             </div>
         );
     }
@@ -826,21 +846,25 @@ export const GainReductionMeter = React.memo(function GainReductionMeter({
         <div style={{
             width: 14,
             height: '100%',
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--color-bg-tertiary)',
-            border: 'var(--space-px) solid var(--color-divider)',
             display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'flex-end',
-            overflow: 'hidden',
+            flexDirection: 'column-reverse',
+            gap: 1,
+            padding: '1px 0',
         }}>
-            <div style={{
-                width: '100%',
-                height: `${normalizedGr * 100}%`,
-                background: color,
-                borderRadius: 2,
-                transition: 'height 60ms linear',
-            }} />
+            {Array.from({ length: GR_SEGMENTS }).map((_, i) => (
+                <div
+                    key={i}
+                    style={{
+                        flex: 1,
+                        borderRadius: 1.5,
+                        background: i < activeSegments
+                            ? segmentColor(i)
+                            : 'var(--color-bg-tertiary)',
+                        opacity: i < activeSegments ? 0.9 : 0.25,
+                        transition: 'background 60ms linear, opacity 60ms linear',
+                    }}
+                />
+            ))}
         </div>
     );
 });
@@ -995,7 +1019,7 @@ export const CompressionCurve = React.memo(function CompressionCurve({
 });
 
 // ─── Modulation Wave ─────────────────────────────────────────────────────
-// Renders sine/triangle/saw/square modulation waveform.
+// Premium waveform visualization with gradient fill, rate/depth readouts.
 
 export type ModulationWaveShape = 'sine' | 'triangle' | 'saw' | 'square';
 
@@ -1018,7 +1042,7 @@ export const ModulationWave = React.memo(function ModulationWave({
     const M = 14;
     const midY = VB_H / 2;
     const amp = clamp01(depth) * (VB_H / 2 - M);
-    const cycles = 1 + clamp01(rate) * 4;   // 1–5 visible cycles
+    const cycles = 1 + clamp01(rate) * 4;
     const W = VB_W - 2 * M;
     const steps = 200;
 
@@ -1045,22 +1069,52 @@ export const ModulationWave = React.memo(function ModulationWave({
                 y = midY - squareVal * amp;
                 break;
             }
-            default: // sine
+            default:
                 y = midY - Math.sin(phase) * amp;
         }
         points.push(`${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`);
     }
 
+    const wavePath = points.join(' ');
+    // Close path for fill: continue to bottom-right, bottom-left, back to start
+    const fillPath = `${wavePath} L ${M + W} ${VB_H - M} L ${M} ${VB_H - M} Z`;
+
+    // Rate/depth readout labels
+    const rateHz = (rate * 10).toFixed(1);
+    const depthPct = Math.round(depth * 100);
+
     return (
-        <VizSvg bgFill="var(--token-color-rgba-8-10-14-0d65)">
+        <svg
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+        >
+            <defs>
+                <linearGradient id="mod-wave-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={accent} stopOpacity="0.18" />
+                    <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
+                </linearGradient>
+            </defs>
+            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-8-10-14-0d65)" />
+            {/* Grid */}
             <line x1={M} y1={midY} x2={VB_W - M} y2={midY} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" />
-            <path d={points.join(' ')} fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" />
-        </VizSvg>
+            <line x1={M} y1={M + (midY - M) / 2} x2={VB_W - M} y2={M + (midY - M) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
+            <line x1={M} y1={midY + (VB_H - M - midY) / 2} x2={VB_W - M} y2={midY + (VB_H - M - midY) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
+            {/* Gradient fill under waveform */}
+            <path d={fillPath} fill="url(#mod-wave-fill)" />
+            {/* Waveform line */}
+            <path d={wavePath} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
+            {/* Readout labels */}
+            <text x={VB_W - M - 2} y={M + 8} textAnchor="end" fill={accent} fontSize="8" fontFamily="var(--font-role-data)" opacity="0.75">{rateHz} Hz</text>
+            <text x={VB_W - M - 2} y={M + 18} textAnchor="end" fill="var(--token-color-rgba-255-255-255-0d4)" fontSize="7" fontFamily="var(--font-role-data)">{depthPct}%</text>
+        </svg>
     );
 });
 
 // ─── Waveform Display ────────────────────────────────────────────────────
-// Bar or line-based waveform visualization from data array.
+// Premium bar or line-based waveform with gradient fills.
 
 export interface WaveformDisplayProps {
     /** Normalized amplitude data (0–1 per bar). */
@@ -1081,21 +1135,42 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     const maxH = VB_H - 2 * M;
 
     if (mode === 'line') {
-        const path = data.map((v, i) => {
+        const linePath = data.map((v, i) => {
             const x = M + (i / Math.max(1, count - 1)) * (VB_W - 2 * M);
             const y = VB_H - M - clamp01(v) * maxH;
             return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
         }).join(' ');
+        const fillPath = `${linePath} L ${M + (VB_W - 2 * M)} ${VB_H - M} L ${M} ${VB_H - M} Z`;
 
         return (
-            <VizSvg bgFill="var(--token-color-rgba-12-18-12-0d65)">
-                <path d={path} fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
-            </VizSvg>
+            <svg
+                width="100%" height="100%"
+                viewBox={`0 0 ${VB_W} ${VB_H}`}
+                preserveAspectRatio="xMidYMid slice"
+                style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+            >
+                <defs>
+                    <linearGradient id="wf-line-fill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={accent} stopOpacity="0.2" />
+                        <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
+                    </linearGradient>
+                </defs>
+                <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-12-18-12-0d65)" />
+                {/* Grid */}
+                <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={VB_H - M} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+                <line x1={M} y1={VB_H / 2} x2={VB_W - M} y2={VB_H / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
+                {/* Fill under curve */}
+                <path d={fillPath} fill="url(#wf-line-fill)" />
+                {/* Waveform line */}
+                <path d={linePath} fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
         );
     }
 
     return (
         <VizSvg bgFill="var(--token-color-rgba-12-18-12-0d65)">
+            {/* Grid baseline */}
+            <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={VB_H - M} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
             {data.map((v, i) => {
                 const h = Math.max(2, clamp01(v) * maxH);
                 return (
@@ -1107,7 +1182,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
                         height={h}
                         rx="1.5"
                         fill={accent}
-                        opacity="0.85"
+                        opacity={0.5 + clamp01(v) * 0.45}
                     />
                 );
             })}
@@ -1116,7 +1191,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
 });
 
 // ─── Spectrum Bars ───────────────────────────────────────────────────────
-// Vertical bar spectrum analyzer.
+// Premium vertical bar spectrum with gradient-tipped bars and grid.
 
 export interface SpectrumBarsProps {
     /** Number of bars. Default: 16. Data not required (decorative). */
@@ -1137,7 +1212,24 @@ export const SpectrumBars = React.memo(function SpectrumBars({
     const maxH = VB_H - 2 * M;
 
     return (
-        <VizSvg bgFill="var(--token-color-rgba-8-10-14-0d65)">
+        <svg
+            width="100%" height="100%"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+        >
+            <defs>
+                <linearGradient id="spectrum-bar-grad" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor={accent} stopOpacity="0.5" />
+                    <stop offset="100%" stopColor={accent} stopOpacity="1" />
+                </linearGradient>
+            </defs>
+            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-8-10-14-0d65)" />
+            {/* Horizontal grid */}
+            <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={VB_H - M} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+            <line x1={M} y1={VB_H / 2} x2={VB_W - M} y2={VB_H / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.25" />
+            <line x1={M} y1={M + (VB_H / 2 - M) / 2} x2={VB_W - M} y2={M + (VB_H / 2 - M) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.2" />
+            {/* Bars */}
             {Array.from({ length: count }).map((_, i) => {
                 const v = data ? clamp01(data[i] ?? 0) : (0.2 + Math.abs(Math.sin((i + 1) * 0.95)) * 0.7);
                 const h = Math.max(2, v * maxH);
@@ -1149,11 +1241,11 @@ export const SpectrumBars = React.memo(function SpectrumBars({
                         width={Math.max(2, barWidth - 2)}
                         height={h}
                         rx="1.5"
-                        fill={accent}
-                        opacity="0.85"
+                        fill="url(#spectrum-bar-grad)"
+                        opacity={0.55 + v * 0.4}
                     />
                 );
             })}
-        </VizSvg>
+        </svg>
     );
 });

@@ -212,6 +212,10 @@ pub(crate) fn spawn_background_runtime_threads(
                         host.refresh_all_latencies()
                     };
                     let latency_changed = proactive_changed || vst3_latency_event || vst2_latency_event;
+                    // BUG-8 FIX: Also detect internal effect latency changes
+                    // (e.g., Compressor/Limiter lookahead enable/disable).
+                    let internal_latency_changed = clip_pool_state.check_internal_latency_changed();
+                    let latency_changed = latency_changed || internal_latency_changed;
 
                     if let Some(pstate) = registry.get_active_project() {
                         if let Ok(project) = pstate.project.lock() {

@@ -93,6 +93,16 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let plugin_registry = Arc::new(dream_engine::driver::SharedPluginRegistry::new());
     plugin_host_state.set_plugin_registry(Arc::clone(&plugin_registry));
     clip_pool_state.set_plugin_registry(Arc::clone(&plugin_registry));
+    // BUG-8 FIX: Create shared internal latency snapshot for PDC.
+    // Audio thread publishes per-track internal effect latencies here.
+    // Background thread reads during latency polling.
+    let internal_latency_snapshot = Arc::new(
+        dream_engine::render_callback::SharedInternalLatencySnapshot::new(
+            dream_engine::render_callback::MAX_TRACKS,
+        ),
+    );
+    clip_pool_state.set_internal_latency_snapshot(Arc::clone(&internal_latency_snapshot));
+    let internal_latency_for_engine = Arc::clone(&internal_latency_snapshot);
     let plugin_registry_for_engine = Arc::clone(&plugin_registry);
     let plugin_registry_for_handle = Arc::clone(&plugin_registry);
     let rt_debug_stats = Arc::new(dream_engine::driver::SharedRtDebugStats::new());
@@ -140,6 +150,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         preview_cursor: preview_cursor_for_engine,
         preview_source_sr: preview_source_sr_for_engine,
         disk_streamers: disk_streamers_for_engine,
+        internal_latency_snapshot: internal_latency_for_engine,
     };
 
     let mut stream = dream_engine::driver::start_audio_thread_on_device(
@@ -281,6 +292,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         is_shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         frontend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         prealloc_producer: Mutex::new(prealloc_producer),
+        internal_latency_snapshot: internal_latency_snapshot,
     };
 
     let project_registry = ProjectRegistry::new();

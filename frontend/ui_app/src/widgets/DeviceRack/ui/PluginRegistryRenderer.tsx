@@ -76,10 +76,10 @@ function resolveViz(
                     type={viz.satType ?? 'soft'}
                     accent={accent}
                     onDriveChange={driveParam ? (normDrive: number) => {
-                        handlers.onParamChange(driveParam, normDrive * driveMax);
+                        handlers.onParamChange(driveParam.name, normDrive * driveMax);
                     } : undefined}
-                    onGestureStart={driveParam ? () => handlers.onParamGestureStart?.(driveParam) : undefined}
-                    onGestureEnd={driveParam ? () => handlers.onParamGestureEnd?.(driveParam) : undefined}
+                    onGestureStart={driveParam ? () => handlers.onParamGestureStart?.(driveParam.name) : undefined}
+                    onGestureEnd={driveParam ? () => handlers.onParamGestureEnd?.(driveParam.name) : undefined}
                 />
             );
         }
@@ -96,15 +96,15 @@ function resolveViz(
                     accentLp={accent}
                     onFreqChange={(handle, normFreq) => {
                         const param = handle === 'hp' ? hpParam : lpParam;
-                        if (param) handlers.onParamChange(param, normToHz(normFreq));
+                        if (param) handlers.onParamChange(param.name, normToHz(normFreq));
                     }}
                     onGestureStart={(handle) => {
                         const param = handle === 'hp' ? hpParam : lpParam;
-                        if (param) handlers.onParamGestureStart?.(param);
+                        if (param) handlers.onParamGestureStart?.(param.name);
                     }}
                     onGestureEnd={(handle) => {
                         const param = handle === 'hp' ? hpParam : lpParam;
-                        if (param) handlers.onParamGestureEnd?.(param);
+                        if (param) handlers.onParamGestureEnd?.(param.name);
                     }}
                 />
             );
@@ -137,11 +137,10 @@ function resolveViz(
                     accent={accent}
                     variant={viz.compVariant ?? 'standard'}
                     onThresholdChange={thrParam ? (normThr: number) => {
-                        // Convert 0–1 norm → -60–0 dB range
-                        handlers.onParamChange(thrParam, normThr * 60 - 60);
+                        handlers.onParamChange(thrParam.name, normThr * 60 - 60);
                     } : undefined}
-                    onGestureStart={thrParam ? () => handlers.onParamGestureStart?.(thrParam) : undefined}
-                    onGestureEnd={thrParam ? () => handlers.onParamGestureEnd?.(thrParam) : undefined}
+                    onGestureStart={thrParam ? () => handlers.onParamGestureStart?.(thrParam.name) : undefined}
+                    onGestureEnd={thrParam ? () => handlers.onParamGestureEnd?.(thrParam.name) : undefined}
                 />
             );
         }

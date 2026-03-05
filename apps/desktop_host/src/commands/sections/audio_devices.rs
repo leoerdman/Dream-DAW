@@ -72,6 +72,7 @@ fn restart_audio_engine_impl(
         preview_cursor: Arc::clone(&handle.preview_cursor),
         preview_source_sr: Arc::clone(&handle.preview_source_sr),
         disk_streamers: Arc::clone(&handle.disk_streamers),
+        internal_latency_snapshot: Arc::clone(&handle.internal_latency_snapshot),
     };
 
     let new_stream = dream_engine::driver::start_audio_thread_on_device(

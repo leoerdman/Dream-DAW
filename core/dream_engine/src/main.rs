@@ -67,6 +67,9 @@ fn main() {
         preview_cursor: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         preview_source_sr: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         disk_streamers: Arc::new(dream_engine::driver::SharedDiskStreamers::new()),
+        internal_latency_snapshot: Arc::new(
+            dream_engine::render_callback::SharedInternalLatencySnapshot::new(64),
+        ),
     };
 
     let _stream_handle = match dream_engine::driver::start_audio_thread(

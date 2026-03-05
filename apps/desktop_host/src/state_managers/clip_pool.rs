@@ -51,6 +51,69 @@ pub struct ClipPoolState {
     plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
 }
 
+/// Accumulates group latencies through the routing hierarchy.
+///
+/// For nested groups (Shaker→Percussion→DRUMS→Master), a parent group's
+/// effective latency is: own_direct_latency + max(child_effective_latencies).
+///
+/// Algorithm: iterative fixed-point. Each pass propagates child latencies
+/// one level up. Converges in O(depth) passes. Max 100 iterations guards
+/// against cyclic routing (already prevented by the DAG builder, but
+/// belt-and-suspenders).
+///
+/// This is the standard DAW PDC algorithm used by Ableton Live, Logic Pro,
+/// and Pro Tools.
+fn accumulate_group_latencies(direct: &[u32], routing: &[Option<usize>]) -> Vec<u32> {
+    let n = direct.len();
+    let mut effective = direct.to_vec();
+
+    // Build children lists: children[parent] = [child_indices...]
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (child_idx, dest) in routing.iter().enumerate().take(n) {
+        if let Some(parent_idx) = dest {
+            if *parent_idx < n && *parent_idx != child_idx {
+                children[*parent_idx].push(child_idx);
+            }
+        }
+    }
+
+    // Iterative fixed-point: propagate until no effective[] value changes.
+    // Each iteration propagates one nesting level, so depth D converges in D passes.
+    for _iter in 0..100 {
+        let mut changed = false;
+        for parent_idx in 0..n {
+            if children[parent_idx].is_empty() {
+                continue;
+            }
+            let max_child_effective = children[parent_idx]
+                .iter()
+                .map(|&ci| effective[ci])
+                .max()
+                .unwrap_or(0);
+            let new_effective = direct[parent_idx].saturating_add(max_child_effective);
+            if new_effective != effective[parent_idx] {
+                effective[parent_idx] = new_effective;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Log accumulated latencies for debugging
+    for (idx, &eff) in effective.iter().enumerate() {
+        if eff > 0 && eff != direct[idx] {
+            log::debug!(
+                "[PDC] track[{}] effective latency = {} samples (direct={}, group_cascade={})",
+                idx, eff, direct[idx], eff - direct[idx]
+            );
+        }
+    }
+
+    effective
+}
+
 impl ClipPoolState {
     pub fn new() -> Self {
         Self {
@@ -71,12 +134,12 @@ impl ClipPoolState {
         self.plugin_registry = Some(registry);
     }
 
-    /// Collects the total plugin latency (in samples) for each track.
+    /// Collects direct plugin latency per track (own plugins only, no group cascading).
     ///
     /// Iterates over the current external FX snapshot and queries each
     /// loaded, non-bypassed plugin instance for its reported latency.
     /// Returns a `Vec<u32>` indexed by track index.
-    fn collect_per_track_latencies(&self, track_count: usize) -> Vec<u32> {
+    fn collect_direct_plugin_latencies(&self, track_count: usize) -> Vec<u32> {
         let Some(registry) = &self.plugin_registry else {
             return vec![0u32; track_count];
         };
@@ -108,11 +171,21 @@ impl ClipPoolState {
                 0
             };
             if track_latency > 0 {
-                log::debug!("[PDC] track[{}] total latency = {} samples", track_idx, track_latency);
+                log::debug!("[PDC] track[{}] direct plugin latency = {} samples", track_idx, track_latency);
             }
             latencies.push(track_latency);
         }
         latencies
+    }
+
+    /// Collects effective per-track latencies including group cascading.
+    ///
+    /// For nested groups (e.g. Shaker→Percussion→DRUMS), a parent group's
+    /// effective latency = own direct plugin latency + max(child effective latencies).
+    /// This is the standard DAW PDC algorithm used by Ableton, Logic, and Pro Tools.
+    fn collect_per_track_latencies(&self, track_count: usize, routing: &[Option<usize>]) -> Vec<u32> {
+        let direct = self.collect_direct_plugin_latencies(track_count);
+        accumulate_group_latencies(&direct, routing)
     }
 
     pub fn collect_sidechain_sources_from_node(
@@ -123,16 +196,31 @@ impl ClipPoolState {
     ) {
         match node {
             DeviceNode::Single(slot) => {
-                if parent_bypassed || slot.is_bypassed {
-                    return;
-                }
+                // SIDECHAIN-PARITY FIX: Always emit sidechain source entries
+                // regardless of bypass state. Previously bypassed plugins had
+                // their SC sources omitted, shifting indices and silently
+                // breaking routing for subsequent plugins on the same track.
+                //
+                // Example: 5 SC plugins on one track, bypass #2 → indices #3-#5
+                // shifted left, receiving WRONG sidechain source tracks.
+                //
+                // Now bypassed plugins emit None (no DAG edge created) but
+                // preserve index positions. This matches the offline bounce
+                // path (offline_bounce/mod.rs:518-551).
                 if let Some(source_id) = &slot.sidechain_source_track_id {
-                    let idx = project
-                        .tracks
-                        .iter()
-                        .take(MAX_TRACKS)
-                        .position(|t| t.id.to_string() == *source_id);
-                    out.push(idx);
+                    let effective_bypassed = parent_bypassed || slot.is_bypassed;
+                    if effective_bypassed {
+                        // Bypassed: emit None to preserve index position
+                        // without creating a DAG sidechain edge.
+                        out.push(None);
+                    } else {
+                        let idx = project
+                            .tracks
+                            .iter()
+                            .take(MAX_TRACKS)
+                            .position(|t| t.id.to_string() == *source_id);
+                        out.push(idx);
+                    }
                 }
             }
             DeviceNode::Rack(rack) => {
@@ -231,9 +319,10 @@ impl ClipPoolState {
             })
             .collect();
 
-        // Collect per-track plugin latency for PDC.
+        // Collect per-track plugin latency for PDC (with group cascading).
         let per_track_latencies = self.collect_per_track_latencies(
             project.tracks.len().min(dream_engine::render_callback::MAX_TRACKS),
+            routing_now.as_ref(),
         );
 
         self.prepared_graph_snapshot.rebuild_for_routing(

@@ -285,7 +285,7 @@ export const DeviceNodeBody = React.memo(({
                         ? (showFlowSidechain ? 'auto 1fr auto' : '1fr auto')
                         : (showFlowSidechain ? 'auto 1fr' : '1fr'),
                     gap: 'var(--space-1)',
-                    overflow: 'hidden',
+                    overflow: 'auto',
                 }}
             >
                 {/* Sidechain selector for Flow synth instrument */}
@@ -325,7 +325,7 @@ export const DeviceNodeBody = React.memo(({
                         </select>
                     </div>
                 )}
-                <div style={{ minHeight: 0 }}>
+                <div style={{ minHeight: 0, overflow: 'auto' }}>
                     <Suspense fallback={null}>
                         <PluginGuiSurfaceLazy
                             device={device}

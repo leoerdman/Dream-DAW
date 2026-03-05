@@ -4,12 +4,10 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     DryWetSection,
     formatSurfaceParam,
-    getDevicePluginKey,
     KnobParamGridMemo,
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     readSurfaceParam,
     shouldShowDryWet,
     type SurfaceHandlers,
@@ -24,7 +22,6 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-6db3ff)' }}>Auto Pan</div>
                     <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1="150" y1="4" x2="150" y2="48" stroke="var(--token-color-rgba-109-179-255-0d2)" strokeWidth="1" />
@@ -34,7 +31,6 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                         <path d={`M 10 26 C 60 ${26 + 18 * depthNorm}, 100 ${26 - 18 * depthNorm}, 150 26 C 200 ${26 + 18 * depthNorm}, 240 ${26 - 18 * depthNorm}, 290 26`} fill="none" stroke="var(--token-color-hex-6db3ff)" strokeWidth="1.6" strokeLinecap="round" opacity="0.35" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>Auto Pan</span>
                         <span>Rate {formatSurfaceParam(modRate)}</span>
                         <span>Depth {formatSurfaceParam(modDepth)}</span>
                     </div>
@@ -47,8 +43,6 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 }
 
 function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const normalizedInternalId = getDevicePluginKey(device);
-    const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
     const modRate = readSurfaceParam(device, 'rate', 0.5, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 60, '%');
@@ -58,7 +52,6 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-998bff)' }}>{isPhaserFlanger ? 'Phaser-Flanger' : 'Phaser'}</div>
                     <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {Array.from({ length: stageCount }).map((_, i) => {
@@ -74,7 +67,6 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
                         <line x1="4" y1="16" x2="296" y2="16" stroke="var(--token-color-rgba-153-139-255-0d2)" strokeWidth="0.8" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>{isPhaserFlanger ? 'Phaser-Flanger' : 'Phaser'}</span>
                         <span>{formatSurfaceParam(modRate)}</span>
                         <span>Depth {formatSurfaceParam(modDepth)}</span>
                         <span>{stageCount} stages</span>
@@ -88,8 +80,6 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 }
 
 function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const normalizedInternalId = getDevicePluginKey(device);
-    const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
     const showDryWet = shouldShowDryWet(device);
     const modRate = readSurfaceParam(device, 'rate', 0.3, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
@@ -99,7 +89,6 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-66b3ff)' }}>{isPhaserFlanger ? 'Phaser-Flanger' : 'Flanger'}</div>
                     <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {Array.from({ length: 10 }).map((_, i) => {
@@ -114,7 +103,6 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                         })}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>{isPhaserFlanger ? 'Phaser-Flanger' : 'Flanger'}</span>
                         <span>{formatSurfaceParam(modRate)}</span>
                         <span>Depth {formatSurfaceParam(modDepth)}</span>
                         <span>FB {formatSurfaceParam(fb)}</span>

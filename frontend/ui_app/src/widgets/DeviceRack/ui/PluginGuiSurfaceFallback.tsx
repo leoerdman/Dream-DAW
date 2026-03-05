@@ -5,8 +5,6 @@ import {
     KnobParamGridMemo,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     shouldShowDryWet,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -59,9 +57,6 @@ export function PluginGuiSurfaceFallback({
                 }}
             >
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: accent }}>
-                        {device.name || 'Custom Device'}
-                    </div>
                     <svg viewBox="0 0 320 54" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 50, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="320" height="54" rx="4" fill="color-mix(in srgb, var(--color-bg-app) 70%, transparent)" />
                         {bars.map((bar, idx) => (
@@ -76,10 +71,6 @@ export function PluginGuiSurfaceFallback({
                             />
                         ))}
                     </svg>
-                    <div style={pluginPanelMetaStyle}>
-                        <span>{device.effectType}</span>
-                        <span>{device.params.length} params</span>
-                    </div>
                 </div>
                 <DryWetSection device={device} handlers={{ onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu }} accent={accent} show={showDryWet} />
             </div>

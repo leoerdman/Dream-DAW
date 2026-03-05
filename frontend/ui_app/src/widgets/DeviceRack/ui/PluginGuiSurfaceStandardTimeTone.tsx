@@ -11,7 +11,6 @@ import {
     readMixSurfaceParam,
     readSurfaceParam,
     shouldShowDryWet,
-    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -25,14 +24,13 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-chorus)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
+                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-12-11-18-0d65)" />
                         <path d={`M 0 26 C 35 ${26 - 16 * depthNorm}, 70 ${26 + 16 * depthNorm}, 105 26 C 140 ${26 - 16 * depthNorm}, 175 ${26 + 16 * depthNorm}, 210 26 C 245 ${26 - 16 * depthNorm}, 280 ${26 + 16 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-c867ff)" strokeWidth="2.2" />
                         <path d={`M 0 26 C 35 ${26 + 14 * depthNorm}, 70 ${26 - 14 * depthNorm}, 105 26 C 140 ${26 + 14 * depthNorm}, 175 ${26 - 14 * depthNorm}, 210 26 C 245 ${26 + 14 * depthNorm}, 280 ${26 - 14 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-4ac0ff)" strokeWidth="2.2" opacity="0.9" />
                         <path d={`M 0 26 C 20 ${26 - 10 * depthNorm}, 50 ${26 + 10 * depthNorm}, 80 26 C 110 ${26 - 10 * depthNorm}, 140 ${26 + 10 * depthNorm}, 170 26 C 200 ${26 - 10 * depthNorm}, 230 ${26 + 10 * depthNorm}, 260 26`} fill="none" stroke="var(--token-color-rgba-200-140-255-0d45)" strokeWidth="1.8" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>Chorus</span>
                         <span>{formatSurfaceParam(rate)}</span>
                         <span>Depth {formatSurfaceParam(depth)}</span>
                         <span>Mix {formatSurfaceParam(mix)}</span>
@@ -48,7 +46,6 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
 function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const normalizedInternalId = getDevicePluginKey(device);
     const showDryWet = shouldShowDryWet(device);
-    const satTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Saturator';
     const isDrumBuss = normalizedInternalId === 'internal://effect/drum-buss';
     const isDynamicTube = normalizedInternalId === 'internal://effect/dynamic-tube';
     const driveParam = readSurfaceParam(device, 'drive', 3, 'dB');
@@ -60,7 +57,7 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-saturator)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
+                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-20-13-9-0d7)" />
                         {!isDrumBuss && !isDynamicTube && (
                             <>
@@ -82,7 +79,6 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
                         )}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>{satTitle}</span>
                         {isDrumBuss ? (<>
                             <span>Boom {formatSurfaceParam(readSurfaceParam(device, 'boom', 40, '%'))}</span>
                             <span>Drive {formatSurfaceParam(driveParam)}</span>

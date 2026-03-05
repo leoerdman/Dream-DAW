@@ -8,10 +8,8 @@ import {
     panelWithOptionalDryWetStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     readSurfaceParam,
     shouldShowDryWet,
-    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import { renderModSpatialSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardModSpatial';
@@ -29,7 +27,6 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-limiter)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a4d9d3)' }}>Lookahead Limiter</div>
                     <svg viewBox="0 0 280 28" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 28, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="28" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1={14 + (1 + thr / 60) * 240} y1="2" x2={14 + (1 + thr / 60) * 240} y2="26" stroke="var(--token-color-hex-f0a66e)" strokeWidth="1.5" strokeDasharray="3,2" />
@@ -65,7 +62,6 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-gate)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8dfad)' }}>Noise Gate</div>
                     <svg viewBox="0 0 280 48" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="48" rx="4" fill="var(--token-color-rgba-8-14-8-0d65)" />
                         {Array.from({ length: 14 }).map((_, i) => {
@@ -93,7 +89,6 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
 function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const showDryWet = shouldShowDryWet(device);
     const normalizedInternalId = getDevicePluginKey(device);
-    const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Auto Filter';
     const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
     const modRate = readSurfaceParam(device, 'rate', 0, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 0, '%');
@@ -104,7 +99,6 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-mod)' }}>
                 <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-4cc9d8)' }}>{title}</div>
                     <svg viewBox="0 0 300 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {isVocoder ? (
@@ -124,7 +118,6 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                         )}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>{title}</span>
                         {modRate.value > 0 && <span>{formatSurfaceParam(modRate)}</span>}
                         {modDepth.value > 0 && <span>Depth {formatSurfaceParam(modDepth)}</span>}
                         <span>Freq {formatSurfaceParam(modFreq)}</span>

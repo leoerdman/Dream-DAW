@@ -15,7 +15,6 @@ export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateRows: 'var(--token-size-px-90) auto',
     gap: 'var(--plugin-grid-gap)',
-    height: '100%',
 };
 
 export const pluginPanelCardBaseStyle: React.CSSProperties = {

@@ -1,15 +1,11 @@
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     formatSurfaceParam,
-    getDevicePluginKey,
     KnobParamGridMemo,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
-    pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     readSurfaceParam,
     safeParamValue,
-    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -23,23 +19,13 @@ export function renderStandardAnalyzerMidiSurface(
     device: DeviceSlot,
     handlers: SurfaceHandlers,
 ): React.ReactNode {
-    const normalizedInternalId = getDevicePluginKey(device);
 
     // BUG-76 FIX: Include all MIDI effect types including new ones (chord, noteLength, ccControl, expressionControl, arpeggiator).
     if (!ANALYZER_MIDI_TYPES.has(device.effectType)) {
         return null;
     }
 
-    // BUG-P14 FIX: Clean title resolution via PLUGIN_TITLE_MAP + effectType fallback.
-    const EFFECT_TYPE_LABELS: Record<string, string> = {
-        analyzer: 'Analyzer', spectrum: 'Spectrum', midiPitch: 'MIDI Pitch',
-        midiScale: 'MIDI Scale', midiVelocity: 'MIDI Velocity', midiRandom: 'MIDI Random',
-        // BUG-83 FIX: Labels for new MIDI effect types.
-        midiChord: 'MIDI Chord', midiNoteLength: 'MIDI Note Length',
-        midiCcControl: 'MIDI CC Control', midiExpressionControl: 'MIDI Expression',
-        midiArpeggiator: 'MIDI Arpeggiator',
-    };
-    const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? EFFECT_TYPE_LABELS[device.effectType] ?? device.effectType;
+
 
     const spectrumBars = Array.from({ length: 24 }).map((_, idx) => {
         const t = idx / 23;
@@ -73,7 +59,6 @@ export function renderStandardAnalyzerMidiSurface(
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
-                <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8c8e8)' }}>{title}</div>
                 {device.effectType === 'spectrum' && (
                     <svg viewBox="0 0 320 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 46, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-8-10-14-0d7)" />
@@ -195,15 +180,6 @@ export function renderStandardAnalyzerMidiSurface(
                         </div>
                     </div>
                 )}
-                <div style={pluginPanelMetaStyle}>
-                    <span>
-                        {device.effectType === 'spectrum'
-                            ? 'Spectrum (native)'
-                            : device.effectType === 'analyzer'
-                                ? 'Analyzer (native)'
-                                : 'MIDI FX (import-compatible)'}
-                    </span>
-                </div>
             </div>
             <KnobParamGridMemo device={device} handlers={handlers} maxCols={4} minCols={2} />
         </div>

@@ -10,10 +10,8 @@ import {
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     readSurfaceParam,
     shouldShowDryWet,
-    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -66,7 +64,6 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const isTransientShaper = normalizedInternalId === 'internal://effect/transient-shaper';
         const isGlueCompressor = normalizedInternalId === 'internal://effect/glue-compressor';
         const isMultibandDynamics = normalizedInternalId === 'internal://effect/multiband-dynamics';
-        const compressorTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Compressor';
         const showDryWet = shouldShowDryWet(device);
         const thrParam = readSurfaceParam(device, 'thr', -18, 'dB');
         const ratioParam = readSurfaceParam(device, 'ratio', 4, ':1');
@@ -95,7 +92,6 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         const susNorm = clamp01((susParam.value + 100) / 200); // sustain is -100..+100
                         return (
                             <div style={{ display: 'grid', gap: 6 }}>
-                                <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b9d7ff)' }}>Transient Shaper</div>
                                 <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                                     <div style={{ width: `${(atkNorm * 100).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-53b0ff)' }} />
                                 </div>
@@ -110,7 +106,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             </div>
                         );
                     })() : (
-                        <svg viewBox="0 0 280 86" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}>
+                        <svg viewBox="0 0 280 86" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 76, willChange: 'transform', transform: 'translateZ(0)' }}>
                             <rect x="0" y="0" width="280" height="86" fill="var(--token-color-rgba-22-24-30-0d65)" rx="4" />
                             {!isGlueCompressor && !isMultibandDynamics && (
                                 <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="3" strokeLinecap="round" />
@@ -148,7 +144,6 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             const ratioLabel = GLUE_COMP_RATIOS[Math.max(0, Math.min(2, ratioIdx))] ?? '4:1';
                             return (
                                 <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                    <span>{compressorTitle}</span>
                                     <span>Thr {formatSurfaceParam(thrParam)}</span>
                                     <span>Ratio {ratioLabel}</span>
                                     <span>Atk {formatSurfaceParam(atkParam)}</span>
@@ -161,7 +156,6 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             const xoverHi = readSurfaceParam(device, 'xover high', 4000, 'Hz');
                             return (
                                 <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                    <span>{compressorTitle}</span>
                                     <span>Lo {formatSurfaceParam(xoverLo)}</span>
                                     <span>Hi {formatSurfaceParam(xoverHi)}</span>
                                 </div>
@@ -170,7 +164,6 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         // Standard compressor
                         return (
                             <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                <span>{compressorTitle}</span>
                                 <span>Thr {formatSurfaceParam(thrParam)}</span>
                                 <span>Ratio {formatSurfaceParam(ratioParam)}</span>
                                 <span>Atk {formatSurfaceParam(atkParam)}</span>

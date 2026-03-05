@@ -219,7 +219,20 @@ fn bypass_device_cmd(
             log::debug!("[IPC] bypass_device(track={track_index}, raw_slot={slot_index}, engine_slot={resolved_slot}, bypassed={bypassed})");
         }
     } else {
-        log::debug!("[IPC] bypass_device(track={track_index}, slot={slot_index}) — skipped engine cmd (external plugin, bypass persisted to project)");
+        // PDC-BYPASS FIX: External plugin bypass must trigger immediate graph
+        // + external FX rebuild so PDC recalculates instantly. Previously this
+        // path only persisted bypass to the project model and waited up to
+        // 500ms for the background polling to catch up — causing audible timing
+        // shifts when toggling sidechain plugins on nested groups.
+        let clip_pool_state: tauri::State<'_, ClipPoolState> = app.state();
+        let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+        {
+            let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+            clip_pool_state.rebuild_routing_only(&project);
+        }
+        log::info!("[IPC] bypass_device(track={track_index}, slot={slot_index}) — external plugin bypass + immediate PDC rebuild");
     }
     Ok(())
 }

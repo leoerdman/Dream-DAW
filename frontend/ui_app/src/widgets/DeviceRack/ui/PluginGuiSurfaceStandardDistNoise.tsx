@@ -13,7 +13,6 @@ import {
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
-    pluginPanelTitleStyle,
     readSurfaceParam,
     safeParamValue,
     shouldShowDryWet,
@@ -121,7 +120,6 @@ export function renderStandardDistNoiseSurface(
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-distortion)' }}>
                     <div style={{ display: 'grid', gap: 6 }}>
-                        <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d6c1a5)' }}>{title}</div>
                         <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 44, willChange: 'transform', transform: 'translateZ(0)' }}>
                             <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-20-13-9-0d65)" />
                             {!isAmp && !isCabinet && !isErosion && !isOverdrive && !isPedal && !isRoar && !isDrumBuss && !isDynamicTube && !isBit && (
@@ -234,7 +232,6 @@ export function renderStandardDistNoiseSurface(
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-noise)' }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a5d6b0)' }}>Noise Machine</div>
                     <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 44, willChange: 'transform', transform: 'translateZ(0)' }}>
                         <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-12-18-12-0d65)" />
                         <path d="M 4 26 L 11 10 L 18 38 L 25 18 L 32 42 L 39 14 L 46 34 L 53 8 L 60 40 L 67 20 L 74 36 L 81 12 L 88 44 L 95 16 L 102 38 L 109 22 L 116 40 L 123 10 L 130 34 L 137 18 L 144 42 L 151 14 L 158 36 L 165 8 L 172 40 L 179 20 L 186 38 L 193 12 L 200 44 L 207 16 L 214 34 L 221 22 L 228 40 L 235 10 L 242 38 L 249 18 L 256 42 L 263 14 L 270 36 L 276 26" fill="none" stroke={noiseColor} strokeWidth="1.6" />

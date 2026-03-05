@@ -84,6 +84,12 @@ pub(crate) fn process_track_graph_node(
         right[..c].copy_from_slice(&ctx.slot.buf_right[..c]);
     }
 
+    // ── SIDECHAIN TAP: Pre-FX snapshot ──
+    // Capture the raw signal (after clip read / bus summing, before FX chain)
+    // so other tracks requesting Pre-FX sidechain can read it.
+    ctx.slot.sidechain_pre_fx_left[..c].copy_from_slice(&left[..c]);
+    ctx.slot.sidechain_pre_fx_right[..c].copy_from_slice(&right[..c]);
+
     // 2. Process Inserts (Native FX + VSTs in chain order)
     if let Some(runtime_slots) = ctx.external_fx_map.get(ctx.track_idx) {
         if runtime_slots.is_empty() {
@@ -124,14 +130,25 @@ pub(crate) fn process_track_graph_node(
                     let safe_source_ptrs = runtime_slot
                         .sidechain_track_index
                         .and_then(|src_idx| {
+                            // Select buffer based on sidechain_send_mode:
+                            // 0 = Pre-FX, 1 = Post-FX, 2 = Post-Mixer (default)
+                            let mode = runtime_slot.sidechain_send_mode;
                             if src_idx < ctx.track_idx {
                                 let target_slot = &ctx.left_tracks[src_idx];
-                                Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                Some(match mode {
+                                    0 => (&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]),
+                                    1 => (&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]),
+                                    _ => (&target_slot.buf_left[..c], &target_slot.buf_right[..c]),
+                                })
                             } else if src_idx > ctx.track_idx {
                                 let offset_idx = src_idx - ctx.track_idx - 1;
                                 if offset_idx < ctx.right_tracks.len() {
                                     let target_slot = &ctx.right_tracks[offset_idx];
-                                    Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                    Some(match mode {
+                                        0 => (&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]),
+                                        1 => (&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]),
+                                        _ => (&target_slot.buf_left[..c], &target_slot.buf_right[..c]),
+                                    })
                                 } else { None }
                             } else { None }
                         });
@@ -344,6 +361,12 @@ pub(crate) fn process_track_graph_node(
             ctx.process_ctx,
         );
     }
+
+    // ── SIDECHAIN TAP: Post-FX snapshot ──
+    // Capture the signal after all FX processing but before the mixer strip
+    // (volume/pan/mute). Other tracks requesting Post-FX sidechain read this.
+    ctx.slot.sidechain_post_fx_left[..c].copy_from_slice(&left[..c]);
+    ctx.slot.sidechain_post_fx_right[..c].copy_from_slice(&right[..c]);
 
     // 3. Process Mixer Strip
     if ctx.slot.strip.is_output_enabled() {

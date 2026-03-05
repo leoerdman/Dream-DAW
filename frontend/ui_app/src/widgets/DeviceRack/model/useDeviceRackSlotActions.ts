@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import type { SidechainSendMode } from '@/shared/api/engine';
 import { errorMessage } from '../model/deviceRackCatalog';
 import type { ProjectDelta } from '@/shared/api/engine';
 
@@ -172,6 +173,23 @@ export function useDeviceRackSlotActions({
         }
     }, [resolveTrackIdForSlot, applyProjectDeltas, statusClear, statusError]);
 
+    const setSidechainSendMode = useCallback(async (slotId: string, currentSourceTrackId: string, mode: SidechainSendMode) => {
+        const targetTrackId = resolveTrackIdForSlot(slotId);
+        if (!targetTrackId) return;
+        try {
+            const response = await engineApi.setPluginSidechainSourceWithDeltas(
+                targetTrackId,
+                slotId,
+                currentSourceTrackId || 'none',
+                mode,
+            );
+            await applyProjectDeltas(response.deltas, 'device-rack:set-sidechain-send-mode');
+            statusClear();
+        } catch (err) {
+            statusError(`Failed to set sidechain send mode: ${errorMessage(err)}`);
+        }
+    }, [resolveTrackIdForSlot, applyProjectDeltas, statusClear, statusError]);
+
     const sidechainOptions = useMemo(
         () => trackIds
             .map((trackId) => tracksById[trackId])
@@ -185,6 +203,7 @@ export function useDeviceRackSlotActions({
         toggleDevice,
         ensureSlotRuntimeActive,
         setPluginSidechainSource,
+        setSidechainSendMode,
         sidechainOptions,
     };
 }

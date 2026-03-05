@@ -92,6 +92,14 @@ pub struct TrackSlot {
     pub ext_left: Vec<f32>,
     /// Thread-local scratch buffer for external right output.
     pub ext_right: Vec<f32>,
+    /// Sidechain tap: Pre-FX signal (after clip read, before device chain).
+    pub sidechain_pre_fx_left: Vec<f32>,
+    /// Sidechain tap: Pre-FX signal (after clip read, before device chain).
+    pub sidechain_pre_fx_right: Vec<f32>,
+    /// Sidechain tap: Post-FX signal (after device chain, before channel strip).
+    pub sidechain_post_fx_left: Vec<f32>,
+    /// Sidechain tap: Post-FX signal (after device chain, before channel strip).
+    pub sidechain_post_fx_right: Vec<f32>,
     /// Thread-local scratch buffer for VST3 MIDI events.
     pub vst3_midi_scratch: Vec<dream_plugins::MidiEvent>,
     /// Thread-local scratch buffer for scheduled MIDI notes.
@@ -122,6 +130,10 @@ impl TrackSlot {
             instrument_bypassed: false,
             ext_left: vec![0.0; max_frames],
             ext_right: vec![0.0; max_frames],
+            sidechain_pre_fx_left: vec![0.0; max_frames],
+            sidechain_pre_fx_right: vec![0.0; max_frames],
+            sidechain_post_fx_left: vec![0.0; max_frames],
+            sidechain_post_fx_right: vec![0.0; max_frames],
             vst3_midi_scratch: Vec::with_capacity(4096),
             midi_schedule_scratch: Vec::with_capacity(4096),
             midi_schedule_tmp: Vec::with_capacity(4096),
@@ -145,6 +157,15 @@ impl TrackSlot {
         let ext_n = n.min(self.ext_left.len()).min(self.ext_right.len());
         self.ext_left[..ext_n].fill(0.0);
         self.ext_right[..ext_n].fill(0.0);
+        // Sidechain tap buffers: Pre-FX and Post-FX.
+        let sc_n = n.min(self.sidechain_pre_fx_left.len())
+            .min(self.sidechain_pre_fx_right.len())
+            .min(self.sidechain_post_fx_left.len())
+            .min(self.sidechain_post_fx_right.len());
+        self.sidechain_pre_fx_left[..sc_n].fill(0.0);
+        self.sidechain_pre_fx_right[..sc_n].fill(0.0);
+        self.sidechain_post_fx_left[..sc_n].fill(0.0);
+        self.sidechain_post_fx_right[..sc_n].fill(0.0);
         self.active = false;
     }
 }

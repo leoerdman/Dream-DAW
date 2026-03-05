@@ -350,6 +350,7 @@ mod tests {
                                 track_id: target_track_id,
                                 slot_id,
                                 source_track_id: Some(source_track_id),
+                                send_mode: None,
                             };
                             ctx.execute(&cmd).unwrap_or_else(|e| {
                                 panic!(

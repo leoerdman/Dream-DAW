@@ -77,6 +77,7 @@ export interface DeviceSlot {
     waveformIndex?: number;
     supportsSidechain?: boolean;
     sidechainSourceTrackId?: string | null;
+    sidechainSendMode?: 'pre_fx' | 'post_fx' | 'post_mixer';
     guiMode?: string;
     /** Present only when this slot represents a device rack. */
     rack?: RackInfo;

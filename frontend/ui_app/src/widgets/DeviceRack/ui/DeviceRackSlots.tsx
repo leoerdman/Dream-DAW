@@ -123,9 +123,13 @@ export function DeviceSlot({
                 onParamContextMenu={(e, paramName) => logic.handleParamContextMenu(e, paramName, device.id)}
                 showSettings={!!logic.inlineSettingsOpen[device.id]}
                 sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
+                sidechainSendMode={device.sidechainSendMode ?? 'pre_fx'}
                 sidechainOptions={logic.sidechainOptions}
                 onSidechainSourceChange={(sourceTrackId) => {
                     void logic.setPluginSidechainSource(device.id, sourceTrackId);
+                }}
+                onSidechainSendModeChange={(mode) => {
+                    void logic.setSidechainSendMode(device.id, device.sidechainSourceTrackId ?? '', mode);
                 }}
                 onEnsureActive={async () => {
                     await logic.ensureSlotRuntimeActive(device.id);

@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
-import type { PluginSlotRuntimeStatus, ProjectDelta } from '@/shared/api/engine';
+import type { PluginSlotRuntimeStatus, ProjectDelta, SidechainSendMode } from '@/shared/api/engine';
 // Micro-hook imports
 import { useDeviceRackCore } from './useDeviceRackCore';
 import { useDeviceProbes } from './useDeviceProbes';
@@ -63,6 +63,7 @@ export interface DeviceRackLogicOutput {
     applyQuickUtilityScene: (device: DeviceSlot, scene: 'center' | 'mono' | 'wide') => void;
     ensureSlotRuntimeActive: (slotId: string) => Promise<PluginSlotRuntimeStatus | null>;
     setPluginSidechainSource: (slotId: string, sourceTrackId: string) => Promise<void>;
+    setSidechainSendMode: (slotId: string, currentSourceTrackId: string, mode: SidechainSendMode) => Promise<void>;
     handleParamContextMenu: (e: React.MouseEvent, paramName: string, deviceId: string) => void;
     setAutoCtxMenu: React.Dispatch<React.SetStateAction<AutoCtxMenuState>>;
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
@@ -204,6 +205,7 @@ export function useDeviceRackLogic(
         toggleDevice,
         ensureSlotRuntimeActive,
         setPluginSidechainSource,
+        setSidechainSendMode,
         sidechainOptions,
     } = useDeviceRackSlotActions({
         selectedTrack: core.selectedTrack
@@ -298,6 +300,7 @@ export function useDeviceRackLogic(
         applyQuickUtilityScene: snapshots.applyQuickUtilityScene,
         ensureSlotRuntimeActive,
         setPluginSidechainSource,
+        setSidechainSendMode,
         handleParamContextMenu,
         setAutoCtxMenu,
         setInlineSettingsOpen: core.setInlineSettingsOpen,

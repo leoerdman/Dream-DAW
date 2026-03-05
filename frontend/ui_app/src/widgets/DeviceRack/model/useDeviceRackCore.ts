@@ -20,6 +20,7 @@ type DeviceNodeModel = {
     plugin_id?: string;
     is_bypassed?: boolean;
     sidechain_source_track_id?: string | null;
+    sidechain_send_mode?: string;
     supports_sidechain_input?: boolean;
     sampleRackConfig?: SampleRackConfig;
     sample_rack?: SampleRackConfig;
@@ -42,7 +43,7 @@ function isDeviceSlotEqual(a: DeviceSlot, b: DeviceSlot): boolean {
     if (a === b) return true;
     if (a.id !== b.id || a.isBypassed !== b.isBypassed || a.isEnabled !== b.isEnabled) return false;
     if (a.name !== b.name || a.pluginId !== b.pluginId || a.effectType !== b.effectType) return false;
-    if (a.samplePath !== b.samplePath || a.supportsSidechain !== b.supportsSidechain || a.sidechainSourceTrackId !== b.sidechainSourceTrackId) return false;
+    if (a.samplePath !== b.samplePath || a.supportsSidechain !== b.supportsSidechain || a.sidechainSourceTrackId !== b.sidechainSourceTrackId || a.sidechainSendMode !== b.sidechainSendMode) return false;
     // ENTERPRISE: Rack data — bypass/chain changes must invalidate the cached slot.
     if (a.rack !== b.rack) return false;
     if (a.params.length !== b.params.length) return false;
@@ -282,6 +283,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 source,
                 params,
                 sidechainSourceTrackId,
+                sidechainSendMode: ((node as DeviceNodeModel).sidechain_send_mode ?? 'pre_fx') as DeviceSlot['sidechainSendMode'],
                 supportsSidechain,
                 waveformIndex,
                 samplePath,

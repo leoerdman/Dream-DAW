@@ -531,6 +531,7 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
 ///
 /// Mirrors Ableton Live's Pre FX / Post FX / Post Mixer routing modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
+#[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum SidechainSendMode {
     /// Raw audio before any insert effects — default and industry standard

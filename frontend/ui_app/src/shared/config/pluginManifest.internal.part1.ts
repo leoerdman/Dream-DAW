@@ -9,7 +9,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 980,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -20,7 +20,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 720,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -31,7 +31,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 720,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -42,7 +42,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 860,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -53,7 +53,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 860,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -64,7 +64,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 860,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -75,7 +75,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: true,
     },
     {
@@ -86,7 +86,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: true,
     },
     {
@@ -97,7 +97,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: true,
     },
     {
@@ -108,7 +108,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -119,7 +119,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -130,7 +130,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 340,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: true,
     },
     {
@@ -141,7 +141,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -152,7 +152,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -163,7 +163,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -174,7 +174,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -185,7 +185,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -196,7 +196,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -207,7 +207,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
     {
@@ -218,7 +218,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
-        supportsSettings: true,
+        supportsSettings: false,
         supportsSidechain: false,
     },
 ];

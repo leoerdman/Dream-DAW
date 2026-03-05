@@ -370,6 +370,7 @@ mod tests {
             track_id: source_track_id,
             slot_id,
             source_track_id: Some(carrier_track_id),
+            send_mode: None,
         };
         let result = ctx.execute(&cmd).expect("execute");
         assert!(result.changed);

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { PluginSlotRuntimeStatus } from '@/shared/api/engine';
+import type { SidechainSendMode } from '@/shared/api/engine';
 import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { MacroKnob } from '@/widgets/DeviceRack/ui/MacroKnob';
@@ -22,6 +23,8 @@ type PluginSettingsPanelProps = {
     sidechainSourceTrackId?: string;
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
+    sidechainSendMode?: SidechainSendMode;
+    onSidechainSendModeChange?: (mode: SidechainSendMode) => void;
     runtimeStatus?: PluginSlotRuntimeStatus;
     editorSupported?: boolean;
     editorReason?: string;
@@ -45,6 +48,8 @@ export const PluginSettingsPanel = ({
     sidechainSourceTrackId = 'none',
     sidechainOptions = [],
     onSidechainSourceChange,
+    sidechainSendMode = 'pre_fx',
+    onSidechainSendModeChange,
     runtimeStatus,
     editorSupported,
     editorReason,
@@ -147,6 +152,25 @@ export const PluginSettingsPanel = ({
                             <option key={track.id} value={track.id}>{track.name}</option>
                         ))}
                     </select>
+                    {sidechainSourceTrackId && sidechainSourceTrackId !== 'none' && (
+                        <select
+                            value={sidechainSendMode}
+                            onChange={(e) => onSidechainSendModeChange?.(e.target.value as SidechainSendMode)}
+                            style={{
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-md)',
+                                background: 'var(--color-bg-header)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 'var(--font-size-sm)',
+                                padding: 'var(--token-size-px-5) var(--token-size-px-7)',
+                                outline: 'none',
+                            }}
+                        >
+                            <option value="pre_fx">Pre FX</option>
+                            <option value="post_fx">Post FX</option>
+                            <option value="post_mixer">Post Mixer</option>
+                        </select>
+                    )}
                 </div>
             )}
             {quickPresets.length > 0 && (

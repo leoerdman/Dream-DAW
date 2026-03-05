@@ -1002,21 +1002,26 @@ export const setTrackInput = (trackId: string, inputId: string) =>
     safeInvoke<void>('set_track_input_cmd', { trackId, inputId });
 export const setTrackInputWithDeltas = (trackId: string, inputId: string) =>
     safeInvoke<DeltaMutationResponse>('set_track_input_with_deltas_cmd', { trackId, inputId });
+export type SidechainSendMode = 'pre_fx' | 'post_fx' | 'post_mixer';
+
 export const setPluginSidechainSource = (
     trackId: string,
     slotId: string,
     sourceTrackId: string,
+    sendMode?: SidechainSendMode,
 ) =>
-    safeInvoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId });
+    safeInvoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId, sendMode: sendMode ?? null });
 export const setPluginSidechainSourceWithDeltas = (
     trackId: string,
     slotId: string,
     sourceTrackId: string,
+    sendMode?: SidechainSendMode,
 ) =>
     safeInvoke<DeltaMutationResponse>('set_plugin_sidechain_source_with_deltas_cmd', {
         trackId,
         slotId,
         sourceTrackId,
+        sendMode: sendMode ?? null,
     });
 export const addPluginToTrack = (
     trackId: string,

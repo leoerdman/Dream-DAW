@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { resolvePlugin } from '@/shared/config/pluginManifest';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import type * as engineApi from '@/shared/api/engine';
+import type { SidechainSendMode } from '@/shared/api/engine';
 import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { DeviceNodeBody } from '@/widgets/DeviceRack/ui/DeviceNodeBody';
@@ -37,8 +38,10 @@ interface DeviceNodeProps {
     runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     sidechainSourceTrackId?: string;
+    sidechainSendMode?: SidechainSendMode;
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
+    onSidechainSendModeChange?: (mode: SidechainSendMode) => void;
     onEnsureActive?: () => void;
     onContextMenu?: (e: React.MouseEvent) => void;
 }
@@ -72,8 +75,10 @@ export const DeviceNode = React.memo(({
     runtimeStatus,
     onParamContextMenu,
     sidechainSourceTrackId,
+    sidechainSendMode,
     sidechainOptions,
     onSidechainSourceChange,
+    onSidechainSendModeChange,
     onEnsureActive,
     onContextMenu,
 }: DeviceNodeProps) => {
@@ -218,6 +223,7 @@ export const DeviceNode = React.memo(({
                 showSettings={showSettings}
                 supportsSettingsToggle={supportsSettingsToggle}
                 sidechainSourceTrackId={sidechainSourceTrackId}
+                sidechainSendMode={sidechainSendMode}
                 sidechainOptions={sidechainOptions}
                 runtimeStatus={runtimeStatus}
                 editorSupported={editorSupported}
@@ -237,6 +243,7 @@ export const DeviceNode = React.memo(({
                 onLoadSample={onLoadSample}
                 onParamContextMenu={onParamContextMenu}
                 onSidechainSourceChange={onSidechainSourceChange}
+                onSidechainSendModeChange={onSidechainSendModeChange}
             />
         </div>
     );

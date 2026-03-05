@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { QUICK_PRESETS_BY_EFFECT } from '@/widgets/DeviceRack/model/presets';
 import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
+import type { SidechainSendMode } from '@/shared/api/engine';
 import type { DeviceRuntimeStatus } from '@/widgets/DeviceRack/ui/DeviceNodeHeader';
 
 const PluginSettingsPanelLazy = lazy(async () => ({
@@ -16,6 +17,7 @@ interface DeviceNodeBodyProps {
     showSettings: boolean;
     supportsSettingsToggle: boolean;
     sidechainSourceTrackId?: string;
+    sidechainSendMode?: SidechainSendMode;
     sidechainOptions?: Array<{ id: string; name: string }>;
     runtimeStatus?: DeviceRuntimeStatus;
     editorSupported?: boolean;
@@ -35,6 +37,7 @@ interface DeviceNodeBodyProps {
     onLoadSample?: () => void;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
+    onSidechainSendModeChange?: (mode: SidechainSendMode) => void;
 }
 
 export const DeviceNodeBody = React.memo(({
@@ -42,6 +45,7 @@ export const DeviceNodeBody = React.memo(({
     showSettings,
     supportsSettingsToggle,
     sidechainSourceTrackId,
+    sidechainSendMode,
     sidechainOptions,
     runtimeStatus,
     editorSupported,
@@ -61,6 +65,7 @@ export const DeviceNodeBody = React.memo(({
     onLoadSample,
     onParamContextMenu,
     onSidechainSourceChange,
+    onSidechainSendModeChange,
 }: DeviceNodeBodyProps) => {
     const showSidechainSelector = device.source === 'vst' || device.pluginId === 'internal://instrument/flow';
     const quickPresets = device.source === 'internal'
@@ -262,6 +267,8 @@ export const DeviceNodeBody = React.memo(({
                 sidechainSourceTrackId={sidechainSourceTrackId}
                 sidechainOptions={sidechainOptions}
                 onSidechainSourceChange={onSidechainSourceChange}
+                sidechainSendMode={sidechainSendMode}
+                onSidechainSendModeChange={onSidechainSendModeChange}
                 runtimeStatus={runtimeStatus}
                 editorSupported={editorSupported}
                 editorReason={editorReason}

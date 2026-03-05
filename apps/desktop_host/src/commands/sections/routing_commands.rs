@@ -1,3 +1,14 @@
+/// Parse sidechain send mode from an optional string sent by the frontend.
+/// Returns `None` (preserve existing mode) if empty/null/unknown.
+fn parse_sidechain_send_mode(s: Option<&str>) -> Option<dream_models::project::SidechainSendMode> {
+    match s?.trim().to_ascii_lowercase().as_str() {
+        "pre_fx" | "prefx" | "pre-fx" => Some(dream_models::project::SidechainSendMode::PreFx),
+        "post_fx" | "postfx" | "post-fx" => Some(dream_models::project::SidechainSendMode::PostFx),
+        "post_mixer" | "postmixer" | "post-mixer" => Some(dream_models::project::SidechainSendMode::PostMixer),
+        _ => None,
+    }
+}
+
 /// Return valid routing targets for a track.
 #[tauri::command]
 fn get_routing_targets(
@@ -217,6 +228,7 @@ fn set_plugin_sidechain_source_cmd(
     track_id: String,
     slot_id: String,
     source_track_id: String,
+    send_mode: Option<String>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
@@ -224,10 +236,12 @@ fn set_plugin_sidechain_source_cmd(
 ) -> Result<(), String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
-    let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids(
+    let parsed_send_mode = parse_sidechain_send_mode(send_mode.as_deref());
+    let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids_with_mode(
         &track_id,
         &slot_id,
         &source_track_id,
+        parsed_send_mode,
     )
     .map_err(|e| e.to_string())?;
 
@@ -257,10 +271,11 @@ fn set_plugin_sidechain_source_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
-        "[IPC] set_plugin_sidechain_source_cmd(track={} slot={} source={})",
+        "[IPC] set_plugin_sidechain_source_cmd(track={} slot={} source={} mode={:?})",
         track_id,
         slot_id,
-        source_value.as_deref().unwrap_or("none")
+        source_value.as_deref().unwrap_or("none"),
+        parsed_send_mode
     );
     Ok(())
 }
@@ -275,6 +290,7 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     track_id: String,
     slot_id: String,
     source_track_id: String,
+    send_mode: Option<String>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
@@ -292,11 +308,13 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
             Some(Uuid::parse_str(normalized).map_err(|_| format!("Invalid source_track_id: {normalized}"))?)
         }
     };
+    let parsed_send_mode = parse_sidechain_send_mode(send_mode.as_deref());
 
-    let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids(
+    let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids_with_mode(
         &track_id,
         &slot_id,
         &source_track_id,
+        parsed_send_mode,
     )
     .map_err(|e| e.to_string())?;
     let preview_result = {
@@ -328,10 +346,11 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
-        "[IPC] set_plugin_sidechain_source_with_deltas_cmd(track={} slot={} source={})",
+        "[IPC] set_plugin_sidechain_source_with_deltas_cmd(track={} slot={} source={} mode={:?})",
         track_id,
         slot_id,
-        source_value.as_deref().unwrap_or("none")
+        source_value.as_deref().unwrap_or("none"),
+        parsed_send_mode
     );
 
     Ok(RoutingDeltaResponse {

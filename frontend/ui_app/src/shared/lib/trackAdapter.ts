@@ -90,6 +90,7 @@ export interface FlatPluginSlot {
     is_bypassed: boolean;
     supports_sidechain_input?: boolean;
     sidechain_source_track_id?: string | null;
+    sidechain_send_mode?: string | null;
     /** Present only when this slot represents a device rack. */
     rack?: RackInfo;
 }
@@ -137,6 +138,7 @@ function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
             is_bypassed: Boolean(node.is_bypassed ?? false),
             supports_sidechain_input: node.supports_sidechain_input ?? undefined,
             sidechain_source_track_id: node.sidechain_source_track_id ?? null,
+            sidechain_send_mode: (node as Record<string, unknown>).sidechain_send_mode as string | null ?? null,
         };
     }
     // Rack DeviceNode — preserve full rack structure for UI rendering.

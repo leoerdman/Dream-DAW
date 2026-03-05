@@ -34,10 +34,8 @@ import { MidiInControls } from './nodes/MidiInControls';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { LfoControls } from './nodes/LfoControls';
 import { NoiseControls } from './nodes/NoiseControls';
-import { DelayControls } from './nodes/DelayControls';
-import { MixerControls } from './nodes/MixerControls';
-import { MultiplyControls } from './nodes/MultiplyControls';
-import { VcaControls } from './nodes/VcaControls';
+
+import { PortRowFader } from './nodes/PortRowFader';
 
 export const FLOW_NODE_WIDTH = 260;
 const FLOW_GRID_SNAP = 20;
@@ -48,6 +46,8 @@ interface Props {
 }
 
 // ── Per-type controls renderer ─────────────────────────────────
+// Only renders non-port controls (dropdowns, visualizers).
+// Slider parameters are now inline port faders in the port row zone.
 function NodeControlsBody({ node }: { node: SynthNode }) {
     switch (node.type) {
         case 'oscillator':
@@ -66,23 +66,18 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <OutputControls node={node} />;
         case 'midiIn':
             return <MidiInControls node={node} />;
-        case 'audioIn':
-            return null; // Audio In is a passthrough — no controls needed
         case 'lfo':
             return <LfoControls node={node} />;
         case 'noise':
             return <NoiseControls node={node} />;
+        // Nodes whose controls are fully handled by inline port faders:
+        case 'delay':
+        case 'mixer':
+        case 'vca':
+        case 'multiply':
         case 'add':
         case 'sampleHold':
-            return null; // Stateless processing nodes — no inline controls
-        case 'multiply':
-            return <MultiplyControls node={node} />;
-        case 'delay':
-            return <DelayControls node={node} />;
-        case 'mixer':
-            return <MixerControls node={node} />;
-        case 'vca':
-            return <VcaControls node={node} />;
+        case 'audioIn':
         default:
             return null;
     }
@@ -206,6 +201,8 @@ function PortLabel({
     side: 'in' | 'out';
     index: number;
 }) {
+    // Skip label for input ports that have inline faders (fader occupies that space)
+    if (side === 'in' && port.fader) return null;
     const cy = portCenterY(index);
     return (
         <span
@@ -217,6 +214,54 @@ function PortLabel({
         >
             {port.label}
         </span>
+    );
+}
+
+// ── Inline Port Fader ──────────────────────────────────────────
+function InlinePortFader({
+    port,
+    index,
+    node,
+}: {
+    port: PortDefinition;
+    index: number;
+    node: SynthNode;
+}) {
+    const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
+    if (!port.fader) return null;
+
+    const fader = port.fader;
+    const value = Number(node.data?.[fader.dataKey] ?? fader.min);
+    const cy = portCenterY(index);
+
+    return (
+        <div
+            style={{
+                position: 'absolute',
+                left: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD + 4,
+                right: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD + 4,
+                top: cy - 10,
+                height: 20,
+                display: 'flex',
+                alignItems: 'center',
+            }}
+        >
+            <span style={{
+                ...portLabelStyle,
+                position: 'static',
+                fontSize: 'var(--font-size-2xs)',
+                marginRight: 4,
+                flexShrink: 0,
+                minWidth: 22,
+            }}>
+                {port.label}
+            </span>
+            <PortRowFader
+                value={value}
+                config={fader}
+                onChange={(v) => updateNodeData(node.id, { [fader.dataKey]: v })}
+            />
+        </div>
     );
 }
 
@@ -344,6 +389,7 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
                     <React.Fragment key={`in-${port.id}`}>
                         <PortDot port={port} side="in" index={idx} nodeId={node.id} interactionDisabled={interactionDisabled} />
                         <PortLabel port={port} side="in" index={idx} />
+                        <InlinePortFader port={port} index={idx} node={node} />
                     </React.Fragment>
                 ))}
                 {/* Output ports (right) */}

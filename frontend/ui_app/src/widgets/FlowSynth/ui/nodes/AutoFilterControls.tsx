@@ -3,7 +3,6 @@ import { ControlRow, NodeSelect } from './shared';
 import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
-import { RotaryKnob } from './RotaryKnob';
 
 const FILTER_TYPES = [
     { value: 'lowpass', label: 'Low Pass' },
@@ -16,12 +15,13 @@ interface Props {
     node: SynthNode;
 }
 
+/**
+ * Auto Filter Controls — filter type selector only.
+ * All parameter sliders are now inline port faders.
+ */
 export function AutoFilterControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
-
     const filterType = String(node.data?.filterType || 'lowpass');
-    const rate = Number(node.data?.rate ?? 1.0);
-    const depth = Number(node.data?.depth ?? 0.5);
 
     const updateData = useCallback((patch: Record<string, unknown>) => {
         updateNodeData(node.id, patch);
@@ -36,32 +36,6 @@ export function AutoFilterControls({ node }: Props) {
                     onChange={(v) => updateData({ filterType: v })}
                 />
             </ControlRow>
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-around',
-                alignItems: 'center',
-                paddingTop: 'var(--space-1)',
-            }}>
-                <RotaryKnob
-                    value={rate}
-                    min={0.05}
-                    max={20}
-                    step={0.05}
-                    label="Rate"
-                    unit="Hz"
-                    color="var(--color-synth-filter)"
-                    onChange={(v) => updateData({ rate: v })}
-                />
-                <RotaryKnob
-                    value={depth}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    label="Depth"
-                    color="var(--color-synth-filter)"
-                    onChange={(v) => updateData({ depth: v })}
-                />
-            </div>
         </div>
     );
 }

@@ -293,7 +293,7 @@ export const SettingsPanel = React.memo(function SettingsPanel({
             {/* ─── Animated expandable knob grid ─── */}
             <div
                 style={{
-                    maxHeight: expanded ? 200 : 0,
+                    maxHeight: expanded ? 320 : 0,
                     overflow: 'hidden',
                     transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}

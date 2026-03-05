@@ -51,7 +51,7 @@ export type ProjectDelta =
     | { kind: 'PluginMoved'; data: { track_id: string; slot_id: string; old_slot_index: number; new_slot_index: number } }
     | { kind: 'InternalPluginParamChanged'; data: { track_id: string; slot_id: string; param_id: string; value: number } }
     | { kind: 'ExternalPluginParamChanged'; data: { track_id: string; slot_id: string; param_index: number; value: number } }
-    | { kind: 'PluginSidechainChanged'; data: { track_id: string; slot_id: string; source_track_id: string | null } }
+    | { kind: 'PluginSidechainChanged'; data: { track_id: string; slot_id: string; source_track_id: string | null; sidechain_send_mode: string | null } }
     | { kind: 'AutomationPointsChanged'; data: { track_id: string; param_id: string; points: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> } }
     | { kind: 'TempoChanged'; data: { bpm: number } }
     | { kind: 'TimeSignatureChanged'; data: { numerator: number; denominator: number } }

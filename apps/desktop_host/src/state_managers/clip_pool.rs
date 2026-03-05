@@ -585,7 +585,7 @@ impl ClipPoolState {
                 .flat_map(|v| v.iter())
                 .filter(|s| s.internal_slot_index.is_some())
                 .count();
-            log::debug!(
+            log::info!(
                 "[ExternalFX] Rebuild snapshot: {} tracks, {} total slots ({} external, {} internal), slot_map has {} entries",
                 external_fx.len(),
                 total_slots,
@@ -598,7 +598,7 @@ impl ClipPoolState {
                     let ext_count = slots.iter().filter(|s| s.instance_id.is_some()).count();
                     let int_count = slots.iter().filter(|s| s.internal_slot_index.is_some()).count();
                     let sc_count = slots.iter().filter(|s| s.sidechain_track_index.is_some()).count();
-                    log::debug!(
+                    log::info!(
                         "[ExternalFX]   track[{}]: {} slots (ext={}, int={}, bypassed={}, sc={})",
                         ti,
                         slots.len(),
@@ -610,9 +610,9 @@ impl ClipPoolState {
                     // Log individual sidechain routing for debugging
                     for (si, rs) in slots.iter().enumerate() {
                         if rs.sidechain_track_index.is_some() {
-                            log::debug!(
-                                "[ExternalFX]     track[{}] slot[{}]: sc_track_idx={:?}, instance={:?}, internal_idx={:?}",
-                                ti, si, rs.sidechain_track_index, rs.instance_id, rs.internal_slot_index
+                            log::info!(
+                                "[ExternalFX]     track[{}] slot[{}]: sc_track_idx={:?}, sc_mode={}, instance={:?}, internal_idx={:?}",
+                                ti, si, rs.sidechain_track_index, rs.sidechain_send_mode, rs.instance_id, rs.internal_slot_index
                             );
                         }
                     }

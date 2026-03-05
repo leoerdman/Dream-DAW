@@ -309,6 +309,8 @@ pub enum ProjectDelta {
         track_id: Uuid,
         slot_id: Uuid,
         source_track_id: Option<Uuid>,
+        /// Send mode: "pre_fx", "post_fx", or "post_mixer".
+        sidechain_send_mode: Option<String>,
     },
 
     // ── Automation ──────────────────────────────────────────────────────

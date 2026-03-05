@@ -551,14 +551,10 @@ impl FlowGraph {
             let left = self.signal_buffer[out_idx * MAX_NODE_PORTS].as_float().unwrap_or(0.0);
             let right = self.signal_buffer[out_idx * MAX_NODE_PORTS + 1].as_float().unwrap_or(0.0);
             (left, right)
-        } else if !self.nodes.is_empty() {
-            // Fallback: return last node's first output for both channels.
-            let last_idx = node_count - 1;
-            let mono = self.signal_buffer[last_idx * MAX_NODE_PORTS]
-                .as_float()
-                .unwrap_or(0.0);
-            (mono, mono)
         } else {
+            // No AudioOut node in the graph — return silence.
+            // ENTERPRISE: Removed fallback that returned last node's output,
+            // which caused unintended sound leaking without an explicit Output node.
             (0.0, 0.0)
         }
     }

@@ -4,10 +4,20 @@
  * Defines named input/output ports for each node type.
  * Ports map to backend indices by their order in the array.
  */
+export interface PortFaderConfig {
+    min: number;
+    max: number;
+    step: number;
+    dataKey: string;
+    unit?: string;
+}
+
 export interface PortDefinition {
     id: string;
     label: string;
     type: 'audio' | 'control' | 'midi' | 'gate' | 'phase';
+    /** Optional inline fader for control-type input ports (Bitwig Grid attenuator) */
+    fader?: PortFaderConfig;
 }
 
 export interface NodePortConfig {
@@ -51,8 +61,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'Oscillator',
         color: 'var(--color-synth-osc)',
         inputs: [
-            { id: 'freq', label: 'Freq', type: 'control' },
-            { id: 'pw', label: 'PW', type: 'control' },
+            { id: 'freq', label: 'Freq', type: 'control', fader: { min: 20, max: 20000, step: 1, dataKey: 'frequency', unit: 'Hz' } },
+            { id: 'pw', label: 'PW', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'pulseWidth' } },
             { id: 'fm', label: 'FM', type: 'control' },
             { id: 'pm', label: 'PM', type: 'control' },
         ],
@@ -65,8 +75,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-filter)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
-            { id: 'cutoff', label: 'Cut', type: 'control' },
-            { id: 'resonance', label: 'Res', type: 'control' },
+            { id: 'cutoff', label: 'Cut', type: 'control', fader: { min: 20, max: 20000, step: 1, dataKey: 'cutoff', unit: 'Hz' } },
+            { id: 'resonance', label: 'Res', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'resonance' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -77,10 +87,10 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-env)',
         inputs: [
             { id: 'gate', label: 'Gate', type: 'gate' },
-            { id: 'attack', label: 'Atk', type: 'control' },
-            { id: 'decay', label: 'Dec', type: 'control' },
-            { id: 'sustain', label: 'Sus', type: 'control' },
-            { id: 'release', label: 'Rel', type: 'control' },
+            { id: 'attack', label: 'Atk', type: 'control', fader: { min: 0.001, max: 5, step: 0.001, dataKey: 'attack', unit: 's' } },
+            { id: 'decay', label: 'Dec', type: 'control', fader: { min: 0.001, max: 5, step: 0.001, dataKey: 'decay', unit: 's' } },
+            { id: 'sustain', label: 'Sus', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'sustain' } },
+            { id: 'release', label: 'Rel', type: 'control', fader: { min: 0.001, max: 8, step: 0.001, dataKey: 'release', unit: 's' } },
         ],
         outputs: [
             { id: 'cv', label: 'CV', type: 'control' },
@@ -101,11 +111,11 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-filter)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
-            { id: 'cutoff', label: 'Cut', type: 'control' },
-            { id: 'resonance', label: 'Res', type: 'control' },
-            { id: 'rate', label: 'Rate', type: 'control' },
-            { id: 'depth', label: 'Depth', type: 'control' },
-            { id: 'envFollow', label: 'Env', type: 'control' },
+            { id: 'cutoff', label: 'Cut', type: 'control', fader: { min: 20, max: 20000, step: 1, dataKey: 'cutoff', unit: 'Hz' } },
+            { id: 'resonance', label: 'Res', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'resonance' } },
+            { id: 'rate', label: 'Rate', type: 'control', fader: { min: 0.01, max: 20, step: 0.01, dataKey: 'rate', unit: 'Hz' } },
+            { id: 'depth', label: 'Depth', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'depth' } },
+            { id: 'envFollow', label: 'Env', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'envFollow' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -133,9 +143,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'Output',
         color: 'var(--color-synth-out)',
         inputs: [
-            // ENTERPRISE: Single stereo audio input (Bitwig Grid pattern).
-            // Signal is always stereo internally. No L/R split needed.
             { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'gain', label: 'Gain', type: 'control', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain' } },
         ],
         outputs: [],
     },
@@ -146,7 +155,7 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'LFO',
         color: 'var(--color-synth-lfo)',
         inputs: [
-            { id: 'rate_mod', label: 'Rate', type: 'control' },
+            { id: 'rate_mod', label: 'Rate', type: 'control', fader: { min: 0.01, max: 20, step: 0.01, dataKey: 'rate', unit: 'Hz' } },
             { id: 'reset', label: 'Reset', type: 'gate' },
         ],
         outputs: [
@@ -200,8 +209,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-delay)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
-            { id: 'time_mod', label: 'Time', type: 'control' },
-            { id: 'feedback_mod', label: 'FB', type: 'control' },
+            { id: 'time_mod', label: 'Time', type: 'control', fader: { min: 1, max: 2000, step: 1, dataKey: 'time', unit: 'ms' } },
+            { id: 'feedback_mod', label: 'FB', type: 'control', fader: { min: 0, max: 0.99, step: 0.01, dataKey: 'feedback' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -211,10 +220,10 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         title: 'Mixer',
         color: 'var(--color-synth-mixer)',
         inputs: [
-            { id: 'in_1', label: 'Ch1', type: 'audio' },
-            { id: 'in_2', label: 'Ch2', type: 'audio' },
-            { id: 'in_3', label: 'Ch3', type: 'audio' },
-            { id: 'in_4', label: 'Ch4', type: 'audio' },
+            { id: 'in_1', label: 'Ch1', type: 'audio', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain1' } },
+            { id: 'in_2', label: 'Ch2', type: 'audio', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain2' } },
+            { id: 'in_3', label: 'Ch3', type: 'audio', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain3' } },
+            { id: 'in_4', label: 'Ch4', type: 'audio', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain4' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -225,7 +234,7 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-vca)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
-            { id: 'cv', label: 'CV', type: 'control' },
+            { id: 'cv', label: 'CV', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'bias' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -255,20 +264,15 @@ export function portCenterY(portIndex: number): number {
  * This drives nodeHeight so the body is never clipped or oversized.
  */
 const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
-    oscillator: 2,
-    filter: 2,
-    envelope: 4,
+    oscillator: 1,   // waveform select only
+    filter: 1,       // filter type select only
+    envelope: 1,     // ADSR visualizer (compact)
     eq: 3,
-    autofilter: 5,
+    autofilter: 1,   // filter type select only
     reverse: 3,
-    output: 2,
     midiIn: 1,
-    lfo: 3,
+    lfo: 2,          // shape + mode selects
     noise: 2,
-    multiply: 1,
-    delay: 3,
-    mixer: 4,
-    vca: 1,
 };
 
 const CONTROL_ROW_HEIGHT = 28;

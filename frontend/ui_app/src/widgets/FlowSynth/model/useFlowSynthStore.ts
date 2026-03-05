@@ -643,15 +643,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             && conn.toPort === toPort,
         );
         if (exists) return { pendingConnection: null };
-        // FIX #2 ENTERPRISE: Single-input guard — an input port accepts only one cable.
-        // Multiple inputs require an explicit merge/mix node.
-        const inputOccupied = state.connections.some(
-            (conn: SynthConnection) => conn.toNode === toNode && conn.toPort === toPort,
+        // ENTERPRISE: Auto-replace — if the input port is already occupied,
+        // remove the existing connection (Bitwig Grid pattern: last cable wins).
+        const baseConnections = state.connections.filter(
+            (conn: SynthConnection) => !(conn.toNode === toNode && conn.toPort === toPort),
         );
-        if (inputOccupied) {
-            console.warn(`[FlowSynth] Input port ${toPort} on node ${toNode} already connected. Use a merge node for multiple inputs.`);
-            return { pendingConnection: null };
-        }
         const newConnection: SynthConnection = {
             id: `conn-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
             fromNode: pending.fromNode,
@@ -660,7 +656,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             toPort,
             signalType,
         };
-        const nextConnections = [...state.connections, newConnection];
+        const nextConnections = [...baseConnections, newConnection];
 
         // Trigger sync
         _scheduleSyncFlowGraph(get);

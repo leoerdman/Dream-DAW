@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeSelect, NodeSlider, NodeValue } from './shared';
+import { ControlRow, NodeSelect } from './shared';
 import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
@@ -16,10 +16,13 @@ interface Props {
     node: SynthNode;
 }
 
+/**
+ * LFO Controls — shape and mode selectors only.
+ * Rate slider is now an inline port fader.
+ */
 export function LfoControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
     const shape = String(node.data?.shape || 'sine');
-    const rate = Number(node.data?.rate ?? 1.0);
     const bipolar = Boolean(node.data?.bipolar ?? true);
 
     const updateData = useCallback((patch: Record<string, unknown>) => {
@@ -34,16 +37,6 @@ export function LfoControls({ node }: Props) {
                     options={LFO_SHAPES}
                     onChange={(v) => updateData({ shape: v })}
                 />
-            </ControlRow>
-            <ControlRow label="Rate">
-                <NodeSlider
-                    value={rate}
-                    min={0.01}
-                    max={40}
-                    step={0.01}
-                    onChange={(v) => updateData({ rate: v })}
-                />
-                <NodeValue value={rate.toFixed(2)} unit="Hz" />
             </ControlRow>
             <ControlRow label="Mode">
                 <NodeSelect

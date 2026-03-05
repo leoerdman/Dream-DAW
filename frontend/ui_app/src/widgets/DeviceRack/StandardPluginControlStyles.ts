@@ -36,7 +36,7 @@ export const knobLabelStyle = (compact: boolean): CSSProperties => ({
     alignItems: 'center',
     justifyContent: 'flex-start',
     gap: compact ? 'var(--space-0-5)' : 'var(--space-1)',
-    minWidth: compact ? 48 : 76,
+    minWidth: compact ? 52 : 76,
 });
 
 export const knobParamNameStyle: CSSProperties = {
@@ -46,7 +46,7 @@ export const knobParamNameStyle: CSSProperties = {
     lineHeight: 1.1,
     textTransform: 'capitalize',
     letterSpacing: '0.03em',
-    maxWidth: 74,
+    maxWidth: 84,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',

@@ -78,7 +78,7 @@ export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
     'internal://effect/gate': new Set(['thr', 'atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis', 'duck']),
     'internal://effect/reverb': new Set(['size', 'damp', 'predelay', 'width', 'diffusion', 'lo cut', 'hi cut', 'voicing', 'low damp', 'mod rate', 'mod depth', 'freeze', 'density', 'chorus']),
     'internal://effect/chorus': new Set(['rate', 'depth', 'mix', 'fb', 'voices', 'spread', 'hp freq']),
-    'internal://effect/saturator': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'color']),
+    'internal://effect/saturator': new Set(['drive', 'mix', 'mode', 'output', 'color']),
     'internal://effect/distortion': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'bias', 'cab sim', 'tight']),
     'internal://effect/bitcrusher': new Set(['bits', 'down', 'mix', 'jitter', 'pre freq', 'post freq', 'stereo', 'dither']),
     'internal://effect/noise-machine': new Set(['level', 'type', 'stereo', 'lpfreq', 'hpfreq', 'pan']),

@@ -37,28 +37,29 @@ impl PluginInstance for Vst3Instance {
                     self.audio_output_bus_count =
                         ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_OUTPUT).max(0);
 
-                    // ── VST3 Spec: Activate main input/output buses ──
-                    // Activate the main bus (bus 0) but DEACTIVATE the sidechain bus
-                    // (bus 1). ShaperBox and similar plugins gate audio when the sidechain
-                    // bus is activated but receives silence. We dynamically activate bus 1
-                    // only when actual sidechain signal is present in process().
+                    // ── VST3 Spec: Activate ALL audio input buses ──
+                    // Bus 0 = main audio input, bus 1 = sidechain input (if present).
+                    // Both are activated unconditionally. When no sidechain signal is
+                    // present, silence_flags in ProcessData indicate silence — this is
+                    // the VST3-compliant approach used by Ableton, Logic, and REAPER.
                     if self.audio_input_bus_count > 0 {
                         let _ =
                             ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 0, 1);
                     }
                     if self.audio_input_bus_count > 1 {
-                        // ENTERPRISE FIX: Always activate the sidechain input bus.
-                        // Per VST3 spec, activate_bus() must NOT be called during
-                        // processing. Dynamically toggling bus activation from the
-                        // RT process() callback is a spec violation that some plugins
-                        // (ShaperBox, FabFilter) silently ignore. Instead, we always
-                        // activate the bus and use silence_flags in ProcessData to
-                        // indicate when no sidechain signal is present. This matches
-                        // the behavior of Ableton Live, Logic Pro, and REAPER.
                         let _ =
                             ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 1, 1);
                         self.sidechain_bus_active = true;
                     }
+
+                    // DIAGNOSTIC: Log bus counts for sidechain debugging.
+                    log::info!(
+                        "[VST3] '{}' activate: input_buses={}, output_buses={}, sc_bus_active={}",
+                        self.descriptor.name,
+                        self.audio_input_bus_count,
+                        self.audio_output_bus_count,
+                        self.sidechain_bus_active
+                    );
                     // ── VST3 Spec: Activate ALL audio output buses ──
                     // Plugins like ShaperBox 3 declare 2 output buses:
                     //   bus 0 = main audio output

@@ -303,9 +303,9 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         },
         meta: [
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
-            { label: 'Ratio', paramNames: 'ratio', fallback: 4, suffix: ':1' },
+            { label: 'Ratio', paramNames: 'ratio', fallback: 1, suffix: '' },
         ],
-        settingsPanel: { params: ['atk', 'rel', 'makeup', 'range', 'soft clip'] },
+        settingsPanel: { params: ['atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'] },
     },
     multibandDynamics: {
         background: 'var(--plugin-bg-compressor)',
@@ -335,7 +335,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: 'Atk', paramNames: 'attack', fallback: 50, suffix: '%' },
+            { label: 'Atk', paramNames: 'attack', fallback: 0, suffix: '%' },
             { label: 'Sus', paramNames: 'sustain', fallback: 0, suffix: '%' },
         ],
         settingsPanel: { params: ['output', 'speed'] },
@@ -347,7 +347,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         accent: 'var(--token-color-hex-ffac59)',
         viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
         meta: [{ label: 'Drive', paramNames: 'drive', fallback: 3, suffix: 'dB' }],
-        settingsPanel: { params: ['tone', 'mode', 'output', 'color'] },
+        settingsPanel: { params: ['mode', 'output', 'color'] },
     },
     drumBuss: {
         background: 'var(--plugin-bg-saturator)',

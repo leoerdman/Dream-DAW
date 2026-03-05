@@ -35,6 +35,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
 }: Props) {
     const [start, setStart] = useState(initialStart);
     const [end, setEnd] = useState(initialEnd);
+    const [isHovered, setIsHovered] = useState(false);
 
     // ENTERPRISE FIX (#3+#4): Store the port-relative Y offset as a ref.
     // The port Y position = nodePosition.y + portRelativeY.
@@ -76,11 +77,21 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
         };
     }, [conn.fromNode, conn.toNode]);
 
-    // Update refs if props completely change (e.g. initial graph load)
+    // ENTERPRISE FIX: Only sync from props when actual VALUES change (not object references).
+    // ConnectionsLayer creates new objects every render → old useEffect fired on every frame,
+    // overwriting nodeMotionProxy positions mid-drag and causing cables to "jump".
+    const prevInitStart = useRef(initialStart);
+    const prevInitEnd = useRef(initialEnd);
     useEffect(() => {
-        setStart(initialStart);
-        setEnd(initialEnd);
-    }, [initialStart, initialEnd]);
+        const sameStart = prevInitStart.current.x === initialStart.x && prevInitStart.current.y === initialStart.y;
+        const sameEnd = prevInitEnd.current.x === initialEnd.x && prevInitEnd.current.y === initialEnd.y;
+        if (!sameStart || !sameEnd) {
+            prevInitStart.current = initialStart;
+            prevInitEnd.current = initialEnd;
+            setStart(initialStart);
+            setEnd(initialEnd);
+        }
+    }, [initialStart.x, initialStart.y, initialEnd.x, initialEnd.y]);
 
     const signalType = conn.signalType ?? 'audio';
     const baseColor = signalColor(signalType);
@@ -121,6 +132,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 strokeWidth={24}
                 pointerEvents="stroke"
                 style={{ cursor: 'pointer' }}
+                onPointerEnter={() => setIsHovered(true)}
+                onPointerLeave={() => setIsHovered(false)}
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     selectConnection(conn.id);
@@ -170,7 +183,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 />
             )}
             {/* 100x UX: Inline Delete Button (appears on selection) */}
-            {isSelected && (() => {
+            {(isSelected || isHovered) && (() => {
                 const midX = cubicBezierAt(0.5, start.x, c1x, c2x, end.x);
                 const midY = cubicBezierAt(0.5, start.y, c1y, c2y, end.y);
                 return (

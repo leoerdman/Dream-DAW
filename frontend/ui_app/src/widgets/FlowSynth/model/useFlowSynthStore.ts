@@ -821,3 +821,136 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         loadPreset(presetIndex - 1);
     },
 }));
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTERPRISE: Project-Load Flow Engine Initialization
+//
+// FlowSynthEngine on the audio thread starts DISABLED by default.
+// This function iterates all tracks, finds Flow instruments, hydrates
+// their graphs from the project model, and syncs to the audio engine
+// so Flow plays immediately on project load — no manual editor open required.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function initFlowEnginesFromProject(): Promise<void> {
+    const engineState = useEngineStore.getState();
+    const store = useFlowSynthStore.getState();
+
+    for (let trackIdx = 0; trackIdx < engineState.tracks.allIds.length; trackIdx++) {
+        const trackId = engineState.tracks.allIds[trackIdx];
+        const track = engineState.tracks.byId[trackId];
+        if (!track) continue;
+
+        // Check if this track has a Flow instrument
+        const hasFlow =
+            track.instrument?.plugin_id === 'internal://instrument/flow'
+            || track.effects?.some((slot: any) => slot.plugin_id === 'internal://instrument/flow');
+        if (!hasFlow) continue;
+
+        // Find the device ID for this Flow instrument
+        const flowDeviceId =
+            track.instrument?.plugin_id === 'internal://instrument/flow'
+                ? track.instrument.id
+                : track.effects?.find((s: any) => s.plugin_id === 'internal://instrument/flow')?.id;
+        if (!flowDeviceId) continue;
+
+        // Hydrate graph: prefer graphsByDeviceId (editor state), fallback to project model
+        let graph = store.graphsByDeviceId[flowDeviceId];
+        if (!graph && track.flow_synth) {
+            graph = {
+                nodes: track.flow_synth.nodes.map((n: any) => ({
+                    id: n.id,
+                    type: n.type as SynthNodeType,
+                    position: { x: n.position_x, y: n.position_y },
+                    data: n.data ?? {},
+                })),
+                connections: track.flow_synth.connections.map((c: any) => ({
+                    id: c.id,
+                    fromNode: c.from_node,
+                    fromPort: c.from_port,
+                    toNode: c.to_node,
+                    toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
+                    signalType: c.signal_type ?? 'audio',
+                })),
+                viewport: {
+                    x: track.flow_synth.viewport?.x ?? 0,
+                    y: track.flow_synth.viewport?.y ?? 0,
+                    zoom: track.flow_synth.viewport?.zoom ?? 1,
+                },
+            };
+        }
+        if (!graph) continue;
+
+        // Build engine-compatible node/connection arrays
+        const idMap = new Map<string, number>();
+        const used = new Set<number>();
+        const mapNode = (id: string) => {
+            if (idMap.has(id)) return idMap.get(id)!;
+            let numeric = stableNodeNumericId(id);
+            while (used.has(numeric)) numeric = (numeric + 1) >>> 0;
+            used.add(numeric);
+            idMap.set(id, numeric);
+            return numeric;
+        };
+        graph.nodes.forEach((n) => mapNode(n.id));
+
+        const nodes: [number, string, [string, string][]][] = graph.nodes.map((n) => {
+            const params: [string, string][] = n.data
+                ? Object.entries(n.data)
+                    .filter(([, v]) => v !== null && v !== undefined)
+                    .map(([k, v]) => [k, String(v)])
+                : [];
+            return [mapNode(n.id), n.type, params];
+        });
+
+        const connections: [number, number, number, number][] = graph.connections
+            .map((c) => {
+                const fromNode = graph!.nodes.find((n) => n.id === c.fromNode);
+                const toNode = graph!.nodes.find((n) => n.id === c.toNode);
+                if (!fromNode || !toNode) return null;
+                const fromId = mapNode(c.fromNode);
+                const toId = mapNode(c.toNode);
+                return [
+                    fromId,
+                    portNameToIndex(fromNode.type as SynthNodeType, c.fromPort, 'out'),
+                    toId,
+                    portNameToIndex(toNode.type as SynthNodeType, c.toPort, 'in'),
+                ] as [number, number, number, number];
+            })
+            .filter((c): c is [number, number, number, number] => c !== null);
+
+        // Enable engine + sync graph
+        await engine.setFlowEnabled(trackIdx, true);
+        await engine.syncFlowGraph(trackIdx, nodes, connections);
+    }
+}
+
+/**
+ * Disables a FlowEngine for a given track when the Flow instrument is removed.
+ * Must be called AFTER the device is removed from the project model.
+ */
+export async function disableFlowEngine(trackId: string): Promise<void> {
+    const engineState = useEngineStore.getState();
+    const trackIndex = engineState.tracks.allIds.indexOf(trackId);
+    if (trackIndex < 0) return;
+    await engine.setFlowEnabled(trackIndex, false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTERPRISE: Auto-init Flow engines on project load via Zustand subscription
+// ═══════════════════════════════════════════════════════════════════════════
+let _flowInitDone = false;
+let _prevTrackCount = 0;
+useEngineStore.subscribe((state) => {
+    const trackCount = state.tracks.allIds.length;
+    if (trackCount === _prevTrackCount) return;
+    _prevTrackCount = trackCount;
+    if (trackCount > 0 && !_flowInitDone) {
+        _flowInitDone = true;
+        // Defer 500ms so engine store + audio engine are fully settled
+        setTimeout(() => initFlowEnginesFromProject().catch(console.error), 500);
+    }
+    if (trackCount === 0) {
+        _flowInitDone = false; // Reset for next project load
+    }
+});
+

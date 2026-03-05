@@ -89,7 +89,9 @@ export const DeviceNode = React.memo(({
         || device.effectType === 'sample_rack'
         || device.effectType === 'waveSynth';
     const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
-    const baseWidth = resolveDeviceCardWidth(device.source, device.effectType, manifest.cardWidth);
+    const baseWidth = device.pluginId === 'internal://instrument/flow'
+        ? 140 // Compact instrument card — canvas UI lives in overlay
+        : resolveDeviceCardWidth(device.source, device.effectType, manifest.cardWidth);
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = manifest.supportsSettings;

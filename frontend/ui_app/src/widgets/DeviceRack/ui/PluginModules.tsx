@@ -10,7 +10,7 @@
 // All visual values are driven by design tokens — zero hardcoded colors/sizes.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useId, useRef } from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
@@ -542,6 +542,9 @@ export const SaturationCurve = React.memo(function SaturationCurve({
 }: SaturationCurveProps) {
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<boolean>(false);
+    const uid = useId();
+    const glowId = `sat-glow-${uid}`;
+    const fillGradId = `sat-fill-grad-${uid}`;
     const M = 14;
     const d = clamp01(drive);
     const k = Math.max(8, 60 - d * 48);
@@ -601,11 +604,11 @@ export const SaturationCurve = React.memo(function SaturationCurve({
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)', cursor: onDriveChange ? 'default' : undefined }}
         >
             <defs>
-                <filter id="sat-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                 </filter>
-                <linearGradient id="sat-fill-grad" x1="0" y1="1" x2="0" y2="0">
+                <linearGradient id={fillGradId} x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor={accent} stopOpacity="0.02" />
                     <stop offset="100%" stopColor={accent} stopOpacity="0.18" />
                 </linearGradient>
@@ -617,7 +620,7 @@ export const SaturationCurve = React.memo(function SaturationCurve({
             {/* Diagonal reference */}
             <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={M} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.8" strokeDasharray="4,3" />
             {/* Gradient fill under curve */}
-            <path d={fillPath} fill="url(#sat-fill-grad)" />
+            <path d={fillPath} fill={`url(#${fillGradId})`} />
             {/* Transfer function curve */}
             <path d={curveByType[type]} fill="none" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
             {/* Origin dot */}
@@ -634,7 +637,7 @@ export const SaturationCurve = React.memo(function SaturationCurve({
                     fill={accent}
                     stroke="white"
                     strokeWidth="1.5"
-                    filter="url(#sat-glow)"
+                    filter={`url(#${glowId})`}
                     style={{ cursor: 'ns-resize', touchAction: 'none' }}
                     onPointerDown={onPointerDown}
                     onPointerMove={onPointerMove}
@@ -679,6 +682,9 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
 }: MiniFilterEqProps) {
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<{ handle: 'hp' | 'lp' } | null>(null);
+    const uid = useId();
+    const glowId = `eq-glow-${uid}`;
+    const gradId = `eq-passband-grad-${uid}`;
     const M = 14;
     const W = VB_W - 2 * M;
     const hpX = M + clamp01(hpFreqNorm) * W;
@@ -732,11 +738,11 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
         >
             <defs>
-                <filter id="eq-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="2.5" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                 </filter>
-                <linearGradient id="eq-passband-grad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={accentHp} stopOpacity="0.14" />
                     <stop offset="100%" stopColor={accentHp} stopOpacity="0.02" />
                 </linearGradient>
@@ -748,7 +754,7 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
             ))}
             <line x1={M} y1={midY} x2={VB_W - M} y2={midY} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" />
             {/* Passband fill */}
-            <path d={passbandFill} fill="url(#eq-passband-grad)" />
+            <path d={passbandFill} fill={`url(#${gradId})`} />
             {/* HP curve */}
             <path d={`M ${M} ${botY} Q ${hpX - 20} ${botY}, ${hpX} ${midY} L ${VB_W - M} ${midY}`} fill="none" stroke={accentHp} strokeWidth="2.2" strokeLinecap="round" />
             {/* LP curve */}
@@ -764,7 +770,7 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
             <circle
                 cx={hpX} cy={midY} r={isInteractive ? 6 : 5}
                 fill={accentHp} stroke="white" strokeWidth="1.3"
-                filter={isInteractive ? 'url(#eq-glow)' : undefined}
+                filter={isInteractive ? `url(#${glowId})` : undefined}
                 style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
                 onPointerDown={isInteractive ? (e) => onHandleDown(e, 'hp') : undefined}
                 onPointerMove={isInteractive ? onHandleMove : undefined}
@@ -775,7 +781,7 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
             <circle
                 cx={lpX} cy={midY} r={isInteractive ? 6 : 5}
                 fill={accentLp} stroke="white" strokeWidth="1.3"
-                filter={isInteractive ? 'url(#eq-glow)' : undefined}
+                filter={isInteractive ? `url(#${glowId})` : undefined}
                 style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
                 onPointerDown={isInteractive ? (e) => onHandleDown(e, 'lp') : undefined}
                 onPointerMove={isInteractive ? onHandleMove : undefined}
@@ -900,6 +906,9 @@ export const CompressionCurve = React.memo(function CompressionCurve({
 }: CompressionCurveProps) {
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<boolean>(false);
+    const uid = useId();
+    const glowId = `comp-glow-${uid}`;
+    const gradId = `comp-fill-grad-${uid}`;
     const M = 20;
     const W = VB_W - 2 * M;
     const H = VB_H - 2 * M;
@@ -960,11 +969,11 @@ export const CompressionCurve = React.memo(function CompressionCurve({
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
         >
             <defs>
-                <filter id="comp-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
                     <feGaussianBlur stdDeviation="3" result="blur" />
                     <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                 </filter>
-                <linearGradient id="comp-fill-grad" x1="0" y1="1" x2="0" y2="0">
+                <linearGradient id={gradId} x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor={accent} stopOpacity="0.02" />
                     <stop offset="100%" stopColor={accent} stopOpacity="0.12" />
                 </linearGradient>
@@ -990,7 +999,7 @@ export const CompressionCurve = React.memo(function CompressionCurve({
             {/* Unity reference line */}
             <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={M} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" strokeDasharray="4,3" />
             {/* Fill under curve */}
-            <path d={fillPath} fill="url(#comp-fill-grad)" />
+            <path d={fillPath} fill={`url(#${gradId})`} />
             {/* Compression curve */}
             <path d={curvePath} fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" />
             {/* Threshold knee handle */}
@@ -1001,7 +1010,7 @@ export const CompressionCurve = React.memo(function CompressionCurve({
                 fill={accent}
                 stroke="white"
                 strokeWidth="1.5"
-                filter={isInteractive ? 'url(#comp-glow)' : undefined}
+                filter={isInteractive ? `url(#${glowId})` : undefined}
                 style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
                 onPointerDown={isInteractive ? onHandleDown : undefined}
                 onPointerMove={isInteractive ? onHandleMove : undefined}
@@ -1039,6 +1048,8 @@ export const ModulationWave = React.memo(function ModulationWave({
     shape = 'sine',
     accent = 'var(--token-color-hex-4cc9d8)',
 }: ModulationWaveProps) {
+    const uid = useId();
+    const gradId = `mod-wave-fill-${uid}`;
     const M = 14;
     const midY = VB_H / 2;
     const amp = clamp01(depth) * (VB_H / 2 - M);
@@ -1092,7 +1103,7 @@ export const ModulationWave = React.memo(function ModulationWave({
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
         >
             <defs>
-                <linearGradient id="mod-wave-fill" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={accent} stopOpacity="0.18" />
                     <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
                 </linearGradient>
@@ -1103,7 +1114,7 @@ export const ModulationWave = React.memo(function ModulationWave({
             <line x1={M} y1={M + (midY - M) / 2} x2={VB_W - M} y2={M + (midY - M) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
             <line x1={M} y1={midY + (VB_H - M - midY) / 2} x2={VB_W - M} y2={midY + (VB_H - M - midY) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
             {/* Gradient fill under waveform */}
-            <path d={fillPath} fill="url(#mod-wave-fill)" />
+            <path d={fillPath} fill={`url(#${gradId})`} />
             {/* Waveform line */}
             <path d={wavePath} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
             {/* Readout labels */}
@@ -1129,6 +1140,8 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     accent = 'var(--token-color-hex-72d68a)',
     mode = 'bars',
 }: WaveformDisplayProps) {
+    const uid = useId();
+    const lineGradId = `wf-line-fill-${uid}`;
     const M = 10;
     const count = data.length || 1;
     const barWidth = (VB_W - 2 * M) / count;
@@ -1150,7 +1163,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
                 style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
             >
                 <defs>
-                    <linearGradient id="wf-line-fill" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={lineGradId} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={accent} stopOpacity="0.2" />
                         <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
                     </linearGradient>
@@ -1160,7 +1173,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
                 <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={VB_H - M} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
                 <line x1={M} y1={VB_H / 2} x2={VB_W - M} y2={VB_H / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
                 {/* Fill under curve */}
-                <path d={fillPath} fill="url(#wf-line-fill)" />
+                <path d={fillPath} fill={`url(#${lineGradId})`} />
                 {/* Waveform line */}
                 <path d={linePath} fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
             </svg>
@@ -1206,6 +1219,8 @@ export const SpectrumBars = React.memo(function SpectrumBars({
     data,
     accent = 'var(--token-color-hex-4cc9d8)',
 }: SpectrumBarsProps) {
+    const uid = useId();
+    const gradId = `spectrum-bar-grad-${uid}`;
     const M = 10;
     const count = data?.length ?? barCount;
     const barWidth = (VB_W - 2 * M) / count;
@@ -1219,7 +1234,7 @@ export const SpectrumBars = React.memo(function SpectrumBars({
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
         >
             <defs>
-                <linearGradient id="spectrum-bar-grad" x1="0" y1="1" x2="0" y2="0">
+                <linearGradient id={gradId} x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor={accent} stopOpacity="0.5" />
                     <stop offset="100%" stopColor={accent} stopOpacity="1" />
                 </linearGradient>
@@ -1241,7 +1256,7 @@ export const SpectrumBars = React.memo(function SpectrumBars({
                         width={Math.max(2, barWidth - 2)}
                         height={h}
                         rx="1.5"
-                        fill="url(#spectrum-bar-grad)"
+                        fill={`url(#${gradId})`}
                         opacity={0.55 + v * 0.4}
                     />
                 );

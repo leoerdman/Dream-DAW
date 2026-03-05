@@ -321,7 +321,7 @@ fn set_slot_bypass_cmd(
                     None
                 }
                 let mut idx = 0usize;
-                device_chain_slot_index =
+                let device_chain_slot_index =
                     find_slot_index_in_nodes(&track.effects, slot_uuid, false, &mut idx);
 
                 if let Some(si) = device_chain_slot_index {

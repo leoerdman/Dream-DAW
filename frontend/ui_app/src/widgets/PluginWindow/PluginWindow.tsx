@@ -69,7 +69,9 @@ export const PluginWindow = memo(function PluginWindow({
     children,
 }: PluginWindowProps) {
     const [position, setPosition] = useState({ x: initialX, y: initialY });
+    const [size, setSize] = useState({ w: Math.max(MIN_WIDTH, width), h: Math.max(MIN_HEIGHT, height) });
     const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+    const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number; edge: string } | null>(null);
 
     const handleDragStart = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -97,6 +99,30 @@ export const PluginWindow = memo(function PluginWindow({
         window.addEventListener('mouseup', onUp);
     }, [position]);
 
+    const handleResizeStart = useCallback((e: React.PointerEvent, edge: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: size.w, origH: size.h, edge };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }, [size]);
+
+    const handleResizeMove = useCallback((e: React.PointerEvent) => {
+        if (!resizeRef.current) return;
+        const { startX, startY, origW, origH, edge } = resizeRef.current;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const maxW = window.innerWidth - 40;
+        const maxH = window.innerHeight - 40;
+        setSize({
+            w: edge.includes('e') ? Math.min(maxW, Math.max(MIN_WIDTH, origW + dx)) : origW,
+            h: edge.includes('s') ? Math.min(maxH, Math.max(MIN_HEIGHT, origH + dy)) : origH,
+        });
+    }, []);
+
+    const handleResizeEnd = useCallback(() => {
+        resizeRef.current = null;
+    }, []);
+
     const headerGradient = pluginType === 'instrument'
         ? 'var(--plugin-header-instrument)'
         : 'var(--plugin-header-effect)';
@@ -111,8 +137,8 @@ export const PluginWindow = memo(function PluginWindow({
                 position: 'fixed',
                 left: position.x,
                 top: position.y,
-                width: Math.max(MIN_WIDTH, width),
-                height: Math.max(MIN_HEIGHT, height),
+                width: size.w,
+                height: size.h,
                 zIndex: 'var(--z-modal)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -148,6 +174,7 @@ export const PluginWindow = memo(function PluginWindow({
                 }}>
                     {/* Close */}
                     <div
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); onClose(); }}
                         title="Close"
                         style={{
@@ -341,6 +368,28 @@ export const PluginWindow = memo(function PluginWindow({
                     </div>
                 )}
             </div>
+            {/* ── Resize handles ── */}
+            {/* Right edge */}
+            <div
+                onPointerDown={(e) => handleResizeStart(e, 'e')}
+                onPointerMove={handleResizeMove}
+                onPointerUp={handleResizeEnd}
+                style={{ position: 'absolute', right: 0, top: TITLE_BAR_HEIGHT, bottom: 6, width: 5, cursor: 'ew-resize', zIndex: 10 }}
+            />
+            {/* Bottom edge */}
+            <div
+                onPointerDown={(e) => handleResizeStart(e, 's')}
+                onPointerMove={handleResizeMove}
+                onPointerUp={handleResizeEnd}
+                style={{ position: 'absolute', bottom: 0, left: 6, right: 6, height: 5, cursor: 'ns-resize', zIndex: 10 }}
+            />
+            {/* Bottom-right corner */}
+            <div
+                onPointerDown={(e) => handleResizeStart(e, 'se')}
+                onPointerMove={handleResizeMove}
+                onPointerUp={handleResizeEnd}
+                style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize', zIndex: 11 }}
+            />
         </div>
     );
 });

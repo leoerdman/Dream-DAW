@@ -20,7 +20,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             depthParam: 'depth', depthFallback: 50, depthMax: 100,
         },
         meta: [
-            { label: '', paramNames: 'rate', fallback: 1.0, suffix: 'Hz' },
+            { label: 'Rate', paramNames: 'rate', fallback: 1.0, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['voices', 'spread', 'fb', 'hp freq'] },
@@ -55,9 +55,9 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: '', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
+            { label: 'Rate', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
-            { label: '', paramNames: 'stages', fallback: 4, suffix: ' stages' },
+            { label: 'Stages', paramNames: 'stages', fallback: 4, suffix: '' },
         ],
         settingsPanel: { params: ['center', 'spread', 'fb', 'lfo shape', 'range'] },
     },
@@ -76,10 +76,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: '', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
+            { label: 'Rate', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
         ],
-        settingsPanel: { params: ['blend', 'stages', 'stereo'] },
+        settingsPanel: { params: ['blend', 'stages', 'fb', 'stereo'] },
     },
     flanger: {
         background: 'var(--plugin-bg-mod)',
@@ -92,7 +92,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: '', paramNames: 'rate', fallback: 0.3, suffix: 'Hz' },
+            { label: 'Rate', paramNames: 'rate', fallback: 0.3, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 70, suffix: '%' },
             { label: 'FB', paramNames: ['fb', 'feedback'], fallback: 50, suffix: '%' },
         ],
@@ -104,28 +104,34 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         background: 'var(--plugin-bg-delay)',
         accent: 'var(--token-color-hex-7cc4ff)',
         viz: {
-            type: 'miniFilterEq',
-            hpParam: 'filter', hpFallback: 5000,
-            lpParam: 'filter', lpFallback: 5000,
+            type: 'spectrumBars',
+            staticDataGenerator: (device) => {
+                const fb = clamp01(safeParamValue(device, 'fb', 30) / 100);
+                // Simulate delay taps fading with feedback
+                return Array.from({ length: 8 }, (_, i) => {
+                    const tap = Math.pow(fb, i) * 0.9;
+                    return Math.max(0.05, tap);
+                });
+            },
         },
         meta: [
             { label: 'L', paramNames: 'time l', fallback: 250, suffix: 'ms' },
             { label: 'R', paramNames: 'time r', fallback: 375, suffix: 'ms' },
             { label: 'FB', paramNames: 'fb', fallback: 30, suffix: '%' },
         ],
-        settingsPanel: { params: ['time l', 'time r', 'sync l', 'sync r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'], maxCols: 4 },
+        settingsPanel: { params: ['time l', 'time r', 'sync l', 'sync r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'], maxCols: 2 },
     },
     filterDelay: {
         background: 'var(--plugin-bg-delay)',
         accent: 'var(--token-color-hex-7cc4ff)',
         viz: {
             type: 'spectrumBars',
-            barCount: 3,
             staticDataGenerator: (device) => {
                 const lf = clamp01(safeParamValue(device, 'l filter', 3000) / 15000);
                 const cf = clamp01(safeParamValue(device, 'c filter', 5000) / 15000);
                 const rf = clamp01(safeParamValue(device, 'r filter', 8000) / 15000);
-                return [lf, cf, rf];
+                // Mirror L/C/R filters with secondary bars for fullness
+                return [lf * 0.6, lf, cf * 0.7, cf, rf * 0.8, rf];
             },
         },
         meta: [
@@ -183,11 +189,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             lpParam: 'hi cut', lpFallback: 16000,
         },
         meta: [
-            { label: 'Lo', paramNames: 'lo cut', fallback: 20, suffix: 'Hz' },
-            { label: 'Hi', paramNames: 'hi cut', fallback: 16000, suffix: 'Hz' },
+            { label: 'Lo Cut', paramNames: 'lo cut', fallback: 20, suffix: 'Hz' },
+            { label: 'Hi Cut', paramNames: 'hi cut', fallback: 16000, suffix: 'Hz' },
             { label: 'Size', paramNames: 'size', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'], maxCols: 4 },
+        settingsPanel: { params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'], maxCols: 3 },
     },
     hybridReverb: {
         background: 'var(--plugin-bg-reverb)',
@@ -227,7 +233,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: 'Tune', paramNames: 'tune', fallback: 60, suffix: '' },
+            { label: 'Tune', paramNames: 'tune', fallback: 60, suffix: 'MIDI' },
             { label: 'Decay', paramNames: 'decay', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['damp', 'type', 'spread'] },
@@ -241,6 +247,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [
             { label: 'Thr', paramNames: 'thr', fallback: -0.3, suffix: 'dB' },
             { label: 'Ceil', paramNames: 'ceil', fallback: -0.1, suffix: 'dB' },
+            { label: 'Rel', paramNames: 'rel', fallback: 100, suffix: 'ms' },
         ],
         settingsPanel: { params: ['rel', 'lookahead', 'link', 'auto rel'] },
     },
@@ -259,6 +266,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         },
         meta: [
             { label: 'Thr', paramNames: 'thr', fallback: -40, suffix: 'dB' },
+            { label: 'Range', paramNames: 'range', fallback: -80, suffix: 'dB' },
         ],
         settingsPanel: { params: ['atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis', 'duck'] },
     },
@@ -266,14 +274,23 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         background: 'var(--plugin-bg-mod)',
         accent: 'var(--token-color-hex-4cc9d8)',
         viz: {
-            type: 'miniFilterEq',
-            hpParam: ['freq', 'frequency', 'cutoff', 'center'], hpFallback: 1000,
-            lpParam: ['freq', 'frequency', 'cutoff', 'center'], lpFallback: 1000,
+            type: 'spectrumBars',
+            staticDataGenerator: (device) => {
+                const cutoff = clamp01(safeParamValue(device, 'cutoff', 1000) / 20000);
+                const res = clamp01(safeParamValue(device, 'res', 30) / 100);
+                return Array.from({ length: 16 }, (_, i) => {
+                    const normI = i / 16;
+                    const dist = Math.abs(normI - cutoff);
+                    const peak = Math.max(0, 1 - dist * 4) * (0.5 + res * 0.5);
+                    return 0.08 + peak * 0.8;
+                });
+            },
         },
         meta: [
-            { label: 'Freq', paramNames: ['freq', 'frequency', 'cutoff', 'center'], fallback: 1000, suffix: 'Hz' },
+            { label: 'Freq', paramNames: ['cutoff', 'freq', 'frequency', 'center'], fallback: 1000, suffix: 'Hz' },
+            { label: 'Res', paramNames: 'res', fallback: 30, suffix: '%' },
         ],
-        settingsPanel: { params: ['res', 'rate', 'depth', 'env', 'type', 'lfo shape', 'drive', 'env speed'] },
+        settingsPanel: { params: ['rate', 'depth', 'env', 'type', 'lfo shape', 'drive', 'env speed', 'mix'] },
     },
 
     // ─── COMPRESSORS ──────────────────────────────────────────────────
@@ -299,11 +316,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             type: 'compressionCurve',
             compVariant: 'glue',
             thrParam: 'thr', thrFallback: -18,
-            ratioParam: 'ratio', ratioFallback: 4,
+            ratioParam: 'ratio', ratioFallback: 2,
         },
         meta: [
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
-            { label: 'Ratio', paramNames: 'ratio', fallback: 1, suffix: '' },
+            { label: 'Ratio', paramNames: 'ratio', fallback: 2, suffix: ':1' },
         ],
         settingsPanel: { params: ['atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'] },
     },
@@ -313,14 +330,15 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'compressionCurve',
             compVariant: 'multiband',
-            thrParam: 'thr', thrFallback: -18,
-            ratioParam: 'ratio', ratioFallback: 4,
+            thrParam: 'mid thr', thrFallback: -18,
+            ratioParam: 'mid ratio', ratioFallback: 4,
         },
         meta: [
             { label: 'Lo', paramNames: 'xover low', fallback: 200, suffix: 'Hz' },
             { label: 'Hi', paramNames: 'xover high', fallback: 4000, suffix: 'Hz' },
+            { label: 'Out', paramNames: 'output', fallback: 0, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'], maxCols: 4 },
+        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'], maxCols: 2 },
     },
     transientShaper: {
         background: 'var(--plugin-bg-compressor)',
@@ -355,7 +373,15 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'waveformDisplay',
             waveMode: 'bars',
-            staticDataGenerator: () => Array.from({ length: 12 }, (_, i) => 0.2 + ((i * 7) % 52) / 80),
+            staticDataGenerator: (device) => {
+                const drive = clamp01(safeParamValue(device, 'drive', 30) / 100);
+                const boom = clamp01(safeParamValue(device, 'boom', 30) / 100);
+                // Low-end boost from boom, overall energy from drive
+                return Array.from({ length: 12 }, (_, i) => {
+                    const lowBoost = i < 4 ? boom * 0.6 : 0;
+                    return Math.min(1, 0.12 + drive * 0.5 * Math.abs(Math.sin(i * 1.3)) + lowBoost);
+                });
+            },
         },
         meta: [
             { label: 'Boom', paramNames: 'boom', fallback: 30, suffix: '%' },
@@ -422,7 +448,17 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         accent: 'var(--token-color-hex-ff965e)',
         viz: {
             type: 'spectrumBars',
-            staticDataGenerator: () => Array.from({ length: 20 }, (_, i) => 0.16 + ((i * 19) % 60) / 80),
+            staticDataGenerator: (device) => {
+                const freq = clamp01(safeParamValue(device, 'frequency', 2000) / 20000);
+                const amount = clamp01(safeParamValue(device, 'amount', 50) / 100);
+                // Noise band centered around target frequency
+                return Array.from({ length: 20 }, (_, i) => {
+                    const normI = i / 20;
+                    const dist = Math.abs(normI - freq);
+                    const peak = Math.max(0, 1 - dist * 4) * amount;
+                    return 0.06 + peak * 0.8 + Math.abs(Math.sin(i * 2.5)) * amount * 0.15;
+                });
+            },
         },
         meta: [
             { label: 'Freq', paramNames: 'frequency', fallback: 2000, suffix: 'Hz' },
@@ -480,8 +516,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: '', paramNames: 'type', fallback: 0, suffix: '' },
-            { label: 'Level', paramNames: 'level', fallback: -30, suffix: 'dB' },
+            { label: 'Type', paramNames: 'type', fallback: 0, suffix: '' },
+            { label: 'Level', paramNames: 'level', fallback: -12, suffix: 'dB' },
         ],
         settingsPanel: { params: ['stereo', 'lpfreq', 'hpfreq', 'pan'] },
     },
@@ -494,5 +530,41 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [],
         isUtility: true,
         buttons: [{ label: 'Mono', paramName: 'mono', scene: 'mono' }],
+    },
+
+    // ─── CHANNEL EQ (3-band DJ-style) ─────────────────────────────────
+    bandEq: {
+        background: 'var(--plugin-bg-utility)',
+        accent: 'var(--token-color-hex-7ab6ff)',
+        viz: {
+            type: 'spectrumBars',
+            barCount: 3,
+            staticDataGenerator: (device) => {
+                const low = clamp01((safeParamValue(device, 'low', 0) + 60) / 66);
+                const mid = clamp01((safeParamValue(device, 'mid', 0) + 60) / 66);
+                const high = clamp01((safeParamValue(device, 'high', 0) + 60) / 66);
+                return [low, mid, high];
+            },
+        },
+        meta: [
+            { label: 'Low', paramNames: 'low', fallback: 0, suffix: 'dB' },
+            { label: 'Mid', paramNames: 'mid', fallback: 0, suffix: 'dB' },
+            { label: 'High', paramNames: 'high', fallback: 0, suffix: 'dB' },
+        ],
+        settingsPanel: { params: ['lowfreq', 'highfreq', 'lowkill', 'midkill', 'highkill', 'out'] },
+    },
+
+    // ─── ANALYZER (spectrum display) ───────────────────────────────────
+    analyzer: {
+        background: 'var(--plugin-bg-utility)',
+        accent: 'var(--token-color-hex-56d4c8)',
+        viz: {
+            type: 'spectrumBars',
+            staticDataGenerator: () => Array.from({ length: 20 }, (_, i) =>
+                0.1 + Math.abs(Math.sin(i * 0.7)) * 0.6 * Math.pow(0.95, i)
+            ),
+        },
+        meta: [],
+        isUtility: true,
     },
 };

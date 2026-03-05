@@ -172,9 +172,19 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                     }}
                     onDelete={() => {
                         if (!selectedTrack) { setDeviceContextMenu(null); return; }
+                        const deletedDevice = deviceContextMenu.device;
                         void engineApi
-                            .removePluginFromTrackWithDeltas(selectedTrack.id, deviceContextMenu.device.id)
-                            .then((res) => logic.applyProjectDeltas(res.deltas, 'device-rack:remove-device-ctx'))
+                            .removePluginFromTrackWithDeltas(selectedTrack.id, deletedDevice.id)
+                            .then(async (res) => {
+                                logic.applyProjectDeltas(res.deltas, 'device-rack:remove-device-ctx');
+                                // ENTERPRISE FIX: Disable instrument engines on the audio thread.
+                                // Without this, Flow/Essence synth engines continue to produce
+                                // audio even after the device is removed from the project model.
+                                if (deletedDevice.pluginId === 'internal://instrument/flow') {
+                                    const { disableFlowEngine } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                                    void disableFlowEngine(selectedTrack.id);
+                                }
+                            })
                             .catch((err) => console.error('[Dream] removePlugin via context menu failed:', err));
                         setDeviceContextMenu(null);
                     }}

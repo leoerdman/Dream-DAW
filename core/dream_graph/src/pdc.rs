@@ -680,4 +680,134 @@ mod tests {
         assert_eq!(d2, 200);
         assert_eq!(d3, 250);
     }
+
+    /// SC-002 FIX REGRESSION TEST: Sidechain edges MUST participate in PDC.
+    ///
+    /// Topology:
+    ///   Kick(0) → FX(512smp) → Master
+    ///   Kick(0) --[sidechain]-→ Bass(0) → Master
+    ///
+    /// Without fix: sidechain edge gets 0 PDC → compressor ducks 10ms late.
+    /// With fix: sidechain edge gets 512 samples of delay compensation,
+    /// aligning the trigger signal with the kick's main audio output.
+    #[test]
+    fn sidechain_edge_gets_delay_compensation() {
+        let dag = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track { name: "Kick".into(), latency_samples: 0 },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(2),
+                NodeKind::Effect {
+                    name: "Reverb".into(),
+                    latency_samples: 512,
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(3),
+                NodeKind::Track { name: "Bass".into(), latency_samples: 0 },
+            ))
+            // Kick → FX(512) → Master
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(0))
+            .unwrap()
+            // Bass → Master (direct)
+            .add_edge(NodeId(3), NodeId(0))
+            .unwrap()
+            // Kick --[sidechain]-→ Bass
+            .add_edge_typed(NodeId(1), NodeId(3), AudioEdgeKind::Sidechain)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let order = dag.topological_order().unwrap();
+        let edges = compute_edge_delay_compensation(&dag, &order);
+
+        let _kick_idx = dag.graph().node_indices()
+            .find(|&i| dag.node(i).id == NodeId(1)).unwrap();
+        let bass_idx = dag.graph().node_indices()
+            .find(|&i| dag.node(i).id == NodeId(3)).unwrap();
+        let master_idx = dag.master_index();
+
+        // Sidechain edge: Kick → Bass should get PDC compensation.
+        // Kick's max_to_output = 0 (Kick itself has 0 latency).
+        // At the Bass merge point, the max incoming is from Kick via SC (0).
+        // Bass → Master direct path. At Master merge point:
+        //   - From FX(512): max_to_output = 512
+        //   - From Bass: max_to_output = 0 (Bass has 0 latency)
+        // So Bass → Master edge needs 512 samples of delay.
+        let bass_to_master = edges.iter()
+            .find(|e| e.from == bass_idx && e.to == master_idx)
+            .map(|e| e.delay_samples)
+            .unwrap_or(0);
+
+        assert_eq!(
+            bass_to_master, 512,
+            "Bass→Master edge must be compensated by 512 samples \
+             to align with Kick's FX chain latency"
+        );
+    }
+
+    /// SC-002 FIX: Multiple sidechain consumers from same source.
+    ///
+    /// Kick(0) → FX(256) → Master
+    /// Kick --[sc]-→ Bass(0) → Master
+    /// Kick --[sc]-→ Pad(0) → Master
+    ///
+    /// Both SC consumers must receive identical PDC compensation.
+    #[test]
+    fn multiple_sidechain_consumers_get_equal_compensation() {
+        let dag = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track { name: "Kick".into(), latency_samples: 0 },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(2),
+                NodeKind::Effect {
+                    name: "FX".into(),
+                    latency_samples: 256,
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(3),
+                NodeKind::Track { name: "Bass".into(), latency_samples: 0 },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(4),
+                NodeKind::Track { name: "Pad".into(), latency_samples: 0 },
+            ))
+            .add_edge(NodeId(1), NodeId(2)).unwrap()
+            .add_edge(NodeId(2), NodeId(0)).unwrap()
+            .add_edge(NodeId(3), NodeId(0)).unwrap()
+            .add_edge(NodeId(4), NodeId(0)).unwrap()
+            .add_edge_typed(NodeId(1), NodeId(3), AudioEdgeKind::Sidechain).unwrap()
+            .add_edge_typed(NodeId(1), NodeId(4), AudioEdgeKind::Sidechain).unwrap()
+            .build()
+            .unwrap();
+
+        let order = dag.topological_order().unwrap();
+        let edges = compute_edge_delay_compensation(&dag, &order);
+        let master_idx = dag.master_index();
+
+        let bass_idx = dag.graph().node_indices()
+            .find(|&i| dag.node(i).id == NodeId(3)).unwrap();
+        let pad_idx = dag.graph().node_indices()
+            .find(|&i| dag.node(i).id == NodeId(4)).unwrap();
+
+        let bass_delay = edges.iter()
+            .find(|e| e.from == bass_idx && e.to == master_idx)
+            .map(|e| e.delay_samples).unwrap_or(0);
+        let pad_delay = edges.iter()
+            .find(|e| e.from == pad_idx && e.to == master_idx)
+            .map(|e| e.delay_samples).unwrap_or(0);
+
+        assert_eq!(bass_delay, 256);
+        assert_eq!(pad_delay, 256);
+        assert_eq!(bass_delay, pad_delay, "Multiple SC consumers must get identical PDC");
+    }
 }

@@ -234,28 +234,30 @@ export const PluginGuiSurface = React.memo(({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 'var(--space-2)',
+                    gap: 'var(--space-1)',
                     width: '100%',
                     height: '100%',
-                    minHeight: 60,
-                    padding: 'var(--space-3)',
+                    minHeight: 48,
+                    maxWidth: 120,
+                    padding: 'var(--space-2)',
                     textAlign: 'center',
                 }}
             >
                 <span style={{
-                    fontSize: 'var(--font-size-2xs)',
+                    fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-tertiary)',
                     fontWeight: 'var(--font-weight-bold)',
                     textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
+                    letterSpacing: '0.1em',
+                    fontFamily: 'var(--font-role-data)',
                 }}>
-                    Modular Synthesizer
+                    Flow
                 </span>
                 <span style={{
-                    fontSize: 'var(--font-size-2xs)',
+                    fontSize: 9,
                     color: 'var(--color-text-quaternary)',
                 }}>
-                    Click 👁 to open editor
+                    👁 open
                 </span>
             </div>
         );

@@ -191,6 +191,7 @@ fn track_total_latency() {
         is_bypassed: false,
         latency_frames: 64,
         sidechain_source_track_id: None,
+        sidechain_send_mode: SidechainSendMode::default(),
         supports_sidechain_input: None,
         external_audio_inputs: None,
         external_format: None,
@@ -214,6 +215,7 @@ fn track_total_latency() {
         is_bypassed: false,
         latency_frames: 128,
         sidechain_source_track_id: None,
+        sidechain_send_mode: SidechainSendMode::default(),
         supports_sidechain_input: None,
         external_audio_inputs: None,
         external_format: None,
@@ -237,6 +239,7 @@ fn track_total_latency() {
         is_bypassed: true, // Bypassed — should NOT count
         latency_frames: 32,
         sidechain_source_track_id: None,
+        sidechain_send_mode: SidechainSendMode::default(),
         supports_sidechain_input: None,
         external_audio_inputs: None,
         external_format: None,

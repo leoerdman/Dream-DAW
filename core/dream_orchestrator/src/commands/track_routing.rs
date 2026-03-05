@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
-use dream_models::project::DeviceNode;
+use dream_models::project::{DeviceNode, SidechainSendMode};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SetTrackRoutingResult {
@@ -33,6 +33,9 @@ pub struct SetPluginSidechainSourceCommand {
     pub track_id: Uuid,
     pub slot_id: Uuid,
     pub source_track_id: Option<Uuid>,
+    /// Optional send mode override. When `Some`, the slot's `sidechain_send_mode`
+    /// is updated. When `None`, the existing mode is preserved (backward-compat).
+    pub send_mode: Option<SidechainSendMode>,
 }
 
 impl SetTrackRoutingCommand {
@@ -87,6 +90,15 @@ impl SetPluginSidechainSourceCommand {
         slot_id: &str,
         source_track_id: &str,
     ) -> OrchestratorResult<Self> {
+        Self::from_str_ids_with_mode(track_id, slot_id, source_track_id, None)
+    }
+
+    pub fn from_str_ids_with_mode(
+        track_id: &str,
+        slot_id: &str,
+        source_track_id: &str,
+        send_mode: Option<SidechainSendMode>,
+    ) -> OrchestratorResult<Self> {
         let track_id = Uuid::parse_str(track_id).map_err(|e| OrchestratorError::InvalidId {
             field: "track_id",
             value: track_id.to_string(),
@@ -115,6 +127,7 @@ impl SetPluginSidechainSourceCommand {
             track_id,
             slot_id,
             source_track_id,
+            send_mode,
         })
     }
 }
@@ -216,11 +229,17 @@ impl Command for SetPluginSidechainSourceCommand {
             validate_sidechain_support(slot)?;
             changed = slot.sidechain_source_track_id != source_value;
             slot.sidechain_source_track_id = source_value.clone();
+            if let Some(mode) = self.send_mode {
+                if slot.sidechain_send_mode != mode {
+                    slot.sidechain_send_mode = mode;
+                    changed = true;
+                }
+            }
             updated = true;
         }
 
         if !updated {
-            match find_and_set_sidechain(&mut track.effects, self.slot_id, &source_value) {
+            match find_and_set_sidechain(&mut track.effects, self.slot_id, &source_value, self.send_mode) {
                 Ok(Some(slot_changed)) => {
                     changed = slot_changed;
                     updated = true;
@@ -254,19 +273,26 @@ fn find_and_set_sidechain(
     nodes: &mut [DeviceNode],
     slot_id: Uuid,
     source_value: &Option<String>,
+    send_mode: Option<SidechainSendMode>,
 ) -> OrchestratorResult<Option<bool>> {
     for node in nodes {
         match node {
             DeviceNode::Single(slot) if slot.id == slot_id => {
                 validate_sidechain_support(slot)?;
-                let changed = slot.sidechain_source_track_id != *source_value;
+                let mut changed = slot.sidechain_source_track_id != *source_value;
                 slot.sidechain_source_track_id = source_value.clone();
+                if let Some(mode) = send_mode {
+                    if slot.sidechain_send_mode != mode {
+                        slot.sidechain_send_mode = mode;
+                        changed = true;
+                    }
+                }
                 return Ok(Some(changed));
             }
             DeviceNode::Rack(rack) => {
                 for chain in &mut rack.chains {
                     if let Some(changed) =
-                        find_and_set_sidechain(&mut chain.devices, slot_id, source_value)?
+                        find_and_set_sidechain(&mut chain.devices, slot_id, source_value, send_mode)?
                     {
                         return Ok(Some(changed));
                     }

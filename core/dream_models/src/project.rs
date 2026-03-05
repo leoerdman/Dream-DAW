@@ -524,6 +524,47 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     }
 }
 
+// ── Sidechain Send Mode ────────────────────────────────────────────────
+
+/// Determines where in the source track's signal chain the sidechain
+/// signal is tapped.
+///
+/// Mirrors Ableton Live's Pre FX / Post FX / Post Mixer routing modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
+pub enum SidechainSendMode {
+    /// Raw audio before any insert effects — default and industry standard
+    /// for sidechain compression (clean trigger signal).
+    #[default]
+    PreFx,
+    /// After all insert effects, before the channel fader.
+    /// Use when the processed sound should drive the sidechain.
+    PostFx,
+    /// After inserts AND fader — the final output of the track.
+    /// Use for level-dependent routing (e.g., vocal doubling).
+    PostMixer,
+}
+
+impl SidechainSendMode {
+    /// Convert from u8 discriminant (used in runtime snapshots).
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::PostFx,
+            2 => Self::PostMixer,
+            _ => Self::PreFx,
+        }
+    }
+
+    /// Convert to u8 discriminant (used in runtime snapshots).
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::PreFx => 0,
+            Self::PostFx => 1,
+            Self::PostMixer => 2,
+        }
+    }
+}
+
 // ── Plugin Slot ────────────────────────────────────────────────────────
 
 /// A slot for an audio plugin (instrument or effect) in a track's chain.
@@ -551,6 +592,11 @@ pub struct PluginSlot {
     /// Optional sidechain source track UUID (as string) for plugins that expose sidechain input.
     #[serde(default)]
     pub sidechain_source_track_id: Option<String>,
+
+    /// Where in the source track's signal chain the sidechain signal is tapped.
+    /// Defaults to `PreFx` (industry standard for sidechain compression).
+    #[serde(default)]
+    pub sidechain_send_mode: SidechainSendMode,
 
     /// Whether the external plugin exposes a dedicated sidechain input bus.
     #[serde(default)]
@@ -619,6 +665,7 @@ impl PluginSlot {
             is_bypassed: false,
             latency_frames: 0,
             sidechain_source_track_id: None,
+            sidechain_send_mode: SidechainSendMode::default(),
             supports_sidechain_input: None,
             external_audio_inputs: None,
             external_format: None,

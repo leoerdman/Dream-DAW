@@ -239,6 +239,9 @@ pub struct ExternalPluginRuntimeSlot {
     pub internal_slot_index: Option<usize>,
     pub instance_id: Option<Uuid>,
     pub sidechain_track_index: Option<usize>,
+    /// Sidechain signal tap point: 0 = PreFx, 1 = PostFx, 2 = PostMixer.
+    /// Mirrors `dream_models::project::SidechainSendMode::to_u8()`.
+    pub sidechain_send_mode: u8,
     /// `true` when this slot originates from `track.instrument` (not `track.effects`).
     /// Used by the audio thread to keep `transport.is_playing = true` even when the
     /// timeline is stopped, so instruments like Serum don't gate MIDI processing.

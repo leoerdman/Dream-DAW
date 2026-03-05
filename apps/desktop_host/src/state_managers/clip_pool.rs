@@ -396,6 +396,7 @@ impl ClipPoolState {
                             internal_slot_index: Some(idx),
                             instance_id: None,
                             sidechain_track_index,
+                            sidechain_send_mode: slot.sidechain_send_mode.to_u8(),
                             is_instrument,
                             is_bypassed: effective_bypassed,
                         });
@@ -412,6 +413,7 @@ impl ClipPoolState {
                             internal_slot_index: None,
                             instance_id: Some(instance_id),
                             sidechain_track_index,
+                            sidechain_send_mode: slot.sidechain_send_mode.to_u8(),
                             is_instrument,
                             is_bypassed: effective_bypassed,
                         });

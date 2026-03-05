@@ -388,9 +388,9 @@ impl GraphRenderer {
 
         Self {
             node_buffers,
-            edge_pdc_delays: Vec::new(),
+            edge_pdc_delays: Vec::with_capacity(node_count * 4),
             active_edge_pdc_count: 0,
-            edge_inputs_by_dst: vec![Vec::new(); node_count.max(1)],
+            edge_inputs_by_dst: vec![Vec::with_capacity(16); node_count.max(1)],
             runtime_dependencies,
             max_frames: frame_count,
             active_node_count: 0,
@@ -407,7 +407,7 @@ impl GraphRenderer {
         }
 
         while self.edge_inputs_by_dst.len() < self.node_buffers.len() {
-            self.edge_inputs_by_dst.push(Vec::new());
+            self.edge_inputs_by_dst.push(Vec::with_capacity(16));
         }
 
         self.configure_edge_pdc(&plan.edge_delay_compensation, dag);

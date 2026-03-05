@@ -195,8 +195,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut export_active = false;
     // BUG-C002 FIX: Per-track MIDI queue with bounded capacity.
     // A stuck MIDI device sending continuous events could grow unbounded.
+    // ENTERPRISE FIX: Initializing with 256 capacity matches MAX_RT_PLUGIN_MIDI_QUEUE_EVENTS
+    // preventing any runtime heap allocations on the audio RT thread.
     let mut plugin_rt_midi_queue: Vec<Vec<MidiEvent>> =
-        (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
+        (0..MAX_TRACKS).map(|_| Vec::with_capacity(256)).collect();
     let mut rt_midi_uid_counter: u64 = 1;
     // Track which samples were last loaded per-track to avoid re-assigning
     // BUG-068 FIX: Removed dead variable _last_sample_generation (was never read).
@@ -231,7 +233,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
         }) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("[dream-audio-gc] WARN: Failed to spawn GC thread: {e}. Arc pointers will leak but audio will continue.");
+            error!("[dream-audio-gc] WARN: Failed to spawn GC thread: {e}. Arc pointers will leak but audio will continue.");
         }
     }
 

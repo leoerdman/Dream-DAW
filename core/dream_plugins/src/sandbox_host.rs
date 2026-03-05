@@ -973,7 +973,9 @@ impl PluginSandboxSupervisor {
                 ));
             }
 
-            let instance = self.instances.get_mut(&instance_id).unwrap();
+            let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+                PluginError::InvalidState("Sandbox instance disappeared during save state wait".to_string())
+            })?;
             let rx = instance.event_rx.as_ref().ok_or_else(|| {
                 PluginError::InvalidState("Sandbox event pipe is not available".to_string())
             })?;

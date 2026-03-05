@@ -291,12 +291,12 @@ impl GraphBuilder {
     ///
     /// `AudioEdgeKind::Sidechain` edges enforce topological ordering
     /// but do NOT cause audio mixing in the renderer.
-    pub fn add_edge_typed(
-        mut self,
+    pub fn try_add_edge_typed(
+        &mut self,
         from_id: NodeId,
         to_id: NodeId,
         kind: AudioEdgeKind,
-    ) -> Result<Self, GraphError> {
+    ) -> Result<(), GraphError> {
         let from_idx = *self
             .id_map
             .get(&from_id)
@@ -312,7 +312,7 @@ impl GraphBuilder {
             .edges_directed(to_idx, petgraph::Direction::Incoming)
             .any(|e| e.source() == from_idx);
         if already_exists {
-            return Ok(self); // Idempotent — silently deduplicate.
+            return Ok(()); // Idempotent — silently deduplicate.
         }
 
         // GR-002 FIX: Incremental cycle check via targeted DFS from `to_idx`.
@@ -326,6 +326,20 @@ impl GraphBuilder {
         }
 
         self.graph.add_edge(from_idx, to_idx, AudioEdge { kind });
+        Ok(())
+    }
+
+    /// Connects two nodes with an explicit edge kind.
+    ///
+    /// `AudioEdgeKind::Sidechain` edges enforce topological ordering
+    /// but do NOT cause audio mixing in the renderer.
+    pub fn add_edge_typed(
+        mut self,
+        from_id: NodeId,
+        to_id: NodeId,
+        kind: AudioEdgeKind,
+    ) -> Result<Self, GraphError> {
+        self.try_add_edge_typed(from_id, to_id, kind)?;
         Ok(self)
     }
 

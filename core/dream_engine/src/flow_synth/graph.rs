@@ -837,7 +837,7 @@ mod tests {
     #[test]
     fn phase_signal_as_float() {
         let p = FlowSignal::Phase(0.75);
-        assert!((p.as_float().unwrap() - 0.75).abs() < 0.001);
+        assert!((p.as_float().expect("should be float") - 0.75).abs() < 0.001);
     }
 
     #[test]

@@ -57,11 +57,11 @@ export const SAMPLER_PAGE_MANIFEST: PluginPageManifest = {
             id: 'waveform',
             label: 'Waveform',
             params: [
-                { name: 'vol', control: 'knob', label: 'Vol' },
                 { name: 'attack', control: 'knob', label: 'Attack' },
                 { name: 'decay', control: 'knob', label: 'Decay' },
                 { name: 'sustain', control: 'knob', label: 'Sustain' },
                 { name: 'release', control: 'knob', label: 'Release' },
+                { name: 'vol', control: 'knob', label: 'Vol' },
             ],
         },
         {

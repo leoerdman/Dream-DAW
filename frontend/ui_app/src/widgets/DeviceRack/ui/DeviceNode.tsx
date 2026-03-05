@@ -105,12 +105,12 @@ export const DeviceNode = React.memo(({
     let rackAccent: string | undefined = undefined;
     if (device.rack) {
         const rackColors: Record<string, string> = {
-            Instrument: '#e066aa',
-            DrumRack: '#f0a040',
-            MidiEffect: '#40d0c0',
-            AudioEffect: '#50b8e0',
+            Instrument: 'var(--rack-accent-instrument)',
+            DrumRack: 'var(--rack-accent-drum)',
+            MidiEffect: 'var(--rack-accent-midi)',
+            AudioEffect: 'var(--rack-accent-audio)',
         };
-        rackAccent = rackColors[device.rack.rack_type] ?? '#50b8e0';
+        rackAccent = rackColors[device.rack.rack_type] ?? 'var(--rack-accent-audio)';
     }
 
     return (

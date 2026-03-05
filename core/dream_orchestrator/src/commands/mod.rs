@@ -36,6 +36,7 @@ pub mod recording_insert_clip;
 pub mod sample_rack_pad;
 pub mod track_add;
 pub mod track_delete;
+pub mod track_flow_synth;
 pub mod track_grouping;
 pub mod track_mix;
 pub mod track_move_to_index;
@@ -49,6 +50,7 @@ pub mod track_set_height;
 pub mod track_topology;
 
 // Re-export all command structs for convenience
+pub use track_flow_synth::{UpdateTrackFlowSynthConfigCommand, UpdateTrackFlowSynthConfigResult};
 pub use clip_bounce::{
     InsertBouncedClipCommand, InsertBouncedClipResult, InsertStemClipsCommand, StemMetaInput,
 };

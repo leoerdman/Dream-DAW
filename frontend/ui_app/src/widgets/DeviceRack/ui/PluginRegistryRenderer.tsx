@@ -204,13 +204,6 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
     definition: PluginDefinition;
 }) {
     const showDryWet = shouldShowDryWet(device);
-    const knobParams = useMemo(
-        () => buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet }),
-        [device, showDryWet],
-    );
-    const accent = definition.accent;
-    const dryWetAccent = definition.dryWetAccent ?? accent;
-
     // Resolve settings panel params
     const settingsParams = useMemo(
         () => definition.settingsPanel
@@ -218,6 +211,17 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
             : [],
         [device, definition.settingsPanel],
     );
+
+    const knobParams = useMemo(() => {
+        const raw = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+        if (!definition.settingsPanel || definition.settingsPanel.params.length === 0) return raw;
+        const settingsSet = new Set(definition.settingsPanel.params.map(p => p.toLowerCase()));
+        return raw.filter(p => !settingsSet.has(p.name.toLowerCase()));
+    }, [device, showDryWet, definition.settingsPanel]);
+    const accent = definition.accent;
+    const dryWetAccent = definition.dryWetAccent ?? accent;
+
+    // Settings params moved above
 
     // ── Utility layout (vertical, no viz card) ──────────────────────
     if (definition.isUtility) {

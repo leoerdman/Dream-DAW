@@ -44,6 +44,7 @@ export type ProjectDelta =
     | { kind: 'TrackMoved'; data: { track_id: string; old_index: number; new_index: number } }
     | { kind: 'TrackParentChanged'; data: { track_id: string; parent_track_id: string | null } }
     | { kind: 'TrackHeightChanged'; data: { track_id: string; height: number } }
+    | { kind: 'TrackFlowSynthConfigChanged'; data: { track_id: string; config: any | null } }
     | { kind: 'TrackGroupExpandedChanged'; data: { track_id: string; expanded: boolean } }
     | { kind: 'PluginAdded'; data: { track_id: string; slot_id: string; slot_index: number; is_instrument: boolean; plugin_name: string; plugin_uid: string } }
     | { kind: 'PluginRemoved'; data: { track_id: string; slot_id: string } }

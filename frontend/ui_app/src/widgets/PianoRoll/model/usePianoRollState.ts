@@ -31,10 +31,14 @@ export function usePianoRollState({
     const [rootNote, setRootNote] = useState<RootNote>('C');
     const [scaleName, setScaleName] = useState<ScaleName>('Major');
     const clipResetKey = `${clipLengthBeats ?? 'na'}:${clipStartBeat}:${trackIndex ?? -1}`;
-    const [clipTransposeState, setClipTransposeState] = useState<{ key: string; value: number }>({
-        key: clipResetKey,
-        value: 0,
-    });
+    const clipTransposeStateKeyRef = useRef(clipResetKey);
+    const [clipTransposeStateValue, setClipTransposeStateValue] = useState(0);
+
+    // Auto-reset when clip changes
+    if (clipTransposeStateKeyRef.current !== clipResetKey) {
+        clipTransposeStateKeyRef.current = clipResetKey;
+        setClipTransposeStateValue(0);
+    }
     const [quantizeAmount, setQuantizeAmount] = useState(100);
     const [foldToUsedNotes, setFoldToUsedNotes] = useState(false);
     const [stepInputOctave, setStepInputOctave] = useState(4);
@@ -52,16 +56,14 @@ export function usePianoRollState({
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
     const editorRootRef = useRef<HTMLDivElement>(null);
 
-    const clipTranspose = clipTransposeState.key === clipResetKey ? clipTransposeState.value : 0;
+    const clipTranspose = clipTransposeStateValue;
     const setClipTranspose = useCallback<Dispatch<SetStateAction<number>>>((next) => {
-        setClipTransposeState((prev) => {
-            const current = prev.key === clipResetKey ? prev.value : 0;
-            const resolved = typeof next === 'function'
-                ? (next as (value: number) => number)(current)
+        setClipTransposeStateValue((prev) => {
+            return typeof next === 'function'
+                ? (next as (value: number) => number)(prev)
                 : next;
-            return { key: clipResetKey, value: resolved };
         });
-    }, [clipResetKey]);
+    }, []);
 
     const selectedNotes = useMemo(() => {
         const noteIdSet = new Set(notes.map((note) => note.id));
@@ -94,7 +96,7 @@ export function usePianoRollState({
         });
     }, [notesRef]);
 
-    return {
+    return useMemo(() => ({
         tool, setTool,
         selectedNotes, setSelectedNotes,
         selectionRect, setSelectionRect,
@@ -120,5 +122,11 @@ export function usePianoRollState({
         gridViewportRef,
         keyboardScrollRef,
         editorRootRef,
-    };
+    }), [
+        tool, selectedNotes, setSelectedNotes, selectionRect,
+        containerWidth, zoomOverrideH, noteHeight, isEditorFocused,
+        highlightScale, rootNote, scaleName, clipTranspose, setClipTranspose,
+        quantizeAmount, foldToUsedNotes, stepInputOctave, stepInputCursorBeat,
+        drumMode, noteAuditionEnabled, activeLane, ratchetCount
+    ]);
 }

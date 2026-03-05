@@ -1448,7 +1448,7 @@ export const updateFlowNodeParam = (
     safeInvoke<void>('update_flow_node_param_cmd', { trackIndex, nodeId, key, value });
 
 export const saveFlowSynthConfig = (trackIndex: number, configJson: string) =>
-    safeInvoke<void>('save_flow_synth_config_cmd', { trackIndex, configJson });
+    safeInvoke<DeltaMutationResponse>('save_flow_synth_config_cmd', { trackIndex, configJson });
 
 // ── Flow Synth User Presets ────────────────────────────────────────────
 export const listFlowUserPresets = () =>

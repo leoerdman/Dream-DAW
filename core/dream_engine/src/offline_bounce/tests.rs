@@ -151,7 +151,7 @@ fn bounce_rejects_invalid_bit_depth() {
 fn bounce_silence_produces_wav() {
     let out_path = unique_temp_audio_path("dream_bounce_test", "wav");
     let config = BounceConfig {
-        output_path: out_path.to_str().unwrap().to_string(),
+        output_path: out_path.to_str().expect("valid utf-8").to_string(),
         sample_rate: 44100,
         bit_depth: 32,
         start_frame: 0,
@@ -177,7 +177,7 @@ fn bounce_silence_produces_wav() {
 
     // Progress should reach 1.0
     assert!(!progress_values.is_empty());
-    assert!((progress_values.last().unwrap() - 1.0).abs() < 0.01);
+    assert!((progress_values.last().expect("should have progress") - 1.0).abs() < 0.01);
 
     // Clean up
     let _ = std::fs::remove_file(&out_path);
@@ -187,7 +187,7 @@ fn bounce_silence_produces_wav() {
 fn bounce_with_normalization() {
     let out_path = unique_temp_audio_path("dream_bounce_norm_test", "wav");
     let config = BounceConfig {
-        output_path: out_path.to_str().unwrap().to_string(),
+        output_path: out_path.to_str().expect("valid utf-8").to_string(),
         sample_rate: 44100,
         bit_depth: 24,
         start_frame: 0,
@@ -213,7 +213,7 @@ fn bounce_with_normalization() {
 fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing() {
     let out_path = unique_temp_audio_path("dream_bounce_missing_vst_binding", "wav");
     let config = BounceConfig {
-        output_path: out_path.to_str().unwrap().to_string(),
+        output_path: out_path.to_str().expect("valid utf-8").to_string(),
         sample_rate: 44100,
         bit_depth: 32,
         start_frame: 0,
@@ -248,7 +248,7 @@ fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing(
 fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track() {
     let out_path = unique_temp_audio_path("dream_bounce_missing_vst_track_fx_binding", "wav");
     let config = BounceConfig {
-        output_path: out_path.to_str().unwrap().to_string(),
+        output_path: out_path.to_str().expect("valid utf-8").to_string(),
         sample_rate: 44100,
         bit_depth: 32,
         start_frame: 0,
@@ -281,7 +281,7 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track
 fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_master() {
     let out_path = unique_temp_audio_path("dream_bounce_missing_vst_master_fx_binding", "wav");
     let config = BounceConfig {
-        output_path: out_path.to_str().unwrap().to_string(),
+        output_path: out_path.to_str().expect("valid utf-8").to_string(),
         sample_rate: 44100,
         bit_depth: 32,
         start_frame: 0,

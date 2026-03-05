@@ -124,20 +124,17 @@ fn build_dag_for_tracks(
                     && *source_idx != track_idx
                 {
                     let source_node = NodeId((*source_idx as u64) + 1);
-                    match builder.clone().add_edge_typed(
+                    if let Err(err) = builder.try_add_edge_typed(
                         source_node,
                         from,
                         AudioEdgeKind::Sidechain,
                     ) {
-                        Ok(next) => builder = next,
-                        Err(err) => {
-                            log::warn!(
-                                "[Graph] sidechain edge {} -> {} ignored (cycle/error: {})",
-                                source_idx,
-                                track_idx,
-                                err
-                            );
-                        }
+                        log::warn!(
+                            "[Graph] sidechain edge {} -> {} ignored (cycle/error: {})",
+                            source_idx,
+                            track_idx,
+                            err
+                        );
                     }
                 }
             }

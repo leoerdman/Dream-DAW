@@ -169,7 +169,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
             <path
                 d={pathData}
                 fill="none"
-                stroke="rgba(255, 255, 255, 0.35)"
+                stroke="var(--token-color-rgba-255-255-255-0d35)"
                 strokeWidth={1}
                 strokeDasharray="20 180"
                 pointerEvents="none"

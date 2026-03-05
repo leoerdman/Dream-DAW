@@ -499,7 +499,7 @@ mod tests {
             .enumerate()
             .min_by_key(|(_, v)| v.start_frame)
             .map(|(i, _)| i)
-            .unwrap();
+            .expect("should find oldest voice");
         let oldest_note = engine.voices[oldest_idx].note;
 
         // Trigger one more — should steal the oldest

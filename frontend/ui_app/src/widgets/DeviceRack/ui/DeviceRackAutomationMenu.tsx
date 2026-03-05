@@ -26,16 +26,19 @@ interface DeviceRackAutomationMenuProps {
 export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackAutomationMenuProps) {
     const { autoCtxMenu, setAutoCtxMenu } = logic;
     const menuRef = useRef<HTMLDivElement>(null);
-    const [coords, setCoords] = useState<{ x: number; y: number; opacity: number; pointerEvents: 'none' | 'auto' }>({
-        x: -9999,
-        y: -9999,
-        opacity: 0,
-        pointerEvents: 'none',
-    });
+    const [x, setX] = useState(-9999);
+    const [y, setY] = useState(-9999);
+    const [opacity, setOpacity] = useState(0);
+    const [pointerEvents, setPointerEvents] = useState<'none' | 'auto'>('none');
 
     useEffect(() => {
         if (!autoCtxMenu) {
-            setTimeout(() => setCoords({ x: -9999, y: -9999, opacity: 0, pointerEvents: 'none' }), 0);
+            setTimeout(() => {
+                setX(-9999);
+                setY(-9999);
+                setOpacity(0);
+                setPointerEvents('none');
+            }, 0);
             return;
         }
 
@@ -46,7 +49,10 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
             const margin = 8;
             const finalX = Math.max(margin, Math.min(autoCtxMenu.x, window.innerWidth - rect.width - margin));
             const finalY = Math.max(margin, Math.min(autoCtxMenu.y, window.innerHeight - rect.height - margin));
-            setCoords({ x: finalX, y: finalY, opacity: 1, pointerEvents: 'auto' });
+            setX(finalX);
+            setY(finalY);
+            setOpacity(1);
+            setPointerEvents('auto');
         });
 
         const handleClick = (e: MouseEvent) => {
@@ -91,10 +97,10 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
             onContextMenu={(e) => e.preventDefault()}
             style={{
                 position: 'fixed',
-                left: coords.x,
-                top: coords.y,
-                opacity: coords.opacity,
-                pointerEvents: coords.pointerEvents,
+                left: x,
+                top: y,
+                opacity: opacity,
+                pointerEvents: pointerEvents,
                 zIndex: 'var(--z-menu)',
                 background: 'color-mix(in srgb, var(--color-bg-elevated) 98%, transparent)',
                 backdropFilter: 'blur(16px)',

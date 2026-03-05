@@ -182,28 +182,12 @@ export function FlowSynthOverlay() {
     const nodes = useFlowSynthStore((state) => state.nodes);
     const connections = useFlowSynthStore((state) => state.connections);
 
-    // Close on Escape key + Undo/Redo on Cmd+Z / Cmd+Shift+Z
+    // Close on Escape key
     useEffect(() => {
         if (!isOpen) return;
-        resetFlowUndoRedo();
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 closeFlowEditor();
-                return;
-            }
-            // Cmd+Z / Ctrl+Z = Undo
-            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                flowUndo();
-                return;
-            }
-            // Cmd+Shift+Z / Ctrl+Shift+Z = Redo
-            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                flowRedo();
-                return;
             }
         };
         document.addEventListener('keydown', handleKeyDown, true);

@@ -6,6 +6,7 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { SAMPLER_PAGE_MANIFEST } from '@/shared/config/InternalPluginPageManifest';
 import type { PageParamEntry } from '@/shared/config/InternalPluginPageManifest';
 import { resolveSurfaceParam } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
+import { AdsrCurve } from '@/widgets/DeviceRack/ui/PluginModules';
 
 interface PluginGuiSurfaceSamplerProps {
     device: DeviceSlot;
@@ -160,6 +161,19 @@ export function PluginGuiSurfaceSampler({
         commitDropFromStore();
     }, [extractPathFromDataTransfer, onDropSample, commitDropFromStore]);
 
+    // ── Precompute ADSR overlay values ─────────────────────────
+    const attackParam = resolveSurfaceParam(device, 'attack');
+    const normAttack = attackParam ? (attackParam.value - attackParam.min) / (Math.max(0.001, attackParam.max - attackParam.min)) : 0.05;
+
+    const decayParam = resolveSurfaceParam(device, 'decay');
+    const normDecay = decayParam ? (decayParam.value - decayParam.min) / (Math.max(0.001, decayParam.max - decayParam.min)) : 0.2;
+
+    const sustainParam = resolveSurfaceParam(device, 'sustain');
+    const normSustain = sustainParam ? (sustainParam.value - sustainParam.min) / (Math.max(0.001, sustainParam.max - sustainParam.min)) : 0.5;
+
+    const releaseParam = resolveSurfaceParam(device, 'release');
+    const normRelease = releaseParam ? (releaseParam.value - releaseParam.min) / (Math.max(0.001, releaseParam.max - releaseParam.min)) : 0.2;
+
     // ── Render ───────────────────────────────────────────────────
     const isWaveformPage = activePageId === 'waveform';
 
@@ -273,6 +287,18 @@ export function PluginGuiSurfaceSampler({
                             </>
                         ) : null}
                     </svg>
+
+                    {/* ADSR Overlay */}
+                    <div style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, pointerEvents: 'none' }}>
+                        <AdsrCurve
+                            attack={normAttack}
+                            decay={normDecay}
+                            sustain={normSustain}
+                            release={normRelease}
+                            accent="var(--token-color-hex-ffcc58)"
+                            transparent
+                        />
+                    </div>
 
                     {/* Load button — centered, only when no sample */}
                     {!hasSample && (

@@ -232,6 +232,12 @@ pub enum ProjectDelta {
     /// A track's UI height changed.
     TrackHeightChanged { track_id: Uuid, height: f64 },
 
+    /// Track Flow Synth configuration changed.
+    TrackFlowSynthConfigChanged {
+        track_id: Uuid,
+        config: Option<crate::project::FlowSynthConfig>,
+    },
+
     /// A group track was expanded/collapsed.
     TrackGroupExpandedChanged { track_id: Uuid, expanded: bool },
 

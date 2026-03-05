@@ -147,7 +147,7 @@ export function DawShellBottomPanel({
                         width: 56,
                         height: 2,
                         borderRadius: 1,
-                        background: 'var(--color-text-tertiary, rgba(255,255,255,0.15))',
+                        background: 'var(--color-text-tertiary, var(--token-color-rgba-255-255-255-0d15))',
                         transition: 'background 0.15s',
                         pointerEvents: 'none',
                     }} />

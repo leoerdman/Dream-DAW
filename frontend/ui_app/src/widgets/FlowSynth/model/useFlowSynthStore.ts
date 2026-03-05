@@ -939,17 +939,18 @@ export async function disableFlowEngine(trackId: string): Promise<void> {
 // ENTERPRISE: Auto-init Flow engines on project load via Zustand subscription
 // ═══════════════════════════════════════════════════════════════════════════
 let _flowInitDone = false;
-let _prevTrackCount = 0;
+let _prevProjectId: string | null = null;
 useEngineStore.subscribe((state) => {
-    const trackCount = state.tracks.allIds.length;
-    if (trackCount === _prevTrackCount) return;
-    _prevTrackCount = trackCount;
-    if (trackCount > 0 && !_flowInitDone) {
+    const projectId = state.activeProjectId;
+    if (projectId === _prevProjectId) return;
+    _prevProjectId = projectId;
+
+    if (projectId && !_flowInitDone) {
         _flowInitDone = true;
         // Defer 500ms so engine store + audio engine are fully settled
         setTimeout(() => initFlowEnginesFromProject().catch(console.error), 500);
     }
-    if (trackCount === 0) {
+    if (!projectId) {
         _flowInitDone = false; // Reset for next project load
     }
 });

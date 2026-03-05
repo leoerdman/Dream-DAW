@@ -76,12 +76,12 @@ export const DeviceNodeBody = React.memo(({
     if (device.rack) {
         const rack = device.rack;
         const rackColors: Record<string, string> = {
-            Instrument: '#e066aa',
-            DrumRack: '#f0a040',
-            MidiEffect: '#40d0c0',
-            AudioEffect: '#50b8e0',
+            Instrument: 'var(--rack-accent-instrument)',
+            DrumRack: 'var(--rack-accent-drum)',
+            MidiEffect: 'var(--rack-accent-midi)',
+            AudioEffect: 'var(--rack-accent-audio)',
         };
-        const accent = rackColors[rack.rack_type] ?? '#50b8e0';
+        const accent = rackColors[rack.rack_type] ?? 'var(--rack-accent-audio)';
         const rackLabels: Record<string, string> = {
             Instrument: 'Instrument Rack',
             DrumRack: 'Drum Rack',
@@ -129,8 +129,8 @@ export const DeviceNodeBody = React.memo(({
                                 padding: '3px 4px',
                                 borderRadius: 3,
                                 background: chain.is_disabled
-                                    ? 'rgba(255,255,255,0.02)'
-                                    : 'rgba(255,255,255,0.04)',
+                                    ? 'var(--color-overlay-light, rgba(255,255,255,0.02))'
+                                    : 'var(--color-overlay-medium, rgba(255,255,255,0.04))',
                                 opacity: chain.is_disabled ? 0.45 : 1,
                             }}
                         >
@@ -141,11 +141,11 @@ export const DeviceNodeBody = React.memo(({
                                 fontSize: 9,
                                 fontWeight: 600,
                                 color: chain.is_solo
-                                    ? '#ffc040'
+                                    ? 'var(--color-warning)'
                                     : 'var(--color-text-secondary)',
                             }}>
-                                {chain.is_solo && <span style={{ fontSize: 7, color: '#ffc040' }}>S</span>}
-                                {chain.is_disabled && <span style={{ fontSize: 7, color: '#ff6060' }}>M</span>}
+                                {chain.is_solo && <span style={{ fontSize: 7, color: 'var(--color-warning)' }}>S</span>}
+                                {chain.is_disabled && <span style={{ fontSize: 7, color: 'var(--color-error)' }}>M</span>}
                                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {chain.name || `Chain ${String.fromCharCode(65 + chainIdx)}`}
                                 </span>
@@ -184,7 +184,7 @@ export const DeviceNodeBody = React.memo(({
                     <div style={{
                         marginTop: 6,
                         paddingTop: 4,
-                        borderTop: '1px solid rgba(255,255,255,0.06)',
+                        borderTop: '1px solid var(--color-divider, rgba(255,255,255,0.06))',
                     }}>
                         <div style={{
                             fontSize: 8,
@@ -219,7 +219,7 @@ export const DeviceNodeBody = React.memo(({
                                             width: 24,
                                             height: 3,
                                             borderRadius: 1.5,
-                                            background: 'rgba(255,255,255,0.08)',
+                                            background: 'var(--color-border-subtle, rgba(255,255,255,0.08))',
                                             position: 'relative',
                                             overflow: 'hidden',
                                         }}>

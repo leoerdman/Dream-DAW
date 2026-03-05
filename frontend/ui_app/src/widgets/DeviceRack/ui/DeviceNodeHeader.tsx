@@ -225,10 +225,10 @@ export function DeviceNodeHeader({
                     style={{
                         fontSize: 7,
                         fontWeight: 800,
-                        color: device.rack.rack_type === 'Instrument' ? '#e066aa'
-                            : device.rack.rack_type === 'DrumRack' ? '#f0a040'
-                                : device.rack.rack_type === 'MidiEffect' ? '#40d0c0'
-                                    : '#50b8e0',
+                        color: device.rack.rack_type === 'Instrument' ? 'var(--rack-accent-instrument)'
+                            : device.rack.rack_type === 'DrumRack' ? 'var(--rack-accent-drum)'
+                                : device.rack.rack_type === 'MidiEffect' ? 'var(--rack-accent-midi)'
+                                    : 'var(--rack-accent-audio)',
                         flexShrink: 0,
                         letterSpacing: '0.05em',
                         lineHeight: 1,

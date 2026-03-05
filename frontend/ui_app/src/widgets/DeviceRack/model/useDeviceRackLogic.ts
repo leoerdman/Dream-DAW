@@ -263,7 +263,7 @@ export function useDeviceRackLogic(
         setInlineSettingsOpen: core.setInlineSettingsOpen,
     });
 
-    return {
+    return useMemo(() => ({
         chain,
         selectedTrack: core.selectedTrack,
         selectedTrackId,
@@ -311,5 +311,19 @@ export function useDeviceRackLogic(
         statusError,
         applyProjectDeltas,
         togglePluginEditor,
-    };
+    }), [
+        chain, core.selectedTrack, selectedTrackId, core.selectedDeviceIds,
+        core.isMaster, core.inLevelL, core.inLevelR, core.outLevelL, core.outLevelR,
+        dnd.isDropActive, dnd.draggingItem, sidechainOptions, pluginCapability,
+        pluginRuntimeBySlot, core.inlineSettingsOpen, snapshots.paramSnapshotsByDevice,
+        openEditorsByTrack, autoCtxMenu, automationLanes, rackRef, gestures.activeParamGesturesRef,
+        toggleDeviceSafe, selectDevice, setPluginParam, gestures.sendInternalParam,
+        gestures.beginParamGesture, gestures.endParamGesture, snapshots.applyQuickPreset,
+        snapshots.randomizeInternalPluginParams, snapshots.resetInternalPluginParams,
+        snapshots.storeParamSnapshot, snapshots.recallParamSnapshot, snapshots.toggleParamSnapshot,
+        snapshots.applyQuickUtilityScene, ensureSlotRuntimeActive, setPluginSidechainSource,
+        setSidechainSendMode, handleParamContextMenu, core.setInlineSettingsOpen,
+        addAutomationLane, removeAutomationLane, toggleGlobalAutomation, statusClear,
+        statusError, applyProjectDeltas, togglePluginEditor
+    ]);
 }

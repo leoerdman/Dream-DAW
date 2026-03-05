@@ -15,7 +15,6 @@ import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
-    DryWetSection,
     KnobParamGrid,
     pluginPanelCardBaseStyle,
     pluginPanelMetaStyle,
@@ -151,6 +150,8 @@ export const VizColumn = React.memo(({
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--plugin-meta-gap)',
+        height: '100%',
+        minHeight: 0,
     }}>
         {children}
     </div>
@@ -469,6 +470,8 @@ export interface AdsrCurveProps {
     onGestureEnd?: (name: string) => void;
     /** Base accent color. Default: cyan */
     accent?: string;
+    /** If true, hides background rect, grid, and text. Useful for overlays. */
+    transparent?: boolean;
 }
 
 export const AdsrCurve = React.memo(function AdsrCurve({
@@ -480,6 +483,7 @@ export const AdsrCurve = React.memo(function AdsrCurve({
     onGestureStart,
     onGestureEnd,
     accent = 'var(--token-color-hex-53b0ff)',
+    transparent = false,
 }: AdsrCurveProps) {
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<{ param: string; startX: number; startY: number; startVal: number } | null>(null);
@@ -580,24 +584,33 @@ export const AdsrCurve = React.memo(function AdsrCurve({
             preserveAspectRatio="xMidYMid slice"
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)', cursor: 'default' }}
         >
-            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-8-10-14-0d65)" />
+            {/* Background */}
+            {!transparent && <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-8-10-14-0d65)" />}
 
             {/* Grid lines */}
-            <line x1={M} y1={BOT} x2={VB_W - M} y2={BOT} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" />
-            <line x1={M} y1={TOP} x2={VB_W - M} y2={TOP} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
-            <line x1={M} y1={(TOP + BOT) / 2} x2={VB_W - M} y2={(TOP + BOT) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+            {!transparent && (
+                <>
+                    <line x1={M} y1={BOT} x2={VB_W - M} y2={BOT} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" />
+                    <line x1={M} y1={TOP} x2={VB_W - M} y2={TOP} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+                    <line x1={M} y1={(TOP + BOT) / 2} x2={VB_W - M} y2={(TOP + BOT) / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+                </>
+            )}
 
             {/* Fill below curve */}
-            <path d={fillPath} fill={accent} opacity="0.1" />
+            <path d={fillPath} fill={accent} opacity={transparent ? "0.25" : "0.1"} />
 
             {/* Envelope curve */}
             <path d={curvePath} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
 
             {/* Segment labels */}
-            <text x={xB} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>
-            <text x={xC} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>
-            <text x={(xC + xD) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">S</text>
-            <text x={xE} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>
+            {!transparent && (
+                <>
+                    <text x={xB} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>
+                    <text x={xC} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>
+                    <text x={(xC + xD) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">S</text>
+                    <text x={xE} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>
+                </>
+            )}
 
             {/* Draggable handles */}
             {handles.map((h) => (

@@ -161,6 +161,10 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         patchTrack(state, delta.data.track_id, { is_expanded: delta.data.expanded });
         return true;
     }
+    if (delta.kind === 'TrackFlowSynthConfigChanged') {
+        patchTrack(state, delta.data.track_id, { flow_synth: delta.data.config });
+        return true;
+    }
     if (delta.kind === 'AutomationPointsChanged') {
         const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;

@@ -264,8 +264,8 @@ function SessionStripFaderInner({
                             height: 10,
                             borderRadius: 2,
                             background: dragging ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                            border: '1px solid rgba(0,0,0,0.7)',
-                            boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.4), 0 2px 4px rgba(0,0,0,0.5)',
+                            border: '1px solid var(--token-color-rgba-0-0-0-0d7)',
+                            boxShadow: 'inset 0 1px 1px var(--token-color-rgba-255-255-255-0d4), 0 2px 4px var(--token-color-rgba-0-0-0-0d5)',
                             pointerEvents: 'none',
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}>
@@ -290,7 +290,7 @@ function SessionStripFaderInner({
                             borderRadius: '50%',
                             background: 'var(--surface-1)',
                             border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)',
-                            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                            boxShadow: 'inset 0 1px 3px var(--token-color-rgba-0-0-0-0d5)',
                             position: 'relative',
                             cursor: panDisabled ? 'default' : 'ns-resize',
                             marginRight: 6,
@@ -366,7 +366,7 @@ function SessionStripFaderInner({
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}
                         >
-                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)', boxShadow: trackArmed ? '0 0 3px rgba(255,255,255,0.8)' : 'none' }} />
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)', boxShadow: trackArmed ? '0 0 3px var(--token-color-rgba-255-255-255-0d8)' : 'none' }} />
                         </button>
                     </div>
                 </div>

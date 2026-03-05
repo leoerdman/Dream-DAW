@@ -46,11 +46,11 @@ export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
     'internal://effect/multiband-dynamics': new Set(['xover low', 'xover high', 'lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output']),
     'internal://effect/transient-shaper': new Set(['attack', 'sustain', 'output', 'speed', 'mix']),
     // ── Delay variants ───────────────────────────────────────────
-    'internal://effect/delay': new Set(['fb', 'filter', 'pingpong', 'mod rate', 'mod depth']),
+    'internal://effect/delay': new Set(['time l', 'time r', 'fb', 'filter', 'pingpong', 'mod rate', 'mod depth', 'sync l', 'sync r', 'note l', 'note r']),
     'internal://effect/simple-delay': new Set(['time l', 'time r', 'fb', 'dry/wet']),
     'internal://effect/filter-delay': new Set(['l delay', 'c delay', 'r delay', 'l filter', 'c filter', 'r filter', 'fb', 'mix']),
     'internal://effect/grain-delay': new Set(['delay', 'grain', 'pitch', 'spray', 'fb', 'mix', 'density']),
-    'internal://effect/echo': new Set(['time l', 'time r', 'fb', 'dry/wet']),
+    'internal://effect/echo': new Set(['time l', 'time r', 'fb', 'dry/wet', 'sync l', 'sync r', 'note l', 'note r']),
     'internal://effect/spectral-time': new Set(['mode', 'amount', 'decay', 'tilt', 'mix']),
     'internal://effect/beat-repeat': new Set(['time l', 'fb', 'dry/wet']),
     // ── Reverb variants ──────────────────────────────────────────
@@ -73,19 +73,19 @@ export const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
     // ── Analyzers ────────────────────────────────────────────────
     'internal://effect/spectrum': new Set(['reset']),
     // ── Standard Effects (curated knob sets) ─────────────────────
-    'internal://effect/compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'knee', 'makeup', 'mix', 'sc hpf']),
-    'internal://effect/limiter': new Set(['thr', 'rel', 'ceil', 'lookahead', 'link']),
-    'internal://effect/gate': new Set(['thr', 'atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis']),
-    'internal://effect/reverb': new Set(['size', 'damp', 'predelay', 'width', 'diffusion', 'lo cut', 'hi cut', 'voicing']),
-    'internal://effect/chorus': new Set(['rate', 'depth', 'mix', 'fb', 'voices', 'spread']),
+    'internal://effect/compressor': new Set(['thr', 'ratio', 'atk', 'rel', 'knee', 'makeup', 'mix', 'sc hpf', 'auto gain', 'rms', 'lookahead']),
+    'internal://effect/limiter': new Set(['thr', 'rel', 'ceil', 'lookahead', 'link', 'auto rel']),
+    'internal://effect/gate': new Set(['thr', 'atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis', 'duck']),
+    'internal://effect/reverb': new Set(['size', 'damp', 'predelay', 'width', 'diffusion', 'lo cut', 'hi cut', 'voicing', 'low damp', 'mod rate', 'mod depth', 'freeze', 'density', 'chorus']),
+    'internal://effect/chorus': new Set(['rate', 'depth', 'mix', 'fb', 'voices', 'spread', 'hp freq']),
     'internal://effect/saturator': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'color']),
-    'internal://effect/distortion': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'bias']),
-    'internal://effect/bitcrusher': new Set(['bits', 'down', 'mix', 'jitter', 'pre freq', 'post freq']),
+    'internal://effect/distortion': new Set(['drive', 'tone', 'mix', 'mode', 'output', 'bias', 'cab sim', 'tight']),
+    'internal://effect/bitcrusher': new Set(['bits', 'down', 'mix', 'jitter', 'pre freq', 'post freq', 'stereo', 'dither']),
     'internal://effect/noise-machine': new Set(['level', 'type', 'stereo', 'lpfreq', 'hpfreq', 'pan']),
-    'internal://effect/auto-filter': new Set(['cutoff', 'res', 'rate', 'depth', 'env', 'type', 'mix', 'lfo shape']),
+    'internal://effect/auto-filter': new Set(['cutoff', 'res', 'rate', 'depth', 'env', 'type', 'mix', 'lfo shape', 'drive', 'env speed']),
     'internal://effect/auto-pan': new Set(['rate', 'depth', 'phase', 'shape', 'mix']),
-    'internal://effect/phaser': new Set(['rate', 'depth', 'fb', 'stages', 'center', 'mix', 'spread']),
-    'internal://effect/flanger': new Set(['rate', 'depth', 'fb', 'delay', 'mix', 'stereo', 'fb damp']),
+    'internal://effect/phaser': new Set(['rate', 'depth', 'fb', 'stages', 'center', 'mix', 'spread', 'lfo shape', 'range']),
+    'internal://effect/flanger': new Set(['rate', 'depth', 'fb', 'delay', 'mix', 'stereo', 'fb damp', 'lfo shape', 'tz mode']),
     'internal://effect/utility': new Set(['gain', 'pan', 'width', 'mono']),
 };
 

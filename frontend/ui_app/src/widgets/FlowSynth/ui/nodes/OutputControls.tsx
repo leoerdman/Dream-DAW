@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 import { RotaryKnob } from './RotaryKnob';
@@ -19,11 +20,10 @@ export function OutputControls({ node }: Props) {
 
     return (
         <div style={{
-            display: 'flex',
+            ...nodeControlsContainerStyle,
+            flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-around',
-            padding: '8px 12px 4px',
-            gap: 8,
         }}>
             <RotaryKnob
                 value={gain}
@@ -40,17 +40,17 @@ export function OutputControls({ node }: Props) {
                 style={{
                     width: 32,
                     height: 20,
-                    borderRadius: 10,
+                    borderRadius: 'var(--radius-full)',
                     border: 'none',
                     cursor: 'pointer',
                     background: muted
                         ? 'color-mix(in srgb, var(--color-accent-error) 60%, transparent)'
                         : 'color-mix(in srgb, var(--color-synth-out) 50%, transparent)',
-                    transition: 'background 0.15s',
+                    transition: 'background var(--transition-fast)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: muted ? 'flex-start' : 'flex-end',
-                    padding: 2,
+                    padding: 'var(--space-0-5)',
                 }}
             >
                 <div style={{
@@ -58,7 +58,7 @@ export function OutputControls({ node }: Props) {
                     height: 16,
                     borderRadius: '50%',
                     background: 'var(--color-text-primary)',
-                    transition: 'transform 0.15s',
+                    transition: 'transform var(--transition-fast)',
                 }} />
             </button>
         </div>

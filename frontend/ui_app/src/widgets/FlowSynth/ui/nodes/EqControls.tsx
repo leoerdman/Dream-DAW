@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 import { RotaryKnob } from './RotaryKnob';
@@ -19,11 +20,9 @@ export function EqControls({ node }: Props) {
 
     return (
         <div style={{
-            display: 'flex',
+            ...nodeControlsContainerStyle,
+            flexDirection: 'row',
             justifyContent: 'space-around',
-            alignItems: 'center',
-            padding: '8px 8px 4px',
-            gap: 4,
         }}>
             <RotaryKnob
                 value={low}

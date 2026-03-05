@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { NodeValue } from './shared';
+import { NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -7,6 +8,10 @@ interface Props {
     node: SynthNode;
 }
 
+/**
+ * ADSR Envelope Controls — compact 4-column grid layout with mini visualizer.
+ * Uses token-based styling throughout.
+ */
 export function EnvelopeControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
     const a = Number(node.data?.attack ?? 0.01);
@@ -18,7 +23,7 @@ export function EnvelopeControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             {/* Mini ADSR visualizer */}
             <svg viewBox="0 0 120 32" style={{
                 width: '100%',
@@ -42,27 +47,36 @@ export function EnvelopeControls({ node }: Props) {
                     stroke="none"
                 />
             </svg>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 4, textAlign: 'center' }}>
-                <div>
-                    <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>A</div>
-                    <input type="range" min={0.001} max={5} step={0.001} value={a} onChange={(e) => setEnv({ attack: Number(e.target.value) })} style={{ width: '100%' }} />
-                    <NodeValue value={a.toFixed(2)} unit="s" />
-                </div>
-                <div>
-                    <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>D</div>
-                    <input type="range" min={0.001} max={5} step={0.001} value={d} onChange={(e) => setEnv({ decay: Number(e.target.value) })} style={{ width: '100%' }} />
-                    <NodeValue value={d.toFixed(2)} unit="s" />
-                </div>
-                <div>
-                    <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>S</div>
-                    <input type="range" min={0} max={1} step={0.01} value={s} onChange={(e) => setEnv({ sustain: Number(e.target.value) })} style={{ width: '100%' }} />
-                    <NodeValue value={s.toFixed(2)} />
-                </div>
-                <div>
-                    <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>R</div>
-                    <input type="range" min={0.001} max={8} step={0.001} value={r} onChange={(e) => setEnv({ release: Number(e.target.value) })} style={{ width: '100%' }} />
-                    <NodeValue value={r.toFixed(2)} unit="s" />
-                </div>
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr 1fr',
+                gap: 'var(--space-1)',
+                textAlign: 'center',
+            }}>
+                {([
+                    { key: 'attack', label: 'A', val: a, min: 0.001, max: 5, step: 0.001, unit: 's' },
+                    { key: 'decay', label: 'D', val: d, min: 0.001, max: 5, step: 0.001, unit: 's' },
+                    { key: 'sustain', label: 'S', val: s, min: 0, max: 1, step: 0.01, unit: '' },
+                    { key: 'release', label: 'R', val: r, min: 0.001, max: 8, step: 0.001, unit: 's' },
+                ] as const).map((param) => (
+                    <div key={param.key}>
+                        <div style={{
+                            fontSize: 'var(--font-size-2xs)',
+                            color: 'var(--color-text-tertiary)',
+                            textTransform: 'uppercase',
+                            fontFamily: 'var(--font-role-data)',
+                            fontWeight: 'var(--font-weight-semibold)',
+                        }}>{param.label}</div>
+                        <NodeSlider
+                            value={param.val}
+                            min={param.min}
+                            max={param.max}
+                            step={param.step}
+                            onChange={(v) => setEnv({ [param.key]: v })}
+                        />
+                        <NodeValue value={param.val.toFixed(2)} unit={param.unit} />
+                    </div>
+                ))}
             </div>
         </div>
     );

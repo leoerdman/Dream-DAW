@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeSelect, NodeValue } from './shared';
+import { ControlRow, NodeSelect, NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -26,7 +27,7 @@ export function FilterControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             <ControlRow label="Type">
                 <NodeSelect
                     value={filterType}
@@ -35,28 +36,24 @@ export function FilterControls({ node }: Props) {
                 />
             </ControlRow>
             <ControlRow label="Cutoff">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={cutoff}
                     min={20}
                     max={20000}
                     step={1}
-                    value={cutoff}
-                    onChange={(e) => updateData({ cutoff: Number(e.target.value) })}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ cutoff: v })}
                 />
                 <NodeValue value={cutoff} unit="Hz" />
             </ControlRow>
             <ControlRow label="Res">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={resonance}
                     min={0}
                     max={0.99}
                     step={0.01}
-                    value={resonance}
-                    onChange={(e) => updateData({ resonance: Number(e.target.value) })}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ resonance: v })}
                 />
-                <NodeValue value={resonance} />
+                <NodeValue value={resonance.toFixed(2)} />
             </ControlRow>
         </div>
     );

@@ -1449,3 +1449,13 @@ export const updateFlowNodeParam = (
 
 export const saveFlowSynthConfig = (trackIndex: number, configJson: string) =>
     safeInvoke<void>('save_flow_synth_config_cmd', { trackIndex, configJson });
+
+// ── Flow Synth User Presets ────────────────────────────────────────────
+export const listFlowUserPresets = () =>
+    safeInvoke<string[]>('list_flow_user_presets');
+export const saveFlowUserPreset = (name: string, presetJson: string) =>
+    safeInvoke<void>('save_flow_user_preset', { name, presetJson });
+export const loadFlowUserPreset = (name: string) =>
+    safeInvoke<string>('load_flow_user_preset', { name });
+export const deleteFlowUserPreset = (name: string) =>
+    safeInvoke<void>('delete_flow_user_preset', { name });

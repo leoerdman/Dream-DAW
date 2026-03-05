@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeValue } from './shared';
+import { ControlRow, NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -16,17 +17,14 @@ export function VcaControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             <ControlRow label="Bias">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={bias}
                     min={0}
                     max={2}
                     step={0.01}
-                    value={bias}
-                    onChange={(e) => updateData({ bias: Number(e.target.value) })}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ bias: v })}
                 />
                 <NodeValue value={(bias * 100).toFixed(0)} unit="%" />
             </ControlRow>

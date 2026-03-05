@@ -729,11 +729,13 @@ impl OfflineRenderer {
                     }
                 } else {
                     for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
-                        // PARITY FIX 1: Skip bypassed runtime slots — audio
-                        // passes through unmodified. The slot stays in the snapshot
-                        // to keep subsequent indices stable, matching the live
-                        // path at audio_thread_runner.rs:550.
-                        if runtime_slot.is_bypassed {
+                        // BUG-10 FIX (PARITY): Only skip bypassed EXTERNAL plugins.
+                        // Internal slots handle bypass via smooth 5ms IIR crossfade
+                        // ramp inside InternalDeviceSlot::process(). Skipping them
+                        // entirely causes abrupt bypass transitions = clicks/artifacts
+                        // in exported audio. This now matches the RT path behavior
+                        // in audio_thread_track_pass.rs:135-137.
+                        if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
                             continue;
                         }
                         // SC-103 FIX: Select sidechain source buffer based on

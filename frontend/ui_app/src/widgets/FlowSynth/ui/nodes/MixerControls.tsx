@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeValue } from './shared';
+import { ControlRow, NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -15,21 +16,18 @@ export function MixerControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             {[1, 2, 3, 4].map((ch) => {
                 const key = `gain_${ch}` as const;
                 const val = Number((node.data as Record<string, unknown>)?.[key] ?? 1.0);
                 return (
                     <ControlRow key={ch} label={`Ch${ch}`}>
-                        <input
-                            type="range"
+                        <NodeSlider
+                            value={val}
                             min={0}
                             max={2}
                             step={0.01}
-                            value={val}
-                            onChange={(e) => updateData({ [key]: Number(e.target.value) })}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            style={{ width: 90 }}
+                            onChange={(v) => updateData({ [key]: v })}
                         />
                         <NodeValue value={(val * 100).toFixed(0)} unit="%" />
                     </ControlRow>

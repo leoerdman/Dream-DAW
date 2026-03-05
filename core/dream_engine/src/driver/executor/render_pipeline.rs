@@ -78,7 +78,7 @@ pub(super) fn process_master_bus(
     time_sig_numerator: u8,
     time_sig_denominator: u8,
     master_gain_smoother: &mut crate::oscillator::ParameterSmoother,
-    _render_ctx: &mut RenderContext,
+    render_ctx: &mut RenderContext,
     process_ctx: &ProcessContext,
     export_active: bool,
 ) {
@@ -86,7 +86,14 @@ pub(super) fn process_master_bus(
     if let Some(master_slots) = master_slots_opt {
         if !master_slots.is_empty() {
             let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
-            if !has_external {
+            // BUG-11 FIX: Check if ANY master slot has a sidechain source.
+            // Previously, the !has_external fast path processed the entire
+            // chain without sidechain via process_with_context(), silently
+            // ignoring any sidechain routing on internal master effects.
+            let has_internal_sidechain = master_slots.iter().any(|s| {
+                s.internal_slot_index.is_some() && s.sidechain_track_index.is_some()
+            });
+            if !has_external && !has_internal_sidechain {
                 // AUD-500 FIX: Diagnostic — count topology sync mismatches via atomic counter.
                 // BUG-001 FIX: Removed log::warn! — log backend Mutex is RT-unsafe (priority inversion).
                 if master_device_chain.is_empty() && master_slots.iter().any(|s| s.internal_slot_index.is_some()) {
@@ -103,13 +110,33 @@ pub(super) fn process_master_bus(
                 }
             } else {
                 for runtime_slot in master_slots {
+                    // BUG-11 FIX: Master sidechain source resolution.
+                    // The master bus processes AFTER all graph tracks, so every
+                    // track's Pre-FX / Post-FX / Post-Mixer tap buffers are valid.
+                    // Read sidechain audio from render_ctx.track_slots[src_idx].
+                    let (sc_l, sc_r): (Option<&[f32]>, Option<&[f32]>) = runtime_slot
+                        .sidechain_track_index
+                        .and_then(|src_idx| {
+                            if src_idx >= render_ctx.track_slots.len() { return None; }
+                            let src = &render_ctx.track_slots[src_idx];
+                            let mode = runtime_slot.sidechain_send_mode;
+                            Some(match mode {
+                                0 => (&src.sidechain_pre_fx_left[..n], &src.sidechain_pre_fx_right[..n]),
+                                1 => (&src.sidechain_post_fx_left[..n], &src.sidechain_post_fx_right[..n]),
+                                _ => (&src.buf_left[..n], &src.buf_right[..n]),
+                            })
+                        })
+                        .map(|(sl, sr)| (Some(sl), Some(sr)))
+                        .unwrap_or((None, None));
+
                     if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                        // BUG-11 FIX: Pass resolved sidechain buffers instead of None.
                         master_device_chain.process_slot_with_sidechain_ctx(
                             internal_idx,
                             &mut graph_out_left[..n],
                             &mut graph_out_right[..n],
-                            None,
-                            None,
+                            sc_l,
+                            sc_r,
                             process_ctx,
                         );
                         continue;
@@ -146,6 +173,8 @@ pub(super) fn process_master_bus(
                         } else if let Some(mut host) = plugin_mtx.try_lock() {
                             // Lock acquired — full plugin processing
                             let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
+                            // BUG-11 FIX: Pass resolved SC pair to external VST plugins on master.
+                            let sc_pair: Option<[&[f32]; 2]> = sc_l.zip(sc_r).map(|(l, r)| [l, r]);
                             let transport = TransportContext {
                                 sample_rate: sample_rate_f64,
                                 position_samples: playhead_pos,
@@ -165,7 +194,7 @@ pub(super) fn process_master_bus(
                                 [&mut external_left[..n], &mut external_right[..n]];
                             if let Err(_proc_err) = host.process_with_sidechain(
                                 &main_inputs,
-                                None,
+                                sc_pair.as_ref().map(|p| p.as_slice()),
                                 &mut out_slices,
                                 n,
                                 empty_midi,

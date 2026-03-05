@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeValue } from './shared';
+import { ControlRow, NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -18,43 +19,34 @@ export function DelayControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             <ControlRow label="Time">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={time}
                     min={1}
                     max={2000}
                     step={1}
-                    value={time}
-                    onChange={(e) => updateData({ time: Number(e.target.value) })}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ time: v })}
                 />
                 <NodeValue value={time} unit="ms" />
             </ControlRow>
-            <ControlRow label="Feedback">
-                <input
-                    type="range"
+            <ControlRow label="Fdbk">
+                <NodeSlider
+                    value={feedback}
                     min={0}
                     max={0.95}
                     step={0.01}
-                    value={feedback}
-                    onChange={(e) => updateData({ feedback: Number(e.target.value) })}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ feedback: v })}
                 />
                 <NodeValue value={(feedback * 100).toFixed(0)} unit="%" />
             </ControlRow>
             <ControlRow label="Mix">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={mix}
                     min={0}
                     max={1}
                     step={0.01}
-                    value={mix}
-                    onChange={(e) => updateData({ mix: Number(e.target.value) })}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ mix: v })}
                 />
                 <NodeValue value={(mix * 100).toFixed(0)} unit="%" />
             </ControlRow>

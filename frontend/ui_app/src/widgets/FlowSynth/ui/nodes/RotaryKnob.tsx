@@ -111,7 +111,7 @@ export function RotaryKnob({
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 2,
+                gap: 'var(--space-0-5)',
                 userSelect: 'none',
             }}
         >
@@ -192,7 +192,7 @@ export function RotaryKnob({
                 fontVariantNumeric: 'tabular-nums',
                 lineHeight: 1,
             }}>
-                {displayValue}{unit && <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 1 }}>{unit}</span>}
+                {displayValue}{unit && <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 'var(--space-0-5)' }}>{unit}</span>}
             </span>
         </div>
     );

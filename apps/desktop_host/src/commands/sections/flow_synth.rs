@@ -128,3 +128,90 @@ fn update_flow_node_param_cmd(
     )?;
     Ok(())
 }
+
+// ── User Preset Storage ────────────────────────────────────────────────
+
+/// Returns the path to the user preset directory for Flow Synth.
+/// Creates the directory if it does not exist.
+fn flow_presets_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot resolve app data directory: {e}"))?;
+    let presets_dir = app_data.join("DreamPresets").join("Flow");
+    std::fs::create_dir_all(&presets_dir)
+        .map_err(|e| format!("Cannot create presets directory: {e}"))?;
+    Ok(presets_dir)
+}
+
+#[tauri::command]
+fn list_flow_user_presets(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = flow_presets_dir(&app)?;
+    let mut names: Vec<String> = Vec::new();
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("Cannot read presets dir: {e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                names.push(stem.to_string());
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+#[tauri::command]
+fn save_flow_user_preset(
+    app: tauri::AppHandle,
+    name: String,
+    preset_json: String,
+) -> Result<(), String> {
+    if name.is_empty() || name.len() > 128 {
+        return Err("Preset name must be 1-128 characters.".to_string());
+    }
+    // Sanitize filename: only allow alphanumeric, space, dash, underscore
+    let safe_name: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .collect();
+    if safe_name.is_empty() {
+        return Err("Preset name contains no valid characters.".to_string());
+    }
+    // Validate JSON structure before writing
+    let _: serde_json::Value =
+        serde_json::from_str(&preset_json).map_err(|e| format!("Invalid preset JSON: {e}"))?;
+
+    let dir = flow_presets_dir(&app)?;
+    let path = dir.join(format!("{safe_name}.json"));
+    std::fs::write(&path, preset_json.as_bytes())
+        .map_err(|e| format!("Cannot save preset: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_flow_user_preset(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<String, String> {
+    let dir = flow_presets_dir(&app)?;
+    let path = dir.join(format!("{name}.json"));
+    if !path.exists() {
+        return Err(format!("Preset '{name}' not found."));
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("Cannot read preset: {e}"))
+}
+
+#[tauri::command]
+fn delete_flow_user_preset(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<(), String> {
+    let dir = flow_presets_dir(&app)?;
+    let path = dir.join(format!("{name}.json"));
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("Cannot delete preset: {e}"))?;
+    }
+    Ok(())
+}
+

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { ControlRow, NodeSelect, NodeValue } from './shared';
+import { ControlRow, NodeSelect, NodeSlider, NodeValue } from './shared';
+import { nodeControlsContainerStyle } from './FlowNodeControlStyles';
 import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 
@@ -22,7 +23,7 @@ export function NoiseControls({ node }: Props) {
     }, [node.id, updateNodeData]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: '8px 12px' }}>
+        <div style={nodeControlsContainerStyle}>
             <ControlRow label="Color">
                 <NodeSelect
                     value={color}
@@ -31,15 +32,12 @@ export function NoiseControls({ node }: Props) {
                 />
             </ControlRow>
             <ControlRow label="Level">
-                <input
-                    type="range"
+                <NodeSlider
+                    value={level}
                     min={0}
                     max={1}
                     step={0.01}
-                    value={level}
-                    onChange={(e) => updateData({ level: Number(e.target.value) })}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    style={{ width: 90 }}
+                    onChange={(v) => updateData({ level: v })}
                 />
                 <NodeValue value={(level * 100).toFixed(0)} unit="%" />
             </ControlRow>

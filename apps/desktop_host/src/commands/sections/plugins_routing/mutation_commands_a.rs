@@ -125,13 +125,15 @@ fn add_plugin_to_track_impl(
         effective_plugin_name,
         if use_instrument { "instrument" } else { "effect" }
     );
-    sync_plugin_runtime_and_mark_dirty(
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
         &app,
-        true,
+        cmd_result.track_index as usize,
     )?;
     
     if let Some(err_msg) = plugin_load_error {
@@ -320,13 +322,15 @@ fn remove_plugin_from_track_cmd(
         payload.track_id,
         payload.slot_id
     );
-    sync_plugin_runtime_and_mark_dirty(
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
         &app,
-        true,
+        cmd_result.track_index as usize,
     )?;
     Ok(())
 }

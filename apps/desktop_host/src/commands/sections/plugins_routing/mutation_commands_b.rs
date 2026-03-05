@@ -425,16 +425,25 @@ async fn move_effect_slot_cmd(
     }
 
     push_undo(&project_state)?;
-    execute_orchestrator_command(&project_state, &cmd)?;
+    let _move_result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    // Rebuild FX snapshot so the audio engine picks up the new order
-    sync_plugin_runtime_and_mark_dirty(
+    // Resolve track index from UUID for per-track rebuild
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let move_track_index = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().position(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?
+    };
+
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
         &app,
-        false,
+        move_track_index,
     )?;
     log::info!(
         "[IPC] move_effect_slot_cmd(track={track_id}, slot={slot_id} → {target_index})"
@@ -481,13 +490,22 @@ async fn move_effect_slot_with_deltas_cmd(
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    sync_plugin_runtime_and_mark_dirty(
+    // Resolve track index from UUID for per-track rebuild
+    let move_track_index = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().position(|t| t.id == result.track_id)
+            .ok_or_else(|| format!("Track not found for move: {}", result.track_id))?
+    };
+
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         &clip_pool_state,
         &plugin_host_state,
         &handle,
         &app,
-        false,
+        move_track_index,
     )?;
     log::info!("[IPC] move_effect_slot_with_deltas_cmd(track={track_id}, slot={slot_id} → {target_index})");
 

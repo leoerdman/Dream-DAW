@@ -62,6 +62,18 @@ export interface SettingsPanelConfig {
     params: string[];
     /** Max columns for the settings knob grid. Default: 3 */
     maxCols?: number;
+    /**
+     * Human-readable labels for discrete/enum params.
+     * Keys: param name, Values: ordered array of labels for each integer index.
+     * e.g. { 'mode': ['Analog', 'Tape', 'Tube', 'Diode', 'Sinefold'] }
+     * When present, the settings panel should render a dropdown instead of a knob.
+     */
+    enumLabels?: Record<string, string[]>;
+    /**
+     * Params that should render as toggle switches (on/off) instead of continuous knobs.
+     * e.g. ['cab sim', 'soft clip']
+     */
+    toggleParams?: string[];
 }
 
 // ── Button config ────────────────────────────────────────────────────────
@@ -70,7 +82,7 @@ export interface ButtonConfig {
     label: string;
     paramName: string;
     threshold?: number;
-    scene?: 'center' | 'mono' | 'wide';
+    scene?: 'center' | 'mono' | 'wide' | 'sync';
 }
 
 // ── Full plugin definition ───────────────────────────────────────────────

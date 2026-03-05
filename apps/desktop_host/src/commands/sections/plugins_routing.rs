@@ -15,7 +15,7 @@ use plugins_routing_helpers::{
     load_external_slots_best_effort,
     sync_external_fx_snapshot_from_state,
     sync_routing_and_mark_dirty,
-    sync_plugin_runtime_and_mark_dirty,
+    sync_plugin_runtime_single_track_and_mark_dirty,
     sync_bypass_only_and_mark_dirty,
 };
 
@@ -399,13 +399,22 @@ fn replace_missing_plugin_slot_impl(
         }
     }
 
-    sync_plugin_runtime_and_mark_dirty(
+    // Resolve track index from UUID for per-track rebuild
+    let replace_track_index = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().position(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found for replace_missing_plugin: {}", track_uuid))?
+    };
+
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         clip_pool_state,
         plugin_host_state,
         handle,
         app,
-        true,
+        replace_track_index,
     )?;
 
     Ok(cmd_result)

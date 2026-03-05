@@ -18,7 +18,7 @@ export function MixerControls({ node }: Props) {
     return (
         <div style={nodeControlsContainerStyle}>
             {[1, 2, 3, 4].map((ch) => {
-                const key = `gain_${ch}` as const;
+                const key = `gain${ch}` as const;
                 const val = Number((node.data as Record<string, unknown>)?.[key] ?? 1.0);
                 return (
                     <ControlRow key={ch} label={`Ch${ch}`}>

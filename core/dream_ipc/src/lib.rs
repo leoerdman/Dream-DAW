@@ -45,6 +45,12 @@ pub enum EngineCommand {
     /// preventing command budget exhaustion and deferred topology queue overflow.
     ClearAllDeviceChains,
 
+    /// Clears the device chain for a SINGLE track, leaving all other tracks
+    /// (and master) untouched. Used for per-track plugin mutations (add, remove,
+    /// move, paste, replace) to avoid destroying reverb/delay tails on
+    /// unrelated tracks.
+    ClearTrackDeviceChain { track_index: u16 },
+
     // ── Transport ────────────────────────────────────────────────────
     /// Start or stop playback. `true` = play, `false` = stop.
     SetPlay(bool),

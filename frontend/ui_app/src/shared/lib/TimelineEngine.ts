@@ -1994,6 +1994,39 @@ export class TimelineEngine {
                                 preview.durationBeats,
                                 preview.allowStretch,
                             );
+
+                            // ENTERPRISE: Optimistic in-place update — keep the clip
+                            // at the resized position during the async IPC round-trip.
+                            // Without this, clearing _trimPreview on line below causes
+                            // _composeDrawClips() to render from the stale _clips array,
+                            // producing a visible snap-back to the old position for 1-2
+                            // frames until the backend delta response updates the store.
+                            // This mirrors the ClipMove pattern (lines 1870-1978).
+                            const composedPreview = this._composeDrawClips();
+                            const previewClip = composedPreview.find((c) => c.id === this._drag.clipId);
+                            const currentClip = this._clipById.get(this._drag.clipId!);
+                            if (currentClip) {
+                                const clipIdx = this._clips.indexOf(currentClip);
+                                if (clipIdx >= 0) {
+                                    const optimistic: TimelineClipData = {
+                                        ...currentClip,
+                                        startBeat: preview.startBeat,
+                                        durationBeats: preview.durationBeats,
+                                        // Carry over computed source fields from the
+                                        // preview composite (sourceOffset, durationSamples,
+                                        // warpSourceDurationFrames) so the waveform
+                                        // doesn't jump when the store later reconciles.
+                                        ...(previewClip ? {
+                                            sourceOffset: previewClip.sourceOffset,
+                                            durationSamples: previewClip.durationSamples,
+                                            warpSourceDurationFrames: previewClip.warpSourceDurationFrames,
+                                            isWarped: previewClip.isWarped,
+                                        } : {}),
+                                    };
+                                    this._updateClipInStores(clipIdx, currentClip, optimistic);
+                                }
+                            }
+
                             // SSOT FIX: Optimistic update for pending clips (same pattern as ClipMove)
                             if (this._pendingClips) {
                                 const resizeId = this._drag.clipId;
@@ -2001,7 +2034,17 @@ export class TimelineEngine {
                                 const resizeDur = preview.durationBeats;
                                 this._pendingClips = this._pendingClips.map((c) =>
                                     c.id === resizeId
-                                        ? { ...c, startBeat: resizeBeat, durationBeats: resizeDur }
+                                        ? {
+                                            ...c,
+                                            startBeat: resizeBeat,
+                                            durationBeats: resizeDur,
+                                            ...(previewClip ? {
+                                                sourceOffset: previewClip.sourceOffset,
+                                                durationSamples: previewClip.durationSamples,
+                                                warpSourceDurationFrames: previewClip.warpSourceDurationFrames,
+                                                isWarped: previewClip.isWarped,
+                                            } : {}),
+                                        }
                                         : c,
                                 );
                             }

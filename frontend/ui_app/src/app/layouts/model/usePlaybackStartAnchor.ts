@@ -80,18 +80,12 @@ export function usePlaybackStartAnchor({
         return startBeat;
     }, [selectedClipIds, timelineClipsForView, queuedStartBeatRef, editCursorBeat]);
 
-    // ── On STOP: seek back to saved anchor (return-to-cursor) ──
+    // ENTERPRISE FIX: Do NOT seek back to anchor on stop.
+    // The playhead stays where playback was stopped (Logic Pro behavior).
+    // When the user clicks the timeline or presses play, resolveAnchorBeat()
+    // computes the new start position from the edit cursor or selected clips.
     useEffect(() => {
-        const justStopped = !transportIsPlaying && prevIsPlayingRef.current;
         prevIsPlayingRef.current = transportIsPlaying;
-
-        if (justStopped && playStartAnchorRef.current !== null) {
-            const anchor = playStartAnchorRef.current;
-            void engineApi.seekToBeat(Math.max(0, anchor)).catch((err) => {
-                console.error('[Dream] seek back to anchor on stop failed:', err);
-            });
-            // Don't clear the anchor — so pressing play again starts from here.
-        }
     }, [transportIsPlaying]);
 
     return { resolveAnchorBeat };

@@ -119,6 +119,20 @@ pub(super) fn drain_commands(
                 // re-created by apply_all_topology_mutations().
                 chains_cleared = true;
             }
+
+            // ENTERPRISE: Per-track device chain clear — only wipes a single track's
+            // device chain, leaving all other tracks (and master) fully intact.
+            // This prevents reverb/delay tail destruction on unrelated tracks when
+            // a plugin is added/removed/moved on a specific track.
+            EngineCommand::ClearTrackDeviceChain { track_index } => {
+                let idx = track_index as usize;
+                if let Some(slot) = ctx.render_ctx.track_slots.get_mut(idx) {
+                    slot.device_chain.clear();
+                }
+                // Mark chains_cleared so subsequent SetDeviceParam / BypassDevice
+                // for this track are correctly deferred to topology queue.
+                chains_cleared = true;
+            }
             EngineCommand::SetPlay(play) => {
                 *ctx.is_playing = play;
                 ctx.render_ctx.playhead.set_advancing(play);

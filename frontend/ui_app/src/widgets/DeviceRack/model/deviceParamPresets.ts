@@ -275,7 +275,10 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'HPFreq', value: 20, min: 20, max: 5000, suffix: 'Hz', step: 1 },       // 4
         { name: 'Pan', value: 0, min: -100, max: 100, suffix: '%', step: 1 },           // 5
     ],
-    spectrum: [],
+    spectrum: [
+        // C-14 FIX: Was empty — RUNTIME_PARAM_INDEX has reset:0 but no preset entry existed
+        { name: 'Reset', value: 0, min: 0, max: 1, suffix: '', step: 1 },              // 0
+    ],
     analyzer: [
         { name: 'Reset', value: 0, min: 0, max: 1, suffix: '', step: 1 },
     ],
@@ -436,7 +439,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Density', value: 3, min: 1, max: 8, suffix: '', step: 1 },               // 6
     ],
     corpus: [
-        { name: 'Tune', value: 60, min: 24, max: 96, suffix: '', step: 1 },               // 0
+        { name: 'Tune', value: 48, min: 24, max: 96, suffix: '', step: 1 },               // 0  BUG-AUD: Backend default=48(C3), was 60(C4)
         { name: 'Decay', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 1
         { name: 'Damp', value: 40, min: 0, max: 100, suffix: '%', step: 1 },              // 2
         { name: 'Type', value: 0, min: 0, max: 4, suffix: '', step: 1 },                  // 3
@@ -462,14 +465,27 @@ export const DEVICE_PARAM_PRESETS: Record<
     ],
     filterDelay: [
         { name: 'L Delay', value: 250, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 0
-        { name: 'C Delay', value: 375, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 1
-        { name: 'R Delay', value: 500, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 2
-        { name: 'L Filter', value: 3000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 3
+        { name: 'C Delay', value: 500, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 1  BUG-AUD: Backend default=500, was 375
+        { name: 'R Delay', value: 375, min: 1, max: 2000, suffix: 'ms', step: 1 },        // 2  BUG-AUD: Backend default=375, was 500
+        { name: 'L Filter', value: 2000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 3  BUG-AUD: Backend default=2000, was 3000
         { name: 'C Filter', value: 5000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 4
-        { name: 'R Filter', value: 8000, min: 100, max: 15000, suffix: 'Hz', step: 1 },   // 5
+        { name: 'R Filter', value: 800, min: 100, max: 15000, suffix: 'Hz', step: 1 },    // 5  BUG-AUD: Backend default=800, was 8000 (10× error!)
         { name: 'Fb', value: 30, min: 0, max: 95, suffix: '%', step: 1 },                 // 6
         { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },               // 7
     ],
     sample_rack: [],
     rack: [],
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTERPRISE: Auto-inject `defaultValue` for double-click-to-reset support.
+// `value` IS the factory default, so `defaultValue` mirrors it automatically.
+// This avoids manually adding `defaultValue` to 400+ param entries.
+// ═══════════════════════════════════════════════════════════════════════════
+for (const params of Object.values(DEVICE_PARAM_PRESETS)) {
+    for (const p of params) {
+        if (!Number.isFinite(p.defaultValue)) {
+            (p as { defaultValue?: number }).defaultValue = p.value;
+        }
+    }
+}

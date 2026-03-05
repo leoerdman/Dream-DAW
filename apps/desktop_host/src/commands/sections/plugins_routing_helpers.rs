@@ -195,6 +195,7 @@ pub fn load_external_slot_best_effort(
     }
 }
 
+#[allow(dead_code)] // Retained for project-level operations that may need full rebuild in the future
 pub fn sync_plugin_runtime_and_mark_dirty(
     project_state: &ProjectState,
     clip_pool_state: &State<'_, ClipPoolState>,
@@ -266,6 +267,56 @@ pub fn sync_bypass_only_and_mark_dirty(
     plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(app))?;
+    Ok(())
+}
+
+/// ENTERPRISE: Per-track plugin sync path for plugin mutations (add, remove,
+/// move, paste, replace).
+///
+/// This function:
+/// 1. Rebuilds routing (PDC recalculation) — lightweight, no audio disruption
+/// 2. Rebuilds device chain for ONLY the affected track via
+///    `rebuild_single_track_device_chain` — preserves all other tracks' effect
+///    tails (reverb, delay, etc.)
+/// 3. Publishes the external FX snapshot and registry — wait-free ArcSwap
+///
+/// This replaces `sync_plugin_runtime_and_mark_dirty` for single-track plugin
+/// mutations. The global variant is still used for project-level operations
+/// (load, undo/redo, track reorder) where ALL tracks legitimately change.
+pub fn sync_plugin_runtime_single_track_and_mark_dirty(
+    project_state: &ProjectState,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+    handle: &State<'_, AudioEngineHandle>,
+    app: &tauri::AppHandle,
+    track_index: usize,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let project_name = project.name.clone();
+
+    // Rebuild routing for PDC recalculation (lightweight, no audio disruption)
+    clip_pool_state.rebuild_routing_only(&project);
+
+    // Rebuild device chain for ONLY the affected track
+    let runtime_project = project.clone();
+    drop(project);
+    crate::state_managers::sync_engine::rebuild_single_track_device_chain(
+        &runtime_project,
+        handle,
+        track_index,
+    )?;
+
+    // Publish FX snapshot + registry AFTER device chain commands are queued
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&runtime_project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+
+    project_state.mark_dirty(&project_name, Some(app))?;
+    log::info!(
+        "[PluginSync] Single-track device chain rebuild for track {} ('{}')",
+        track_index,
+        runtime_project.tracks.get(track_index).map(|t| t.name.as_str()).unwrap_or("?"),
+    );
     Ok(())
 }
 

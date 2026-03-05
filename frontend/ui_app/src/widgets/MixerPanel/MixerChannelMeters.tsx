@@ -18,18 +18,26 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
     const meterPair = useEngineStore((s) => s.meters.tracks[trackIndex]);
     const peakDbL = meterPair?.[0]?.peak ?? -96;
     const peakDbR = meterPair?.[1]?.peak ?? -96;
-    const rmsDbL = meterPair?.[0]?.rms ?? -96;
-    const rmsDbR = meterPair?.[1]?.rms ?? -96;
-    const meterL = clamp01(vuNorm((peakDbL * 0.7) + (rmsDbL * 0.3)));
-    const meterR = clamp01(vuNorm((peakDbR * 0.7) + (rmsDbR * 0.3)));
+    // ENTERPRISE-METER-FIX: Use pure peak for bar display (not peak*0.7+rms*0.3).
+    // RMS decays faster than peak, so blending made bars collapse too quickly.
+    // Enterprise DAWs (Ableton/Logic/FL) show peak as the bright bar,
+    // RMS as a dimmer overlay or separate indicator (phase 2).
+    const meterL = clamp01(vuNorm(peakDbL));
+    const meterR = clamp01(vuNorm(peakDbR));
+
+    // Peak hold indicator: read peak_hold from smoothing pipeline (4s hold)
+    const peakHoldDbL = meterPair?.[0]?.peak_hold ?? peakDbL;
+    const peakHoldDbR = meterPair?.[1]?.peak_hold ?? peakDbR;
+    const holdL = clamp01(vuNorm(peakHoldDbL));
+    const holdR = clamp01(vuNorm(peakHoldDbR));
 
     return (
         <>
             <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterL} levelR={meterL} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+                <MeterStrip levelL={meterL} levelR={meterL} peakHoldL={holdL} peakHoldR={holdL} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
             <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterR} levelR={meterR} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+                <MeterStrip levelL={meterR} levelR={meterR} peakHoldL={holdR} peakHoldR={holdR} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
         </>
     );

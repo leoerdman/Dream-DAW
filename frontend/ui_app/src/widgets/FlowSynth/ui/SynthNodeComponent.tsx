@@ -34,6 +34,10 @@ import { MidiInControls } from './nodes/MidiInControls';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { LfoControls } from './nodes/LfoControls';
 import { NoiseControls } from './nodes/NoiseControls';
+import { DelayControls } from './nodes/DelayControls';
+import { MixerControls } from './nodes/MixerControls';
+import { MultiplyControls } from './nodes/MultiplyControls';
+import { VcaControls } from './nodes/VcaControls';
 
 import { PortRowFader } from './nodes/PortRowFader';
 
@@ -72,12 +76,18 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <NoiseControls node={node} />;
         // Nodes whose controls are fully handled by inline port faders:
         case 'delay':
+            return <DelayControls node={node} />;
         case 'mixer':
+            return <MixerControls node={node} />;
         case 'vca':
+            return <VcaControls node={node} />;
         case 'multiply':
+            return <MultiplyControls node={node} />;
+        // Stateless nodes with no additional controls:
         case 'add':
         case 'sampleHold':
         case 'audioIn':
+        case 'pitch':
         default:
             return null;
     }

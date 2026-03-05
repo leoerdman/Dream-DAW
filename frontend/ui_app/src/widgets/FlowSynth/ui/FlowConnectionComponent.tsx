@@ -154,13 +154,14 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 pointerEvents="none"
                 style={{ filter: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
             />
-            {/* Core path — always solid */}
+            {/* Core path — solid for audio/midi/gate, dashed for control/phase (Bitwig Grid pattern) */}
             <path
                 d={pathData}
                 fill="none"
                 stroke={isSelected ? 'color-mix(in srgb, white 32%, var(--color-accent-primary))' : baseColor}
                 strokeWidth={coreStrokeWidth}
                 strokeLinecap="round"
+                strokeDasharray={(signalType === 'control' || signalType === 'phase') ? '8 4' : 'none'}
                 opacity={1.0}
                 pointerEvents="none"
             />

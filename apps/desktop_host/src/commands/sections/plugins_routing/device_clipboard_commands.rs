@@ -109,13 +109,23 @@ fn paste_device_to_track_impl(
         "[IPC] paste_device_to_track_cmd(track={track_id}, slot={})",
         if use_instrument { "instrument" } else { "effect" }
     );
-    sync_plugin_runtime_and_mark_dirty(
+
+    // Resolve track index from UUID for per-track rebuild
+    let paste_track_index = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().position(|t| t.id == result.track_id)
+            .ok_or_else(|| format!("Track not found for paste: {}", result.track_id))?
+    };
+
+    // ENTERPRISE: Per-track rebuild — only clears/rebuilds this track's device
+    // chain, preserving all other tracks' effect tails (reverb, delay, etc.).
+    sync_plugin_runtime_single_track_and_mark_dirty(
         project_state,
         clip_pool_state,
         plugin_host_state,
         handle,
         app,
-        true,
+        paste_track_index,
     )?;
 
     Ok((result, plugin_load_error))

@@ -163,8 +163,9 @@ impl CompressorProcessor {
             } else {
                 0.0
             };
-            self.lookahead_samples =
-                ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+            // P-COMP-01 FIX: Allow 0 for true zero-latency mode.
+            let raw_la = (self.lookahead_ms * 0.001 * sr) as usize;
+            self.lookahead_samples = if raw_la == 0 { 0 } else { raw_la.clamp(1, MAX_LOOKAHEAD_SAMPLES - 1) };
         }
     }
 
@@ -226,8 +227,9 @@ impl CompressorProcessor {
             self.knee_sm_db.set_sample_rate(sr);
             // BUG-C09 FIX: Recalculate lookahead_samples on SR change.
             // Without this, the lookahead in ms drifts across sample rates.
-            self.lookahead_samples =
-                ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+            // P-COMP-01 FIX: Allow 0 for true zero-latency mode.
+            let raw_la = (self.lookahead_ms * 0.001 * sr) as usize;
+            self.lookahead_samples = if raw_la == 0 { 0 } else { raw_la.clamp(1, MAX_LOOKAHEAD_SAMPLES - 1) };
             // BUG-H05 FIX: Reset la_filled so the lookahead buffer refills
             // correctly at the new sample rate. Without this, la_filled
             // retains the old value and may exceed the new lookahead_samples,
@@ -545,9 +547,9 @@ impl DspProcessor for CompressorProcessor {
             10 => {
                 self.lookahead_ms = value.clamp(0.0, 10.0);
                 if self.sample_rate > 0.0 {
-                    self.lookahead_samples =
-                        ((self.lookahead_ms * 0.001 * self.sample_rate) as usize)
-                            .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+                    // P-COMP-01 FIX: Allow 0 for true zero-latency mode.
+                    let raw_la = (self.lookahead_ms * 0.001 * self.sample_rate) as usize;
+                    self.lookahead_samples = if raw_la == 0 { 0 } else { raw_la.clamp(1, MAX_LOOKAHEAD_SAMPLES - 1) };
                     // BUG-075 FIX: Reset la_filled to prevent stale lookahead entries
                     // from a different window size causing glitched output.
                     self.la_filled = 0;

@@ -59,7 +59,9 @@ export function getParamValue(
 ): number {
     const normalizedAliases = aliases.map((alias) => alias.toLowerCase());
     const found = device.params.find((param) => normalizedAliases.includes(param.name.toLowerCase()));
-    return found?.value ?? fallback;
+    // BUG-AUD: Guard against NaN — Number.isFinite rejects both NaN and ±Infinity.
+    if (found && Number.isFinite(found.value)) return found.value;
+    return fallback;
 }
 
 /**
@@ -94,7 +96,8 @@ export const MIX_PARAM_ALIASES = [
     'wet',
     'wet level',
     'mix level',
-    'amount',
+    // BUG-AUD: Removed 'amount' — collides with Erosion's 'amount' param
+    // which is a frequency modulation amount, NOT a mix control.
 ] as const;
 
 export function readSurfaceParam(

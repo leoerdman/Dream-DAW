@@ -2,12 +2,16 @@ import type { MeteringSnapshot } from '@/shared/api/engine';
 
 const METER_FLOOR_DB = -160;
 const DEFAULT_METER_DELTA_SEC = 1 / 30;
-// DAW-like meter ballistics:
-// fast enough on attacks to stay responsive, slower release to avoid flicker.
-const PEAK_ATTACK_TAU_SEC = 0.025;
-const PEAK_RELEASE_TAU_SEC = 0.42;
-const RMS_ATTACK_TAU_SEC = 0.12;
-const RMS_RELEASE_TAU_SEC = 0.55;
+// DAW-like meter ballistics (enterprise reference: Ableton Live / Logic Pro):
+// - Peak attack: fast enough to show transients (~25ms)
+// - Peak release: slow enough that bars don't collapse instantly when audio stops.
+//   Enterprise DAWs use 1.5–2.0s. Previous value of 0.42s caused bars to drop
+//   to floor within ~1 second — the #1 user complaint about meters.
+// - RMS attack/release: slightly slower for smooth energy display.
+const PEAK_ATTACK_TAU_SEC = 0.020;
+const PEAK_RELEASE_TAU_SEC = 1.7;
+const RMS_ATTACK_TAU_SEC = 0.10;
+const RMS_RELEASE_TAU_SEC = 0.80;
 
 function alphaFromTau(dtSec: number, tauSec: number): number {
     if (!Number.isFinite(dtSec) || dtSec <= 0) return 1;

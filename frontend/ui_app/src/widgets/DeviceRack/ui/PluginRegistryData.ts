@@ -38,7 +38,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Rate', paramNames: 'rate', fallback: 1, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['phase', 'shape'] },
+        // P-AP-01: AutoPan shape enum labels
+        settingsPanel: {
+            params: ['phase', 'shape', 'mix'],
+            enumLabels: { 'shape': ['Sine', 'Triangle', 'Random', 'Square', 'Saw'] },
+        },
     },
     phaser: {
         background: 'var(--plugin-bg-mod)',
@@ -96,7 +100,12 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Depth', paramNames: 'depth', fallback: 70, suffix: '%' },
             { label: 'FB', paramNames: ['fb', 'feedback'], fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['delay', 'stereo', 'fb damp', 'lfo shape', 'tz mode'] },
+        // P-FLA-03: Flanger TZ mode enum labels and mix
+        settingsPanel: {
+            params: ['delay', 'stereo', 'fb damp', 'lfo shape', 'tz mode', 'mix'],
+            enumLabels: { 'tz mode': ['Off', 'Through-Zero'] },
+            toggleParams: ['tz mode'],
+        },
     },
 
     // ─── TIME EFFECTS (no settings panel per user request) ──────────────
@@ -119,7 +128,17 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'R', paramNames: 'time r', fallback: 375, suffix: 'ms' },
             { label: 'FB', paramNames: 'fb', fallback: 30, suffix: '%' },
         ],
-        settingsPanel: { params: ['time l', 'time r', 'sync l', 'sync r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'], maxCols: 2 },
+        // ENTERPRISE: Sync L/R toggle buttons visible on main surface.
+        // Previously hidden in settings panel — users couldn't find sync mode.
+        buttons: [
+            { label: 'Sync L', paramName: 'sync l', scene: 'sync' },
+            { label: 'Sync R', paramName: 'sync r', scene: 'sync' },
+        ],
+        settingsPanel: {
+            params: ['time l', 'time r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'],
+            maxCols: 2,
+            toggleParams: ['pingpong'],
+        },
     },
     filterDelay: {
         background: 'var(--plugin-bg-delay)',
@@ -127,17 +146,17 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'spectrumBars',
             staticDataGenerator: (device) => {
-                const lf = clamp01(safeParamValue(device, 'l filter', 3000) / 15000);
+                const lf = clamp01(safeParamValue(device, 'l filter', 2000) / 15000);
                 const cf = clamp01(safeParamValue(device, 'c filter', 5000) / 15000);
-                const rf = clamp01(safeParamValue(device, 'r filter', 8000) / 15000);
+                const rf = clamp01(safeParamValue(device, 'r filter', 800) / 15000);
                 // Mirror L/C/R filters with secondary bars for fullness
                 return [lf * 0.6, lf, cf * 0.7, cf, rf * 0.8, rf];
             },
         },
         meta: [
             { label: 'L', paramNames: 'l delay', fallback: 250, suffix: 'ms' },
-            { label: 'C', paramNames: 'c delay', fallback: 375, suffix: 'ms' },
-            { label: 'R', paramNames: 'r delay', fallback: 500, suffix: 'ms' },
+            { label: 'C', paramNames: 'c delay', fallback: 500, suffix: 'ms' },
+            { label: 'R', paramNames: 'r delay', fallback: 375, suffix: 'ms' },
         ],
         settingsPanel: { params: ['l filter', 'c filter', 'r filter', 'fb'] },
     },
@@ -178,7 +197,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Amount', paramNames: 'amount', fallback: 50, suffix: '%' },
             { label: 'Decay', paramNames: 'decay', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['mode', 'tilt'] },
+        // P-ST-01: SpectralTime mode enum labels
+        settingsPanel: {
+            params: ['mode', 'tilt', 'mix'],
+            enumLabels: { 'mode': ['Freeze', 'Spectral Delay', 'Spectral Gate'] },
+        },
     },
     reverb: {
         background: 'var(--plugin-bg-reverb)',
@@ -193,7 +216,12 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Hi Cut', paramNames: 'hi cut', fallback: 16000, suffix: 'Hz' },
             { label: 'Size', paramNames: 'size', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'], maxCols: 3 },
+        settingsPanel: {
+            params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'],
+            maxCols: 3,
+            enumLabels: { 'voicing': ['Room', 'Hall', 'Plate'] },
+            toggleParams: ['freeze'],
+        },
     },
     hybridReverb: {
         background: 'var(--plugin-bg-reverb)',
@@ -224,7 +252,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'spectrumBars',
             staticDataGenerator: (device) => {
-                const tune = safeParamValue(device, 'tune', 60);
+                const tune = safeParamValue(device, 'tune', 48); // BUG-AUD: Backend default=48(C3)
                 const decay = clamp01(safeParamValue(device, 'decay', 50) / 100);
                 return Array.from({ length: 8 }, (_, i) => {
                     const harmonic = Math.sin((i + 1) * tune * 0.05);
@@ -233,10 +261,15 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             },
         },
         meta: [
-            { label: 'Tune', paramNames: 'tune', fallback: 60, suffix: 'MIDI' },
+            // P-COR-01: Show MIDI note name (not raw number)
+            { label: 'Tune', paramNames: 'tune', fallback: 60, suffix: '' },
             { label: 'Decay', paramNames: 'decay', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['damp', 'type', 'spread'] },
+        settingsPanel: {
+            params: ['damp', 'type', 'spread'],
+            // P-COR-02: Corpus type labels
+            enumLabels: { 'type': ['Pipe', 'Tube', 'Plate', 'Membrane', 'String'] },
+        },
     },
 
     // ─── DYNAMICS ──────────────────────────────────────────────────────
@@ -249,7 +282,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Ceil', paramNames: 'ceil', fallback: -0.1, suffix: 'dB' },
             { label: 'Rel', paramNames: 'rel', fallback: 100, suffix: 'ms' },
         ],
-        settingsPanel: { params: ['rel', 'lookahead', 'link', 'auto rel'] },
+        settingsPanel: {
+            params: ['rel', 'lookahead', 'link', 'auto rel'],
+            toggleParams: ['link', 'auto rel'],
+        },
     },
     gate: {
         background: 'var(--plugin-bg-gate)',
@@ -268,7 +304,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -40, suffix: 'dB' },
             { label: 'Range', paramNames: 'range', fallback: -80, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis', 'duck'] },
+        settingsPanel: {
+            params: ['atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis', 'duck'],
+            toggleParams: ['duck'],
+        },
     },
     autoFilter: {
         background: 'var(--plugin-bg-mod)',
@@ -290,7 +329,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Freq', paramNames: ['cutoff', 'freq', 'frequency', 'center'], fallback: 1000, suffix: 'Hz' },
             { label: 'Res', paramNames: 'res', fallback: 30, suffix: '%' },
         ],
-        settingsPanel: { params: ['rate', 'depth', 'env', 'type', 'lfo shape', 'drive', 'env speed', 'mix'] },
+        // AutoFilter type enum labels
+        settingsPanel: {
+            params: ['rate', 'depth', 'env', 'type', 'lfo shape', 'drive', 'env speed', 'mix'],
+            enumLabels: { 'type': ['Low Pass', 'High Pass', 'Band Pass', 'Notch'] },
+        },
     },
 
     // ─── COMPRESSORS ──────────────────────────────────────────────────
@@ -307,7 +350,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
             { label: 'Ratio', paramNames: 'ratio', fallback: 4, suffix: ':1' },
         ],
-        settingsPanel: { params: ['atk', 'rel', 'knee', 'makeup', 'sc hpf', 'auto gain', 'rms', 'lookahead'] },
+        settingsPanel: {
+            params: ['atk', 'rel', 'knee', 'makeup', 'sc hpf', 'auto gain', 'rms', 'lookahead'],
+            toggleParams: ['auto gain', 'rms'],
+        },
     },
     glueCompressor: {
         background: 'var(--plugin-bg-compressor)',
@@ -322,7 +368,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
             { label: 'Ratio', paramNames: 'ratio', fallback: 2, suffix: ':1' },
         ],
-        settingsPanel: { params: ['atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'] },
+        // P-GC-02: soft_clip as toggle (enterprise Glue Compressor behavior)
+        settingsPanel: {
+            params: ['atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'],
+            toggleParams: ['soft clip'],
+        },
     },
     multibandDynamics: {
         background: 'var(--plugin-bg-compressor)',
@@ -338,7 +388,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Hi', paramNames: 'xover high', fallback: 4000, suffix: 'Hz' },
             { label: 'Out', paramNames: 'output', fallback: 0, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'], maxCols: 2 },
+        // P-MB-01: maxCols 2→3 for 10 params (was extremely cramped)
+        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'], maxCols: 3 },
     },
     transientShaper: {
         background: 'var(--plugin-bg-compressor)',
@@ -356,7 +407,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Atk', paramNames: 'attack', fallback: 0, suffix: '%' },
             { label: 'Sus', paramNames: 'sustain', fallback: 0, suffix: '%' },
         ],
-        settingsPanel: { params: ['output', 'speed'] },
+        // P-TS-01: Added 'mix', speed suffix is implicit via knob rendering
+        settingsPanel: { params: ['output', 'speed', 'mix'] },
     },
 
     // ─── SATURATION / DISTORTION ──────────────────────────────────────
@@ -365,7 +417,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         accent: 'var(--token-color-hex-ffac59)',
         viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
         meta: [{ label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' }],
-        settingsPanel: { params: ['mode', 'output', 'color'] },
+        // P-SAT-02: Saturator mode enum labels
+        settingsPanel: {
+            params: ['mode', 'output', 'color', 'mix'],
+            enumLabels: { 'mode': ['Analog', 'Tape', 'Tube', 'Diode', 'Sinefold'] },
+        },
     },
     drumBuss: {
         background: 'var(--plugin-bg-saturator)',
@@ -397,7 +453,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
             { label: 'Bias', paramNames: 'bias', fallback: 0, suffix: '%' },
         ],
-        settingsPanel: { params: ['envelope', 'tone', 'output'] },
+        // P-DT-02: Added mix to settings
+        settingsPanel: { params: ['envelope', 'tone', 'output', 'mix'] },
     },
     distortion: {
         background: 'var(--plugin-bg-distortion)',
@@ -407,7 +464,12 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
             { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['mode', 'output', 'bias', 'cab sim', 'tight'] },
+        // P-DIST-01: cab_sim as toggle, mode labels
+        settingsPanel: {
+            params: ['mode', 'output', 'bias', 'cab sim', 'tight'],
+            enumLabels: { 'mode': ['Overdrive', 'Distortion', 'Fuzz', 'Bitcrush'] },
+            toggleParams: ['cab sim'],
+        },
     },
     overdrive: {
         background: 'var(--plugin-bg-distortion)',
@@ -417,7 +479,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
             { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['output', 'bias', 'tight'] },
+        // P-OD-02: Added mix to overdrive settings
+        settingsPanel: { params: ['output', 'bias', 'tight', 'mix'] },
     },
     amp: {
         background: 'var(--plugin-bg-distortion)',
@@ -427,7 +490,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Gain', paramNames: 'gain', fallback: 50, suffix: '%' },
             { label: 'Master', paramNames: 'master', fallback: -6, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['bass', 'mid', 'treble', 'presence', 'sag'] },
+        // P-AMP-01: Bass/mid/treble are in dB but no suffix — adding mix
+        settingsPanel: { params: ['bass', 'mid', 'treble', 'presence', 'sag', 'mix'] },
     },
     cabinet: {
         background: 'var(--plugin-bg-distortion)',
@@ -441,7 +505,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Lo', paramNames: 'lo cut', fallback: 80, suffix: 'Hz' },
             { label: 'Hi', paramNames: 'hi cut', fallback: 8000, suffix: 'Hz' },
         ],
-        settingsPanel: { params: ['type', 'mic pos', 'resonance', 'output'] },
+        // P-CAB-01: Cabinet type enum labels
+        settingsPanel: {
+            params: ['type', 'mic pos', 'resonance', 'output', 'mix'],
+            enumLabels: { 'type': ['1x12', '2x12', '4x12', 'Open', 'Closed'] },
+        },
     },
     erosion: {
         background: 'var(--plugin-bg-distortion)',
@@ -464,7 +532,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Freq', paramNames: 'frequency', fallback: 2000, suffix: 'Hz' },
             { label: 'Amt', paramNames: 'amount', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['mode', 'width'] },
+        // P-EROS-01: Erosion mode enum labels
+        settingsPanel: {
+            params: ['mode', 'width', 'mix'],
+            enumLabels: { 'mode': ['Noise', 'Filter', 'Short'] },
+        },
     },
     pedal: {
         background: 'var(--plugin-bg-distortion)',
@@ -474,7 +546,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 50, suffix: '%' },
             { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['mode', 'level'] },
+        // P-PED-01: Pedal mode enum labels
+        settingsPanel: {
+            params: ['mode', 'level', 'mix'],
+            enumLabels: { 'mode': ['OD1', 'OD2', 'Fuzz', 'Dist'] },
+        },
     },
     roar: {
         background: 'var(--plugin-bg-distortion)',
@@ -484,7 +560,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Intensity', paramNames: 'intensity', fallback: 50, suffix: '%' },
             { label: 'Color', paramNames: 'color', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['character', 'feedback', 'output'] },
+        // P-ROAR-01: Roar character enum labels
+        settingsPanel: {
+            params: ['character', 'feedback', 'output', 'mix'],
+            enumLabels: { 'character': ['Growl', 'Scream', 'Howl', 'Whisper'] },
+        },
     },
     bitcrusher: {
         background: 'var(--plugin-bg-distortion)',
@@ -519,7 +599,11 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Type', paramNames: 'type', fallback: 0, suffix: '' },
             { label: 'Level', paramNames: 'level', fallback: -12, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['stereo', 'lpfreq', 'hpfreq', 'pan'] },
+        // P-NM-02: NoiseMachine type enum labels
+        settingsPanel: {
+            params: ['type', 'stereo', 'lpfreq', 'hpfreq', 'pan'],
+            enumLabels: { 'type': ['White', 'Pink', 'Brown', 'Blue', 'Violet', 'Grey'] },
+        },
     },
 
     // ─── UTILITY ────────────────────────────────────────────────────────

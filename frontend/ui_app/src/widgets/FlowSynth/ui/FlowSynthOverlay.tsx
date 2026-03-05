@@ -1,17 +1,80 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { FlowCanvas } from './FlowCanvas';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
+import { flowUndo, flowRedo, resetFlowUndoRedo } from '../model/flowUndoRedo';
+import { FACTORY_PRESETS } from '../model/flowPresets';
 
 // ── Floating Preset Bar (sits above the canvas, top-right) ────────────
 function FloatingPresetBar() {
     const presetName = useFlowSynthStore((s) => s.presetName);
+    const presetIndex = useFlowSynthStore((s) => s.presetIndex);
     const nextPreset = useFlowSynthStore((s) => s.nextPreset);
     const prevPreset = useFlowSynthStore((s) => s.prevPreset);
+    const loadPreset = useFlowSynthStore((s) => s.loadPreset);
+    const nodes = useFlowSynthStore((s) => s.nodes);
+    const connections = useFlowSynthStore((s) => s.connections);
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Outside-click handler to close dropdown
+    useEffect(() => {
+        if (!dropdownOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler, true);
+        return () => document.removeEventListener('mousedown', handler, true);
+    }, [dropdownOpen]);
+
+    const handleSavePreset = useCallback(async () => {
+        try {
+            const name = window.prompt('Preset name:', presetName || 'My Preset');
+            if (!name) return;
+            const { invoke } = await import('@tauri-apps/api/core');
+            const presetJson = JSON.stringify({
+                name,
+                nodes: nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+                connections: connections.map(c => ({ id: c.id, fromNode: c.fromNode, fromPort: c.fromPort, toNode: c.toNode, toPort: c.toPort, signalType: c.signalType })),
+            }, null, 2);
+            await invoke('save_flow_user_preset', { name, presetJson });
+        } catch (err) {
+            console.error('[FlowSynth] savePreset failed:', err);
+        }
+    }, [presetName, nodes, connections]);
+
+    const handleLoadPreset = useCallback(async () => {
+        try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            const names = await invoke<string[]>('list_flow_user_presets');
+            if (!names || names.length === 0) {
+                window.alert('No user presets saved yet.');
+                return;
+            }
+            const selected = window.prompt(
+                `Available presets:\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nEnter preset name:`
+            );
+            if (!selected) return;
+            const text = await invoke<string>('load_flow_user_preset', { name: selected });
+            const preset = JSON.parse(text);
+            if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
+                useFlowSynthStore.getState().setNodes(preset.nodes);
+                useFlowSynthStore.getState().setConnections(preset.connections);
+                useFlowSynthStore.setState({ presetName: preset.name || selected });
+                // Sync restored graph to engine
+                void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
+            }
+        } catch (err) {
+            console.error('[FlowSynth] loadPreset failed:', err);
+        }
+    }, []);
 
     return (
         <div
+            ref={dropdownRef}
             style={{
                 position: 'absolute',
                 top: 8,
@@ -32,17 +95,66 @@ function FloatingPresetBar() {
             onPointerDown={(e) => e.stopPropagation()}
         >
             <button onClick={prevPreset} style={presetNavBtn} title="Previous">◀</button>
-            <span style={{
-                fontSize: 'var(--font-size-sm)',
-                color: 'var(--color-text-secondary)',
-                fontWeight: 'var(--font-weight-medium)',
-                minWidth: 60,
-                textAlign: 'center',
-                userSelect: 'none',
-            }}>
+            <span
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                style={{
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-secondary)',
+                    fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                    minWidth: 60,
+                    textAlign: 'center',
+                    userSelect: 'none',
+                    cursor: 'pointer',
+                    position: 'relative',
+                }}
+            >
                 {presetName || 'Init'}
             </span>
             <button onClick={nextPreset} style={presetNavBtn} title="Next">▶</button>
+            <div style={{ width: 1, height: 14, background: 'var(--color-divider)', opacity: 0.5 }} />
+            <button onClick={handleSavePreset} style={presetNavBtn} title="Save Preset">💾</button>
+            <button onClick={handleLoadPreset} style={presetNavBtn} title="Open Preset">📂</button>
+
+            {/* Preset dropdown */}
+            {dropdownOpen && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: 0,
+                        marginTop: 4,
+                        minWidth: 180,
+                        maxHeight: 300,
+                        overflowY: 'auto',
+                        background: 'var(--color-bg-panel)',
+                        border: '1px solid var(--color-divider)',
+                        borderRadius: 6,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                        zIndex: 20,
+                        padding: '4px 0',
+                    }}
+                >
+                    {FACTORY_PRESETS.map((p, i) => (
+                        <div
+                            key={p.name}
+                            onClick={() => { loadPreset(i); setDropdownOpen(false); }}
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: 'var(--font-size-sm)',
+                                color: i === presetIndex ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+                                fontWeight: i === presetIndex ? 600 : 400,
+                                cursor: 'pointer',
+                                background: 'transparent',
+                                transition: 'background 0.1s',
+                            }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                        >
+                            {p.name}
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -70,16 +182,32 @@ export function FlowSynthOverlay() {
     const nodes = useFlowSynthStore((state) => state.nodes);
     const connections = useFlowSynthStore((state) => state.connections);
 
-    // Close on Escape key
+    // Close on Escape key + Undo/Redo on Cmd+Z / Cmd+Shift+Z
     useEffect(() => {
         if (!isOpen) return;
+        resetFlowUndoRedo();
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 closeFlowEditor();
+                return;
+            }
+            // Cmd+Z / Ctrl+Z = Undo
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                flowUndo();
+                return;
+            }
+            // Cmd+Shift+Z / Ctrl+Shift+Z = Redo
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                flowRedo();
+                return;
             }
         };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
+        document.addEventListener('keydown', handleKeyDown, true);
+        return () => document.removeEventListener('keydown', handleKeyDown, true);
     }, [isOpen, closeFlowEditor]);
 
     useEffect(() => {

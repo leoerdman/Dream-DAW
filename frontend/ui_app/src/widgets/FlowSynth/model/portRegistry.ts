@@ -285,6 +285,10 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     midiIn: 1,
     lfo: 2,          // shape + mode selects
     noise: 2,
+    delay: 3,        // time + feedback + mix
+    mixer: 4,        // ch1-4 gain sliders
+    vca: 1,          // bias
+    multiply: 1,     // scale
 };
 
 const CONTROL_ROW_HEIGHT = 28;

@@ -230,12 +230,24 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                     <ButtonStrip>
                         {definition.buttons.map((btn) => {
                             const active = getParamValue(device, [btn.paramName], 0) > (btn.threshold ?? 0.5);
+                            // Utility scenes (center/mono/wide) use onApplyUtilityScene.
+                            // Non-utility buttons (sync) toggle param value directly.
+                            const isUtilityScene = btn.scene === 'center' || btn.scene === 'mono' || btn.scene === 'wide';
                             return (
                                 <ToggleButton
                                     key={btn.paramName}
                                     label={btn.label}
                                     active={active}
-                                    onClick={() => btn.scene && handlers.onApplyUtilityScene?.(btn.scene)}
+                                    onClick={() => {
+                                        if (isUtilityScene && btn.scene) {
+                                            handlers.onApplyUtilityScene?.(btn.scene as 'center' | 'mono' | 'wide');
+                                        } else {
+                                            // Toggle param between 0 and 1
+                                            handlers.onParamGestureStart?.(btn.paramName);
+                                            handlers.onParamChange(btn.paramName, active ? 0 : 1);
+                                            handlers.onParamGestureEnd?.(btn.paramName);
+                                        }
+                                    }}
                                 />
                             );
                         })}
@@ -260,6 +272,8 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                         handlers={handlers}
                         maxCols={definition.settingsPanel?.maxCols ?? 3}
                         accent={accent}
+                        enumLabels={definition.settingsPanel?.enumLabels}
+                        toggleParams={definition.settingsPanel?.toggleParams}
                     />
                 )}
             </ControlPanel>

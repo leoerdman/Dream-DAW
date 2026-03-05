@@ -245,16 +245,32 @@ export const SettingsPanel = React.memo(function SettingsPanel({
     handlers,
     maxCols = 3,
     accent,
+    enumLabels,
+    toggleParams,
 }: {
     /** Pre-filtered secondary params to show. */
     params: DeviceSlot['params'];
     handlers: SurfaceHandlers;
     maxCols?: number;
     accent?: string;
+    /** Human-readable labels for discrete/enum params. Keys: param name, Values: label array. */
+    enumLabels?: Record<string, string[]>;
+    /** Param names that should render as toggle switches instead of knobs. */
+    toggleParams?: string[];
 }) {
     const [expanded, setExpanded] = React.useState(false);
 
     if (params.length === 0) return null;
+
+    // Separate params into enum dropdowns, toggles, and regular knobs
+    const enumParamSet = new Set(Object.keys(enumLabels ?? {}).map(k => k.toLowerCase()));
+    const toggleParamSet = new Set((toggleParams ?? []).map(k => k.toLowerCase()));
+
+    const enumParams = params.filter(p => enumParamSet.has(p.name.toLowerCase()) && !toggleParamSet.has(p.name.toLowerCase()));
+    const toggleParamsFiltered = params.filter(p => toggleParamSet.has(p.name.toLowerCase()));
+    const knobParams = params.filter(p =>
+        !enumParamSet.has(p.name.toLowerCase()) && !toggleParamSet.has(p.name.toLowerCase())
+    );
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -290,21 +306,110 @@ export const SettingsPanel = React.memo(function SettingsPanel({
                 {expanded ? '▴' : '▾'}
             </button>
 
-            {/* ─── Animated expandable knob grid ─── */}
+            {/* ─── Animated expandable content ─── */}
             <div
                 style={{
-                    maxHeight: expanded ? 320 : 0,
+                    maxHeight: expanded ? 400 : 0,
                     overflow: 'hidden',
                     transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
             >
                 {expanded && (
-                    <KnobParamGrid
-                        params={params}
-                        handlers={handlers}
-                        maxCols={maxCols}
-                        minCols={2}
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {/* ── Enum dropdowns ── */}
+                        {enumParams.length > 0 && (
+                            <div style={{ display: 'grid', gap: 4 }}>
+                                {enumParams.map((p) => {
+                                    const labels = enumLabels?.[p.name] ?? enumLabels?.[p.name.toLowerCase()] ?? [];
+                                    const currentValue = Math.round(p.value ?? 0);
+                                    return (
+                                        <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{
+                                                fontSize: 'var(--font-size-2xs)',
+                                                color: 'var(--color-text-tertiary)',
+                                                fontWeight: 600,
+                                                minWidth: 36,
+                                                textTransform: 'capitalize',
+                                            }}>
+                                                {p.name}
+                                            </span>
+                                            <select
+                                                value={currentValue}
+                                                onChange={(e) => {
+                                                    handlers.onParamGestureStart?.(p.name);
+                                                    handlers.onParamChange(p.name, Number(e.target.value));
+                                                    handlers.onParamGestureEnd?.(p.name);
+                                                }}
+                                                style={{
+                                                    flex: 1,
+                                                    border: 'var(--space-px) solid var(--color-divider)',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    background: 'var(--color-bg-header)',
+                                                    color: 'var(--color-text-primary)',
+                                                    fontSize: 'var(--font-size-2xs)',
+                                                    padding: '3px 6px',
+                                                    outline: 'none',
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                {labels.map((label, idx) => (
+                                                    <option key={idx} value={idx}>{label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* ── Toggle params ── */}
+                        {toggleParamsFiltered.length > 0 && (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {toggleParamsFiltered.map((p) => {
+                                    const active = (p.value ?? 0) > 0.5;
+                                    return (
+                                        <button
+                                            key={p.name}
+                                            type="button"
+                                            onClick={() => {
+                                                handlers.onParamGestureStart?.(p.name);
+                                                handlers.onParamChange(p.name, active ? 0 : 1);
+                                                handlers.onParamGestureEnd?.(p.name);
+                                            }}
+                                            style={{
+                                                padding: '3px 10px',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: 'var(--space-px) solid var(--color-divider)',
+                                                background: active
+                                                    ? `color-mix(in srgb, ${accent ?? 'var(--color-accent-primary)'} 30%, var(--color-bg-elevated))`
+                                                    : 'var(--color-bg-elevated)',
+                                                color: active
+                                                    ? (accent ?? 'var(--color-accent-primary)')
+                                                    : 'var(--color-text-tertiary)',
+                                                fontSize: 'var(--font-size-2xs)',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                transition: 'background 0.15s ease, color 0.15s ease',
+                                                textTransform: 'capitalize',
+                                            }}
+                                        >
+                                            {p.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* ── Regular knob params ── */}
+                        {knobParams.length > 0 && (
+                            <KnobParamGrid
+                                params={knobParams}
+                                handlers={handlers}
+                                maxCols={maxCols}
+                                minCols={2}
+                            />
+                        )}
+                    </div>
                 )}
             </div>
         </div>

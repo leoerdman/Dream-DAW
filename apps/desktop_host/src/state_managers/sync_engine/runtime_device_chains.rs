@@ -858,3 +858,142 @@ pub fn rebuild_runtime_device_chains_from_project(
 
     Ok(())
 }
+
+/// ENTERPRISE: Rebuilds the device chain for a SINGLE track without touching
+/// any other track. This is the per-track counterpart to
+/// `rebuild_runtime_device_chains_from_project` and is used for plugin mutations
+/// (add, remove, move, paste, replace) to avoid destroying reverb/delay tails
+/// on unrelated tracks.
+///
+/// Flow: ClearTrackDeviceChain → AddDevice + BypassDevice + SetDeviceParam
+///       for each internal effect on the specified track.
+pub fn rebuild_single_track_device_chain(
+    project: &Project,
+    handle: &AudioEngineHandle,
+    track_index: usize,
+) -> Result<(), String> {
+    let track = project.tracks.get(track_index).ok_or_else(|| {
+        format!(
+            "rebuild_single_track_device_chain: track_index {} out of bounds (project has {} tracks)",
+            track_index,
+            project.tracks.len()
+        )
+    })?;
+
+    let ti = track_index as u16;
+
+    // Step 1: Clear only this track's device chain
+    push_command(handle, EngineCommand::ClearTrackDeviceChain { track_index: ti })?;
+
+    // Step 2: Collect internal effects for this track
+    struct TrackFxEntry {
+        plugin_id: String,
+        bypassed: bool,
+        params: Option<Vec<f32>>,
+    }
+
+    fn collect_runtime_internal_effects_local(
+        nodes: &[DeviceNode],
+        parent_bypassed: bool,
+        out: &mut Vec<TrackFxEntry>,
+    ) {
+        for node in nodes {
+            match node {
+                DeviceNode::Single(slot) => {
+                    if slot.plugin_id.starts_with("internal://") {
+                        out.push(TrackFxEntry {
+                            plugin_id: slot.plugin_id.clone(),
+                            bypassed: parent_bypassed || slot.is_bypassed,
+                            params: slot.params.clone(),
+                        });
+                    }
+                }
+                DeviceNode::Rack(rack) => {
+                    let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                    // Process all applicable chains (parallel rack processing)
+                    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                    let chains: Vec<&dream_models::project::RackChain> = if has_solo {
+                        rack.chains.iter().filter(|c| c.is_solo && !c.is_disabled).collect()
+                    } else {
+                        rack.chains.iter().filter(|c| !c.is_disabled).collect()
+                    };
+                    for chain in chains {
+                        collect_runtime_internal_effects_local(&chain.devices, rack_bypassed, out);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut internal_effects: Vec<TrackFxEntry> = Vec::new();
+    collect_runtime_internal_effects_local(&track.effects, false, &mut internal_effects);
+
+    // Step 3: Filter to only builtin effect types and send AddDevice commands
+    let runtime_effects: Vec<(u8, TrackFxEntry)> = internal_effects
+        .into_iter()
+        .filter_map(|entry| {
+            builtin_effect_type_from_plugin_id(&entry.plugin_id)
+                .map(|effect_type| (effect_type, entry))
+        })
+        .collect();
+
+    for (slot_index, (effect_type, entry)) in runtime_effects.into_iter().enumerate() {
+        let si = slot_index.min(u8::MAX as usize) as u8;
+
+        push_prealloc_device(handle, ti, si, effect_type)?;
+
+        if entry.bypassed {
+            push_command(
+                handle,
+                EngineCommand::BypassDevice {
+                    track_index: ti,
+                    slot_index: si,
+                    bypassed: true,
+                },
+            )?;
+        }
+
+        // Restore persisted params
+        if let Some(ref params) = entry.params {
+            for (param_idx, &value) in params.iter().enumerate() {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index: ti,
+                        slot_index: si,
+                        param_index: param_idx as u32,
+                        value,
+                    },
+                )?;
+            }
+        }
+
+        // Note: apply_static_imported_params_for_slot is intentionally NOT called
+        // here. That function restores Ableton import-specific params and is only
+        // relevant during project load / undo (handled by the global
+        // rebuild_runtime_device_chains_from_project). For runtime plugin mutations,
+        // all device params are already stored in slot.params and restored above.
+    }
+
+    // Step 4: Restore instrument bypass state
+    if let Some(instrument) = &track.instrument {
+        let inst_bypassed = instrument.is_bypassed();
+        if inst_bypassed {
+            push_command(
+                handle,
+                EngineCommand::BypassInstrument {
+                    track_index: ti,
+                    bypassed: true,
+                },
+            )?;
+        }
+    }
+
+    log::debug!(
+        "[RuntimeChain] rebuilt single track device chain for '{}' (index={})",
+        track.name,
+        track_index
+    );
+
+    Ok(())
+}

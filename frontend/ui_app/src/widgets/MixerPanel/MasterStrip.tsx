@@ -11,18 +11,21 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
     const masterRight = useEngineStore((s) => s.meters.master_right);
     const peakL = masterLeft?.peak ?? -60;
     const peakR = masterRight?.peak ?? -60;
-    const rmsL = masterLeft?.rms ?? -60;
-    const rmsR = masterRight?.rms ?? -60;
-    const meterL = clamp01(vuNorm((peakL * 0.7) + (rmsL * 0.3)));
-    const meterR = clamp01(vuNorm((peakR * 0.7) + (rmsR * 0.3)));
+    // ENTERPRISE-METER-FIX: Use pure peak (not peak*0.7+rms*0.3) — same as MixerChannelMeters.
+    const meterL = clamp01(vuNorm(peakL));
+    const meterR = clamp01(vuNorm(peakR));
+
+    // Peak hold indicators
+    const holdL = clamp01(vuNorm(masterLeft?.peak_hold ?? peakL));
+    const holdR = clamp01(vuNorm(masterRight?.peak_hold ?? peakR));
 
     return (
         <div style={{ display: 'flex', flexDirection: 'row', gap: 1 }}>
             <div style={{ width: meterWidth, position: 'relative', borderRadius: 2, overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterL} levelR={meterL} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+                <MeterStrip levelL={meterL} levelR={meterL} peakHoldL={holdL} peakHoldR={holdL} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
             <div style={{ width: meterWidth, position: 'relative', borderRadius: 2, overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterR} levelR={meterR} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+                <MeterStrip levelL={meterR} levelR={meterR} peakHoldL={holdR} peakHoldR={holdR} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
         </div>
     );

@@ -276,7 +276,7 @@ impl FlowGraph {
                             af.set_lfo_depth(depth);
                         }
                     }
-                    "envDepth" => {
+                    "envDepth" | "envFollow" => {
                         if let Ok(depth) = v.parse::<f32>() {
                             af.set_env_follow_depth(depth);
                         }
@@ -451,6 +451,17 @@ impl FlowGraph {
                 if k == "bias" {
                     if let Ok(b) = v.parse::<f32>() {
                         vca.set_bias(b);
+                    }
+                }
+            }
+            return;
+        }
+
+        if let Some(pitch) = node.as_any_mut().downcast_mut::<PitchNode>() {
+            for (k, v) in params {
+                if k == "octaveOffset" || k == "octave_offset" {
+                    if let Ok(o) = v.parse::<f32>() {
+                        pitch.set_octave_offset(o);
                     }
                 }
             }

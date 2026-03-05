@@ -22,6 +22,7 @@ mod runtime_device_import_params;
 #[path = "sync_engine/sampler_snapshot.rs"]
 mod sampler_snapshot;
 pub use runtime_device_chains::rebuild_runtime_device_chains_from_project;
+pub use runtime_device_chains::rebuild_single_track_device_chain;
 pub use sampler_snapshot::rebuild_sampler_snapshot_from_project;
 
 /// Public helper for persisting a device param to the project model's slot.params.

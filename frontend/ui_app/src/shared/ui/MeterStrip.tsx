@@ -38,6 +38,10 @@ export interface MeterStripProps {
     levelL: number;
     /** Right channel level: 0..1 normalised via dbToMeterNorm / linearToMeterNorm. */
     levelR: number;
+    /** Peak hold level for left channel: 0..1, used for peak indicator line. */
+    peakHoldL?: number;
+    /** Peak hold level for right channel: 0..1, used for peak indicator line. */
+    peakHoldR?: number;
     /** Show a horizontal 0 dB divider line (default true). */
     show0dBLine?: boolean;
     /** Render as MIDI velocity meter (yellow tint, no gradient). */
@@ -106,6 +110,8 @@ ChannelBar.displayName = 'ChannelBar';
 export const MeterStrip: React.FC<MeterStripProps> = React.memo(({
     levelL,
     levelR,
+    peakHoldL,
+    peakHoldR,
     show0dBLine = true,
     isMidi = false,
     width = METER_DEFAULT_WIDTH,
@@ -179,6 +185,38 @@ export const MeterStrip: React.FC<MeterStripProps> = React.memo(({
                             background: COLOR_ZERO_DB_LINE,
                             pointerEvents: 'none',
                             zIndex: 'var(--z-local, 1)',
+                        }}
+                    />
+                )}
+
+                {/* ── Peak hold indicator lines (enterprise DAW standard) ── */}
+                {peakHoldL != null && peakHoldL > 0.001 && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: 0,
+                            width: chWidth,
+                            bottom: `${clamp01(peakHoldL) * 100}%`,
+                            height: 1,
+                            background: peakHoldL >= DB_ZERO_NORM ? '#ff4444' : '#ffffffcc',
+                            pointerEvents: 'none',
+                            zIndex: 2,
+                            transition: 'bottom 55ms linear',
+                        }}
+                    />
+                )}
+                {peakHoldR != null && peakHoldR > 0.001 && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            right: 0,
+                            width: chWidth,
+                            bottom: `${clamp01(peakHoldR) * 100}%`,
+                            height: 1,
+                            background: peakHoldR >= DB_ZERO_NORM ? '#ff4444' : '#ffffffcc',
+                            pointerEvents: 'none',
+                            zIndex: 2,
+                            transition: 'bottom 55ms linear',
                         }}
                     />
                 )}

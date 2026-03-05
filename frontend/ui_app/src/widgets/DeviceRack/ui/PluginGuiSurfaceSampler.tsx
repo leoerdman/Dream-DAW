@@ -189,7 +189,6 @@ export function PluginGuiSurfaceSampler({
                     style={{
                         position: 'relative',
                         overflow: 'hidden',
-                        borderBottom: 'var(--space-px) solid var(--token-color-rgba-90-178-255-0d22)',
                         minHeight: 80,
                     }}
                 >

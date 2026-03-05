@@ -229,8 +229,12 @@ fn bypass_device_cmd(
         {
             let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
             let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+            // SC-104 FIX: Rebuild graph topology FIRST so topological ordering
+            // includes new sidechain constraints, THEN publish ExternalFX snapshot.
+            // Previously these were reversed, creating a window where the audio
+            // thread had new sidechain indices but old processing order.
             clip_pool_state.rebuild_routing_only(&project);
+            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
         }
         log::info!("[IPC] bypass_device(track={track_index}, slot={slot_index}) — external plugin bypass + immediate PDC rebuild");
     }

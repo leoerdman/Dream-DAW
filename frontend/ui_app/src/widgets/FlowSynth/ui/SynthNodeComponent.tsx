@@ -79,18 +79,16 @@ function PortDot({
 
     const cy = portCenterY(index);
     const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi' : port.type === 'control' ? 'control' : 'audio';
-    const isAudio = port.type === 'audio';
-    const isMidi = port.type === 'midi';
-    const isControl = port.type === 'control';
 
-    const dotColor = isMidi
+
+    const dotColor = port.type === 'midi'
         ? 'var(--color-signal-midi)'
-        : isAudio
+        : port.type === 'audio'
             ? 'var(--color-signal-audio)'
             : 'var(--color-signal-control)';
 
-    // ENTERPRISE: Visual type differentiation — control ports are smaller diamonds
-    const dotSize = isControl ? 10 : FLOW_PORT_SIZE;
+    // ENTERPRISE: All ports are filled circles, differentiated only by color per signal type
+    const dotSize = 10;
     const HIT_PAD = 8;
 
     const handlePointerDown = (e: React.PointerEvent) => {
@@ -134,9 +132,7 @@ function PortDot({
     const isCompatibleTarget = isDragging && side === 'in' && (dragType === signalType || port.type === 'control');
     const showTargetGlow = isCompatibleTarget && !isHovered;
 
-    // ENTERPRISE: Direction differentiation — output ports are solid filled,
-    // input ports are hollow (transparent center + border only).
-    const isFilled = side === 'out';
+
 
     return (
         <div
@@ -150,27 +146,24 @@ function PortDot({
                 top: cy - dotSize / 2,
                 width: dotSize,
                 height: dotSize,
-                // ENTERPRISE: Control ports = diamond shape, audio/midi = circle
-                borderRadius: isControl ? 3 : '50%',
+                // ENTERPRISE: All ports are circles, differentiated by fill color
+                borderRadius: '50%',
                 transform: isHovered
-                    ? `${isControl ? 'rotate(45deg) ' : ''}scale(1.4)`
+                    ? 'scale(1.4)'
                     : showTargetGlow
-                        ? `${isControl ? 'rotate(45deg) ' : ''}scale(1.15)`
-                        : isControl ? 'rotate(45deg)' : 'none',
-                // ENTERPRISE: Output = solid fill, Input = hollow
-                backgroundColor: isFilled ? dotColor : 'transparent',
+                        ? 'scale(1.15)'
+                        : 'none',
+                // ENTERPRISE: All ports are solid filled with their signal color
+                backgroundColor: dotColor,
                 border: `2px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
                 boxShadow: isHovered
                     ? `0 0 14px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
                     : showTargetGlow
                         ? `0 0 10px ${dotColor}`
-                        : isFilled
-                            ? `0 0 6px ${dotColor}`
-                            : 'none',
+                        : `0 0 6px ${dotColor}`,
                 transition: 'transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s',
                 zIndex: isHovered ? 10 : 5,
-                // Hit area — reduced from 12→8 to prevent overlap at 32px row height
                 padding: HIT_PAD,
                 margin: -HIT_PAD,
                 backgroundClip: 'content-box',

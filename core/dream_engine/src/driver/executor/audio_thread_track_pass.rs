@@ -70,7 +70,7 @@ pub(crate) fn process_track_graph_node(
     left: &mut [f32],
     right: &mut [f32],
     ctx: &mut TrackPassContext,
-    _sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
+    sidechain_resolver: &(impl Fn(usize) -> Option<(*const f32, *const f32)> + ?Sized)
 ) {
     let c = ctx.c;
     // 1. Unify Working Buffer
@@ -127,30 +127,75 @@ pub(crate) fn process_track_graph_node(
             } else {
                 for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                     if runtime_slot.is_bypassed { continue; }
+                    // SC-100/SC-101 FIX: Sidechain source resolution strategy:
+                    //
+                    // Post-Mixer (mode 2, default): Use graph renderer's sidechain_resolver
+                    //   which provides PDC-compensated, topologically-ordered data from the
+                    //   source track's completed output buffer. Falls back to flat-array on
+                    //   resolver miss (safety net during topology transitions).
+                    //
+                    // Pre-FX (mode 0) / Post-FX (mode 1): Use flat-array tap buffers
+                    //   directly. These are correct because DAG topological ordering
+                    //   guarantees the source track has already been processed (and its
+                    //   tap buffers populated) before the consumer runs.
                     let safe_source_ptrs = runtime_slot
                         .sidechain_track_index
                         .and_then(|src_idx| {
-                            // Select buffer based on sidechain_send_mode:
-                            // 0 = Pre-FX, 1 = Post-FX, 2 = Post-Mixer (default)
                             let mode = runtime_slot.sidechain_send_mode;
-                            if src_idx < ctx.track_idx {
-                                let target_slot = &ctx.left_tracks[src_idx];
-                                Some(match mode {
-                                    0 => (&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]),
-                                    1 => (&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]),
-                                    _ => (&target_slot.buf_left[..c], &target_slot.buf_right[..c]),
-                                })
-                            } else if src_idx > ctx.track_idx {
-                                let offset_idx = src_idx - ctx.track_idx - 1;
-                                if offset_idx < ctx.right_tracks.len() {
-                                    let target_slot = &ctx.right_tracks[offset_idx];
-                                    Some(match mode {
-                                        0 => (&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]),
-                                        1 => (&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]),
-                                        _ => (&target_slot.buf_left[..c], &target_slot.buf_right[..c]),
-                                    })
-                                } else { None }
-                            } else { None }
+                            match mode {
+                                // Pre-FX: read from source's pre-FX tap buffer
+                                0 => {
+                                    if src_idx < ctx.track_idx {
+                                        let target_slot = &ctx.left_tracks[src_idx];
+                                        Some((&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]))
+                                    } else if src_idx > ctx.track_idx {
+                                        let offset_idx = src_idx - ctx.track_idx - 1;
+                                        if offset_idx < ctx.right_tracks.len() {
+                                            let target_slot = &ctx.right_tracks[offset_idx];
+                                            Some((&target_slot.sidechain_pre_fx_left[..c], &target_slot.sidechain_pre_fx_right[..c]))
+                                        } else { None }
+                                    } else { None }
+                                }
+                                // Post-FX: read from source's post-FX tap buffer
+                                1 => {
+                                    if src_idx < ctx.track_idx {
+                                        let target_slot = &ctx.left_tracks[src_idx];
+                                        Some((&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]))
+                                    } else if src_idx > ctx.track_idx {
+                                        let offset_idx = src_idx - ctx.track_idx - 1;
+                                        if offset_idx < ctx.right_tracks.len() {
+                                            let target_slot = &ctx.right_tracks[offset_idx];
+                                            Some((&target_slot.sidechain_post_fx_left[..c], &target_slot.sidechain_post_fx_right[..c]))
+                                        } else { None }
+                                    } else { None }
+                                }
+                                // Post-Mixer (default): Use PDC-compensated graph resolver,
+                                // fall back to flat-array buf_left/buf_right
+                                _ => {
+                                    // Graph node index = track_idx + 1 (master is 0)
+                                    let graph_src_idx = src_idx + 1;
+                                    sidechain_resolver(graph_src_idx)
+                                        .map(|(l_ptr, r_ptr)| unsafe {
+                                            (
+                                                std::slice::from_raw_parts(l_ptr, c),
+                                                std::slice::from_raw_parts(r_ptr, c),
+                                            )
+                                        })
+                                        .or_else(|| {
+                                            // Fallback: direct flat-array read
+                                            if src_idx < ctx.track_idx {
+                                                let target_slot = &ctx.left_tracks[src_idx];
+                                                Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                            } else if src_idx > ctx.track_idx {
+                                                let offset_idx = src_idx - ctx.track_idx - 1;
+                                                if offset_idx < ctx.right_tracks.len() {
+                                                    let target_slot = &ctx.right_tracks[offset_idx];
+                                                    Some((&target_slot.buf_left[..c], &target_slot.buf_right[..c]))
+                                                } else { None }
+                                            } else { None }
+                                        })
+                                }
+                            }
                         });
                     
                     let (sc_l, sc_r) = if let Some((sl, sr)) = safe_source_ptrs {

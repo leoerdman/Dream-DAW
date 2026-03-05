@@ -1,8 +1,0 @@
-[package]
-name = "rubato_test_project"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-rubato = "0.16.2"

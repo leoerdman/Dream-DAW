@@ -68,7 +68,7 @@ export const PluginGuiSurface = React.memo(({
 
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
 
-    const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
+    const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(true);
 
     useEffect(() => {
         const isSamplerSurface = device.effectType === 'sampler' || device.effectType === 'instrument';

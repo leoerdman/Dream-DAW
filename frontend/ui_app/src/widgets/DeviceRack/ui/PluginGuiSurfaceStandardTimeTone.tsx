@@ -1,14 +1,13 @@
 import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
+    buildSurfaceKnobParams,
     DryWetSection,
     formatSurfaceParam,
     getDevicePluginKey,
-    KnobParamGridMemo,
-    panelWithOptionalDryWetStyle,
-    pluginPanelLayoutStyle,
+    KnobParamGrid,
+    pluginPanelCardBaseStyle,
     pluginPanelMetaStyle,
-    readMixSurfaceParam,
     readSurfaceParam,
     shouldShowDryWet,
     type SurfaceHandlers,
@@ -18,27 +17,39 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
     const showDryWet = shouldShowDryWet(device);
     const rate = readSurfaceParam(device, 'rate', 1.2, 'Hz');
     const depth = readSurfaceParam(device, 'depth', 40, '%');
-    const mix = readMixSurfaceParam(device, 35);
     const depthNorm = clamp01(depth.value / 100);
+    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+
     return (
-        <div data-no-drag style={pluginPanelLayoutStyle}>
-            <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-chorus)' }}>
-                <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
-                        <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-12-11-18-0d65)" />
-                        <path d={`M 0 26 C 35 ${26 - 16 * depthNorm}, 70 ${26 + 16 * depthNorm}, 105 26 C 140 ${26 - 16 * depthNorm}, 175 ${26 + 16 * depthNorm}, 210 26 C 245 ${26 - 16 * depthNorm}, 280 ${26 + 16 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-c867ff)" strokeWidth="2.2" />
-                        <path d={`M 0 26 C 35 ${26 + 14 * depthNorm}, 70 ${26 - 14 * depthNorm}, 105 26 C 140 ${26 + 14 * depthNorm}, 175 ${26 - 14 * depthNorm}, 210 26 C 245 ${26 + 14 * depthNorm}, 280 ${26 - 14 * depthNorm}, 280 26`} fill="none" stroke="var(--token-color-hex-4ac0ff)" strokeWidth="2.2" opacity="0.9" />
-                        <path d={`M 0 26 C 20 ${26 - 10 * depthNorm}, 50 ${26 + 10 * depthNorm}, 80 26 C 110 ${26 - 10 * depthNorm}, 140 ${26 + 10 * depthNorm}, 170 26 C 200 ${26 - 10 * depthNorm}, 230 ${26 + 10 * depthNorm}, 260 26`} fill="none" stroke="var(--token-color-rgba-200-140-255-0d45)" strokeWidth="1.8" />
-                    </svg>
-                    <div style={pluginPanelMetaStyle}>
-                        <span>{formatSurfaceParam(rate)}</span>
-                        <span>Depth {formatSurfaceParam(depth)}</span>
-                        <span>Mix {formatSurfaceParam(mix)}</span>
-                    </div>
+        <div data-no-drag style={{ display: 'flex', gap: 'var(--space-1-5)', height: '100%' }}>
+            {/* Left control panel */}
+            <div style={{ width: 130, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, padding: 'var(--space-1)', display: 'block', height: 'fit-content' }}>
+                    <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
                 </div>
-                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-c867ff)" show={showDryWet} />
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            {/* Right: Chorus wave visualization */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-chorus)', overflow: 'hidden', padding: 0, flex: 1 }}>
+                    <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="xMidYMid slice" style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}>
+                        <rect x="0" y="0" width="300" height="120" rx="0" fill="var(--token-color-rgba-12-11-18-0d65)" />
+                        {/* Grid lines */}
+                        <line x1="10" y1="60" x2="290" y2="60" stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="0.8" />
+                        {[30, 90].map(y => <line key={y} x1="10" y1={y} x2="290" y2={y} stroke="var(--token-color-rgba-255-255-255-0d06)" strokeWidth="0.5" />)}
+                        {/* Chorus wave 1 */}
+                        <path d={`M 0 60 C 50 ${60 - 36 * depthNorm}, 100 ${60 + 36 * depthNorm}, 150 60 C 200 ${60 - 36 * depthNorm}, 250 ${60 + 36 * depthNorm}, 300 60`} fill="none" stroke="var(--token-color-hex-c867ff)" strokeWidth="2.2" />
+                        {/* Chorus wave 2 (offset) */}
+                        <path d={`M 0 60 C 50 ${60 + 30 * depthNorm}, 100 ${60 - 30 * depthNorm}, 150 60 C 200 ${60 + 30 * depthNorm}, 250 ${60 - 30 * depthNorm}, 300 60`} fill="none" stroke="var(--token-color-hex-4ac0ff)" strokeWidth="2.2" opacity="0.9" />
+                        {/* Ghost wave */}
+                        <path d={`M 0 60 C 30 ${60 - 22 * depthNorm}, 70 ${60 + 22 * depthNorm}, 110 60 C 150 ${60 - 22 * depthNorm}, 190 ${60 + 22 * depthNorm}, 230 60 C 270 ${60 - 22 * depthNorm}, 300 ${60 + 22 * depthNorm}, 300 60`} fill="none" stroke="var(--token-color-rgba-200-140-255-0d45)" strokeWidth="1.8" />
+                    </svg>
+                </div>
+                <div style={{ ...pluginPanelMetaStyle, padding: '0 var(--space-1)' }}>
+                    <span>{formatSurfaceParam(rate)}</span>
+                    <span>Depth {formatSurfaceParam(depth)}</span>
+                </div>
+            </div>
+            <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-c867ff)" show={showDryWet} />
         </div>
     );
 }
@@ -49,54 +60,47 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
     const isDrumBuss = normalizedInternalId === 'internal://effect/drum-buss';
     const isDynamicTube = normalizedInternalId === 'internal://effect/dynamic-tube';
     const driveParam = readSurfaceParam(device, 'drive', 3, 'dB');
-    const satToneParam = readSurfaceParam(device, 'tone', 0, '%');
-    const mix = readMixSurfaceParam(device, 86);
     const driveClamp = Math.max(0, Math.min(24, driveParam.value));
     const knee = Math.max(12, Math.min(68, 80 - driveClamp * 2.8));
+    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+
     return (
-        <div data-no-drag style={pluginPanelLayoutStyle}>
-            <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-saturator)' }}>
-                <div style={{ display: 'grid', gap: 6 }}>
-                    <svg viewBox="0 0 280 52" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 48, willChange: 'transform', transform: 'translateZ(0)' }}>
-                        <rect x="0" y="0" width="280" height="52" rx="4" fill="var(--token-color-rgba-20-13-9-0d7)" />
+        <div data-no-drag style={{ display: 'flex', gap: 'var(--space-1-5)', height: '100%' }}>
+            <div style={{ width: 130, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, padding: 'var(--space-1)', display: 'block', height: 'fit-content' }}>
+                    <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
+                </div>
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-saturator)', overflow: 'hidden', padding: 0, flex: 1 }}>
+                    <svg width="100%" height="100%" viewBox="0 0 280 120" preserveAspectRatio="xMidYMid slice" style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}>
+                        <rect x="0" y="0" width="280" height="120" fill="var(--token-color-rgba-20-13-9-0d7)" />
+                        <line x1="10" y1="60" x2="270" y2="60" stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="0.8" />
                         {!isDrumBuss && !isDynamicTube && (
                             <>
-                                <line x1="12" y1="46" x2="268" y2="6" stroke="var(--token-color-rgba-255-172-89-0d18)" strokeWidth="1" strokeDasharray="3,3" />
-                                <path d={`M 12 46 C ${knee} 46, ${140 - knee / 2} 6, 140 6 C ${140 + knee / 2} 6, ${280 - knee} 46, 268 46`} fill="none" stroke="var(--token-color-hex-ffac59)" strokeWidth={Math.max(2, 2 + driveClamp / 8)} strokeLinecap="round" />
+                                <line x1="14" y1="106" x2="266" y2="14" stroke="var(--token-color-rgba-255-172-89-0d18)" strokeWidth="1" strokeDasharray="3,3" />
+                                <path d={`M 14 106 C ${knee + 14} 106, ${140 - knee / 2} 14, 140 14 C ${140 + knee / 2} 14, ${266 - knee} 106, 266 106`} fill="none" stroke="var(--token-color-hex-ffac59)" strokeWidth={Math.max(2, 2 + driveClamp / 8)} strokeLinecap="round" />
                             </>
                         )}
                         {isDrumBuss && Array.from({ length: 12 }).map((_, i) => {
-                            const x = 10 + i * 21.5;
-                            const h = 8 + ((i * 7) % 26);
-                            return <rect key={i} x={x} y={44 - h} width="12" height={h} rx="2" fill="var(--token-color-rgba-255-172-89-0d82)" />;
+                            const x = 12 + i * 21;
+                            const h = 16 + ((i * 7) % 52);
+                            return <rect key={i} x={x} y={106 - h} width="14" height={h} rx="2" fill="var(--token-color-rgba-255-172-89-0d82)" />;
                         })}
                         {isDynamicTube && (
                             <>
-                                <ellipse cx="90" cy="26" rx="36" ry="18" fill="none" stroke="var(--token-color-rgba-255-172-89-0d6)" strokeWidth="1.5" />
-                                <ellipse cx="190" cy="26" rx="36" ry="18" fill="none" stroke="var(--token-color-rgba-255-172-89-0d6)" strokeWidth="1.5" />
-                                <path d="M 54 26 L 126 26 M 154 26 L 226 26" stroke="var(--token-color-rgba-255-172-89-0d55)" strokeWidth="1.2" />
+                                <ellipse cx="80" cy="60" rx="36" ry="28" fill="none" stroke="var(--token-color-rgba-255-198-120-0d6)" strokeWidth="1.5" />
+                                <ellipse cx="200" cy="60" rx="36" ry="28" fill="none" stroke="var(--token-color-rgba-255-198-120-0d45)" strokeWidth="1.5" />
+                                <path d="M 44 60 L 116 60 M 164 60 L 236 60" stroke="var(--token-color-rgba-255-198-120-0d55)" strokeWidth="1.2" />
                             </>
                         )}
                     </svg>
-                    <div style={pluginPanelMetaStyle}>
-                        {isDrumBuss ? (<>
-                            <span>Boom {formatSurfaceParam(readSurfaceParam(device, 'boom', 40, '%'))}</span>
-                            <span>Drive {formatSurfaceParam(driveParam)}</span>
-                            <span>Trans {formatSurfaceParam(readSurfaceParam(device, 'transient', 50, '%'))}</span>
-                        </>) : isDynamicTube ? (<>
-                            <span>Drive {formatSurfaceParam(driveParam)}</span>
-                            <span>Bias {formatSurfaceParam(readSurfaceParam(device, 'bias', 20, '%'))}</span>
-                            <span>Env {formatSurfaceParam(readSurfaceParam(device, 'envelope', 50, '%'))}</span>
-                        </>) : (<>
-                            <span>Drive {formatSurfaceParam(driveParam)}</span>
-                            {satToneParam.value !== 0 && <span>Tone {formatSurfaceParam(satToneParam)}</span>}
-                            <span>Mix {formatSurfaceParam(mix)}</span>
-                        </>)}
-                    </div>
                 </div>
-                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />
+                <div style={{ ...pluginPanelMetaStyle, padding: '0 var(--space-1)' }}>
+                    <span>Drive {formatSurfaceParam(driveParam)}</span>
+                </div>
             </div>
-            <KnobParamGridMemo device={device} handlers={handlers} options={{ omitMixWhenDryWet: showDryWet }} />
+            <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-ffac59)" show={showDryWet} />
         </div>
     );
 }

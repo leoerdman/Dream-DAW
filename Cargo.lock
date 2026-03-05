@@ -4007,10 +4007,7 @@ dependencies = [
 
 [[package]]
 name = "rubato_test_project"
-version = "1.1.73"
-dependencies = [
- "rubato",
-]
+version = "0.1.0"
 
 [[package]]
 name = "rustc-hash"

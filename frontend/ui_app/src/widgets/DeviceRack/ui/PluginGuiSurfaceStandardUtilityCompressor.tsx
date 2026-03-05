@@ -8,7 +8,6 @@ import {
     getParamValue,
     KnobParamGrid,
     pluginPanelCardBaseStyle,
-    pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     readSurfaceParam,
     shouldShowDryWet,
@@ -24,38 +23,35 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         return (
-            <div data-no-drag style={pluginPanelLayoutStyle}>
-                <div style={{
-                    ...pluginPanelCardBaseStyle,
-                    background: 'var(--plugin-bg-utility)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--space-1-5)',
-                    alignItems: 'stretch',
-                }}>
-                    <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        <button
-                            type="button"
-                            onClick={() => onApplyUtilityScene?.('mono')}
-                            className={`utility-scene-btn${mono ? ' active' : ''}`}
-                            style={{
-                                padding: '3px 14px',
-                                borderRadius: 'var(--radius-md)',
-                                border: 'var(--space-px) solid var(--color-divider)',
-                                background: mono ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                color: mono ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                                fontSize: 'var(--font-size-2xs)',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease, color 0.15s ease',
-                            }}
-                        >Mono</button>
-                    </div>
-                    {showDryWet && (
-                        <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />
-                    )}
+            <div data-no-drag style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+                height: '100%',
+                padding: 'var(--space-1)',
+            }}>
+                <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => onApplyUtilityScene?.('mono')}
+                        className={`utility-scene-btn${mono ? ' active' : ''}`}
+                        style={{
+                            padding: '3px 14px',
+                            borderRadius: 'var(--radius-md)',
+                            border: 'var(--space-px) solid var(--color-divider)',
+                            background: mono ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                            color: mono ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-2xs)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'background 0.15s ease, color 0.15s ease',
+                        }}
+                    >Mono</button>
                 </div>
+                {showDryWet && (
+                    <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />
+                )}
             </div>
         );
     }
@@ -71,108 +67,82 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const ratio = ratioParam.value;
         const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel!) : 0;
         const pseudoGr = rawGr > 0 ? Math.max(0, Math.min(24, rawGr)) : Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
-        const atkParam = readSurfaceParam(device, ['atk', 'attack'], 10, 'ms');
-        const relParam = readSurfaceParam(device, ['rel', 'release'], 80, 'ms');
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+
+        /* Transient Shaper specific params */
+        const tsAtkNorm = isTransientShaper ? clamp01(readSurfaceParam(device, 'attack', 50, '%').value / 100) : 0;
+        const tsSusNorm = isTransientShaper ? clamp01((readSurfaceParam(device, 'sustain', 0, '%').value + 100) / 200) : 0;
+
+        /* Meta block */
+        const metaBlock = (() => {
+            if (isTransientShaper) {
+                const atkP = readSurfaceParam(device, 'attack', 50, '%');
+                const susP = readSurfaceParam(device, 'sustain', 0, '%');
+                return (<><span>Atk {formatSurfaceParam(atkP)}</span><span>Sus {formatSurfaceParam(susP)}</span></>);
+            }
+            if (isGlueCompressor) {
+                const GLUE_COMP_RATIOS = ['2:1', '4:1', '10:1'] as const;
+                const ratioIdx = Math.round(ratioParam.value);
+                const ratioLabel = GLUE_COMP_RATIOS[Math.max(0, Math.min(2, ratioIdx))] ?? '4:1';
+                return (<><span>Thr {formatSurfaceParam(thrParam)}</span><span>{ratioLabel}</span><span>GR {pseudoGr.toFixed(1)}dB</span></>);
+            }
+            if (isMultibandDynamics) {
+                const xoverLo = readSurfaceParam(device, 'xover low', 200, 'Hz');
+                const xoverHi = readSurfaceParam(device, 'xover high', 4000, 'Hz');
+                return (<><span>Lo {formatSurfaceParam(xoverLo)}</span><span>Hi {formatSurfaceParam(xoverHi)}</span></>);
+            }
+            return (<><span>Thr {formatSurfaceParam(thrParam)}</span><span>Ratio {formatSurfaceParam(ratioParam)}</span><span>GR {pseudoGr.toFixed(1)}dB</span></>);
+        })();
+
         return (
-            <div data-no-drag style={pluginPanelLayoutStyle}>
-                <div style={{
-                    ...pluginPanelCardBaseStyle,
-                    background: 'var(--plugin-bg-compressor)',
-                    display: 'grid',
-                    gridTemplateColumns: showDryWet ? '1fr auto auto' : '1fr auto',
-                    gap: 'var(--space-2-5)',
-                    alignItems: 'center',
-                }}>
-                    {isTransientShaper ? (() => {
-                        const atkParam2 = readSurfaceParam(device, 'attack', 50, '%');
-                        const susParam = readSurfaceParam(device, 'sustain', 0, '%');
-                        const speedParam = readSurfaceParam(device, 'speed', 50, '%');
-                        const atkNorm = clamp01(atkParam2.value / 100);
-                        const susNorm = clamp01((susParam.value + 100) / 200); // sustain is -100..+100
-                        return (
-                            <div style={{ display: 'grid', gap: 6 }}>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                    <div style={{ width: `${(atkNorm * 100).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-53b0ff)' }} />
-                                </div>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                    <div style={{ width: `${(susNorm * 100).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-78d6ad)' }} />
-                                </div>
-                                <div style={pluginPanelMetaStyle}>
-                                    <span>Attack {formatSurfaceParam(atkParam2)}</span>
-                                    <span>Sustain {formatSurfaceParam(susParam)}</span>
-                                    <span>Speed {formatSurfaceParam(speedParam)}</span>
-                                </div>
-                            </div>
-                        );
-                    })() : (
-                        <svg viewBox="0 0 280 86" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: 76, willChange: 'transform', transform: 'translateZ(0)' }}>
-                            <rect x="0" y="0" width="280" height="86" fill="var(--token-color-rgba-22-24-30-0d65)" rx="4" />
-                            {!isGlueCompressor && !isMultibandDynamics && (
-                                <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="3" strokeLinecap="round" />
-                            )}
-                            {isGlueCompressor && (
-                                <path d="M 14 70 L 96 70 Q 124 70 146 54 Q 168 38 186 38 Q 214 38 236 20 L 260 20" fill="none" stroke="var(--token-color-hex-8ec5ff)" strokeWidth="3" strokeLinecap="round" />
-                            )}
-                            {isMultibandDynamics && (
+            <div data-no-drag style={{ display: 'flex', gap: 'var(--space-1-5)', height: '100%' }}>
+                <div style={{ width: 130, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                    <div style={{ ...pluginPanelCardBaseStyle, padding: 'var(--space-1)', display: 'block', height: 'fit-content' }}>
+                        <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
+                    </div>
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                    <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-compressor)', overflow: 'hidden', padding: 0, flex: 1, position: 'relative' }}>
+                        <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="xMidYMid slice" style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}>
+                            <rect x="0" y="0" width="300" height="120" fill="var(--token-color-rgba-22-24-30-0d65)" />
+                            {isTransientShaper ? (
                                 <>
-                                    <line x1="94" y1="20" x2="94" y2="70" stroke="var(--token-color-rgba-142-197-255-0d32)" strokeWidth="1" strokeDasharray="3,3" />
-                                    <line x1="176" y1="20" x2="176" y2="70" stroke="var(--token-color-rgba-142-197-255-0d32)" strokeWidth="1" strokeDasharray="3,3" />
-                                    <path d="M 14 70 L 76 70 Q 92 70 100 56 Q 112 40 132 40 Q 152 40 162 54 Q 170 66 176 66 Q 198 66 214 42 Q 228 22 260 20" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="2.6" strokeLinecap="round" />
+                                    {/* Attack bar */}
+                                    <rect x="20" y="26" width={Math.max(4, tsAtkNorm * 260)} height="24" rx="4" fill="var(--token-color-hex-53b0ff)" opacity="0.85" />
+                                    {/* Sustain bar */}
+                                    <rect x="20" y="64" width={Math.max(4, tsSusNorm * 260)} height="24" rx="4" fill="var(--token-color-hex-78d6ad)" opacity="0.85" />
+                                    <text x="20" y="20" fill="var(--token-color-rgba-255-255-255-0d45)" fontSize="9" fontFamily="var(--font-role-data)">ATTACK</text>
+                                    <text x="20" y="58" fill="var(--token-color-rgba-255-255-255-0d45)" fontSize="9" fontFamily="var(--font-role-data)">SUSTAIN</text>
+                                </>
+                            ) : (
+                                <>
+                                    <line x1="20" y1="20" x2="20" y2="100" stroke="var(--token-color-rgba-255-255-255-0d2)" />
+                                    <line x1="20" y1="100" x2="280" y2="100" stroke="var(--token-color-rgba-255-255-255-0d2)" />
+                                    {/* Compression curve */}
+                                    {!isGlueCompressor && !isMultibandDynamics && (
+                                        <path d="M 20 100 L 160 100 Q 210 100 260 30 L 280 30" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="3" strokeLinecap="round" />
+                                    )}
+                                    {isGlueCompressor && (
+                                        <path d="M 20 100 L 120 100 Q 150 100 180 74 Q 210 48 230 48 Q 260 48 280 30" fill="none" stroke="var(--token-color-hex-8ec5ff)" strokeWidth="3" strokeLinecap="round" />
+                                    )}
+                                    {isMultibandDynamics && (
+                                        <>
+                                            <line x1="110" y1="20" x2="110" y2="100" stroke="var(--token-color-rgba-142-197-255-0d32)" strokeWidth="1" strokeDasharray="3,3" />
+                                            <line x1="200" y1="20" x2="200" y2="100" stroke="var(--token-color-rgba-142-197-255-0d32)" strokeWidth="1" strokeDasharray="3,3" />
+                                            <path d="M 20 100 L 90 100 Q 108 100 120 78 Q 136 54 160 54 Q 184 54 194 74 Q 202 90 208 90 Q 234 90 256 56 Q 270 32 280 30" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="2.6" strokeLinecap="round" />
+                                        </>
+                                    )}
+                                    {/* GR meter bar */}
+                                    <rect x="270" y={100 - (pseudoGr / 24) * 74} width="14" height={(pseudoGr / 24) * 74} rx="2" fill={pseudoGr > 12 ? 'var(--color-error)' : pseudoGr > 4 ? 'var(--color-warning)' : 'var(--color-success)'} opacity="0.85" />
                                 </>
                             )}
-                            <line x1="14" y1="20" x2="14" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
-                            <line x1="14" y1="70" x2="260" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
                         </svg>
-                    )}
-                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: 'var(--space-px) solid var(--color-divider)', padding: 3, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-                        <div style={{
-                            width: '100%',
-                            height: `${(pseudoGr / 24) * 100}%`,
-                            background: pseudoGr > 12 ? 'linear-gradient(to top, var(--color-error), var(--color-warning))'
-                                : pseudoGr > 4 ? 'linear-gradient(to top, var(--color-warning), var(--color-success))'
-                                    : 'var(--color-success)',
-                            borderRadius: 2,
-                            transition: 'height 60ms linear',
-                        }} />
                     </div>
-                    <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-6ac3ff)" show={showDryWet} />
-                    {!isTransientShaper && (() => {
-                        const GLUE_COMP_RATIOS = ['2:1', '4:1', '10:1'] as const;
-                        if (isGlueCompressor) {
-                            const ratioIdx = Math.round(ratioParam.value);
-                            const ratioLabel = GLUE_COMP_RATIOS[Math.max(0, Math.min(2, ratioIdx))] ?? '4:1';
-                            return (
-                                <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                    <span>Thr {formatSurfaceParam(thrParam)}</span>
-                                    <span>Ratio {ratioLabel}</span>
-                                    <span>Atk {formatSurfaceParam(atkParam)}</span>
-                                    <span>Rel {formatSurfaceParam(relParam)}</span>
-                                </div>
-                            );
-                        }
-                        if (isMultibandDynamics) {
-                            const xoverLo = readSurfaceParam(device, 'xover low', 200, 'Hz');
-                            const xoverHi = readSurfaceParam(device, 'xover high', 4000, 'Hz');
-                            return (
-                                <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                    <span>Lo {formatSurfaceParam(xoverLo)}</span>
-                                    <span>Hi {formatSurfaceParam(xoverHi)}</span>
-                                </div>
-                            );
-                        }
-                        // Standard compressor
-                        return (
-                            <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
-                                <span>Thr {formatSurfaceParam(thrParam)}</span>
-                                <span>Ratio {formatSurfaceParam(ratioParam)}</span>
-                                <span>Atk {formatSurfaceParam(atkParam)}</span>
-                                <span>Rel {formatSurfaceParam(relParam)}</span>
-                            </div>
-                        );
-                    })()}
+                    <div style={{ ...pluginPanelMetaStyle, padding: '0 var(--space-1)' }}>
+                        {metaBlock}
+                    </div>
                 </div>
-                <KnobParamGrid params={knobParams} handlers={handlers} />
+                <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-6ac3ff)" show={showDryWet} />
             </div>
         );
     }

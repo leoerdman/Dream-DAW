@@ -686,6 +686,10 @@ impl OfflineRenderer {
             .min(slot.buf_left.len())
             .min(slot.buf_right.len());
 
+        // ── SIDECHAIN TAP: Pre-FX snapshot (mirrors RT path) ──
+        slot.sidechain_pre_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
+        slot.sidechain_pre_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
+
         crate::driver::automation::apply_native_device_automation_sample_accurate_block(
             &mut slot.device_chain,
             ctx.automation.get(track_idx),
@@ -732,6 +736,9 @@ impl OfflineRenderer {
                         if runtime_slot.is_bypassed {
                             continue;
                         }
+                        // SC-103 FIX: Select sidechain source buffer based on
+                        // sidechain_send_mode, matching the RT path in
+                        // audio_thread_track_pass.rs.
                         let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
                             if src_idx < track_idx {
                                 ctx.left_slots.get(src_idx)
@@ -741,8 +748,13 @@ impl OfflineRenderer {
                                 ctx.right_slots.get(src_idx - track_idx - 1)
                             }
                         });
+                        let mode = runtime_slot.sidechain_send_mode;
                         let (sc_l, sc_r) = source_slot
-                            .map(|src| (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])))
+                            .map(|src| match mode {
+                                0 => (Some(&src.sidechain_pre_fx_left[..c]), Some(&src.sidechain_pre_fx_right[..c])),
+                                1 => (Some(&src.sidechain_post_fx_left[..c]), Some(&src.sidechain_post_fx_right[..c])),
+                                _ => (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])),
+                            })
                             .unwrap_or((None, None));
 
                         // ── Native FX slot ──
@@ -931,6 +943,11 @@ impl OfflineRenderer {
                 &pctx,
             );
         }
+
+        // ── SIDECHAIN TAP: Post-FX snapshot (mirrors RT path) ──
+        // Capture the signal after all FX processing but before mixer strip.
+        slot.sidechain_post_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
+        slot.sidechain_post_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
     }
 
     /// Routing-aware render: replaces `RenderContext::render()` with

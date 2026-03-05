@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
-import { signalColor, signalGlowColor, isControlLikeCable } from './FlowNodeStyles';
+import { signalColor, signalGlowColor } from './FlowNodeStyles';
 import type { SynthConnection } from '../model/useFlowSynthStore';
 
 const PULSE_DURATION_MS = 520;
@@ -35,7 +35,9 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
 }: Props) {
     const [start, setStart] = useState(initialStart);
     const [end, setEnd] = useState(initialEnd);
+    // Hover tracking: use a ref+timeout to avoid flicker when mouse moves from cable to delete button
     const [isHovered, setIsHovered] = useState(false);
+    const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ENTERPRISE FIX (#3+#4): Store the port-relative Y offset as a ref.
     // The port Y position = nodePosition.y + portRelativeY.
@@ -112,11 +114,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const c2y = end.y;
     const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
 
-    // ENTERPRISE: Cable type differentiation (Bitwig Grid pattern)
-    // Control + Phase = dashed; Audio + Gate + MIDI = solid
-    const isDashedCable = isControlLikeCable(signalType);
-    const coreStrokeWidth = isSelected ? 3.5 : (isDashedCable ? 2 : 3);
-    const controlDash = isDashedCable ? '8 4' : 'none';
+    // ENTERPRISE: All cables solid, uniform width. Color differentiates signal types.
+    const coreStrokeWidth = isSelected ? 3 : 2.5;
 
     const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);
     const pulseY = cubicBezierAt(pulseT, start.y, c1y, c2y, end.y);
@@ -132,8 +131,14 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 strokeWidth={24}
                 pointerEvents="stroke"
                 style={{ cursor: 'pointer' }}
-                onPointerEnter={() => setIsHovered(true)}
-                onPointerLeave={() => setIsHovered(false)}
+                onPointerEnter={() => {
+                    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                    setIsHovered(true);
+                }}
+                onPointerLeave={() => {
+                    // Delay unhover so mouse can transit to delete button
+                    hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 120);
+                }}
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     selectConnection(conn.id);
@@ -149,13 +154,13 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 pointerEvents="none"
                 style={{ filter: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
             />
-            {/* Core path */}
+            {/* Core path — always solid */}
             <path
                 d={pathData}
                 fill="none"
                 stroke={isSelected ? 'color-mix(in srgb, white 32%, var(--color-accent-primary))' : baseColor}
                 strokeWidth={coreStrokeWidth}
-                strokeDasharray={isSelected ? 'none' : controlDash}
+                strokeLinecap="round"
                 opacity={1.0}
                 pointerEvents="none"
             />
@@ -190,20 +195,27 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                     <g
                         transform={`translate(${midX}, ${midY})`}
                         style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+                        onPointerEnter={() => {
+                            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                            setIsHovered(true);
+                        }}
+                        onPointerLeave={() => {
+                            hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 120);
+                        }}
                         onPointerDown={(e) => {
                             e.stopPropagation();
                             deleteConnection(conn.id);
                         }}
                     >
-                        <circle cx="0" cy="0" r="14" fill="var(--color-bg-elevated)" stroke={baseColor} strokeWidth="1.5" />
+                        <circle cx="0" cy="0" r="12" fill="var(--color-bg-elevated)" stroke={baseColor} strokeWidth="1.5" />
                         <path
-                            d="M-4 -4 L4 4 M4 -4 L-4 4"
+                            d="M-3.5 -3.5 L3.5 3.5 M3.5 -3.5 L-3.5 3.5"
                             stroke="var(--color-text-primary)"
-                            strokeWidth="2"
+                            strokeWidth="1.5"
                             strokeLinecap="round"
                         />
-                        {/* Additional hit area to make it easier to click */}
-                        <circle cx="0" cy="0" r="20" fill="transparent" />
+                        {/* Expanded hit area */}
+                        <circle cx="0" cy="0" r="18" fill="transparent" />
                     </g>
                 );
             })()}

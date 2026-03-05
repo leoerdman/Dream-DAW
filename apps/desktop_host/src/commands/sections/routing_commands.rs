@@ -358,6 +358,11 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
             track_id: track_uuid,
             slot_id: slot_uuid,
             source_track_id: source_uuid,
+            sidechain_send_mode: parsed_send_mode.map(|m| match m {
+                dream_models::project::SidechainSendMode::PreFx => "pre_fx".to_string(),
+                dream_models::project::SidechainSendMode::PostFx => "post_fx".to_string(),
+                dream_models::project::SidechainSendMode::PostMixer => "post_mixer".to_string(),
+            }),
         }],
     })
 }

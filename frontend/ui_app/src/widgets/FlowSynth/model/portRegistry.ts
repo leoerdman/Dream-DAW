@@ -142,9 +142,9 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
     output: {
         title: 'Output',
         color: 'var(--color-synth-out)',
+        // Signal flows to AudioOutNode input 0 (left) — mono→stereo fallback handles right channel.
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
-            { id: 'gain', label: 'Gain', type: 'control', fader: { min: 0, max: 2, step: 0.01, dataKey: 'gain' } },
         ],
         outputs: [],
     },

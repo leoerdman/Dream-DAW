@@ -45,13 +45,18 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
                 instrument: {
                     ...track.instrument,
                     sidechain_source_track_id: delta.data.source_track_id,
+                    sidechain_send_mode: delta.data.sidechain_send_mode ?? track.instrument.sidechain_send_mode,
                 },
             });
             return true;
         }
         const effects = track.effects.map((fx) => (
             fx.id === delta.data.slot_id
-                ? { ...fx, sidechain_source_track_id: delta.data.source_track_id }
+                ? {
+                    ...fx,
+                    sidechain_source_track_id: delta.data.source_track_id,
+                    sidechain_send_mode: delta.data.sidechain_send_mode ?? fx.sidechain_send_mode,
+                }
                 : fx
         ));
         patchTrackById(state, track.id, { effects });

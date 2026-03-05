@@ -124,9 +124,9 @@ export function ConnectionsLayer() {
                         d={pathData}
                         fill="none"
                         stroke={baseColor}
-                        strokeWidth={2}
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
                         opacity={0.9}
-                        strokeDasharray="6 4"
                         pointerEvents="none"
                     />
                 );

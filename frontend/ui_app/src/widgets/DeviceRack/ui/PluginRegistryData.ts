@@ -16,12 +16,12 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: {
             type: 'modulationWave',
             waveShape: 'sine',
-            rateParam: 'rate', rateFallback: 1.2, rateMax: 10,
-            depthParam: 'depth', depthFallback: 40, depthMax: 100,
+            rateParam: 'rate', rateFallback: 1.0, rateMax: 10,
+            depthParam: 'depth', depthFallback: 50, depthMax: 100,
         },
         meta: [
-            { label: '', paramNames: 'rate', fallback: 1.2, suffix: 'Hz' },
-            { label: 'Depth', paramNames: 'depth', fallback: 40, suffix: '%' },
+            { label: '', paramNames: 'rate', fallback: 1.0, suffix: 'Hz' },
+            { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['voices', 'spread', 'fb', 'hp freq'] },
     },
@@ -47,7 +47,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             type: 'spectrumBars',
             staticDataGenerator: (device) => {
                 const depth = clamp01(safeParamValue(device, 'depth', 60) / 100);
-                const stages = Math.max(2, Math.min(12, Math.round(safeParamValue(device, 'stages', 6))));
+                const stages = Math.max(2, Math.min(12, Math.round(safeParamValue(device, 'stages', 4))));
                 return Array.from({ length: stages }, (_, i) => {
                     const n = 0.3 + depth * 0.55;
                     return i % 2 === 0 ? n : n * 0.6;
@@ -57,7 +57,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [
             { label: '', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
-            { label: '', paramNames: 'stages', fallback: 6, suffix: ' stages' },
+            { label: '', paramNames: 'stages', fallback: 4, suffix: ' stages' },
         ],
         settingsPanel: { params: ['center', 'spread', 'fb', 'lfo shape', 'range'] },
     },
@@ -93,8 +93,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         },
         meta: [
             { label: '', paramNames: 'rate', fallback: 0.3, suffix: 'Hz' },
-            { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
-            { label: 'FB', paramNames: ['fb', 'feedback'], fallback: 40, suffix: '%' },
+            { label: 'Depth', paramNames: 'depth', fallback: 70, suffix: '%' },
+            { label: 'FB', paramNames: ['fb', 'feedback'], fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['delay', 'stereo', 'fb damp', 'lfo shape', 'tz mode'] },
     },
@@ -113,7 +113,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'R', paramNames: 'time r', fallback: 375, suffix: 'ms' },
             { label: 'FB', paramNames: 'fb', fallback: 30, suffix: '%' },
         ],
-        settingsPanel: { params: ['time l', 'time r', 'sync l', 'sync r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'] },
+        settingsPanel: { params: ['time l', 'time r', 'sync l', 'sync r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'], maxCols: 4 },
     },
     filterDelay: {
         background: 'var(--plugin-bg-delay)',
@@ -187,7 +187,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Hi', paramNames: 'hi cut', fallback: 16000, suffix: 'Hz' },
             { label: 'Size', paramNames: 'size', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'] },
+        settingsPanel: { params: ['voicing', 'freeze', 'diffusion', 'density', 'low damp', 'mod rate', 'mod depth', 'chorus', 'predelay', 'width', 'damp'], maxCols: 4 },
     },
     hybridReverb: {
         background: 'var(--plugin-bg-reverb)',
@@ -210,7 +210,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Size', paramNames: 'size', fallback: 50, suffix: '%' },
             { label: 'Decay', paramNames: 'decay', fallback: 50, suffix: '%' },
         ],
-        settingsPanel: { params: ['damp', 'early', 'late', 'predelay', 'mod depth', 'width'] },
+        settingsPanel: { params: ['damp', 'early', 'late', 'predelay', 'mod depth', 'width'], maxCols: 3 },
     },
     corpus: {
         background: 'var(--plugin-bg-reverb)',
@@ -320,7 +320,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Lo', paramNames: 'xover low', fallback: 200, suffix: 'Hz' },
             { label: 'Hi', paramNames: 'xover high', fallback: 4000, suffix: 'Hz' },
         ],
-        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'] },
+        settingsPanel: { params: ['lo thr', 'lo ratio', 'lo gain', 'mid thr', 'mid ratio', 'mid gain', 'hi thr', 'hi ratio', 'hi gain', 'output'], maxCols: 4 },
     },
     transientShaper: {
         background: 'var(--plugin-bg-compressor)',
@@ -329,7 +329,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             type: 'spectrumBars',
             barCount: 2,
             staticDataGenerator: (device) => {
-                const atk = clamp01(safeParamValue(device, 'attack', 50) / 100);
+                const atk = clamp01((safeParamValue(device, 'attack', 0) + 100) / 200);
                 const sus = clamp01((safeParamValue(device, 'sustain', 0) + 100) / 200);
                 return [atk, sus];
             },
@@ -345,7 +345,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
     saturator: {
         background: 'var(--plugin-bg-saturator)',
         accent: 'var(--token-color-hex-ffac59)',
-        viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
         meta: [{ label: 'Drive', paramNames: 'drive', fallback: 3, suffix: 'dB' }],
         settingsPanel: { params: ['mode', 'output', 'color'] },
     },
@@ -358,7 +358,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             staticDataGenerator: () => Array.from({ length: 12 }, (_, i) => 0.2 + ((i * 7) % 52) / 80),
         },
         meta: [
-            { label: 'Boom', paramNames: 'boom', fallback: 40, suffix: '%' },
+            { label: 'Boom', paramNames: 'boom', fallback: 30, suffix: '%' },
             { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
         ],
         settingsPanel: { params: ['crunch', 'boom freq', 'transient', 'trim'] },
@@ -366,40 +366,40 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
     dynamicTube: {
         background: 'var(--plugin-bg-saturator)',
         accent: 'var(--token-color-hex-ffbc74)',
-        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
         meta: [
-            { label: 'Drive', paramNames: 'drive', fallback: 40, suffix: '%' },
-            { label: 'Bias', paramNames: 'bias', fallback: 20, suffix: '%' },
+            { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
+            { label: 'Bias', paramNames: 'bias', fallback: 0, suffix: '%' },
         ],
         settingsPanel: { params: ['envelope', 'tone', 'output'] },
     },
     distortion: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ff965e)',
-        viz: { type: 'saturationCurve', satType: 'hard', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'hard', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
         meta: [
-            { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
-            { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
+            { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
+            { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['mode', 'output', 'bias', 'cab sim', 'tight'] },
     },
     overdrive: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ff965e)',
-        viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 30, driveMax: 100 },
         meta: [
-            { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
-            { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
+            { label: 'Drive', paramNames: 'drive', fallback: 30, suffix: '%' },
+            { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['output', 'bias', 'tight'] },
     },
     amp: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ffb57a)',
-        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'gain', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'gain', driveFallback: 50, driveMax: 100 },
         meta: [
-            { label: 'Gain', paramNames: 'gain', fallback: 0, suffix: 'dB' },
-            { label: 'Master', paramNames: 'master', fallback: 0, suffix: 'dB' },
+            { label: 'Gain', paramNames: 'gain', fallback: 50, suffix: '%' },
+            { label: 'Master', paramNames: 'master', fallback: -6, suffix: 'dB' },
         ],
         settingsPanel: { params: ['bass', 'mid', 'treble', 'presence', 'sag'] },
     },
@@ -407,11 +407,15 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ffb57a)',
         viz: {
-            type: 'spectrumBars',
-            staticDataGenerator: () => Array.from({ length: 11 }, (_, i) => 0.3 + Math.sin(i * 0.7) * 0.25 + Math.cos(i * 0.5) * 0.15),
+            type: 'miniFilterEq',
+            hpParam: 'lo cut', hpFallback: 80,
+            lpParam: 'hi cut', lpFallback: 8000,
         },
-        meta: [{ label: 'Mic', paramNames: 'mic pos', fallback: 50, suffix: '%' }],
-        settingsPanel: { params: ['type', 'lo cut', 'hi cut', 'resonance', 'output'] },
+        meta: [
+            { label: 'Lo', paramNames: 'lo cut', fallback: 80, suffix: 'Hz' },
+            { label: 'Hi', paramNames: 'hi cut', fallback: 8000, suffix: 'Hz' },
+        ],
+        settingsPanel: { params: ['type', 'mic pos', 'resonance', 'output'] },
     },
     erosion: {
         background: 'var(--plugin-bg-distortion)',
@@ -422,27 +426,27 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         },
         meta: [
             { label: 'Freq', paramNames: 'frequency', fallback: 2000, suffix: 'Hz' },
-            { label: 'Amt', paramNames: 'amount', fallback: 0, suffix: '%' },
+            { label: 'Amt', paramNames: 'amount', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['mode', 'width'] },
     },
     pedal: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ff965e)',
-        viz: { type: 'saturationCurve', satType: 'tape', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'tape', driveParam: 'drive', driveFallback: 50, driveMax: 100 },
         meta: [
-            { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
-            { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
+            { label: 'Drive', paramNames: 'drive', fallback: 50, suffix: '%' },
+            { label: 'Tone', paramNames: 'tone', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['mode', 'level'] },
     },
     roar: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ff965e)',
-        viz: { type: 'saturationCurve', satType: 'fold', driveParam: 'intensity', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'fold', driveParam: 'intensity', driveFallback: 50, driveMax: 100 },
         meta: [
-            { label: 'Intensity', paramNames: 'intensity', fallback: 0, suffix: '%' },
-            { label: 'Color', paramNames: 'color', fallback: 0, suffix: '%' },
+            { label: 'Intensity', paramNames: 'intensity', fallback: 50, suffix: '%' },
+            { label: 'Color', paramNames: 'color', fallback: 50, suffix: '%' },
         ],
         settingsPanel: { params: ['character', 'feedback', 'output'] },
     },

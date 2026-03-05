@@ -9,7 +9,7 @@
 import type { CSSProperties } from 'react';
 
 // ── Port Dimensions ────────────────────────────────────────────────────
-export const FLOW_PORT_DOT_SIZE = 6;
+export const FLOW_PORT_DOT_SIZE = 4;
 export const FLOW_PORT_HIT_PAD = 8;
 
 // ── Signal Type → Color Token Map ──────────────────────────────────────

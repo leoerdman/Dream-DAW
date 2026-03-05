@@ -113,7 +113,7 @@ export function FlowSynthOverlay() {
         <PluginWindow
             pluginId={activeDeviceId ?? 'flow'}
             pluginName="Flow"
-            pluginType="instrument"
+            pluginType="effect"
             isBypassed={false}
             onToggleBypass={() => { }}
             onClose={closeFlowEditor}
@@ -126,7 +126,8 @@ export function FlowSynthOverlay() {
             onNextPreset={nextPreset}
             onPrevPreset={prevPreset}
             showBypassControl={false}
-            headerBackground="color-mix(in srgb, var(--color-bg-header) 92%, black 8%)"
+            leftDotColor="var(--color-accent-primary)"
+            headerBackground="linear-gradient(135deg, color-mix(in srgb, var(--color-bg-elevated) 95%, var(--color-accent-primary) 5%), var(--color-bg-elevated))"
             headerBorderColor="color-mix(in srgb, var(--color-divider) 82%, transparent)"
             contentPadding="0"
         >

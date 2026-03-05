@@ -134,6 +134,9 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
 };
 
 function stableNodeNumericId(nodeId: string): number {
+    // ENTERPRISE GUARD: Prevent crash when nodeId is undefined/null
+    // (can happen during project hydration with corrupt/partial FlowSynth data)
+    if (!nodeId) return 1;
     let hash = 2166136261 >>> 0;
     for (let i = 0; i < nodeId.length; i += 1) {
         hash ^= nodeId.charCodeAt(i);
@@ -185,31 +188,38 @@ function _scheduleSyncFlowGraph(get: () => FlowSynthState): void {
  */
 function buildFlowConfigJson(state: FlowSynthState): string {
     return JSON.stringify({
-        nodes: state.nodes.map(n => {
-            const stringifiedData: Record<string, string> = {};
-            if (n.data) {
-                for (const [k, v] of Object.entries(n.data)) {
-                    if (v !== null && v !== undefined) {
-                        stringifiedData[k] = String(v);
+        nodes: state.nodes
+            .filter(n => n && n.id && n.type) // ENTERPRISE GUARD: Skip corrupt nodes
+            .map(n => {
+                const stringifiedData: Record<string, string> = {};
+                if (n.data) {
+                    for (const [k, v] of Object.entries(n.data)) {
+                        if (v !== null && v !== undefined) {
+                            stringifiedData[k] = String(v);
+                        }
                     }
                 }
-            }
-            return {
-                id: n.id,
-                type: n.type,
-                position_x: n.position.x,
-                position_y: n.position.y,
-                data: stringifiedData
-            };
-        }),
-        connections: state.connections.map(c => ({
-            id: c.id,
-            from_node: c.fromNode,
-            from_port: c.fromPort,
-            to_node: c.toNode,
-            to_port: c.toPort,
-            signal_type: c.signalType ?? 'audio'
-        })),
+                return {
+                    id: n.id,
+                    type: n.type,
+                    // ENTERPRISE GUARD: Safe position access — defaults to (0,0)
+                    position_x: n.position?.x ?? 0,
+                    position_y: n.position?.y ?? 0,
+                    data: stringifiedData
+                };
+            }),
+        // ENTERPRISE GUARD: Filter out connections with missing node refs (corrupt data)
+        connections: state.connections
+            .filter(c => c && c.id && c.fromNode && c.toNode && c.fromPort && c.toPort)
+            .map(c => ({
+                id: c.id,
+                from_node: c.fromNode,
+                from_port: c.fromPort,
+                to_node: c.toNode,
+                to_port: c.toPort,
+                // ENTERPRISE FIX: Rust struct uses #[serde(rename = "signalType")] — must match
+                signalType: c.signalType ?? 'audio'
+            })),
         viewport: viewportProxy.getViewport()
     });
 }
@@ -512,6 +522,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         if (!box) return {};
         const selectedIds = state.nodes
             .filter((node) => {
+                if (!node.position) return false;
                 const left = node.position.x;
                 const right = node.position.x + FLOW_NODE_WIDTH;
                 const top = node.position.y;
@@ -552,8 +563,10 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     updateNodePosition: (id, x, y) => set((state) => {
         const nextNodes = state.nodes.map((n) => {
             if (n.id !== id) return n;
-            const safeX = Number.isFinite(x) ? x : n.position.x;
-            const safeY = Number.isFinite(y) ? y : n.position.y;
+            const px = n.position?.x ?? 0;
+            const py = n.position?.y ?? 0;
+            const safeX = Number.isFinite(x) ? x : px;
+            const safeY = Number.isFinite(y) ? y : py;
             return { ...n, position: { x: safeX, y: safeY } };
         });
         return {
@@ -636,7 +649,15 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const pending = state.pendingConnection;
         if (!pending) return {};
         if (pending.fromNode === toNode) return { pendingConnection: null };
-        if (pending.signalType !== signalType) return { pendingConnection: null };
+        // ENTERPRISE: Signal type compatibility matrix.
+        // control accepts gate/phase/control. audio-to-audio, midi-to-midi only.
+        const typesCompatible = (from: string, to: string) => {
+            if (from === to) return true;
+            if (to === 'control' && (from === 'gate' || from === 'phase' || from === 'control')) return true;
+            if (from === 'control' && (to === 'gate' || to === 'phase')) return true;
+            return false;
+        };
+        if (!typesCompatible(pending.signalType, signalType)) return { pendingConnection: null };
         // Guard: exact duplicate
         const exists = state.connections.some((conn: SynthConnection) =>
             conn.fromNode === pending.fromNode
@@ -763,7 +784,12 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             const numericId = mapNode(n.id);
             return [numericId, n.type, encodeNodeParams(n.data)];
         });
-        const connections: [number, number, number, number][] = state.connections.map((c) => {
+        // ENTERPRISE GUARD: Filter out orphaned connections where fromNode/toNode
+        // is undefined/null (corrupt project data or hydration mismatch).
+        const validConnections = state.connections.filter(
+            (c) => c.fromNode && c.toNode,
+        );
+        const connections: [number, number, number, number][] = validConnections.map((c) => {
             const fromId = mapNode(c.fromNode);
             const toId = mapNode(c.toNode);
             return [
@@ -984,9 +1010,30 @@ useEngineStore.subscribe((state) => {
     _prevFlowSynthConfigObj = currentConfig;
 
     if (currentConfig) {
+        // ENTERPRISE FIX: Rust FlowSynthConfig uses flat fields (position_x, position_y, node_type)
+        // but our store uses nested SynthNode format (position: {x,y}, type).
+        // The raw cast was the root cause of the n.position.x crash.
+        const mappedNodes: SynthNode[] = ((currentConfig as any).nodes ?? [])
+            .filter((n: any) => n && (n.id || n.node_type || n.type))
+            .map((n: any) => ({
+                id: n.id ?? '',
+                type: (n.type ?? n.node_type ?? 'oscillator') as SynthNodeType,
+                position: n.position ?? { x: n.position_x ?? 0, y: n.position_y ?? 0 },
+                data: n.data ?? {},
+            }));
+        const mappedConnections: SynthConnection[] = ((currentConfig as any).connections ?? [])
+            .filter((c: any) => c && (c.fromNode || c.from_node) && (c.toNode || c.to_node))
+            .map((c: any) => ({
+                id: c.id ?? '',
+                fromNode: c.fromNode ?? c.from_node ?? '',
+                fromPort: c.fromPort ?? c.from_port ?? '',
+                toNode: c.toNode ?? c.to_node ?? '',
+                toPort: (c.toPort ?? c.to_port ?? '') === 'audioL' || (c.toPort ?? c.to_port ?? '') === 'audioR' ? 'audio' : (c.toPort ?? c.to_port ?? ''),
+                signalType: c.signalType ?? c.signal_type ?? 'audio',
+            }));
         useFlowSynthStore.setState((s) => ({
-            nodes: (currentConfig.nodes as unknown as SynthNode[]) || s.nodes,
-            connections: (currentConfig.connections as unknown as SynthConnection[]) || s.connections,
+            nodes: mappedNodes.length > 0 ? mappedNodes : s.nodes,
+            connections: mappedConnections,
         }));
     } else {
         // Fallback to default if config was wiped

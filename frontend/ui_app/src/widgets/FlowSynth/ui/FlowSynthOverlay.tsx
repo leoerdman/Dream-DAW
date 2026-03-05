@@ -60,9 +60,12 @@ function FloatingPresetBar() {
             const text = await invoke<string>('load_flow_user_preset', { name: selected });
             const preset = JSON.parse(text);
             if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
-                useFlowSynthStore.getState().setNodes(preset.nodes);
-                useFlowSynthStore.getState().setConnections(preset.connections);
-                useFlowSynthStore.setState({ presetName: preset.name || selected });
+                // BUG-8 FIX: Use setState directly since setNodes/setConnections don't exist in store
+                useFlowSynthStore.setState({
+                    nodes: preset.nodes,
+                    connections: preset.connections,
+                    presetName: preset.name || selected,
+                });
                 // Sync restored graph to engine
                 void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
             }
@@ -178,8 +181,6 @@ export function FlowSynthOverlay() {
     const closeFlowEditor = useFlowSynthStore((state) => state.closeFlowEditor);
     const activeDeviceId = useFlowSynthStore((state) => state.activeDeviceId);
     const activeTrackId = useFlowSynthStore((state) => state.activeTrackId);
-    const nodes = useFlowSynthStore((state) => state.nodes);
-    const connections = useFlowSynthStore((state) => state.connections);
 
     // Close on Escape key
     useEffect(() => {
@@ -269,7 +270,10 @@ export function FlowSynthOverlay() {
             });
         }, 60);
         return () => window.clearTimeout(timer);
-    }, [isOpen, activeTrackId, nodes, connections]);
+        // BUG-3 FIX: Only sync on editor open / track change. Do NOT include
+        // `nodes` or `connections` — the undo/redo subscription also schedules
+        // sync, creating an infinite loop if both fire.
+    }, [isOpen, activeTrackId]);
 
     if (!isOpen) return null;
 

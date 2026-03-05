@@ -693,9 +693,29 @@ impl OfflineRenderer {
             .min(slot.buf_left.len())
             .min(slot.buf_right.len());
 
-        // ── SIDECHAIN TAP: Pre-FX snapshot (mirrors RT path) ──
-        slot.sidechain_pre_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
-        slot.sidechain_pre_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
+        // ── SIDECHAIN TAP: Pre-FX snapshot ──
+        // For the simple whole-chain path (no external plugins / no per-slot iteration),
+        // capture immediately from buf_left (audio clips already loaded).
+        // For the per-slot path, defer the capture until AFTER the instrument
+        // slot generates audio — otherwise MIDI/synth tracks produce a zero
+        // sidechain buffer (the VST instrument hasn't run yet).
+        let mut pre_fx_captured = false;
+        let has_per_slot_path = ctx.external_fx_map.get(track_idx)
+            .map(|rs| {
+                if rs.is_empty() { return false; }
+                let has_ext = rs.iter().any(|s| s.instance_id.is_some());
+                let has_int_sc = rs.iter().any(|s| s.internal_slot_index.is_some() && s.sidechain_track_index.is_some());
+                let chain_len = slot.device_chain.len();
+                let idx_ok = rs.iter().all(|s| s.internal_slot_index.is_none_or(|i| i < chain_len));
+                has_ext || has_int_sc || !idx_ok
+            })
+            .unwrap_or(false);
+        if !has_per_slot_path {
+            // Simple path: capture pre_fx now (audio clip data already in buf_left)
+            slot.sidechain_pre_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
+            slot.sidechain_pre_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
+            pre_fx_captured = true;
+        }
 
         crate::driver::automation::apply_native_device_automation_sample_accurate_block(
             &mut slot.device_chain,
@@ -745,6 +765,22 @@ impl OfflineRenderer {
                         if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
                             continue;
                         }
+
+                        // ── SIDECHAIN PRE-FX DEFERRED CAPTURE ──
+                        // For the per-slot path, capture sidechain_pre_fx right before
+                        // the first NON-INSTRUMENT slot. This ensures:
+                        // 1. For MIDI/synth tracks: the VST instrument has already
+                        //    generated audio into slot.buf_left → non-zero pre_fx
+                        // 2. For audio tracks w/o instruments: the first slot in the
+                        //    chain is a non-instrument FX, so we capture immediately
+                        //    from the clip audio in buf_left
+                        // This mirrors the RT path where pre_fx is captured from `left[]`
+                        // which already contains the graph's accumulated input.
+                        if !pre_fx_captured && !runtime_slot.is_instrument {
+                            slot.sidechain_pre_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
+                            slot.sidechain_pre_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
+                            pre_fx_captured = true;
+                        }
                         // SC-103 FIX: Select sidechain source buffer based on
                         // sidechain_send_mode, matching the RT path in
                         // audio_thread_track_pass.rs.
@@ -765,6 +801,7 @@ impl OfflineRenderer {
                                 _ => (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])),
                             })
                             .unwrap_or((None, None));
+
 
                         // ── Native FX slot ──
                         if let Some(internal_idx) = runtime_slot.internal_slot_index {
@@ -955,6 +992,16 @@ impl OfflineRenderer {
                 &mut slot.buf_right[..c],
                 &pctx,
             );
+        }
+
+        // ── SIDECHAIN: Ensure pre_fx was captured ──
+        // Edge case: if ALL slots were instrument slots (no effect slot to
+        // trigger the deferred capture), pre_fx == instrument output == post_fx.
+        // Capture it now so downstream consumers reading PreFx mode get
+        // instrument audio rather than stale zeros.
+        if !pre_fx_captured {
+            slot.sidechain_pre_fx_left[..c].copy_from_slice(&slot.buf_left[..c]);
+            slot.sidechain_pre_fx_right[..c].copy_from_slice(&slot.buf_right[..c]);
         }
 
         // ── SIDECHAIN TAP: Post-FX snapshot (mirrors RT path) ──
@@ -1428,6 +1475,7 @@ impl OfflineRenderer {
                                 sc_r,
                                 &pctx,
                             );
+
                             continue;
                         }
 
@@ -2207,8 +2255,6 @@ impl OfflineRenderer {
         }
 
         // ── ENTERPRISE: Log RUNTIME sidechain_track_index from external_fx_snapshot ──
-        // This shows the actual resolved numeric indices used by the bounce render loop,
-        // confirming whether ShaperBox/etc. receive the correct sidechain source buffer.
         for (ti, runtime_slots) in external_fx_map.iter().enumerate() {
             for (si, rs) in runtime_slots.iter().enumerate() {
                 if rs.sidechain_track_index.is_some() || rs.instance_id.is_some() {

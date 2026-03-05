@@ -262,6 +262,7 @@ export function FlowCanvas() {
             let bestDist = Infinity;
             for (const node of nodes) {
                 if (node.id === pendingConnection.fromNode) continue;
+                if (!node.position) continue; // ENTERPRISE GUARD: skip corrupt nodes
                 const config = PORT_REGISTRY[node.type as SynthNodeType];
                 if (!config || config.inputs.length === 0) continue;
                 // Check each input port

@@ -59,15 +59,17 @@ export function ConnectionsLayer() {
         if (!node) return { x: 0, y: 0 };
 
         const config = PORT_REGISTRY[node.type as SynthNodeType];
-        if (!config) return { x: node.position.x, y: node.position.y + FLOW_NODE_HEADER_HEIGHT };
+        const px = node.position?.x ?? 0;
+        const py = node.position?.y ?? 0;
+        if (!config) return { x: px, y: py + FLOW_NODE_HEADER_HEIGHT };
 
         const portList = side === 'in' ? config.inputs : config.outputs;
         const portIndex = portList.findIndex((p) => p.id === portId);
         const idx = portIndex >= 0 ? portIndex : 0;
 
         const cy = FLOW_NODE_HEADER_HEIGHT + portCenterY(idx);
-        const x = side === 'in' ? node.position.x : node.position.x + FLOW_NODE_WIDTH;
-        return { x, y: node.position.y + cy };
+        const x = side === 'in' ? px : px + FLOW_NODE_WIDTH;
+        return { x, y: py + cy };
     };
 
     return (

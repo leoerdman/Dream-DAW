@@ -130,9 +130,11 @@ function PortDot({
 
         const node = useFlowSynthStore.getState().nodes.find((n) => n.id === nodeId);
         if (!node) return;
+        const px = node?.position?.x ?? 0;
+        const py = node?.position?.y ?? 0;
 
-        const startX = node.position.x + FLOW_NODE_WIDTH;
-        const startY = node.position.y + FLOW_NODE_HEADER_HEIGHT + cy;
+        const startX = px + FLOW_NODE_WIDTH;
+        const startY = py + FLOW_NODE_HEADER_HEIGHT + cy;
 
         startConnectionDrag({
             fromNode: nodeId,
@@ -284,11 +286,13 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
 
     // ENTERPRISE: Sync proxy to React prop on mount/change, allowing proxy to take over during drag 
     React.useLayoutEffect(() => {
-        nodeMotionProxy.syncInitial(node.id, node.position.x, node.position.y);
+        const px = node.position?.x ?? 0;
+        const py = node.position?.y ?? 0;
+        nodeMotionProxy.syncInitial(node.id, px, py);
         if (nodeRef.current) {
-            nodeRef.current.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+            nodeRef.current.style.transform = `translate(${px}px, ${py}px)`;
         }
-    }, [node.position.x, node.position.y, node.id]);
+    }, [node.position?.x, node.position?.y, node.id]);
 
     const config = PORT_REGISTRY[node.type as SynthNodeType];
     if (!config) return null;
@@ -305,12 +309,12 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
 
         const startX = e.clientX;
         const startY = e.clientY;
-        const startNodeX = node.position.x;
-        const startNodeY = node.position.y;
+        const startNodeX = node.position?.x ?? 0;
+        const startNodeY = node.position?.y ?? 0;
         const zoom = viewportProxy.getViewport().zoom;
         let raf = 0;
-        let pendingX = node.position.x;
-        let pendingY = node.position.y;
+        let pendingX = startNodeX;
+        let pendingY = startNodeY;
 
         const onMove = (me: PointerEvent) => {
             const dx = (me.clientX - startX) / zoom;

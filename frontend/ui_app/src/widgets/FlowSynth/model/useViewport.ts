@@ -84,7 +84,6 @@ export function useViewport() {
         e.preventDefault();
 
         const isZoom = e.ctrlKey || e.metaKey;
-        const isPanWithSpace = spaceKeyPressed.current;
 
         if (isZoom) {
             const zoomFactor = Math.exp(-e.deltaY * 0.0018);
@@ -97,8 +96,8 @@ export function useViewport() {
 
             zoomToPoint(zoomFactor, mouseX, mouseY);
         } else {
-            const dx = isPanWithSpace ? -e.deltaX : -e.deltaX;
-            const dy = isPanWithSpace ? -e.deltaY : -e.deltaY;
+            const dx = -e.deltaX;
+            const dy = -e.deltaY;
             pan(dx, dy);
         }
     }, [pan, zoomToPoint]);

@@ -228,7 +228,7 @@ export const INTERNAL_PLUGINS_PART_3: PluginManifestEntry[] = [
         effectType: 'instrument',
         format: 'INT',
         hasEditor: true,
-        cardWidth: 520,
+        cardWidth: 200,
         supportsSettings: false,
         supportsSidechain: true,
     },

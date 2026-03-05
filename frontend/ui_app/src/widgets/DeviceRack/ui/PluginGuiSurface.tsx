@@ -222,6 +222,35 @@ export const PluginGuiSurface = React.memo(({
         );
     }
 
+    // ── FLOW SYNTH: Clean minimal card — real UI is the FlowCanvas overlay ──
+    if (device.pluginId === 'internal://instrument/flow') {
+        return (
+            <div
+                data-no-drag
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '100%',
+                    height: '100%',
+                    minHeight: 48,
+                    padding: 'var(--space-2)',
+                    textAlign: 'center',
+                    gap: 'var(--space-1)',
+                }}
+            >
+                <span style={{
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-secondary)',
+                    fontWeight: 'var(--font-weight-medium)',
+                }}>
+                    Modular Synth
+                </span>
+            </div>
+        );
+    }
+
     if (device.effectType === 'sampler' || (device.effectType === 'instrument' && device.pluginId !== 'internal://instrument/flow')) {
         return (
             <PluginGuiSurfaceSampler

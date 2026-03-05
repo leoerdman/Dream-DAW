@@ -287,6 +287,8 @@ async fn export_mix_cmd(
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
     let external_fx_snapshot_for_preflight = (*handle.external_fx_snapshot.load()).clone();
+
+
     let mut unresolved_runtime_tracks: Vec<String> = Vec::new();
     for (track_idx, track) in project.tracks.iter().enumerate() {
         if track.midi_clips.is_empty() {

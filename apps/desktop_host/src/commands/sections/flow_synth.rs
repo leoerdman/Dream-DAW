@@ -207,10 +207,18 @@ fn load_flow_user_preset(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<String, String> {
+    // ENTERPRISE GUARD: Sanitize filename to prevent path traversal attacks
+    let safe_name: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .collect();
+    if safe_name.is_empty() {
+        return Err("Preset name contains no valid characters.".to_string());
+    }
     let dir = flow_presets_dir(&app)?;
-    let path = dir.join(format!("{name}.json"));
+    let path = dir.join(format!("{safe_name}.json"));
     if !path.exists() {
-        return Err(format!("Preset '{name}' not found."));
+        return Err(format!("Preset '{safe_name}' not found."));
     }
     std::fs::read_to_string(&path).map_err(|e| format!("Cannot read preset: {e}"))
 }

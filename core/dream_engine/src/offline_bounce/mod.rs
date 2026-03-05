@@ -523,17 +523,24 @@ impl OfflineRenderer {
     ) {
         match node {
             dream_models::project::DeviceNode::Single(slot) => {
-                // SIDECHAIN-PARITY FIX: Always emit sidechain source entries
-                // regardless of bypass state. Previously bypassed plugins had
-                // their SC sources omitted, shifting indices and silently
-                // breaking routing for subsequent plugins. The live path
-                // (clip_pool.rs:291-302) correctly preserves bypassed entries.
+                // BUG-12 FIX (PARITY): Match clip_pool.rs bypass behavior exactly.
+                // Bypassed slots emit None (preserving index position) without
+                // creating DAG edges. Previously offline always pushed the
+                // resolved index even for bypassed slots, creating extra DAG
+                // edges and potentially different processing order than RT.
                 if let Some(sidechain_id) = &slot.sidechain_source_track_id {
-                    let idx = project
-                        .tracks
-                        .iter()
-                        .position(|t| t.id.to_string() == *sidechain_id);
-                    out.push(idx);
+                    let effective_bypassed = parent_bypassed || slot.is_bypassed;
+                    if effective_bypassed {
+                        // Bypassed: emit None to preserve index position
+                        // without creating a DAG sidechain edge.
+                        out.push(None);
+                    } else {
+                        let idx = project
+                            .tracks
+                            .iter()
+                            .position(|t| t.id.to_string() == *sidechain_id);
+                        out.push(idx);
+                    }
                 }
             }
             dream_models::project::DeviceNode::Rack(rack) => {
@@ -841,8 +848,12 @@ impl OfflineRenderer {
                                 } else {
                                     empty_midi
                                 };
-                            let sc_pair =
-                                source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+                            // BUG-14 FIX: Use mode-correct (sc_l, sc_r) computed above
+                            // at lines 761-767 instead of always reading buf_left/buf_right.
+                            // Previously this ignored sidechain_send_mode for external VSTs,
+                            // always delivering post-FX signal even when Pre-FX or Post-Mixer
+                            // was selected.
+                            let sc_pair: Option<[&[f32]; 2]> = sc_l.zip(sc_r).map(|(l, r)| [l, r]);
 
                             if let Err(proc_err) = host.process_with_sidechain(
                                 &main_inputs,
@@ -1352,7 +1363,12 @@ impl OfflineRenderer {
         if let Some(master_slots) = master_slots_opt {
             if !master_slots.is_empty() {
                 let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
-                if !has_external {
+                // BUG-11 FIX (BOUNCE PARITY): Check for internal sidechains
+                // same as the RT path fix in render_pipeline.rs.
+                let has_internal_sidechain = master_slots.iter().any(|s| {
+                    s.internal_slot_index.is_some() && s.sidechain_track_index.is_some()
+                });
+                if !has_external && !has_internal_sidechain {
                     let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                     let pctx = ProcessContext {
                         sample_rate: render_ctx.sample_rate as f32,
@@ -1369,10 +1385,30 @@ impl OfflineRenderer {
                     );
                 } else {
                     for runtime_slot in master_slots.iter() {
-                        // BYPASS-FIX: Skip bypassed master bus slots.
-                        if runtime_slot.is_bypassed {
+                        // BUG-10 FIX (PARITY): Only skip bypassed external plugins.
+                        // Internal slots handle bypass via smooth crossfade ramp.
+                        if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
                             continue;
                         }
+
+                        // BUG-11 FIX (BOUNCE PARITY): Resolve master bus sidechain
+                        // source from render_ctx.track_slots. Master processes AFTER
+                        // all graph tracks, so all tap buffers are valid and populated.
+                        let (sc_l, sc_r): (Option<&[f32]>, Option<&[f32]>) = runtime_slot
+                            .sidechain_track_index
+                            .and_then(|src_idx| {
+                                if src_idx >= render_ctx.track_slots.len() { return None; }
+                                let src = &render_ctx.track_slots[src_idx];
+                                let mode = runtime_slot.sidechain_send_mode;
+                                Some(match mode {
+                                    0 => (&src.sidechain_pre_fx_left[..frame_count], &src.sidechain_pre_fx_right[..frame_count]),
+                                    1 => (&src.sidechain_post_fx_left[..frame_count], &src.sidechain_post_fx_right[..frame_count]),
+                                    _ => (&src.buf_left[..frame_count], &src.buf_right[..frame_count]),
+                                })
+                            })
+                            .map(|(sl, sr)| (Some(sl), Some(sr)))
+                            .unwrap_or((None, None));
+
                         if let Some(internal_idx) = runtime_slot.internal_slot_index {
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let pctx = ProcessContext {
@@ -1383,12 +1419,13 @@ impl OfflineRenderer {
                                 time_sig_numerator: ctx.time_sig_numerator,
                                 time_sig_denominator: ctx.time_sig_denominator,
                             };
+                            // BUG-11 FIX: Pass resolved SC buffers instead of None.
                             ctx.master_device_chain.process_slot_with_sidechain_ctx(
                                 internal_idx,
                                 &mut master_l[..frame_count],
                                 &mut master_r[..frame_count],
-                                None,
-                                None,
+                                sc_l,
+                                sc_r,
                                 &pctx,
                             );
                             continue;
@@ -1410,6 +1447,8 @@ impl OfflineRenderer {
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let main_inputs: [&[f32]; 2] =
                                 [&master_l[..frame_count], &master_r[..frame_count]];
+                            // BUG-11 FIX: Pass sidechain pair to external VST on master.
+                            let sc_pair: Option<[&[f32]; 2]> = sc_l.zip(sc_r).map(|(l, r)| [l, r]);
                             let transport = dream_plugins::TransportContext {
                                 sample_rate: render_ctx.sample_rate,
                                 position_samples: render_ctx.playhead.position(),
@@ -1424,13 +1463,6 @@ impl OfflineRenderer {
                             };
                             host.set_transport_context(transport);
 
-                            // BOUNCE-AUTOMATION-FIX: Apply master bus external plugin
-                            // parameter automation during export — mirrors per-track.
-                            // Master bus slots use master_fx_idx as the automation index.
-                            // Since master automation is not yet stored per-slot,
-                            // we skip this for now (master rarely has param automation).
-                            // TODO: When master automation lanes are added, wire them here.
-
                             // ENTERPRISE FIX: Use pre-allocated scratch buffers instead of
                             // per-chunk Vec allocation. Eliminates heap thrashing.
                             let ext_left = &mut ctx.bounce_scratch_left[..frame_count];
@@ -1440,10 +1472,9 @@ impl OfflineRenderer {
                             let mut out_slices: [&mut [f32]; 2] =
                                 [&mut ext_left[..], &mut ext_right[..]];
                             let empty_midi: &[dream_plugins::MidiEvent] = &[];
-                            // BOUNCE-FIX: Log process errors instead of silently swallowing.
                             if let Err(proc_err) = host.process_with_sidechain(
                                 &main_inputs,
-                                None,
+                                sc_pair.as_ref().map(|p| p.as_slice()),
                                 &mut out_slices,
                                 frame_count,
                                 empty_midi,
@@ -2485,8 +2516,12 @@ impl OfflineRenderer {
             if let Some(master_slots) = master_slots_opt {
                 if !master_slots.is_empty() {
                     let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
+                    // BUG-11 FIX (TAIL PARITY): Tail phase sidechain — during
+                    // reverb/delay tail rendering there is no new sidechain input,
+                    // so we pass None. This is correct: the tail is capturing the
+                    // decay of effects, not processing new sidechain-driven content.
                     if !has_external {
-                        // Internal-only master chain
+                        // Internal-only master chain (no sidechain in tail phase)
                         let pctx = ProcessContext {
                             sample_rate: project_sr as f32,
                             playhead_frames: self.config.end_frame + tail_rendered as i64,
@@ -2503,7 +2538,8 @@ impl OfflineRenderer {
                     } else {
                         // Interleaved internal + external VST3 master chain
                         for runtime_slot in master_slots.iter() {
-                            if runtime_slot.is_bypassed {
+                            // BUG-10 FIX: Only skip bypassed external plugins.
+                            if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
                                 continue;
                             }
                             if let Some(internal_idx) = runtime_slot.internal_slot_index {
@@ -2515,6 +2551,7 @@ impl OfflineRenderer {
                                     time_sig_numerator: project.time_signature.numerator.max(1),
                                     time_sig_denominator: project.time_signature.denominator.max(1),
                                 };
+                                // Tail phase: no sidechain input (silence/decay only)
                                 master_device_chain.process_slot_with_sidechain_ctx(
                                     internal_idx,
                                     tail_slice_l,
@@ -2530,10 +2567,6 @@ impl OfflineRenderer {
                                 let Some(plugin_mtx) = plugin_registry.get(&instance_id) else {
                                     continue;
                                 };
-                                // EXPORT-DISTORTION-FIX: Direct blocking lock is safe — the RT
-                                // thread skips all VST try_lock() calls when export_active=true,
-                                // so no contention exists. The previous cooperative try_lock() +
-                                // sleep(1ms) loop introduced timing jitter in the render.
                                 let mut host = plugin_mtx.lock();
                                 let main_inputs: [&[f32]; 2] =
                                     [&tail_slice_l[..actual], &tail_slice_r[..actual]];
@@ -2558,6 +2591,7 @@ impl OfflineRenderer {
                                 let mut out_slices: [&mut [f32]; 2] =
                                     [&mut ext_left[..], &mut ext_right[..]];
                                 let empty_midi: &[dream_plugins::MidiEvent] = &[];
+                                // Tail phase: no sidechain input
                                 if let Err(proc_err) = host.process_with_sidechain(
                                     &main_inputs,
                                     None,

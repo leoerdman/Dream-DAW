@@ -164,7 +164,7 @@ impl AllpassFilter {
 // ── Freeverb Tuning ─────────────────────────────────────────────────────
 
 const COMB_SIZES_L: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
-const COMB_SPREAD: usize = 23;
+const COMB_SPREAD: usize = 37;
 const AP_SIZES: [usize; 4] = [556, 441, 341, 225];
 const REF_SAMPLE_RATE: f32 = 44100.0;
 /// Maximum sample rate we pre-allocate for — covers 192kHz studio setups.
@@ -629,9 +629,10 @@ impl DspProcessor for ReverbProcessor {
             out_l -= self.low_cut_l;
             out_r -= self.low_cut_r;
 
-            // Musical post-tail HF damping mapped to absolute frequencies:
-            // damping=0 -> brighter tail (20kHz), damping=1 -> darker tail (3kHz).
-            let tail_freq = 20000.0 * (3000.0 / 20000.0f32).powf(self.damping.clamp(0.0, 1.0));
+            // Fixed gentle anti-aliasing LP — tonal damping is handled by comb filters.
+            // BUG-DSP-100 FIX: Previously used self.damping here too, causing double
+            // HF cut (combs + tail LP) → metallic artifacts at moderate settings.
+            let tail_freq = 18000.0f32;
             let tail_lp_coeff = crate::processors::one_pole_lp_coeff(tail_freq, sr);
             self.tail_lp_l += tail_lp_coeff * (out_l - self.tail_lp_l);
             self.tail_lp_r += tail_lp_coeff * (out_r - self.tail_lp_r);

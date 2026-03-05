@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
+import { signalColor, signalGlowColor, isControlLikeCable } from './FlowNodeStyles';
 import type { SynthConnection } from '../model/useFlowSynthStore';
 
 const PULSE_DURATION_MS = 520;
@@ -82,16 +83,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     }, [initialStart, initialEnd]);
 
     const signalType = conn.signalType ?? 'audio';
-    const baseColor = signalType === 'midi'
-        ? 'var(--color-signal-midi)'
-        : signalType === 'control'
-            ? 'var(--color-signal-control)'
-            : 'var(--color-signal-audio)';
-    const glowColor = signalType === 'midi'
-        ? 'color-mix(in srgb, var(--color-signal-midi) 72%, transparent)'
-        : signalType === 'control'
-            ? 'color-mix(in srgb, var(--color-signal-control) 72%, transparent)'
-            : 'color-mix(in srgb, var(--color-signal-audio) 72%, transparent)';
+    const baseColor = signalColor(signalType);
+    const glowColor = signalGlowColor(signalType);
 
     const elapsed = Math.max(0, now - pulseTs);
     const pulseActive = elapsed < PULSE_DURATION_MS;
@@ -108,10 +101,11 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const c2y = end.y;
     const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
 
-    // ENTERPRISE: Cable type differentiation
-    const isControlSignal = signalType === 'control';
-    const coreStrokeWidth = isSelected ? 3.5 : (isControlSignal ? 2 : 3);
-    const controlDash = isControlSignal ? '8 4' : 'none';
+    // ENTERPRISE: Cable type differentiation (Bitwig Grid pattern)
+    // Control + Phase = dashed; Audio + Gate + MIDI = solid
+    const isDashedCable = isControlLikeCable(signalType);
+    const coreStrokeWidth = isSelected ? 3.5 : (isDashedCable ? 2 : 3);
+    const controlDash = isDashedCable ? '8 4' : 'none';
 
     const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);
     const pulseY = cubicBezierAt(pulseT, start.y, c1y, c2y, end.y);
@@ -170,9 +164,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                     cx={pulseX}
                     cy={pulseY}
                     r={signalType === 'midi' ? 4 : 3.5}
-                    fill={signalType === 'midi'
-                        ? 'color-mix(in srgb, var(--color-signal-midi) 80%, white)'
-                        : 'color-mix(in srgb, var(--color-signal-audio) 80%, white)'}
+                    fill={`color-mix(in srgb, ${baseColor} 80%, white)`}
                     opacity={1 - pulseT * 0.35}
                     pointerEvents="none"
                 />

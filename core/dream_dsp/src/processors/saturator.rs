@@ -38,6 +38,9 @@ pub struct SaturatorProcessor {
     dc_c: f32,
     // Colour tilt filter
     tilt_z_l: f32, tilt_z_r: f32,
+    // BUG-DSP-102: 2x oversampling for waveshaping anti-aliasing
+    os_l: crate::processors::oversampling::Oversampler2x,
+    os_r: crate::processors::oversampling::Oversampler2x,
     // Smoothed
     drive_sm: SmoothedValue,
     output_sm: SmoothedValue,
@@ -54,6 +57,8 @@ impl SaturatorProcessor {
             dc_in_l: 0.0, dc_in_r: 0.0, dc_out_l: 0.0, dc_out_r: 0.0,
             dc_c: 1.0 - (std::f32::consts::TAU * 20.0 / sr),
             tilt_z_l: 0.0, tilt_z_r: 0.0,
+            os_l: crate::processors::oversampling::Oversampler2x::new(sr),
+            os_r: crate::processors::oversampling::Oversampler2x::new(sr),
             drive_sm: SmoothedValue::new(sr, 10.0, 0.3),
             output_sm: SmoothedValue::new(sr, 8.0, 1.0),
             colour_sm: SmoothedValue::new(sr, 10.0, 0.5),
@@ -122,6 +127,8 @@ impl DspProcessor for SaturatorProcessor {
                        &mut self.colour_sm, &mut self.mix_sm] {
                 sm.set_sample_rate(sr);
             }
+            self.os_l.set_sample_rate(sr);
+            self.os_r.set_sample_rate(sr);
         }
 
         let len = left.len().min(right.len());
@@ -147,12 +154,18 @@ impl DspProcessor for SaturatorProcessor {
             let tilted_l = self.tilt_z_l * (1.0 - colour) + dry_l * colour;
             let tilted_r = self.tilt_z_r * (1.0 - colour) + dry_r * colour;
 
-            let (sat_l, sat_r) = match self.curve {
-                0 => (Self::analog_clip(tilted_l, drive), Self::analog_clip(tilted_r, drive)),
-                1 => (Self::tape(tilted_l, drive), Self::tape(tilted_r, drive)),
-                2 => (Self::tube_curve(tilted_l, drive), Self::tube_curve(tilted_r, drive)),
-                3 => (Self::diode(tilted_l, drive), Self::diode(tilted_r, drive)),
-                _ => (Self::sinefold(tilted_l, drive), Self::sinefold(tilted_r, drive)),
+            let curve = self.curve;
+            let (sat_l, sat_r) = match curve {
+                0 => (self.os_l.process(tilted_l, |s| Self::analog_clip(s, drive)),
+                      self.os_r.process(tilted_r, |s| Self::analog_clip(s, drive))),
+                1 => (self.os_l.process(tilted_l, |s| Self::tape(s, drive)),
+                      self.os_r.process(tilted_r, |s| Self::tape(s, drive))),
+                2 => (self.os_l.process(tilted_l, |s| Self::tube_curve(s, drive)),
+                      self.os_r.process(tilted_r, |s| Self::tube_curve(s, drive))),
+                3 => (self.os_l.process(tilted_l, |s| Self::diode(s, drive)),
+                      self.os_r.process(tilted_r, |s| Self::diode(s, drive))),
+                _ => (self.os_l.process(tilted_l, |s| Self::sinefold(s, drive)),
+                      self.os_r.process(tilted_r, |s| Self::sinefold(s, drive))),
             };
 
             // Post-saturation inverse tilt to restore tonal balance
@@ -195,6 +208,8 @@ impl DspProcessor for SaturatorProcessor {
         self.output_sm.set_instant(o);
         self.colour_sm.set_instant(self.colour);
         self.mix_sm.set_instant(self.mix);
+        self.os_l.reset();
+        self.os_r.reset();
     }
 }
 

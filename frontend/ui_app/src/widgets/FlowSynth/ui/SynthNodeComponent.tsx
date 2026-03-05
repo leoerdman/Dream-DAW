@@ -12,6 +12,17 @@ import {
     type SynthNodeType,
 } from '../model/portRegistry';
 import { viewportProxy } from '../lib/ViewportProxy';
+import {
+    FLOW_PORT_DOT_SIZE,
+    FLOW_PORT_HIT_PAD,
+    signalColor,
+    nodeShellStyle,
+    selectionOverlayStyle,
+    nodeHeaderStyle,
+    nodeTypeDotStyle,
+    nodeTitleStyle,
+    portLabelStyle,
+} from './FlowNodeStyles';
 import { OscillatorControls } from './nodes/OscillatorControls';
 import { FilterControls } from './nodes/FilterControls';
 import { EnvelopeControls } from './nodes/EnvelopeControls';
@@ -99,24 +110,13 @@ function PortDot({
     const updatePendingConnection = useFlowSynthStore((s) => s.updatePendingConnection);
 
     const cy = portCenterY(index);
-    const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi'
-        : (port.type === 'audio' || port.type === 'gate' || port.type === 'phase') ? 'audio'
-            : 'control';
+    // ENTERPRISE: Pass actual port type as signalType — enables per-type cable colors (Bitwig Grid pattern)
+    const signalType = port.type as 'audio' | 'midi' | 'control' | 'gate' | 'phase';
 
+    const dotColor = signalColor(port.type);
 
-    const dotColor = port.type === 'midi'
-        ? 'var(--color-signal-midi)'
-        : port.type === 'audio'
-            ? 'var(--color-signal-audio)'
-            : port.type === 'gate'
-                ? 'var(--color-signal-gate)'
-                : port.type === 'phase'
-                    ? 'var(--color-signal-phase)'
-                    : 'var(--color-signal-control)';
-
-    // ENTERPRISE: All ports are filled circles, differentiated only by color per signal type
-    const dotSize = 11;
-    const HIT_PAD = 8;
+    const dotSize = FLOW_PORT_DOT_SIZE;
+    const HIT_PAD = FLOW_PORT_HIT_PAD;
 
     const handlePointerDown = (e: React.PointerEvent) => {
         if (side !== 'out' || interactionDisabled) return;
@@ -173,14 +173,12 @@ function PortDot({
                 top: cy - dotSize / 2,
                 width: dotSize,
                 height: dotSize,
-                // ENTERPRISE: All ports are circles, differentiated by fill color
                 borderRadius: '50%',
                 transform: isHovered
                     ? 'scale(1.4)'
                     : showTargetGlow
                         ? 'scale(1.15)'
                         : 'none',
-                // ENTERPRISE: All ports are solid filled with their signal color
                 backgroundColor: dotColor,
                 border: `2px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
@@ -189,11 +187,10 @@ function PortDot({
                     : showTargetGlow
                         ? `0 0 10px ${dotColor}`
                         : `0 0 6px ${dotColor}`,
-                transition: 'transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s',
+                transition: 'transform var(--transition-fast) cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow var(--transition-fast)',
                 zIndex: isHovered ? 10 : 5,
                 padding: HIT_PAD,
                 margin: -HIT_PAD,
-
             }}
         />
     );
@@ -213,22 +210,9 @@ function PortLabel({
     return (
         <span
             style={{
-                position: 'absolute',
-                // ENTERPRISE: Increased offset to clear hit area padding
-                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + 8,
+                ...portLabelStyle,
+                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD,
                 top: cy - 7,
-                // ENTERPRISE: Increased from 2xs→xs for readability
-                fontSize: 'var(--font-size-xs)',
-                fontFamily: 'var(--font-role-data)',
-                fontWeight: 'var(--font-weight-semibold)',
-                // ENTERPRISE: Increased from tertiary→secondary for contrast
-                color: 'var(--color-text-secondary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                lineHeight: '14px',
-                pointerEvents: 'none',
-                userSelect: 'none',
-                whiteSpace: 'nowrap',
             }}
         >
             {port.label}
@@ -321,77 +305,30 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
                 selectNode(node.id, e.metaKey || e.ctrlKey || e.shiftKey);
             }}
             style={{
-                position: 'absolute',
-                // left / top are handled by transform via NodeMotionProxy & useLayoutEffect
-                left: 0,
-                top: 0,
+                ...nodeShellStyle,
                 width: FLOW_NODE_WIDTH,
-                background: 'color-mix(in srgb, var(--color-bg-panel) 92%, transparent)',
-                backdropFilter: 'blur(var(--blur-lg))',
-                WebkitBackdropFilter: 'blur(var(--blur-lg))',
-                borderRadius: 'var(--radius-xl)',
-                // ENTERPRISE: Base border always subtle — selection handled via ::after overlay
-                border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
                 pointerEvents: interactionDisabled ? 'none' : 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                // ENTERPRISE: No transition — prevents drag jitter (UDS pattern)
                 zIndex: isSelected ? 50 : 10,
-                overflow: 'visible',
             }}
         >
             {/* ── SELECTION OVERLAY (UDS ::after pattern) ── */}
-            {
-                isSelected && (
-                    <div
-                        style={{
-                            position: 'absolute',
-                            inset: -2,
-                            borderRadius: 'calc(var(--radius-xl) + 1px)',
-                            border: '2px solid rgba(255, 255, 255, 0.85)',
-                            pointerEvents: 'none',
-                            zIndex: 100,
-                            boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
-                        }}
-                    />
-                )
-            }
+            {isSelected && <div style={selectionOverlayStyle} />}
 
             {/* ── HEADER ── */}
             <div
                 onPointerDown={handlePointerDown}
                 style={{
-                    padding: '0 14px',
+                    ...nodeHeaderStyle,
                     cursor: interactionDisabled ? 'default' : 'grab',
-                    touchAction: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--space-2)',
-                    borderBottom: '1px solid var(--color-divider)',
-                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 5%, transparent), transparent)',
-                    borderTopLeftRadius: 'var(--radius-xl)',
-                    borderTopRightRadius: 'var(--radius-xl)',
                     height: FLOW_NODE_HEADER_HEIGHT,
-                    boxSizing: 'border-box',
-                    flexShrink: 0,
                 }}
             >
                 <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
+                    ...nodeTypeDotStyle,
                     backgroundColor: config.color,
                     boxShadow: `0 0 8px ${config.color}`,
-                    flexShrink: 0,
                 }} />
-                <span style={{
-                    fontWeight: 'var(--font-weight-bold)',
-                    fontSize: 'var(--font-size-sm)',
-                    color: 'var(--color-text-primary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    fontFamily: 'var(--font-role-data)',
-                    userSelect: 'none',
-                }}>
+                <span style={nodeTitleStyle}>
                     {config.title}
                 </span>
             </div>

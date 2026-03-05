@@ -557,11 +557,11 @@ export function FlowCanvas() {
                                             key={`cat-${item.category}`}
                                             style={{
                                                 padding: 'var(--space-1-5) var(--space-3)',
-                                                fontSize: '10px',
+                                                fontSize: 'var(--font-size-xs)',
                                                 color: 'var(--color-text-tertiary)',
                                                 fontWeight: 'var(--font-weight-bold)',
                                                 textTransform: 'uppercase',
-                                                letterSpacing: '0.08em',
+                                                letterSpacing: 'var(--letter-spacing-wide)',
                                                 fontFamily: 'var(--font-role-data)',
                                                 borderTop: elements.length > 0 ? '1px solid var(--color-divider)' : 'none',
                                                 marginTop: elements.length > 0 ? 'var(--space-1)' : '0',

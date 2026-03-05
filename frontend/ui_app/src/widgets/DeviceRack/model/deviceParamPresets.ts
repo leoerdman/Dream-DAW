@@ -182,12 +182,11 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Release', value: 0.05, min: 0.001, max: 8.0, suffix: 's', step: 0.001 },
     ],
     saturator: [
-        { name: 'Drive', value: 6, min: 0, max: 36, suffix: 'dB', step: 0.1 },          // 0  BUG-P17 FIX: max 24→36
-        { name: 'Tone', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 1
-        { name: 'Mix', value: 50, min: 0, max: 100, suffix: '%', step: 1 },             // 2
-        { name: 'Mode', value: 0, min: 0, max: 4, suffix: '', step: 1 },                // 3
-        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },        // 4
-        { name: 'Color', value: 50, min: 0, max: 100, suffix: '%', step: 1 },           // 5
+        { name: 'Mode', value: 0, min: 0, max: 4, suffix: '', step: 1 },                // 0 → curve (Analog/Tape/Tube/Diode/Sinefold)
+        { name: 'Drive', value: 30, min: 0, max: 100, suffix: '%', step: 1 },            // 1 → drive (0-100%, backend divides by 100)
+        { name: 'Output', value: 0, min: -24, max: 6, suffix: 'dB', step: 0.1 },         // 2 → output_db
+        { name: 'Color', value: 50, min: 0, max: 100, suffix: '%', step: 1 },            // 3 → colour (pre-sat tilt)
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },             // 4 → mix
     ],
     limiter: [
         { name: 'Thr', value: -0.3, min: -30, max: 0, suffix: 'dB', step: 0.1 },        // 0

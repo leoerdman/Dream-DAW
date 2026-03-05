@@ -135,7 +135,7 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
         tone: 1,    // Legacy alias → damping
     },
     chorus: { rate: 0, depth: 1, mix: 2, fb: 3, voices: 4, spread: 5, 'hp freq': 6 },
-    saturator: { drive: 0, tone: 1, mix: 2, mode: 3, output: 4, color: 5 },
+    saturator: { mode: 0, drive: 1, output: 2, color: 3, mix: 4 },
     limiter: { thr: 0, rel: 1, ceil: 2, lookahead: 3, 'auto rel': 4, link: 5 },
     gate: { thr: 0, atk: 1, hold: 2, rel: 3, range: 4, 'sc hpf': 5, hysteresis: 6, duck: 7 },
     autoFilter: {

@@ -44,6 +44,9 @@ pub struct DynamicTubeProcessor {
     // Cached tone
     cached_tone_c: f32,
     cached_tone_freq: f32,
+    // BUG-DSP-101: 2x oversampling for tube waveshaping anti-aliasing
+    os_l: crate::processors::oversampling::Oversampler2x,
+    os_r: crate::processors::oversampling::Oversampler2x,
     // Smoothed
     drive_sm: SmoothedValue,
     bias_sm: SmoothedValue,
@@ -75,6 +78,8 @@ impl DynamicTubeProcessor {
             dc_coeff: 1.0 - (std::f32::consts::TAU * 15.0 / sr),
             cached_tone_c: (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * 200.0 * crate::fast_math::fast_exp2(0.6 * 6.321928) / sr)).clamp(0.0, 1.0),
             cached_tone_freq: 200.0 * crate::fast_math::fast_exp2(0.6 * 6.321928),
+            os_l: crate::processors::oversampling::Oversampler2x::new(sr),
+            os_r: crate::processors::oversampling::Oversampler2x::new(sr),
             drive_sm: SmoothedValue::new(sr, 10.0, 0.4),
             bias_sm: SmoothedValue::new(sr, 10.0, 0.2),
             env_amt_sm: SmoothedValue::new(sr, 10.0, 0.5),
@@ -116,6 +121,8 @@ impl DspProcessor for DynamicTubeProcessor {
             self.mix_sm.set_sample_rate(sr);
             self.output_sm.set_sample_rate(sr);
             self.cached_tone_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * self.cached_tone_freq / sr)).clamp(0.0, 1.0);
+            self.os_l.set_sample_rate(sr);
+            self.os_r.set_sample_rate(sr);
         }
 
         let len = left.len().min(right.len());
@@ -154,9 +161,9 @@ impl DspProcessor for DynamicTubeProcessor {
             let dyn_bias_l = static_bias + self.env_l * env_amt;
             let dyn_bias_r = static_bias + self.env_r * env_amt;
 
-            // Tube saturation with dynamic bias
-            let sat_l = Self::tube_stage(dry_l, drive, dyn_bias_l);
-            let sat_r = Self::tube_stage(dry_r, drive, dyn_bias_r);
+            // BUG-DSP-101 FIX: 2x oversampled tube saturation with dynamic bias
+            let sat_l = self.os_l.process(dry_l, |s| Self::tube_stage(s, drive, dyn_bias_l));
+            let sat_r = self.os_r.process(dry_r, |s| Self::tube_stage(s, drive, dyn_bias_r));
 
             // Tone LP filter
             // log2(80) ≈ 6.32192809
@@ -224,6 +231,8 @@ impl DspProcessor for DynamicTubeProcessor {
         let tone_cutoff = 200.0 * crate::fast_math::fast_exp2(self.tone.clamp(0.0, 1.0) * 6.321928);
         self.cached_tone_c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * tone_cutoff / self.sample_rate)).clamp(0.0, 1.0);
         self.cached_tone_freq = tone_cutoff;
+        self.os_l.reset();
+        self.os_r.reset();
     }
 }
 

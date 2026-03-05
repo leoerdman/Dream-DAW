@@ -1,3 +1,0 @@
-    Checking dream_orchestrator v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_orchestrator)
-    Checking desktop_host v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/apps/desktop_host)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.41s

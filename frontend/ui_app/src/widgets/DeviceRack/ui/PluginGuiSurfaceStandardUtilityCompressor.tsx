@@ -30,11 +30,11 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     background: 'var(--plugin-bg-utility)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: 'var(--space-2)',
+                    gap: 'var(--space-1-5)',
                     alignItems: 'stretch',
                 }}>
-                    <KnobParamGrid params={knobParams} handlers={handlers} />
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', paddingTop: 'var(--space-1)' }}>
+                    <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                         <button
                             type="button"
                             onClick={() => onApplyUtilityScene?.('mono')}

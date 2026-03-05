@@ -4,7 +4,7 @@ import { PluginKnob, PluginFader } from '@/widgets/DeviceRack/StandardPluginCont
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { SAMPLER_PAGE_MANIFEST } from '@/shared/config/InternalPluginPageManifest';
-import type { PageParamEntry, PluginPage } from '@/shared/config/InternalPluginPageManifest';
+import type { PageParamEntry } from '@/shared/config/InternalPluginPageManifest';
 import { resolveSurfaceParam } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 interface PluginGuiSurfaceSamplerProps {
@@ -341,30 +341,65 @@ export function PluginGuiSurfaceSampler({
                 </div>
             )}
 
-            {/* ── Params area ────────────────────────────────────── */}
+            {/* ── Params area (module-card wrapped) ───────────── */}
             <div
                 data-no-drag
                 style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 'var(--space-1)',
-                    padding: 'var(--space-1) var(--space-2)',
-                    background: 'var(--token-color-rgba-16-20-28-0d55)',
+                    padding: 'var(--space-1) var(--space-1-5)',
                     overflow: 'hidden',
                 }}
             >
-                {/* Knobs row */}
+                {/* Knobs row — module card */}
                 {resolvedParams.filter(r => r.entry.control === 'knob').length > 0 && (
                     <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${Math.min(8, resolvedParams.filter(r => r.entry.control === 'knob').length)}, minmax(0, 1fr))`,
-                        gap: 'var(--space-1-5)',
-                        alignItems: 'center',
+                        border: 'var(--space-px) solid var(--plugin-card-border)',
+                        borderRadius: 'var(--plugin-card-radius)',
+                        padding: 'var(--space-1)',
+                        background: 'var(--plugin-card-bg-main)',
+                    }}>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(${Math.min(8, resolvedParams.filter(r => r.entry.control === 'knob').length)}, minmax(0, 1fr))`,
+                            gap: 'var(--plugin-grid-gap)',
+                            alignItems: 'center',
+                        }}>
+                            {resolvedParams
+                                .filter(r => r.entry.control === 'knob')
+                                .map(({ entry, param }) => (
+                                    <PluginKnob
+                                        key={param.name}
+                                        param={entry.faderMin != null ? { ...param, min: entry.faderMin, max: entry.faderMax ?? param.max } : param}
+                                        label={entry.label}
+                                        onChange={onParamChange}
+                                        onGestureStart={onParamGestureStart}
+                                        onGestureEnd={onParamGestureEnd}
+                                        onContextMenu={onParamContextMenu}
+                                        compact
+                                    />
+                                ))
+                            }
+                        </div>
+                    </div>
+                )}
+
+                {/* Fader rows — module card */}
+                {resolvedParams.filter(r => r.entry.control === 'fader').length > 0 && (
+                    <div style={{
+                        border: 'var(--space-px) solid var(--plugin-card-border)',
+                        borderRadius: 'var(--plugin-card-radius)',
+                        padding: 'var(--space-1) var(--space-1-5)',
+                        background: 'var(--plugin-card-bg-main)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
                     }}>
                         {resolvedParams
-                            .filter(r => r.entry.control === 'knob')
+                            .filter(r => r.entry.control === 'fader')
                             .map(({ entry, param }) => (
-                                <PluginKnob
+                                <PluginFader
                                     key={param.name}
                                     param={entry.faderMin != null ? { ...param, min: entry.faderMin, max: entry.faderMax ?? param.max } : param}
                                     label={entry.label}
@@ -372,48 +407,38 @@ export function PluginGuiSurfaceSampler({
                                     onGestureStart={onParamGestureStart}
                                     onGestureEnd={onParamGestureEnd}
                                     onContextMenu={onParamContextMenu}
-                                    compact
                                 />
                             ))
                         }
                     </div>
                 )}
 
-                {/* Fader rows */}
-                {resolvedParams
-                    .filter(r => r.entry.control === 'fader')
-                    .map(({ entry, param }) => (
-                        <PluginFader
-                            key={param.name}
-                            param={entry.faderMin != null ? { ...param, min: entry.faderMin, max: entry.faderMax ?? param.max } : param}
-                            label={entry.label}
-                            onChange={onParamChange}
-                            onGestureStart={onParamGestureStart}
-                            onGestureEnd={onParamGestureEnd}
-                            onContextMenu={onParamContextMenu}
-                        />
-                    ))
-                }
-
-                {/* Extra params on settings page (not in manifest) */}
+                {/* Extra params on settings page — module card */}
                 {extraSettingsParams.length > 0 && (
                     <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${Math.min(6, extraSettingsParams.length)}, minmax(0, 1fr))`,
-                        gap: 'var(--space-1-5)',
-                        alignItems: 'center',
+                        border: 'var(--space-px) solid var(--plugin-card-border)',
+                        borderRadius: 'var(--plugin-card-radius)',
+                        padding: 'var(--space-1)',
+                        background: 'var(--plugin-card-bg-main)',
                     }}>
-                        {extraSettingsParams.map(p => (
-                            <PluginKnob
-                                key={p.name}
-                                param={p}
-                                onChange={onParamChange}
-                                onGestureStart={onParamGestureStart}
-                                onGestureEnd={onParamGestureEnd}
-                                onContextMenu={onParamContextMenu}
-                                compact
-                            />
-                        ))}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(${Math.min(6, extraSettingsParams.length)}, minmax(0, 1fr))`,
+                            gap: 'var(--plugin-grid-gap)',
+                            alignItems: 'center',
+                        }}>
+                            {extraSettingsParams.map(p => (
+                                <PluginKnob
+                                    key={p.name}
+                                    param={p}
+                                    onChange={onParamChange}
+                                    onGestureStart={onParamGestureStart}
+                                    onGestureEnd={onParamGestureEnd}
+                                    onContextMenu={onParamContextMenu}
+                                    compact
+                                />
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

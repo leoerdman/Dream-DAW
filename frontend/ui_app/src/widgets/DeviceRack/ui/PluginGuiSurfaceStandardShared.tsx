@@ -328,11 +328,10 @@ export const KnobParamGrid = React.memo(({
     const cols = Math.min(maxCols, Math.max(minCols, params.length));
     return (
         <div style={{
-            background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
-            borderRadius: 'var(--plugin-card-radius)',
-            border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 14%, transparent)',
-            padding: 'var(--space-1-5) var(--space-1)',
+            ...pluginPanelCardBaseStyle,
+            padding: 'var(--space-1) var(--space-1)',
             height: 'fit-content',
+            display: 'block',
         }}>
             <div style={pluginPanelKnobGrid(`repeat(${cols}, minmax(0, 1fr))`)}>
                 {params.map((p) => (

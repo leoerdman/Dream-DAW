@@ -197,7 +197,7 @@ export function useTrackInspectorContextActions({
         const sourceTrack = tracks.find((t) => t.id === trackId);
         const rawColor = sourceTrack?.color ?? '';
         // ENTERPRISE: Accept hex colors (both uppercase and lowercase), fallback for CSS vars or empty
-        const sourceColor = rawColor.match(/^#[0-9a-fA-F]{6}$/i) ? rawColor : 'var(--track-color-default, #808080)';
+        const sourceColor = rawColor.match(/^#[0-9a-fA-F]{6}$/i) ? rawColor : '#808080';
         console.info('[Dream] groupTrack: trackId=%s rawColor=%s sourceColor=%s', trackId, rawColor, sourceColor);
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');

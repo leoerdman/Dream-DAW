@@ -21,6 +21,12 @@ import { ReverseControls } from './nodes/ReverseControls';
 import { OutputControls } from './nodes/OutputControls';
 import { MidiInControls } from './nodes/MidiInControls';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
+import { LfoControls } from './nodes/LfoControls';
+import { NoiseControls } from './nodes/NoiseControls';
+import { DelayControls } from './nodes/DelayControls';
+import { MixerControls } from './nodes/MixerControls';
+import { MultiplyControls } from './nodes/MultiplyControls';
+import { VcaControls } from './nodes/VcaControls';
 
 export const FLOW_NODE_WIDTH = 260;
 const FLOW_GRID_SNAP = 20;
@@ -51,6 +57,21 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <MidiInControls node={node} />;
         case 'audioIn':
             return null; // Audio In is a passthrough — no controls needed
+        case 'lfo':
+            return <LfoControls node={node} />;
+        case 'noise':
+            return <NoiseControls node={node} />;
+        case 'add':
+        case 'sampleHold':
+            return null; // Stateless processing nodes — no inline controls
+        case 'multiply':
+            return <MultiplyControls node={node} />;
+        case 'delay':
+            return <DelayControls node={node} />;
+        case 'mixer':
+            return <MixerControls node={node} />;
+        case 'vca':
+            return <VcaControls node={node} />;
         default:
             return null;
     }

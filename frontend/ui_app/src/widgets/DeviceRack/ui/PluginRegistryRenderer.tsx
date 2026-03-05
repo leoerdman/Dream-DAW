@@ -13,6 +13,7 @@ import {
     getParamValue,
     KnobParamGrid,
     readSurfaceParam,
+    resolveSurfaceParam,
     safeParamValue,
     shouldShowDryWet,
     type SurfaceHandlers,
@@ -43,11 +44,17 @@ function freqToNorm(hz: number): number {
     return clamp01(Math.log2(Math.max(20, hz) / 20) / Math.log2(20000 / 20));
 }
 
-/** Resolve VizConfig → React element. */
+/** Denormalize log frequency norm → Hz */
+function normToHz(n: number): number {
+    return 20 * Math.pow(1000, clamp01(n));
+}
+
+/** Resolve VizConfig → React element with interactive callbacks. */
 function resolveViz(
     viz: VizConfig,
     device: DeviceSlot,
     accent: string,
+    handlers: SurfaceHandlers,
 ): React.ReactNode {
     switch (viz.type) {
         case 'modulationWave': {
@@ -58,14 +65,49 @@ function resolveViz(
             return <ModulationWave rate={rateNorm} depth={depthNorm} shape={viz.waveShape ?? 'sine'} accent={accent} />;
         }
         case 'saturationCurve': {
-            const driveRaw = safeParamValue(device, viz.driveParam ?? 'drive', viz.driveFallback ?? 3);
-            const driveNorm = clamp01(Math.max(0, driveRaw) / (viz.driveMax ?? 24));
-            return <SaturationCurve drive={driveNorm} type={viz.satType ?? 'soft'} accent={accent} />;
+            const driveParamNames = viz.driveParam ?? 'drive';
+            const driveRaw = safeParamValue(device, driveParamNames, viz.driveFallback ?? 3);
+            const driveMax = viz.driveMax ?? 24;
+            const driveNorm = clamp01(Math.max(0, driveRaw) / driveMax);
+            const driveParam = resolveSurfaceParam(device, driveParamNames);
+            return (
+                <SaturationCurve
+                    drive={driveNorm}
+                    type={viz.satType ?? 'soft'}
+                    accent={accent}
+                    onDriveChange={driveParam ? (normDrive: number) => {
+                        handlers.onParamChange(driveParam, normDrive * driveMax);
+                    } : undefined}
+                    onGestureStart={driveParam ? () => handlers.onParamGestureStart?.(driveParam) : undefined}
+                    onGestureEnd={driveParam ? () => handlers.onParamGestureEnd?.(driveParam) : undefined}
+                />
+            );
         }
         case 'miniFilterEq': {
             const hpHz = safeParamValue(device, viz.hpParam ?? 'hp', viz.hpFallback ?? 200);
             const lpHz = safeParamValue(device, viz.lpParam ?? 'lp', viz.lpFallback ?? 8000);
-            return <MiniFilterEq hpFreqNorm={freqToNorm(hpHz)} lpFreqNorm={freqToNorm(lpHz)} accentHp={accent} accentLp={accent} />;
+            const hpParam = resolveSurfaceParam(device, viz.hpParam ?? 'hp');
+            const lpParam = resolveSurfaceParam(device, viz.lpParam ?? 'lp');
+            return (
+                <MiniFilterEq
+                    hpFreqNorm={freqToNorm(hpHz)}
+                    lpFreqNorm={freqToNorm(lpHz)}
+                    accentHp={accent}
+                    accentLp={accent}
+                    onFreqChange={(handle, normFreq) => {
+                        const param = handle === 'hp' ? hpParam : lpParam;
+                        if (param) handlers.onParamChange(param, normToHz(normFreq));
+                    }}
+                    onGestureStart={(handle) => {
+                        const param = handle === 'hp' ? hpParam : lpParam;
+                        if (param) handlers.onParamGestureStart?.(param);
+                    }}
+                    onGestureEnd={(handle) => {
+                        const param = handle === 'hp' ? hpParam : lpParam;
+                        if (param) handlers.onParamGestureEnd?.(param);
+                    }}
+                />
+            );
         }
         case 'gainReductionMeter': {
             const thrDb = Math.abs(safeParamValue(device, 'thr', -0.3));
@@ -79,13 +121,29 @@ function resolveViz(
             );
         }
         case 'compressionCurve': {
-            const thr = safeParamValue(device, viz.thrParam ?? 'thr', viz.thrFallback ?? -18);
+            const thrParamNames = viz.thrParam ?? 'thr';
+            const thr = safeParamValue(device, thrParamNames, viz.thrFallback ?? -18);
             const ratio = safeParamValue(device, viz.ratioParam ?? 'ratio', viz.ratioFallback ?? 4);
             const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel!) : 0;
             const pseudoGr = rawGr > 0 ? Math.min(24, rawGr) : Math.min(24, ((-thr) / 60) * ratio * 2.4);
             const thrNorm = clamp01((thr + 60) / 60);
             const ratioNorm = clamp01(Math.min(ratio, 20) / 20);
-            return <CompressionCurve thresholdNorm={thrNorm} ratioNorm={ratioNorm} grDb={pseudoGr} accent={accent} variant={viz.compVariant ?? 'standard'} />;
+            const thrParam = resolveSurfaceParam(device, thrParamNames);
+            return (
+                <CompressionCurve
+                    thresholdNorm={thrNorm}
+                    ratioNorm={ratioNorm}
+                    grDb={pseudoGr}
+                    accent={accent}
+                    variant={viz.compVariant ?? 'standard'}
+                    onThresholdChange={thrParam ? (normThr: number) => {
+                        // Convert 0–1 norm → -60–0 dB range
+                        handlers.onParamChange(thrParam, normThr * 60 - 60);
+                    } : undefined}
+                    onGestureStart={thrParam ? () => handlers.onParamGestureStart?.(thrParam) : undefined}
+                    onGestureEnd={thrParam ? () => handlers.onParamGestureEnd?.(thrParam) : undefined}
+                />
+            );
         }
         case 'spectrumBars': {
             const data = viz.staticDataGenerator?.(device);
@@ -190,7 +248,7 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
     }
 
     // ── Standard EQ-style layout ────────────────────────────────────
-    const vizElement = resolveViz(definition.viz, device, accent);
+    const vizElement = resolveViz(definition.viz, device, accent, handlers);
     const metaSpans = resolveMeta(definition.meta, device);
 
     return (

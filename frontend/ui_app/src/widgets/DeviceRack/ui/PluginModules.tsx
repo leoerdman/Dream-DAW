@@ -508,7 +508,7 @@ export const AdsrCurve = React.memo(function AdsrCurve({
 });
 
 // ─── Saturation Curve ────────────────────────────────────────────────────
-// Transfer function shape changes by saturation type.
+// Interactive transfer function — drag the curve to adjust drive.
 
 export type SaturationCurveType = 'soft' | 'hard' | 'tape' | 'tube' | 'fold' | 'digital';
 
@@ -518,17 +518,27 @@ export interface SaturationCurveProps {
     /** Saturation algorithm type. */
     type?: SaturationCurveType;
     accent?: string;
+    /** Interactive: fires when user drags the drive handle. */
+    onDriveChange?: (normalizedDrive: number) => void;
+    onGestureStart?: () => void;
+    onGestureEnd?: () => void;
 }
 
 export const SaturationCurve = React.memo(function SaturationCurve({
     drive,
     type = 'soft',
     accent = 'var(--token-color-hex-ff965e)',
+    onDriveChange,
+    onGestureStart,
+    onGestureEnd,
 }: SaturationCurveProps) {
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const dragRef = useRef<boolean>(false);
     const M = 14;
     const d = clamp01(drive);
-    const k = Math.max(8, 60 - d * 48); // knee softness
+    const k = Math.max(8, 60 - d * 48);
 
+    // Curve path per type
     const curveByType: Record<SaturationCurveType, string> = {
         soft: `M ${M} ${VB_H - M} C ${M + k} ${VB_H - M}, ${VB_W - M - k} ${M}, ${VB_W - M} ${M}`,
         hard: `M ${M} ${VB_H - M} L ${M + 40} ${VB_H - M} L ${VB_W / 2} ${M + 10} L ${VB_W - M - 40} ${M + 10} L ${VB_W - M} ${M + 10}`,
@@ -538,32 +548,114 @@ export const SaturationCurve = React.memo(function SaturationCurve({
         digital: `M ${M} ${VB_H - M} L ${M} ${M + 6} L ${VB_W - M} ${M + 6}`,
     };
 
+    // Fill path (close to bottom)
+    const fillPath = `${curveByType[type]} L ${VB_W - M} ${VB_H - M} L ${M} ${VB_H - M} Z`;
+
+    // Draggable drive handle position — midpoint of curve
+    const handleX = M + (VB_W - 2 * M) * 0.5;
+    const handleY = M + (VB_H - 2 * M) * (1 - d) * 0.45 + M;
+
+    const onPointerDown = useCallback((e: React.PointerEvent) => {
+        if (!onDriveChange) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (e.target as SVGElement).setPointerCapture(e.pointerId);
+        dragRef.current = true;
+        onGestureStart?.();
+    }, [onDriveChange, onGestureStart]);
+
+    const onPointerMove = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current || !onDriveChange) return;
+        const svg = svgRef.current;
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
+        const normY = 1 - ((e.clientY - rect.top) / rect.height);
+        onDriveChange(clamp01(normY));
+    }, [onDriveChange]);
+
+    const onPointerUp = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current) return;
+        (e.target as SVGElement).releasePointerCapture(e.pointerId);
+        dragRef.current = false;
+        onGestureEnd?.();
+    }, [onGestureEnd]);
+
+    // Drive % label
+    const driveLabel = `${Math.round(d * 100)}%`;
+
     return (
-        <VizSvg bgFill="var(--token-color-rgba-20-13-9-0d65)">
-            {/* Diagonal reference line */}
+        <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)', cursor: onDriveChange ? 'default' : undefined }}
+        >
+            <defs>
+                <filter id="sat-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+                <linearGradient id="sat-fill-grad" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor={accent} stopOpacity="0.02" />
+                    <stop offset="100%" stopColor={accent} stopOpacity="0.18" />
+                </linearGradient>
+            </defs>
+            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-20-13-9-0d65)" />
+            {/* Grid */}
+            <line x1={M} y1={VB_H / 2} x2={VB_W - M} y2={VB_H / 2} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+            <line x1={VB_W / 2} y1={M} x2={VB_W / 2} y2={VB_H - M} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.4" />
+            {/* Diagonal reference */}
             <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={M} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.8" strokeDasharray="4,3" />
+            {/* Gradient fill under curve */}
+            <path d={fillPath} fill="url(#sat-fill-grad)" />
             {/* Transfer function curve */}
             <path d={curveByType[type]} fill="none" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
             {/* Origin dot */}
             <circle cx={M} cy={VB_H - M} r="3" fill={accent} opacity="0.7" />
-        </VizSvg>
+            {/* Axis labels */}
+            <text x={M + 2} y={VB_H - M + 10} fill="var(--token-color-rgba-255-255-255-0d3)" fontSize="7" fontFamily="var(--font-role-data)">In</text>
+            <text x={M - 10} y={M + 4} fill="var(--token-color-rgba-255-255-255-0d3)" fontSize="7" fontFamily="var(--font-role-data)">Out</text>
+            {/* Drive handle (interactive) */}
+            {onDriveChange && (
+                <circle
+                    cx={handleX}
+                    cy={handleY}
+                    r={6}
+                    fill={accent}
+                    stroke="white"
+                    strokeWidth="1.5"
+                    filter="url(#sat-glow)"
+                    style={{ cursor: 'ns-resize', touchAction: 'none' }}
+                    onPointerDown={onPointerDown}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerCancel={onPointerUp}
+                />
+            )}
+            {/* Drive value readout */}
+            <text x={VB_W - M - 4} y={M + 10} textAnchor="end" fill={accent} fontSize="9" fontFamily="var(--font-role-data)" opacity="0.8">{driveLabel}</text>
+        </svg>
     );
 });
 
 // ─── Mini Filter EQ ──────────────────────────────────────────────────────
-// 2-handle HP/LP filter visualization (like Delay/Reverb surfaces).
+// Interactive 2-handle HP/LP filter — drag handles to change frequency.
 
 export interface MiniFilterEqProps {
     /** HP frequency, normalized 0–1 (log scale 20–20000). */
     hpFreqNorm: number;
     /** LP frequency, normalized 0–1 (log scale 20–20000). */
     lpFreqNorm: number;
-    /** Optional Q for HP. Default 0.5 */
     hpQ?: number;
-    /** Optional Q for LP. Default 0.5 */
     lpQ?: number;
     accentHp?: string;
     accentLp?: string;
+    /** Interactive: fires on HP/LP handle drag. paramName = 'hp' or 'lp'. */
+    onFreqChange?: (paramName: string, normalizedFreq: number) => void;
+    onGestureStart?: (paramName: string) => void;
+    onGestureEnd?: (paramName: string) => void;
 }
 
 export const MiniFilterEq = React.memo(function MiniFilterEq({
@@ -573,25 +665,116 @@ export const MiniFilterEq = React.memo(function MiniFilterEq({
     lpQ: _lpQ = 0.5,
     accentHp = 'var(--token-color-hex-ffac59)',
     accentLp = 'var(--token-color-hex-7ab6ff)',
+    onFreqChange,
+    onGestureStart,
+    onGestureEnd,
 }: MiniFilterEqProps) {
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const dragRef = useRef<{ handle: 'hp' | 'lp' } | null>(null);
     const M = 14;
-    const hpX = M + clamp01(hpFreqNorm) * (VB_W - 2 * M);
-    const lpX = M + clamp01(lpFreqNorm) * (VB_W - 2 * M);
-    const midY = VB_H * 0.4;   // flat line at 40% height (pass band)
-    const botY = VB_H - M;     // bottom of rolloff
+    const W = VB_W - 2 * M;
+    const hpX = M + clamp01(hpFreqNorm) * W;
+    const lpX = M + clamp01(lpFreqNorm) * W;
+    const midY = VB_H * 0.4;
+    const botY = VB_H - M;
+
+    // Passband fill path (between HP and LP)
+    const passbandFill = `M ${hpX} ${midY} L ${lpX} ${midY} Q ${lpX + 20} ${midY}, ${VB_W - M} ${botY} L ${VB_W - M} ${botY} L ${M} ${botY} Q ${hpX - 20} ${botY}, ${hpX} ${midY} Z`;
+
+    // Frequency label helpers
+    const normToHz = (n: number) => {
+        const hz = 20 * Math.pow(1000, n);
+        return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${Math.round(hz)}Hz`;
+    };
+
+    const onHandleDown = useCallback((e: React.PointerEvent, handle: 'hp' | 'lp') => {
+        if (!onFreqChange) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (e.target as SVGElement).setPointerCapture(e.pointerId);
+        dragRef.current = { handle };
+        onGestureStart?.(handle);
+    }, [onFreqChange, onGestureStart]);
+
+    const onHandleMove = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current || !onFreqChange) return;
+        const svg = svgRef.current;
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
+        const normX = clamp01(((e.clientX - rect.left) / rect.width * VB_W - M) / W);
+        onFreqChange(dragRef.current.handle, normX);
+    }, [onFreqChange, W]);
+
+    const onHandleUp = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current) return;
+        (e.target as SVGElement).releasePointerCapture(e.pointerId);
+        onGestureEnd?.(dragRef.current.handle);
+        dragRef.current = null;
+    }, [onGestureEnd]);
+
+    const isInteractive = !!onFreqChange;
 
     return (
-        <VizSvg bgFill="var(--token-color-rgba-8-10-14-0d65)">
-            {/* Frequency grid */}
+        <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+        >
+            <defs>
+                <filter id="eq-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+                <linearGradient id="eq-passband-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={accentHp} stopOpacity="0.14" />
+                    <stop offset="100%" stopColor={accentHp} stopOpacity="0.02" />
+                </linearGradient>
+            </defs>
+            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-8-10-14-0d65)" />
+            {/* Frequency grid lines */}
+            {[0.1, 0.3, 0.5, 0.7, 0.9].map(n => (
+                <line key={n} x1={M + n * W} y1={M} x2={M + n * W} y2={botY} stroke="var(--plugin-viz-grid-minor)" strokeWidth="0.3" />
+            ))}
             <line x1={M} y1={midY} x2={VB_W - M} y2={midY} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" />
-            {/* HP curve (left rolloff) */}
-            <path d={`M ${M} ${botY} Q ${hpX - 20} ${botY}, ${hpX} ${midY} L ${VB_W - M} ${midY}`} fill="none" stroke={accentHp} strokeWidth="2" strokeLinecap="round" />
-            {/* LP curve (right rolloff) */}
-            <path d={`M ${M} ${midY} L ${lpX} ${midY} Q ${lpX + 20} ${midY}, ${VB_W - M} ${botY}`} fill="none" stroke={accentLp} strokeWidth="2" strokeLinecap="round" />
-            {/* Handle dots */}
-            <circle cx={hpX} cy={midY} r="5" fill={accentHp} stroke="white" strokeWidth="1.2" />
-            <circle cx={lpX} cy={midY} r="5" fill={accentLp} stroke="white" strokeWidth="1.2" />
-        </VizSvg>
+            {/* Passband fill */}
+            <path d={passbandFill} fill="url(#eq-passband-grad)" />
+            {/* HP curve */}
+            <path d={`M ${M} ${botY} Q ${hpX - 20} ${botY}, ${hpX} ${midY} L ${VB_W - M} ${midY}`} fill="none" stroke={accentHp} strokeWidth="2.2" strokeLinecap="round" />
+            {/* LP curve */}
+            <path d={`M ${M} ${midY} L ${lpX} ${midY} Q ${lpX + 20} ${midY}, ${VB_W - M} ${botY}`} fill="none" stroke={accentLp} strokeWidth="2.2" strokeLinecap="round" />
+            {/* Axis labels */}
+            <text x={M + 2} y={botY + 10} fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">20Hz</text>
+            <text x={VB_W - M - 28} y={botY + 10} fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">20kHz</text>
+            {/* HP handle freq label */}
+            <text x={hpX} y={midY - 10} textAnchor="middle" fill={accentHp} fontSize="8" fontFamily="var(--font-role-data)" opacity="0.85">{normToHz(hpFreqNorm)}</text>
+            {/* LP handle freq label */}
+            <text x={lpX} y={midY - 10} textAnchor="middle" fill={accentLp} fontSize="8" fontFamily="var(--font-role-data)" opacity="0.85">{normToHz(lpFreqNorm)}</text>
+            {/* HP handle */}
+            <circle
+                cx={hpX} cy={midY} r={isInteractive ? 6 : 5}
+                fill={accentHp} stroke="white" strokeWidth="1.3"
+                filter={isInteractive ? 'url(#eq-glow)' : undefined}
+                style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
+                onPointerDown={isInteractive ? (e) => onHandleDown(e, 'hp') : undefined}
+                onPointerMove={isInteractive ? onHandleMove : undefined}
+                onPointerUp={isInteractive ? onHandleUp : undefined}
+                onPointerCancel={isInteractive ? onHandleUp : undefined}
+            />
+            {/* LP handle */}
+            <circle
+                cx={lpX} cy={midY} r={isInteractive ? 6 : 5}
+                fill={accentLp} stroke="white" strokeWidth="1.3"
+                filter={isInteractive ? 'url(#eq-glow)' : undefined}
+                style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
+                onPointerDown={isInteractive ? (e) => onHandleDown(e, 'lp') : undefined}
+                onPointerMove={isInteractive ? onHandleMove : undefined}
+                onPointerUp={isInteractive ? onHandleUp : undefined}
+                onPointerCancel={isInteractive ? onHandleUp : undefined}
+            />
+        </svg>
     );
 });
 
@@ -663,20 +846,21 @@ export const GainReductionMeter = React.memo(function GainReductionMeter({
 });
 
 // ─── Compression Curve ───────────────────────────────────────────────────
-// Input/Output transfer function with threshold, ratio, and optional knee.
+// Interactive input/output transfer function — drag threshold knee point.
 
 export interface CompressionCurveProps {
     /** Threshold 0–1 normalized (0=max compression, 1=no compression). */
     thresholdNorm: number;
     /** Ratio 0–1 where 0=1:1, 1=∞:1. */
     ratioNorm: number;
-    /** Knee softness 0–1. Default: 0.2 */
     kneeNorm?: number;
-    /** GR for integrated meter, in dB. */
     grDb?: number;
     accent?: string;
-    /** Variant styling. */
     variant?: 'standard' | 'glue' | 'multiband';
+    /** Interactive: fires on threshold handle drag. */
+    onThresholdChange?: (normalizedThr: number) => void;
+    onGestureStart?: () => void;
+    onGestureEnd?: () => void;
 }
 
 export const CompressionCurve = React.memo(function CompressionCurve({
@@ -686,24 +870,91 @@ export const CompressionCurve = React.memo(function CompressionCurve({
     grDb = 0,
     accent = 'var(--token-color-hex-6ac3ff)',
     variant = 'standard',
+    onThresholdChange,
+    onGestureStart,
+    onGestureEnd,
 }: CompressionCurveProps) {
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const dragRef = useRef<boolean>(false);
     const M = 20;
     const W = VB_W - 2 * M;
     const H = VB_H - 2 * M;
     const thrX = M + clamp01(thresholdNorm) * W;
     const thrY = VB_H - M - clamp01(thresholdNorm) * H;
-    // Above threshold, output grows slower by ratio
-    const slopeAbove = 1 - clamp01(ratioNorm) * 0.9; // 1=unity, 0.1=∞:1
+    const slopeAbove = 1 - clamp01(ratioNorm) * 0.9;
     const endY = thrY - (VB_W - M - thrX) * slopeAbove * (H / W);
 
-    const grBarH = clamp01(Math.abs(grDb) / 24) * (VB_H - 2 * M);
+    const grBarH = clamp01(Math.abs(grDb) / 24) * H;
     const grColor = Math.abs(grDb) > 12 ? 'var(--color-error)' : Math.abs(grDb) > 4 ? 'var(--color-warning)' : 'var(--color-success)';
 
+    // Curve path
+    const curvePath = variant === 'glue'
+        ? `M ${M} ${VB_H - M} L ${thrX * 0.8} ${thrY + (VB_H - M - thrY) * 0.2} Q ${thrX} ${thrY}, ${(thrX + VB_W - M) / 2} ${(thrY + endY) / 2} L ${VB_W - M} ${Math.max(M, endY)}`
+        : `M ${M} ${VB_H - M} L ${thrX} ${thrY} L ${VB_W - M} ${Math.max(M, endY)}`;
+
+    // Fill under curve
+    const fillPath = `${curvePath} L ${VB_W - M} ${VB_H - M} L ${M} ${VB_H - M} Z`;
+
+    // Drag handlers
+    const onHandleDown = useCallback((e: React.PointerEvent) => {
+        if (!onThresholdChange) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (e.target as SVGElement).setPointerCapture(e.pointerId);
+        dragRef.current = true;
+        onGestureStart?.();
+    }, [onThresholdChange, onGestureStart]);
+
+    const onHandleMove = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current || !onThresholdChange) return;
+        const svg = svgRef.current;
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
+        const normX = clamp01(((e.clientX - rect.left) / rect.width * VB_W - M) / W);
+        onThresholdChange(normX);
+    }, [onThresholdChange, W]);
+
+    const onHandleUp = useCallback((e: React.PointerEvent) => {
+        if (!dragRef.current) return;
+        (e.target as SVGElement).releasePointerCapture(e.pointerId);
+        dragRef.current = false;
+        onGestureEnd?.();
+    }, [onGestureEnd]);
+
+    const isInteractive = !!onThresholdChange;
+
+    // Threshold dB label
+    const thrDb = Math.round((thresholdNorm * 60) - 60);
+
     return (
-        <VizSvg bgFill="var(--token-color-rgba-22-24-30-0d65)">
+        <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+        >
+            <defs>
+                <filter id="comp-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+                <linearGradient id="comp-fill-grad" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor={accent} stopOpacity="0.02" />
+                    <stop offset="100%" stopColor={accent} stopOpacity="0.12" />
+                </linearGradient>
+            </defs>
+            <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--token-color-rgba-22-24-30-0d65)" />
             {/* Axes */}
             <line x1={M} y1={M} x2={M} y2={VB_H - M} stroke="var(--token-color-rgba-255-255-255-0d2)" />
             <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={VB_H - M} stroke="var(--token-color-rgba-255-255-255-0d2)" />
+            {/* dB grid labels */}
+            <text x={M - 2} y={M + 4} textAnchor="end" fill="var(--token-color-rgba-255-255-255-0d3)" fontSize="6" fontFamily="var(--font-role-data)">0</text>
+            <text x={M - 2} y={VB_H - M + 3} textAnchor="end" fill="var(--token-color-rgba-255-255-255-0d3)" fontSize="6" fontFamily="var(--font-role-data)">-60</text>
+            <text x={M - 2} y={M + H / 2 + 3} textAnchor="end" fill="var(--token-color-rgba-255-255-255-0d25)" fontSize="6" fontFamily="var(--font-role-data)">-30</text>
+            {/* Axis titles */}
+            <text x={VB_W / 2} y={VB_H - M + 12} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d3)" fontSize="7" fontFamily="var(--font-role-data)">Input</text>
 
             {variant === 'multiband' && (
                 <>
@@ -712,18 +963,34 @@ export const CompressionCurve = React.memo(function CompressionCurve({
                 </>
             )}
 
+            {/* Unity reference line */}
+            <line x1={M} y1={VB_H - M} x2={VB_W - M} y2={M} stroke="var(--plugin-viz-grid-color)" strokeWidth="0.6" strokeDasharray="4,3" />
+            {/* Fill under curve */}
+            <path d={fillPath} fill="url(#comp-fill-grad)" />
             {/* Compression curve */}
-            {variant === 'glue' ? (
-                <path d={`M ${M} ${VB_H - M} L ${thrX * 0.8} ${thrY + (VB_H - M - thrY) * 0.2} Q ${thrX} ${thrY}, ${(thrX + VB_W - M) / 2} ${(thrY + endY) / 2} L ${VB_W - M} ${Math.max(M, endY)}`} fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" />
-            ) : (
-                <path d={`M ${M} ${VB_H - M} L ${thrX} ${thrY} L ${VB_W - M} ${Math.max(M, endY)}`} fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" />
-            )}
-
-            {/* GR meter bar (right edge) */}
+            <path d={curvePath} fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" />
+            {/* Threshold knee handle */}
+            <circle
+                cx={thrX}
+                cy={thrY}
+                r={isInteractive ? 7 : 5}
+                fill={accent}
+                stroke="white"
+                strokeWidth="1.5"
+                filter={isInteractive ? 'url(#comp-glow)' : undefined}
+                style={isInteractive ? { cursor: 'ew-resize', touchAction: 'none' } : undefined}
+                onPointerDown={isInteractive ? onHandleDown : undefined}
+                onPointerMove={isInteractive ? onHandleMove : undefined}
+                onPointerUp={isInteractive ? onHandleUp : undefined}
+                onPointerCancel={isInteractive ? onHandleUp : undefined}
+            />
+            {/* Threshold dB readout */}
+            <text x={thrX} y={thrY - 12} textAnchor="middle" fill={accent} fontSize="9" fontFamily="var(--font-role-data)" opacity="0.9">{thrDb} dB</text>
+            {/* GR meter bar */}
             {grDb > 0 && (
-                <rect x={VB_W - M - 6} y={VB_H - M - grBarH} width="10" height={grBarH} rx="2" fill={grColor} opacity="0.85" />
+                <rect x={VB_W - M - 6} y={VB_H - M - grBarH} width="10" height={Math.max(1, grBarH)} rx="2" fill={grColor} opacity="0.85" />
             )}
-        </VizSvg>
+        </svg>
     );
 });
 

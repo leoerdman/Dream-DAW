@@ -172,6 +172,40 @@ impl TrackSlot {
 
 // ── Render Context ─────────────────────────────────────────────────────────
 
+/// BUG-8 FIX: Lock-free per-track internal effect latency snapshot.
+///
+/// The audio thread publishes `device_chain.total_latency_samples()` for each
+/// track here. The background thread reads it during PDC latency collection
+/// so that internal effects with non-zero latency (Compressor lookahead,
+/// Limiter lookahead) are properly compensated.
+///
+/// Uses `ArcSwap` for RT-safe atomic publishing (no Mutex, no blocking).
+pub struct SharedInternalLatencySnapshot {
+    inner: arc_swap::ArcSwap<Vec<u32>>,
+}
+
+impl SharedInternalLatencySnapshot {
+    pub fn new(track_count: usize) -> Self {
+        Self {
+            inner: arc_swap::ArcSwap::from_pointee(vec![0u32; track_count]),
+        }
+    }
+
+    /// RT-safe publish: atomic pointer swap, no allocation on audio thread.
+    /// The old `Arc<Vec<u32>>` is dropped by the NEXT store, which happens
+    /// on the audio thread — but `Arc::drop` is just an atomic decrement,
+    /// perfectly RT-safe.
+    #[inline]
+    pub fn publish(&self, latencies: Vec<u32>) {
+        self.inner.store(std::sync::Arc::new(latencies));
+    }
+
+    /// Lock-free load for background/UI thread.
+    pub fn load(&self) -> arc_swap::Guard<std::sync::Arc<Vec<u32>>> {
+        self.inner.load()
+    }
+}
+
 /// The complete render context for the audio callback.
 ///
 /// This struct is created once at engine startup and reused for every
@@ -211,6 +245,10 @@ pub struct RenderContext {
 
     /// Shared meter bank (audio thread writes, UI thread reads).
     pub meter_bank: Arc<MeterBank>,
+
+    /// BUG-8 FIX: Per-track internal effect latency for PDC.
+    /// Published by audio thread after each callback.
+    pub internal_latency_snapshot: Arc<SharedInternalLatencySnapshot>,
 
     /// Current loop region (None = no looping).
     pub loop_region: Option<ClipLoopRegion>,
@@ -289,6 +327,10 @@ impl RenderContext {
         channels: usize,
         meter_bank: Arc<MeterBank>,
     ) -> Self {
+        let actual_track_count = track_count.min(MAX_TRACKS);
+        let internal_latency_snapshot = Arc::new(
+            SharedInternalLatencySnapshot::new(actual_track_count),
+        );
         let actual_tracks = track_count.min(MAX_TRACKS);
         let mut track_slots: Vec<TrackSlot> = Vec::with_capacity(actual_tracks);
         for _ in 0..actual_tracks {
@@ -316,6 +358,7 @@ impl RenderContext {
             per_track_spectrum_producers: (0..actual_tracks).map(|_| None).collect(),
             offline_mode: false,
             pro_warp_start_track: 0,
+            internal_latency_snapshot,
         }
     }
 

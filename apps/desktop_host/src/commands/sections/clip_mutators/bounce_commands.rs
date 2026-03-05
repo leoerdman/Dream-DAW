@@ -1,3 +1,217 @@
+/// Attempts to parse a UUID from a routing target string.
+///
+/// Routing targets come in multiple formats:
+///   - Raw UUID: `"550e8400-e29b-41d4-a716-446655440000"`
+///   - Qualified path: `"AudioIn/Track.550e8400-e29b-41d4-a716-446655440000"`
+///   - Legacy: `"AudioOut/Track.{uuid}"`
+///
+/// We try the last dot-segment first (qualified), then the full string (raw).
+fn extract_uuid_from_routing(routing_target: &str) -> Option<uuid::Uuid> {
+    // Try last segment after '.' for qualified paths (e.g. "AudioIn/Track.{uuid}")
+    if let Some(pos) = routing_target.rfind('.') {
+        if let Ok(id) = uuid::Uuid::parse_str(&routing_target[pos + 1..]) {
+            return Some(id);
+        }
+    }
+    // Try last segment after '/' (e.g. some internal formats)
+    if let Some(pos) = routing_target.rfind('/') {
+        if let Ok(id) = uuid::Uuid::parse_str(&routing_target[pos + 1..]) {
+            return Some(id);
+        }
+    }
+    // Fallback: try parsing the whole string as UUID
+    uuid::Uuid::parse_str(routing_target).ok()
+}
+
+/// Recursively collects all sidechain source track UUIDs from a DeviceNode tree,
+/// handling nested racks with solo/disabled states (matching the offline renderer's
+/// `collect_sidechain_sources_from_node` logic exactly).
+fn collect_sidechain_uuids_from_node(
+    node: &dream_models::project::DeviceNode,
+    parent_bypassed: bool,
+    out: &mut Vec<uuid::Uuid>,
+) {
+    match node {
+        dream_models::project::DeviceNode::Single(slot) => {
+            let effectively_bypassed = parent_bypassed || slot.is_bypassed;
+            if !effectively_bypassed {
+                if let Some(sc_id_str) = &slot.sidechain_source_track_id {
+                    if let Ok(sc_id) = uuid::Uuid::parse_str(sc_id_str) {
+                        out.push(sc_id);
+                    }
+                }
+            }
+        }
+        dream_models::project::DeviceNode::Rack(rack) => {
+            let rack_bypassed = parent_bypassed || rack.is_bypassed;
+            let has_solo = rack.chains.iter().any(|c| c.is_solo);
+            for chain in &rack.chains {
+                if chain.is_disabled { continue; }
+                if has_solo && !chain.is_solo { continue; }
+                for n in &chain.devices {
+                    collect_sidechain_uuids_from_node(n, rack_bypassed, out);
+                }
+            }
+        }
+    }
+}
+
+/// Scans FlowSynth node `data` maps for values that look like track UUIDs.
+///
+/// FlowSynth nodes can reference external tracks (e.g., audio input nodes
+/// pulling from a specific track). We scan every value in every node's data
+/// map and attempt UUID parsing.
+fn collect_flow_synth_track_refs(
+    flow: &dream_models::project::FlowSynthConfig,
+    out: &mut Vec<uuid::Uuid>,
+) {
+    for node in &flow.nodes {
+        for value in node.data.values() {
+            if let Ok(id) = uuid::Uuid::parse_str(value) {
+                out.push(id);
+            }
+            // Also try extracting from qualified strings like "Track.{uuid}"
+            if let Some(extracted) = extract_uuid_from_routing(value) {
+                out.push(extracted);
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Enterprise Fixed-Point Graph Traversal for Offline Bounce Dependencies
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Resolves ALL tracks required to accurately render a target set of tracks.
+///
+/// This is a **fixed-point iterative graph traversal** that converges to
+/// mathematical steady-state across the entire DAW signal flow topology.
+///
+/// A track becomes `required` if it satisfies **any** of these 7 rules:
+///
+/// 1. **Explicit Target** — selected for bounce/split.
+/// 2. **Group Children** (downward) — children of a required group track.
+/// 3. **Group Parent** (upward) — parent group bus of a required child track.
+///    Without the parent, the child's summed bus strip won't process.
+/// 4. **Sidechain Tap** — provides sidechain input to an already-required
+///    track's plugin. Respects bypass/solo states in nested racks exactly
+///    mirroring the offline renderer's `collect_sidechain_sources_from_node`.
+/// 5. **Intermediate Buses** — track routes its `output_destination_id` into
+///    a required track (e.g., submix bus feeding the target).
+/// 6. **Phase 5 Routing Overrides** — `audio_output_routing` or
+///    `midi_output_routing` explicitly broadcasts to a required track.
+///    Also, `audio_input_routing`, `midi_input_routing`, and legacy
+///    `input_source_id` on a required track explicitly listen to another.
+/// 7. **FlowSynth Cross-Track Bindings** — UUID values in FlowSynth node
+///    `data` maps referencing external tracks (modular grid routing).
+///
+/// The algorithm iterates until no new tracks are discovered (steady-state).
+/// This ensures that chained dependencies (A→B→C) are resolved even if
+/// they span multiple levels of indirection.
+pub fn collect_required_bounce_tracks(
+    project: &dream_models::project::Project,
+    targets: &[uuid::Uuid],
+) -> std::collections::HashSet<uuid::Uuid> {
+    let mut required: std::collections::HashSet<uuid::Uuid> = targets.iter().copied().collect();
+    let mut changed = true;
+
+    while changed {
+        changed = false;
+
+        for track in &project.tracks {
+            let id = track.id;
+
+            if required.contains(&id) {
+                // ── Rule 2: Include all children of a required group track ──
+                for child_id in &track.child_track_ids {
+                    if required.insert(*child_id) {
+                        changed = true;
+                    }
+                }
+
+                // ── Rule 3: Include parent group bus (upward propagation) ──
+                if let Some(parent_id) = track.parent_track_id {
+                    if required.insert(parent_id) {
+                        changed = true;
+                    }
+                }
+
+                // ── Rule 4: Sidechain source dependencies ──────────────────
+                // Mirror offline renderer's bypass-aware sidechain collection
+                let mut sc_deps = Vec::new();
+                if let Some(inst) = &track.instrument {
+                    collect_sidechain_uuids_from_node(inst, false, &mut sc_deps);
+                }
+                for fx in &track.effects {
+                    collect_sidechain_uuids_from_node(fx, false, &mut sc_deps);
+                }
+                for sc_id in sc_deps {
+                    if required.insert(sc_id) {
+                        changed = true;
+                    }
+                }
+
+                // ── Rule 6: Explicit input listeners ───────────────────────
+                let mut check_input = |s: &str| {
+                    if let Some(in_uuid) = extract_uuid_from_routing(s) {
+                        if project.tracks.iter().any(|t| t.id == in_uuid) {
+                            if required.insert(in_uuid) {
+                                changed = true;
+                            }
+                        }
+                    }
+                };
+                if let Some(in_str) = &track.input_source_id { check_input(in_str); }
+                if let Some(a_in) = &track.audio_input_routing { check_input(&a_in.target); }
+                if let Some(m_in) = &track.midi_input_routing { check_input(&m_in.target); }
+
+                // ── Rule 7: FlowSynth cross-track bindings ─────────────────
+                if let Some(flow) = &track.flow_synth {
+                    let mut flow_deps = Vec::new();
+                    collect_flow_synth_track_refs(flow, &mut flow_deps);
+                    for dep_id in flow_deps {
+                        if project.tracks.iter().any(|t| t.id == dep_id) {
+                            if required.insert(dep_id) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+            } else {
+                // ── Rule 5: Track is NOT required. Does it FEED one? ───────
+                // Check output_destination_id (submix bus routing)
+                if let Some(out_id) = track.output_destination_id {
+                    if required.contains(&out_id) {
+                        if required.insert(id) { changed = true; }
+                        continue;
+                    }
+                }
+                // Check Phase 5 audio_output_routing
+                if let Some(audio_out) = &track.audio_output_routing {
+                    if let Some(target_uuid) = extract_uuid_from_routing(&audio_out.target) {
+                        if required.contains(&target_uuid) {
+                            if required.insert(id) { changed = true; }
+                            continue;
+                        }
+                    }
+                }
+                // Check Phase 5 midi_output_routing
+                if let Some(midi_out) = &track.midi_output_routing {
+                    if let Some(target_uuid) = extract_uuid_from_routing(&midi_out.target) {
+                        if required.contains(&target_uuid) {
+                            if required.insert(id) { changed = true; }
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    required
+}
+
 /// Bounce selected clips or selected time range to a new audio track.
 #[tauri::command]
 async fn bounce_selection_to_track_cmd(
@@ -94,10 +308,25 @@ async fn bounce_selection_to_track_cmd(
             bounce_track_name = format!("{} Bounce", track.name);
         }
         insert_after_track_index = Some(hi);
+        
+        // Use Enterprise dependency algorithm to ONLY clear clips of isolated tracks.
+        let targets: Vec<Uuid> = project.tracks[lo..=hi].iter().map(|t| t.id).collect();
+        let required = collect_required_bounce_tracks(&project, &targets);
+        
         for (idx, track) in bounce_project.tracks.iter_mut().enumerate() {
-            if idx < lo || idx > hi {
+            if !required.contains(&track.id) {
                 track.clips.clear();
                 track.midi_clips.clear();
+                // Ensure muted in topology
+                track.is_solo = false;
+            } else if idx >= lo && idx <= hi {
+                // The explicit target tracks
+                track.is_solo = true;
+                track.is_disabled = false;
+            } else {
+                // A sidechain dependency track outside the bounce range.
+                // Keep its clips but ensure it does not leak audio to master.
+                track.is_solo = false;
             }
         }
         (range_start, range_end)
@@ -278,10 +507,18 @@ async fn bounce_track_cmd(
     }
 
     let mut bounce_project = project.clone();
+    let required = collect_required_bounce_tracks(&project, &[track_uuid]);
+    
     for (idx, track) in bounce_project.tracks.iter_mut().enumerate() {
-        if idx != source_index {
+        if !required.contains(&track.id) {
             track.clips.clear();
             track.midi_clips.clear();
+            track.is_solo = false;
+        } else if idx == source_index {
+            track.is_solo = true;
+            track.is_disabled = false;
+        } else {
+            track.is_solo = false;
         }
     }
 
@@ -526,10 +763,19 @@ async fn bounce_group_cmd(
     }
 
     let mut bounce_project = project.clone();
+    let target_ids: Vec<Uuid> = included_ids.iter().copied().collect();
+    let required = collect_required_bounce_tracks(&project, &target_ids);
+
     for track in &mut bounce_project.tracks {
-        if !included_ids.contains(&track.id) {
+        if !required.contains(&track.id) {
             track.clips.clear();
             track.midi_clips.clear();
+            track.is_solo = false;
+        } else if included_ids.contains(&track.id) {
+            track.is_solo = true;
+            track.is_disabled = false;
+        } else {
+            track.is_solo = false;
         }
     }
 
@@ -755,9 +1001,10 @@ pub async fn consolidate_selection_cmd(
                 track.effects.clear();
                 // Ensure no automation envelopes modify the mix during consolidate
                 track.automation_lanes.clear(); 
+                track.is_solo = true;
+                track.is_disabled = false;
             } else {
-                track.clips.clear();
-                track.midi_clips.clear();
+                track.is_solo = false;
             }
         }
         

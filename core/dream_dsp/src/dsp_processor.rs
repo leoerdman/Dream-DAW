@@ -73,6 +73,12 @@ pub trait DspProcessor: Send {
     fn latency_samples(&self) -> usize {
         0
     }
+
+    /// Returns the processor's current primary metric (e.g. gain reduction).
+    /// Default: 0.0.
+    fn get_metric_f32(&self) -> f32 {
+        0.0
+    }
 }
 
 const MAX_SMOOTHED_PARAMS: usize = 64;
@@ -282,6 +288,10 @@ impl DspProcessor for SmoothedProcessor {
 
     fn latency_samples(&self) -> usize {
         self.inner.latency_samples()
+    }
+
+    fn get_metric_f32(&self) -> f32 {
+        self.inner.get_metric_f32()
     }
 }
 

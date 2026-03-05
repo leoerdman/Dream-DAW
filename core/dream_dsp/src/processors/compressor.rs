@@ -582,6 +582,10 @@ impl DspProcessor for CompressorProcessor {
     fn latency_samples(&self) -> usize {
         self.lookahead_samples
     }
+
+    fn get_metric_f32(&self) -> f32 {
+        self.prev_gain_db
+    }
 }
 
 #[cfg(test)]

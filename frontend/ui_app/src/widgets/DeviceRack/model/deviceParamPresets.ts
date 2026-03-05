@@ -98,7 +98,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Time R', value: 375, min: 1, max: 2000, suffix: 'ms', step: 1 },       // 1  BUG-P02 FIX: added — was missing, Fb sent here
         { name: 'Fb', value: 30, min: 0, max: 95, suffix: '%', step: 1 },               // 2  BUG-P02 FIX: now correct index
         { name: 'Dry/Wet', value: 30, min: 0, max: 100, suffix: '%', step: 1 },         // 3  BUG-P02 FIX: now correct index
-        { name: 'Filter', value: 5000, min: 200, max: 15000, suffix: 'Hz', step: 1 },   // 4
+        { name: 'Filter', value: 22000, min: 200, max: 22000, suffix: 'Hz', step: 1 },  // 4
         { name: 'PingPong', value: 0, min: 0, max: 1, suffix: '', step: 1 },            // 5
         { name: 'Mod Rate', value: 0.5, min: 0, max: 5, suffix: 'Hz', step: 0.01 },     // 6
         { name: 'Mod Depth', value: 10, min: 0, max: 100, suffix: '%', step: 1 },       // 7

@@ -107,7 +107,7 @@ impl DelayProcessor {
             delay_samples_r: 375.0 * 0.001 * sample_rate,
             feedback: 0.30,
             dry_wet: 0.30,
-            filter_freq: 5000.0,
+            filter_freq: 22000.0,
             ping_pong: false,
             mod_rate: 0.5,
             mod_depth: 0.10,
@@ -371,7 +371,7 @@ impl DspProcessor for DelayProcessor {
                 }
             }
             4 => {
-                self.filter_freq = value.clamp(200.0, 15000.0);
+                self.filter_freq = value.clamp(200.0, 22000.0);
                 self.update_filter();
             }
             5 => {
@@ -448,6 +448,30 @@ mod tests {
         for (i, s) in left.iter().enumerate() {
             assert!((s - input[i]).abs() < 0.001, "Dry pass failed");
         }
+    }
+
+    #[test]
+    fn delay_feedback_tail() {
+        let mut proc = DelayProcessor::new(44100.0);
+        proc.set_param(0, 100.0); // 100ms L
+        proc.set_param(1, 100.0); // 100ms R
+        proc.set_param(2, 50.0); // 50% FB
+        proc.set_param(3, 100.0); // 100% Wet
+        proc.set_param(4, 15000.0); // Filter frequency Max
+        
+        // Process many blocks
+        let mut left = vec![0.0f32; 88200];
+        let mut right = vec![0.0f32; 88200];
+        left[0] = 1.0; 
+        right[0] = 1.0;
+        
+        proc.process_stereo(&mut left, &mut right, 44100.0);
+        
+        // We expect echoes at roughly sample indices: 4410, 8820, 13230...
+        // Let's sum the energy of the tail
+        let energy: f32 = left[4000..88000].iter().map(|s| s.abs()).sum();
+        println!("Tail energy: {}", energy);
+        assert!(energy > 1.0, "Tail has no energy! Energy: {}", energy);
     }
 
     #[test]

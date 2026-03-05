@@ -82,8 +82,8 @@ fn get_meters(handle: tauri::State<'_, AudioEngineHandle>) -> Result<MeteringSna
 
     let mut tracks = Vec::with_capacity(bank.track_count());
     for i in 0..bank.track_count() {
-        if let Some((left, right)) = bank.track(i) {
-            tracks.push((read_meter(left), read_meter(right)));
+        if let Some(t) = bank.track(i) {
+            tracks.push((read_meter(&t.left), read_meter(&t.right)));
         }
     }
 

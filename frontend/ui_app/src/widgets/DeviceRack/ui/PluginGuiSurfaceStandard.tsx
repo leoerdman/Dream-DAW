@@ -7,6 +7,7 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import type { SurfaceHandlers } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 import {
     lookupPluginDefinition,
+    PluginRendererErrorBoundary,
     UniversalPluginRenderer,
 } from '@/widgets/DeviceRack/ui/PluginRegistryRenderer';
 // Legacy fallback (AnalyzerMidi — unique viz, not data-driven)
@@ -16,7 +17,11 @@ export function renderStandardPluginGuiSurface(device: DeviceSlot, handlers: Sur
     // ── Registry-driven path (enterprise) ─────────────────────────────
     const definition = lookupPluginDefinition(device);
     if (definition) {
-        return <UniversalPluginRenderer device={device} handlers={handlers} definition={definition} />;
+        return (
+            <PluginRendererErrorBoundary effectType={device.effectType ?? 'unknown'}>
+                <UniversalPluginRenderer device={device} handlers={handlers} definition={definition} />
+            </PluginRendererErrorBoundary>
+        );
     }
 
     // ── Legacy fallback for special surfaces ──────────────────────────

@@ -138,6 +138,12 @@ impl FlowNode for FilterNode {
 
     fn reset(&mut self) {
         self.state.reset();
+        // BUG-3 FIX: Invalidate coefficient cache so the next process() call
+        // recomputes coefficients. Without this, a stolen voice starts with
+        // stale filter coefficients from the previous note.
+        self.last_cutoff = -1.0;
+        self.last_resonance = -1.0;
+        self.last_sr = -1.0;
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any { self }

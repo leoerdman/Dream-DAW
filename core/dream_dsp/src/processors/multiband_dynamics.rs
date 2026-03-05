@@ -39,6 +39,8 @@ struct BandCompressor {
     gain_db: f32,
     attack_c: f32,
     release_c: f32,
+    /// Current gain reduction in positive dB (for metering).
+    gain_reduction_db: f32,
 }
 
 impl BandCompressor {
@@ -50,6 +52,7 @@ impl BandCompressor {
             gain_db: 0.0,
             attack_c: crate::processors::envelope_coeff(5.0, sr),
             release_c: crate::processors::envelope_coeff(50.0, sr),
+            gain_reduction_db: 0.0,
         }
     }
 
@@ -73,6 +76,8 @@ impl BandCompressor {
         } else {
             0.0
         };
+        // Store GR in positive dB for metering
+        self.gain_reduction_db = -gain_reduction;
 
         let total_gain = db_to_linear(gain_reduction + self.gain_db);
         *l *= total_gain;
@@ -200,7 +205,15 @@ impl DspProcessor for MultibandDynamicsProcessor {
         self.mh_r.reset();
         for b in &mut self.bands {
             b.env_l = 0.0; b.env_r = 0.0;
+            b.gain_reduction_db = 0.0;
         }
+    }
+
+    fn get_metric_f32(&self) -> f32 {
+        // Return max GR across all 3 bands for the combined meter.
+        self.bands[0].gain_reduction_db
+            .max(self.bands[1].gain_reduction_db)
+            .max(self.bands[2].gain_reduction_db)
     }
 }
 

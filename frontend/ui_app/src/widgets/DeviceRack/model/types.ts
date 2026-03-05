@@ -70,6 +70,7 @@ export interface DeviceSlot {
     vuLevel?: number;
     vuLevelL?: number;
     vuLevelR?: number;
+    pluginMetric?: number;
     pluginId: string;
     isVst: boolean;
     source: 'internal' | 'vst' | 'missing' | 'unknown';

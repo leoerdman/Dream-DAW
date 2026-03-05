@@ -13,7 +13,6 @@ export function EnvelopeControls({ node }: Props) {
     const a = Number(node.data?.attack ?? 0.01);
     const d = Number(node.data?.decay ?? 0.1);
     const s = Number(node.data?.sustain ?? 0.7);
-    const r = Number(node.data?.release ?? 0.3);
 
     return (
         <div style={nodeControlsContainerStyle}>

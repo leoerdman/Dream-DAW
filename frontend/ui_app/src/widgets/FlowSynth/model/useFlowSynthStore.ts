@@ -796,14 +796,29 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const safeIndex = ((index % total) + total) % total;
         const preset = clonePreset(FACTORY_PRESETS[safeIndex]);
 
-        set({
-            nodes: preset.nodes,
-            connections: preset.connections,
-            presetName: preset.name,
-            presetIndex: safeIndex,
-            selectedNodeIds: [],
-            selectedConnectionId: null,
-            pendingConnection: null,
+        set((state) => {
+            const patch: Partial<FlowSynthState> = {
+                nodes: preset.nodes,
+                connections: preset.connections,
+                presetName: preset.name,
+                presetIndex: safeIndex,
+                selectedNodeIds: [],
+                selectedConnectionId: null,
+                pendingConnection: null,
+            };
+            // BUG-4 FIX: Also persist preset into graphsByDeviceId so close/reopen
+            // restores the preset graph instead of the stale pre-preset state.
+            if (state.activeDeviceId) {
+                (patch as any).graphsByDeviceId = {
+                    ...state.graphsByDeviceId,
+                    [state.activeDeviceId]: {
+                        nodes: preset.nodes,
+                        connections: preset.connections,
+                        viewport: viewportProxy.getViewport(),
+                    },
+                };
+            }
+            return patch;
         });
 
         // Sync new graph to engine + save to disk
@@ -937,21 +952,19 @@ export async function disableFlowEngine(trackId: string): Promise<void> {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ENTERPRISE: Auto-init Flow engines on project load via Zustand subscription
+// BUG-1 FIX: Removed _flowInitDone guard — it prevented re-init when switching
+// directly from Project A to Project B (both non-null). The _prevProjectId
+// guard is sufficient to prevent duplicate init for the same project.
 // ═══════════════════════════════════════════════════════════════════════════
-let _flowInitDone = false;
 let _prevProjectId: string | null = null;
 useEngineStore.subscribe((state) => {
     const projectId = state.activeProjectId;
     if (projectId === _prevProjectId) return;
     _prevProjectId = projectId;
 
-    if (projectId && !_flowInitDone) {
-        _flowInitDone = true;
+    if (projectId) {
         // Defer 500ms so engine store + audio engine are fully settled
         setTimeout(() => initFlowEnginesFromProject().catch(console.error), 500);
-    }
-    if (!projectId) {
-        _flowInitDone = false; // Reset for next project load
     }
 });
 
@@ -983,5 +996,8 @@ useEngineStore.subscribe((state) => {
             connections: defaultGraph.connections,
         });
     }
+    // BUG-2 FIX: Re-sync the DSP engine after undo/redo delta changes the graph.
+    // Without this, the UI shows the undone graph but audio stays on the old one.
+    _scheduleSyncFlowGraph(() => useFlowSynthStore.getState());
 });
 

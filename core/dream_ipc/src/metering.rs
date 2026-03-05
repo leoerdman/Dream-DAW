@@ -207,6 +207,27 @@ impl Default for LockFreeLevel {
 
 // ── MeterBank ──────────────────────────────────────────────────────────────
 
+pub struct TrackMeters {
+    pub left: LockFreeLevel,
+    pub right: LockFreeLevel,
+    pub plugin_metrics: [LockFreeLevel; 16],
+}
+
+impl Default for TrackMeters {
+    fn default() -> Self {
+        Self {
+            left: LockFreeLevel::new(),
+            right: LockFreeLevel::new(),
+            plugin_metrics: [
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+            ],
+        }
+    }
+}
+
 /// A bank of lock-free meters for multiple tracks + master.
 ///
 /// Pre-allocated with fixed capacity. The audio thread writes per-track
@@ -217,12 +238,13 @@ impl Default for LockFreeLevel {
 /// [Track 0] [Track 1] ... [Track N-1] [Master L] [Master R]
 /// ```
 pub struct MeterBank {
-    /// Per-track meters (stereo: left + right interleaved).
-    track_meters: Vec<(LockFreeLevel, LockFreeLevel)>,
+    /// Per-track meters + plugin metrics.
+    track_meters: Vec<TrackMeters>,
 
     /// Master bus meters (left, right).
     master_left: LockFreeLevel,
     master_right: LockFreeLevel,
+    master_plugin_metrics: [LockFreeLevel; 16],
 }
 
 impl MeterBank {
@@ -230,19 +252,25 @@ impl MeterBank {
     pub fn new(track_count: usize) -> Self {
         let mut track_meters = Vec::with_capacity(track_count);
         for _ in 0..track_count {
-            track_meters.push((LockFreeLevel::new(), LockFreeLevel::new()));
+            track_meters.push(TrackMeters::default());
         }
 
         Self {
             track_meters,
             master_left: LockFreeLevel::new(),
             master_right: LockFreeLevel::new(),
+            master_plugin_metrics: [
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
+            ],
         }
     }
 
     /// Returns a reference to the stereo meter pair for a track.
     #[inline]
-    pub fn track(&self, index: usize) -> Option<&(LockFreeLevel, LockFreeLevel)> {
+    pub fn track(&self, index: usize) -> Option<&TrackMeters> {
         self.track_meters.get(index)
     }
 
@@ -258,6 +286,12 @@ impl MeterBank {
         &self.master_right
     }
 
+    /// Returns a reference to the master plugin metrics array.
+    #[inline]
+    pub fn master_plugin_metrics(&self) -> &[LockFreeLevel; 16] {
+        &self.master_plugin_metrics
+    }
+
     /// Number of tracks in this bank.
     #[inline]
     pub fn track_count(&self) -> usize {
@@ -266,12 +300,18 @@ impl MeterBank {
 
     /// Reset all meters to silence. Non-RT only.
     pub fn reset_all(&self) {
-        for (l, r) in &self.track_meters {
-            l.reset();
-            r.reset();
+        for t in &self.track_meters {
+            t.left.reset();
+            t.right.reset();
+            for m in &t.plugin_metrics {
+                m.reset();
+            }
         }
         self.master_left.reset();
         self.master_right.reset();
+        for m in &self.master_plugin_metrics {
+            m.reset();
+        }
     }
 
     /// Pack all meter readings into a compact binary payload.
@@ -279,9 +319,8 @@ impl MeterBank {
     /// # Layout
     /// ```text
     /// [u32 LE: track_count]
-    /// [f32 × 6 per track: L_rms, L_peak, L_clip01, R_rms, R_peak, R_clip01]
-    /// [f32 × 3: master_L_rms, master_L_peak, master_L_clip01]
-    /// [f32 × 3: master_R_rms, master_R_peak, master_R_clip01]
+    /// [f32 × 22 per track: L_rms, L_peak, L_clip01, R_rms, R_peak, R_clip01, plugin_metrics × 16]
+    /// [f32 × 22: master_L_rms, master_L_peak, master_L_clip01, master_R_rms, master_R_peak, master_R_clip01, master_plugin_metrics × 16]
     /// ```
     ///
     /// This is the **single source of truth** for the binary meter format.
@@ -292,15 +331,18 @@ impl MeterBank {
     /// Zero locks. ~200ns for 64 tracks (128 atomic loads + Vec allocation).
     pub fn pack_meters_binary(&self) -> Vec<u8> {
         let track_count = self.track_count();
-        let mut payload = Vec::<f32>::with_capacity((track_count * 2 + 2) * 3);
+        let mut payload = Vec::<f32>::with_capacity((track_count * 22) + 22);
         for i in 0..track_count {
-            if let Some((left, right)) = self.track(i) {
-                payload.push(left.load_rms());
-                payload.push(left.load_peak());
-                payload.push(if left.is_clipping() { 1.0 } else { 0.0 });
-                payload.push(right.load_rms());
-                payload.push(right.load_peak());
-                payload.push(if right.is_clipping() { 1.0 } else { 0.0 });
+            if let Some(t) = self.track(i) {
+                payload.push(t.left.load_rms());
+                payload.push(t.left.load_peak());
+                payload.push(if t.left.is_clipping() { 1.0 } else { 0.0 });
+                payload.push(t.right.load_rms());
+                payload.push(t.right.load_peak());
+                payload.push(if t.right.is_clipping() { 1.0 } else { 0.0 });
+                for m in &t.plugin_metrics {
+                    payload.push(m.load_peak());
+                }
             }
         }
         let ml = self.master_left();
@@ -311,6 +353,9 @@ impl MeterBank {
         payload.push(mr.load_rms());
         payload.push(mr.load_peak());
         payload.push(if mr.is_clipping() { 1.0 } else { 0.0 });
+        for m in &self.master_plugin_metrics {
+            payload.push(m.load_peak());
+        }
 
         let payload_bytes: &[u8] = bytemuck::cast_slice(payload.as_slice());
         let mut bytes = Vec::with_capacity(4 + payload_bytes.len());

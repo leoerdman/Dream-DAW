@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback } from 'react';
-import * as engineApi from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 type Args = {

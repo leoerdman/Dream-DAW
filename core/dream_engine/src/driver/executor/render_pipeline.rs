@@ -252,6 +252,16 @@ pub(super) fn process_master_bus(
     // AUD-503 FIX: Removed redundant pre-soft-clip master metering.
     // The authoritative master meters are computed in finalize_output_and_publish()
     // AFTER soft_clip, which gives the user the true final output levels.
+
+    // Export master bus plugin metrics (e.g. Master Gain Reduction)
+    let num_slots = master_device_chain.slots().len().min(16);
+    let master_metrics = render_ctx.meter_bank.master_plugin_metrics();
+    for i in 0..num_slots {
+        master_metrics[i].store_peak(master_device_chain.slots()[i].get_metric_f32());
+    }
+    for i in num_slots..16 {
+        master_metrics[i].store_peak(0.0);
+    }
 }
 
 pub(super) fn interleave_graph_output(

@@ -36,8 +36,10 @@ export interface MeterReading {
 /** Full metering snapshot — mirrors Rust `MeteringSnapshot`. */
 export interface MeteringSnapshot {
     tracks: [MeterReading, MeterReading][];
+    track_plugin_metrics: number[][]; // 16 floats per track
     master_left: MeterReading;
     master_right: MeterReading;
+    master_plugin_metrics: number[]; // 16 floats for master bus
 }
 
 /** Project event-sourcing history item (backend in-memory journal). */

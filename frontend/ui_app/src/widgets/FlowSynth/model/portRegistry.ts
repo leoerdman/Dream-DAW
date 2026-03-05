@@ -116,7 +116,7 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
             { id: 'resonance', label: 'Res', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'resonance' } },
             { id: 'rate', label: 'Rate', type: 'control', fader: { min: 0.01, max: 20, step: 0.01, dataKey: 'rate', unit: 'Hz' } },
             { id: 'depth', label: 'Depth', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'depth' } },
-            { id: 'envFollow', label: 'Env', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'envFollow' } },
+            { id: 'envFollow', label: 'Env', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'envDepth' } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },

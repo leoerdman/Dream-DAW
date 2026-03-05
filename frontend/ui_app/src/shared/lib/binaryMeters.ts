@@ -5,19 +5,21 @@ const METER_FLOOR_DB = -160;
 function emptyMeters(): MeteringSnapshot {
     return {
         tracks: [],
+        track_plugin_metrics: [],
         master_left: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
         master_right: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+        master_plugin_metrics: new Array(16).fill(0),
     };
 }
 
 function decodeFromFloatArray(floats: Float32Array, trackCount: number): MeteringSnapshot {
     const tracks: MeteringSnapshot['tracks'] = [];
+    const track_plugin_metrics: number[][] = [];
     let cursor = 0;
 
-    // BUG-003 FIX: Validate trackCount against available data.
-    // Each track uses 6 floats (L: rms, peak, clip  +  R: rms, peak, clip).
-    // Master uses 6 more floats. Prevent reading past the buffer.
-    const maxTracks = Math.max(0, Math.floor((floats.length - 6) / 6));
+    // Each track uses 22 floats (L: rms, peak, clip  +  R: rms, peak, clip + 16 plugin_metrics).
+    // Master uses 22 floats too. Prevent reading past the buffer.
+    const maxTracks = Math.max(0, Math.floor((floats.length - 22) / 22));
     const safeTrackCount = Math.min(trackCount, maxTracks);
 
     for (let i = 0; i < safeTrackCount; i++) {
@@ -32,6 +34,10 @@ function decodeFromFloatArray(floats: Float32Array, trackCount: number): Meterin
             clipping: (floats[cursor++] ?? 0) >= 0.5,
         };
         tracks.push([left, right]);
+
+        const metrics = new Array(16);
+        for (let j = 0; j < 16; j++) metrics[j] = floats[cursor++] ?? 0;
+        track_plugin_metrics.push(metrics);
     }
 
     const master_left = {
@@ -45,7 +51,10 @@ function decodeFromFloatArray(floats: Float32Array, trackCount: number): Meterin
         clipping: (floats[cursor++] ?? 0) >= 0.5,
     };
 
-    return { tracks, master_left, master_right };
+    const master_plugin_metrics = new Array(16);
+    for (let j = 0; j < 16; j++) master_plugin_metrics[j] = floats[cursor++] ?? 0;
+
+    return { tracks, track_plugin_metrics, master_left, master_right, master_plugin_metrics };
 }
 
 /**

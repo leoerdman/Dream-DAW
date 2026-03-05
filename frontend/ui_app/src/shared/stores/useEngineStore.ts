@@ -129,8 +129,10 @@ const DEFAULT_METER: engine.MeterReading = {
 };
 const DEFAULT_METERS: MeteringSnapshot = {
     tracks: [],
+    track_plugin_metrics: [],
     master_left: { ...DEFAULT_METER },
     master_right: { ...DEFAULT_METER },
+    master_plugin_metrics: [],
 };
 export function getMetersRef(): MeteringSnapshot {
     return getLatestMetersSnapshot() ?? useEngineStore.getState().meters;

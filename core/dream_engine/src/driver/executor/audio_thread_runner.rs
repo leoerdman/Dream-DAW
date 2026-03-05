@@ -297,11 +297,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // meters back up for tracks that actually output audio.
                         let baseline_decay = peak_decay_for_block(sample_rate_f64, frame_count);
                         for track_idx in 0..render_ctx.meter_bank.track_count() {
-                            if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
-                                meter_l.store_rms(METER_FLOOR_DB);
-                                meter_r.store_rms(METER_FLOOR_DB);
-                                meter_l.store_peak_decay(METER_FLOOR_DB, baseline_decay);
-                                meter_r.store_peak_decay(METER_FLOOR_DB, baseline_decay);
+                            if let Some(t_meters) = render_ctx.meter_bank.track(track_idx) {
+                                t_meters.left.store_rms(METER_FLOOR_DB);
+                                t_meters.right.store_rms(METER_FLOOR_DB);
+                                t_meters.left.store_peak_decay(METER_FLOOR_DB, baseline_decay);
+                                t_meters.right.store_peak_decay(METER_FLOOR_DB, baseline_decay);
                             }
                         }
                         // ── A0. Drain pre-allocated devices (RT-safe) ──────────
@@ -653,7 +653,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     process_track_graph_node(left, right, &mut ctx, sidechain_resolver);
 
                                     // 4. Per-track metering (graph pass)
-                                    if let Some((meter_l, meter_r)) =
+                                    if let Some(t_meters) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {
                                         let rms_l = linear_to_db(compute_rms(&left[..c]));
@@ -661,10 +661,21 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         let peak_l = linear_to_db(compute_peak(&left[..c]));
                                         let peak_r = linear_to_db(compute_peak(&right[..c]));
                                         let track_decay = peak_decay_for_block(sample_rate_f64, c);
-                                        meter_l.store_rms(rms_l);
-                                        meter_r.store_rms(rms_r);
-                                        meter_l.store_peak_decay(peak_l, track_decay);
-                                        meter_r.store_peak_decay(peak_r, track_decay);
+                                        t_meters.left.store_rms(rms_l);
+                                        t_meters.right.store_rms(rms_r);
+                                        t_meters.left.store_peak_decay(peak_l, track_decay);
+                                        t_meters.right.store_peak_decay(peak_r, track_decay);
+
+                                        let chain = &render_ctx.track_slots[track_idx].device_chain;
+                                        let num_slots = chain.slots().len().min(16);
+                                        for i in 0..num_slots {
+                                            t_meters.plugin_metrics[i].store_peak(
+                                                chain.slots()[i].get_metric_f32()
+                                            );
+                                        }
+                                        for i in num_slots..16 {
+                                            t_meters.plugin_metrics[i].store_peak(0.0);
+                                        }
                                     }
 
                                     // 5. Per-track spectrum feed (enterprise per-track EQ display)

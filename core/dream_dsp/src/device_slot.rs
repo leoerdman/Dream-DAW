@@ -163,6 +163,11 @@ pub trait DeviceProcessor: Send {
 
     /// Set the bypass state.
     fn set_bypass(&mut self, bypassed: bool);
+
+    /// Get current primary performance metric (e.g. gain reduction).
+    fn get_metric_f32(&self) -> f32 {
+        0.0
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -329,6 +334,10 @@ impl DeviceProcessor for InternalDeviceSlot {
         self.bypassed = bypassed;
         // Note: bypass_ramp will converge to the new target during process().
         // We do NOT snap it here — that would cause the same click we're fixing.
+    }
+
+    fn get_metric_f32(&self) -> f32 {
+        self.processor.get_metric_f32()
     }
 }
 

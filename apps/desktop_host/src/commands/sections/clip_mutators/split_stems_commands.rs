@@ -27,10 +27,19 @@ async fn split_track_to_stems_cmd(
     let end_frame = split_plan.end_frame;
 
     let mut bounce_project = project.clone();
+    let target_ids: Vec<Uuid> = included_ids.iter().copied().collect();
+    let required = collect_required_bounce_tracks(&project, &target_ids);
+
     for track in &mut bounce_project.tracks {
-        if !included_ids.contains(&track.id) {
+        if !required.contains(&track.id) {
             track.clips.clear();
             track.midi_clips.clear();
+            track.is_solo = false;
+        } else if included_ids.contains(&track.id) {
+            track.is_solo = true;
+            track.is_disabled = false;
+        } else {
+            track.is_solo = false;
         }
     }
 

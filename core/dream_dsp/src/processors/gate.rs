@@ -351,6 +351,14 @@ impl DspProcessor for GateProcessor {
         }
     }
 
+    fn get_metric_f32(&self) -> f32 {
+        // Return gain reduction in positive dB.
+        // Gate envelope: 1.0 = fully open (0 dB GR), 0.0 = fully closed (range dB GR).
+        // The actual gain applied is: range_lin + (1 - range_lin) * envelope
+        let gain = self.range_lin + (1.0 - self.range_lin) * self.envelope;
+        if gain <= 0.0 { 96.0 } else { -20.0 * gain.log10() }
+    }
+
     fn reset(&mut self) {
         self.state = GateState::Closed;
         self.envelope = 0.0;

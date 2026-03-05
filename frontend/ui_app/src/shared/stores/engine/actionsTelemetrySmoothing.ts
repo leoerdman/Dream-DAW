@@ -98,8 +98,10 @@ export function smoothMeterSnapshot(
     return {
         snapshot: {
             tracks,
+            track_plugin_metrics: next.track_plugin_metrics,
             master_left: smoothMeterReading(prev?.master_left, next.master_left, dtSec, nowMs),
             master_right: smoothMeterReading(prev?.master_right, next.master_right, dtSec, nowMs),
+            master_plugin_metrics: next.master_plugin_metrics,
         },
         nextTickMs: nowMs,
     };

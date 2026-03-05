@@ -939,16 +939,16 @@ impl RenderContext {
                 &mut slot.buf_right[..frame_count],
             );
 
-            if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
+            if let Some(t_meters) = self.meter_bank.track(track_idx) {
                 let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
                 let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
                 let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
                 let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
 
-                meter_l.store_rms(rms_l);
-                meter_r.store_rms(rms_r);
-                meter_l.store_peak_decay(peak_l, decay);
-                meter_r.store_peak_decay(peak_r, decay);
+                t_meters.left.store_rms(rms_l);
+                t_meters.right.store_rms(rms_r);
+                t_meters.left.store_peak_decay(peak_l, decay);
+                t_meters.right.store_peak_decay(peak_r, decay);
             }
         }
 

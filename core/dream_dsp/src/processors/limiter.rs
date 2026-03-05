@@ -270,6 +270,12 @@ impl DspProcessor for LimiterProcessor {
         self.ceiling_sm_lin.set_instant(self.ceiling_lin);
     }
 
+    fn get_metric_f32(&self) -> f32 {
+        // Return gain reduction in positive dB.
+        // gain: 1.0 = no reduction, <1.0 = active limiting.
+        if self.gain >= 1.0 { 0.0 } else { -20.0 * self.gain.log10() }
+    }
+
     fn latency_samples(&self) -> usize {
         self.la_samples
     }

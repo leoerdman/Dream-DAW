@@ -203,7 +203,10 @@ impl DspProcessor for HybridReverbProcessor {
             // LFO for delay modulation
             let lfo = (self.lfo_phase * std::f64::consts::TAU).sin() as f32;
             self.lfo_phase += lfo_rate / sr as f64;
-            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+            // BUG-HYBRID-001 FIX: Use rem_euclid for robust phase wrapping.
+            // Subtraction accumulates floating point error over millions of
+            // samples; rem_euclid guarantees [0, 1) range (same as BUG-023).
+            self.lfo_phase = self.lfo_phase.rem_euclid(1.0);
 
             // Read from FDN delay lines
             let mut fdn_out = [0.0f32; FDN_CHANNELS];
@@ -231,12 +234,17 @@ impl DspProcessor for HybridReverbProcessor {
             for ch in 0..FDN_CHANNELS {
                 // LP damping
                 self.fdn_lp[ch] = self.fdn_lp[ch] * damp_c + mixed[ch] * (1.0 - damp_c);
+                // BUG-HYBRID-002 FIX: Flush denormals in BOTH the LP state AND
+                // the feedback sample. Previously only fdn_lp was checked, but
+                // the fb_sample written to fdn_buf could also be denormal — and
+                // it recirculates through the FDN indefinitely, causing CPU spikes
+                // and subtle metallic artifacts on quiet reverb tails.
+                crate::processors::flush_denormal!(self.fdn_lp[ch]);
                 // Write back with feedback + input injection
-                let fb_sample = self.fdn_lp[ch] * fb + input_mono * 0.25;
+                let mut fb_sample = self.fdn_lp[ch] * fb + input_mono * 0.25;
+                crate::processors::flush_denormal!(fb_sample);
                 self.fdn_buf[ch][self.fdn_pos[ch]] = fb_sample;
                 self.fdn_pos[ch] = (self.fdn_pos[ch] + 1) & FDN_MASK;
-                // Denormal flush
-                if self.fdn_lp[ch].abs() < 1e-20 { self.fdn_lp[ch] = 0.0; }
             }
 
             // Sum FDN outputs to stereo

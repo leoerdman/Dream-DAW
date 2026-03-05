@@ -144,6 +144,9 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const isMaster = selectedTrackId === 'master';
     const trackIndex = trackIds.indexOf(selectedTrackId);
     const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] ?? null : null);
+    const trackMetrics = isMaster
+        ? meters.master_plugin_metrics
+        : (trackIndex >= 0 ? meters.track_plugin_metrics?.[trackIndex] ?? null : null);
     const inLevelL = isMaster
         ? dbToMeterNorm(meters.master_left.peak)
         : meterPair ? dbToMeterNorm(meterPair[0].peak) : 0;
@@ -190,7 +193,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
             ...(selectedTrack.effects ?? []),
         ];
         const nextSlots: Record<string, DeviceSlot> = {};
-        const chain = nodes.map((node): DeviceSlot | null => {
+        const chain = nodes.map((node, slotIndex): DeviceSlot | null => {
             const id = (node.id ?? '').trim();
             const name = node.name ?? 'Unknown';
             const pluginId = (node.plugin_id ?? '').trim();
@@ -291,6 +294,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 vuLevel: isEnabled ? outLevel : 0,
                 vuLevelL: isEnabled ? outLevelL : 0,
                 vuLevelR: isEnabled ? outLevelR : 0,
+                pluginMetric: trackMetrics ? (trackMetrics[slotIndex] ?? 0.0) : 0.0,
                 // ENTERPRISE: Preserve rack metadata for UI rendering.
                 rack: (node as DeviceNodeModel).rack,
             };
@@ -306,7 +310,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
 
         prevSlotsRef.current = nextSlots;
         return chain;
-    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR]);
+    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR, trackMetrics]);
     return {
         selectedTrack,
         isMaster,

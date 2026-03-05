@@ -110,8 +110,9 @@ function resolveViz(
             );
         }
         case 'gainReductionMeter': {
-            const thrDb = Math.abs(safeParamValue(device, 'thr', -0.3));
-            const grDb = Math.max(0, thrDb * 0.8);
+            const grDb = device.pluginMetric && device.pluginMetric > 0
+                ? device.pluginMetric
+                : 0; // Fallback removed, real GR is now active
             return (
                 <div style={{ display: 'flex', height: '100%', gap: 6, padding: 6 }}>
                     <div style={{ flex: 1 }}>
@@ -124,8 +125,8 @@ function resolveViz(
             const thrParamNames = viz.thrParam ?? 'thr';
             const thr = safeParamValue(device, thrParamNames, viz.thrFallback ?? -18);
             const ratio = safeParamValue(device, viz.ratioParam ?? 'ratio', viz.ratioFallback ?? 4);
-            const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel!) : 0;
-            const pseudoGr = rawGr > 0 ? Math.min(24, rawGr) : Math.min(24, ((-thr) / 60) * ratio * 2.4);
+            const rawGr = device.pluginMetric ?? 0;
+            const realGr = rawGr > 0 ? Math.min(24, rawGr) : 0;
             const thrNorm = clamp01((thr + 60) / 60);
             const ratioNorm = clamp01(Math.min(ratio, 20) / 20);
             const thrParam = resolveSurfaceParam(device, thrParamNames);
@@ -133,7 +134,7 @@ function resolveViz(
                 <CompressionCurve
                     thresholdNorm={thrNorm}
                     ratioNorm={ratioNorm}
-                    grDb={pseudoGr}
+                    grDb={realGr}
                     accent={accent}
                     variant={viz.compVariant ?? 'standard'}
                     onThresholdChange={thrParam ? (normThr: number) => {
@@ -295,6 +296,56 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
         </PluginSurfaceLayout>
     );
 });
+
+// ── Error Boundary ──────────────────────────────────────────────────────
+
+interface ErrorBoundaryProps {
+    effectType: string;
+    children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+    hasError: boolean;
+    error: Error | null;
+}
+
+/** Catches render crashes in UniversalPluginRenderer to prevent the
+ *  entire DeviceRack from unmounting on a malformed PluginDefinition. */
+export class PluginRendererErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+    constructor(props: ErrorBoundaryProps) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error(`[PluginRenderer] ${this.props.effectType} crashed:`, error, info.componentStack);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div style={{
+                    padding: 12,
+                    color: 'var(--color-text-secondary)',
+                    fontSize: 11,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    background: 'var(--color-surface-raised)',
+                    borderRadius: 'var(--radius-md)',
+                }}>
+                    ⚠ {this.props.effectType ?? 'Plugin'} — render error
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 
 /**
  * Lookup: effectType → PluginDefinition.

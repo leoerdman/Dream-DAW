@@ -63,6 +63,11 @@ impl DeviceChain {
         self.slots.len()
     }
 
+    /// Returns a reference to the active slots array.
+    pub fn slots(&self) -> &[Box<dyn DeviceProcessor>] {
+        &self.slots
+    }
+
     /// Returns `true` if the chain has no slots.
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()

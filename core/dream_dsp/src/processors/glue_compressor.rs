@@ -32,6 +32,7 @@ pub struct GlueCompressorProcessor {
     mix: f32,
     soft_clip: f32,
     env: f32,
+    current_gain_reduction: f32,
     // Smoothed
     makeup_sm: SmoothedValue,
     mix_sm: SmoothedValue,
@@ -53,6 +54,7 @@ impl GlueCompressorProcessor {
             mix: 1.0,
             soft_clip: 0.3,
             env: 0.0,
+            current_gain_reduction: 0.0,
             makeup_sm: SmoothedValue::new(sr, 8.0, 1.0),
             mix_sm: SmoothedValue::new(sr, 8.0, 1.0),
             sample_rate: sr,
@@ -118,6 +120,10 @@ impl DspProcessor for GlueCompressorProcessor {
 
             left[i] = dry_l * (1.0 - mix) + out_l * mix;
             right[i] = dry_r * (1.0 - mix) + out_r * mix;
+
+            if i == len - 1 {
+                self.current_gain_reduction = gain_reduction_db;
+            }
         }
     }
 
@@ -137,8 +143,13 @@ impl DspProcessor for GlueCompressorProcessor {
 
     fn reset(&mut self) {
         self.env = 0.0;
+        self.current_gain_reduction = 0.0;
         self.makeup_sm.set_instant(db_to_linear(self.makeup_db));
         self.mix_sm.set_instant(self.mix);
+    }
+
+    fn get_metric_f32(&self) -> f32 {
+        self.current_gain_reduction
     }
 }
 

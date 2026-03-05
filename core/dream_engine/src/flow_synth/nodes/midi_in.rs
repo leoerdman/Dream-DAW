@@ -32,7 +32,7 @@ impl FlowNode for MidiInNode {
         let freq_hz = 440.0 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0);
         outputs[0] = FlowSignal::Control(freq_hz);
         outputs[1] = FlowSignal::Control(self.velocity as f32 / 127.0);
-        outputs[2] = FlowSignal::Control(if self.gate { 1.0 } else { 0.0 });
+        outputs[2] = FlowSignal::Gate(self.gate);
     }
 
     fn reset(&mut self) {

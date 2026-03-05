@@ -1,163 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Enterprise Plugin Definition Registry v1.0
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// ARCHITECTURE: Every plugin is defined as a PURE DATA configuration object.
-// A single UniversalPluginRenderer reads the config and assembles modules.
-//
-// This eliminates all imperative routing (if/else chains, switch statements)
-// and all inline SVG from surface files. Adding a new plugin requires ONLY
-// adding a new entry to PLUGIN_REGISTRY — zero component code needed.
-//
-// Registry entry structure:
-//   effectType → {
-//     viz:     Which L2 visualization module to render
-//     bg:      CSS variable for background
-//     accent:  CSS variable for accent color
-//     meta:    Array of param descriptors for MetaReadout
-//     ... type-specific config
-//   }
-//
+// Dream DAW — Plugin Registry Data
+// Pure data — zero React, zero rendering. All 28+ plugin definitions.
+// To add a new plugin: add ONE entry here.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import React, { useMemo } from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
-import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-import {
-    buildSurfaceKnobParams,
-    DryWetSection,
-    formatSurfaceParam,
-    getDevicePluginKey,
-    getParamValue,
-    PLUGIN_TITLE_MAP,
-    readSurfaceParam,
-    safeParamValue,
-    shouldShowDryWet,
-    type SurfaceHandlers,
-} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
-import {
-    ButtonStrip,
-    CompressionCurve,
-    type CompressionCurveProps,
-    ControlPanel,
-    GainReductionMeter,
-    KnobParamGrid,
-    MetaReadout,
-    MiniFilterEq,
-    type MiniFilterEqProps,
-    ModulationWave,
-    type ModulationWaveProps,
-    type ModulationWaveShape,
-    PluginSurfaceLayout,
-    SaturationCurve,
-    type SaturationCurveProps,
-    type SaturationCurveType,
-    SpectrumBars,
-    type SpectrumBarsProps,
-    ToggleButton,
-    VizCard,
-    VizColumn,
-    WaveformDisplay,
-    type WaveformDisplayProps,
-} from '@/widgets/DeviceRack/ui/PluginModules';
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TYPES — Declarative Plugin Definition Schema
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** Parameter source descriptor — tells the renderer how to extract a value. */
-export interface MetaParamDescriptor {
-    /** Display label (e.g. "Thr", "Rate", "Drive"). */
-    label: string;
-    /** Param name(s) to read from device. */
-    paramNames: string | string[];
-    /** Fallback value if param not found. */
-    fallback: number;
-    /** Display suffix (e.g. "Hz", "dB", "%"). */
-    suffix: string;
-}
-
-/** Visualization types available in the registry. */
-export type VizType =
-    | 'modulationWave'
-    | 'saturationCurve'
-    | 'miniFilterEq'
-    | 'gainReductionMeter'
-    | 'compressionCurve'
-    | 'spectrumBars'
-    | 'waveformDisplay'
-    | 'none';
-
-/** Config for each viz type. Computed fields are resolved at render time. */
-export interface VizConfig {
-    type: VizType;
-    /** For modulationWave: waveform shape. */
-    waveShape?: ModulationWaveShape;
-    /** For saturationCurve: saturation algorithm type. */
-    satType?: SaturationCurveType;
-    /** For waveformDisplay: render mode. */
-    waveMode?: 'bars' | 'line';
-    /** For compressionCurve: variant. */
-    compVariant?: 'standard' | 'glue' | 'multiband';
-    /** For spectrumBars: bar count when no data. */
-    barCount?: number;
-    /** Static data generator for spectrumBars/waveform. */
-    staticDataGenerator?: (device: DeviceSlot) => number[];
-    /** Param-dependent depth source (used by modulationWave, saturationCurve). */
-    depthParam?: string | string[];
-    depthFallback?: number;
-    depthMax?: number;
-    /** Param-dependent rate source (used by modulationWave). */
-    rateParam?: string | string[];
-    rateFallback?: number;
-    rateMax?: number;
-    /** Param-dependent drive source (used by saturationCurve). */
-    driveParam?: string | string[];
-    driveFallback?: number;
-    driveMax?: number;
-    /** For miniFilterEq: HP/LP param sources. */
-    hpParam?: string | string[];
-    hpFallback?: number;
-    lpParam?: string | string[];
-    lpFallback?: number;
-    /** For compressionCurve: threshold/ratio sources. */
-    thrParam?: string | string[];
-    thrFallback?: number;
-    ratioParam?: string | string[];
-    ratioFallback?: number;
-    /** For gainReductionMeter: orientation. */
-    grOrientation?: 'vertical' | 'horizontal';
-}
-
-/** Full plugin definition — everything needed to render a plugin surface. */
-export interface PluginDefinition {
-    /** CSS variable for VizCard background (e.g. "var(--plugin-bg-chorus)"). */
-    background: string;
-    /** CSS variable or hex for accent color. */
-    accent: string;
-    /** DryWet accent override (defaults to accent). */
-    dryWetAccent?: string;
-    /** Visualization configuration. */
-    viz: VizConfig;
-    /** Meta readout param descriptors. */
-    meta: MetaParamDescriptor[];
-    /** Whether this is a utility-type plugin (uses vertical layout, no viz card). */
-    isUtility?: boolean;
-    /** Custom buttons (like Mono for Utility). */
-    buttons?: Array<{
-        label: string;
-        /** Param name to check for active state. */
-        paramName: string;
-        /** Threshold for "active" state. Default: 0.5. */
-        threshold?: number;
-        /** Scene name for onApplyUtilityScene. */
-        scene?: 'center' | 'mono' | 'wide';
-    }>;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// THE REGISTRY — Every plugin defined as pure data
-// ═══════════════════════════════════════════════════════════════════════════
+import { safeParamValue } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
+import type { PluginDefinition } from '@/widgets/DeviceRack/ui/PluginRegistryTypes';
 
 export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
     // ─── MODULATION & SPATIAL ──────────────────────────────────────────
@@ -174,6 +23,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: '', paramNames: 'rate', fallback: 1.2, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 40, suffix: '%' },
         ],
+        settingsPanel: { params: ['voices', 'spread', 'fb', 'hp freq'] },
     },
     autoPan: {
         background: 'var(--plugin-bg-mod)',
@@ -188,6 +38,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Rate', paramNames: 'rate', fallback: 1, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
         ],
+        settingsPanel: { params: ['phase', 'shape'] },
     },
     phaser: {
         background: 'var(--plugin-bg-mod)',
@@ -198,8 +49,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
                 const depth = clamp01(safeParamValue(device, 'depth', 60) / 100);
                 const stages = Math.max(2, Math.min(12, Math.round(safeParamValue(device, 'stages', 6))));
                 return Array.from({ length: stages }, (_, i) => {
-                    const notchNorm = 0.3 + depth * 0.55;
-                    return i % 2 === 0 ? notchNorm : notchNorm * 0.6;
+                    const n = 0.3 + depth * 0.55;
+                    return i % 2 === 0 ? n : n * 0.6;
                 });
             },
         },
@@ -208,6 +59,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
             { label: '', paramNames: 'stages', fallback: 6, suffix: ' stages' },
         ],
+        settingsPanel: { params: ['center', 'spread', 'fb'] },
     },
     phaserFlanger: {
         background: 'var(--plugin-bg-mod)',
@@ -227,6 +79,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: '', paramNames: 'rate', fallback: 0.5, suffix: 'Hz' },
             { label: 'Depth', paramNames: 'depth', fallback: 60, suffix: '%' },
         ],
+        settingsPanel: { params: ['blend', 'stages', 'stereo'] },
     },
     flanger: {
         background: 'var(--plugin-bg-mod)',
@@ -243,9 +96,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Depth', paramNames: 'depth', fallback: 50, suffix: '%' },
             { label: 'FB', paramNames: ['fb', 'feedback'], fallback: 40, suffix: '%' },
         ],
+        settingsPanel: { params: ['delay', 'stereo', 'fb damp'] },
     },
 
-    // ─── TIME EFFECTS (Delay / Reverb) ──────────────────────────────────
+    // ─── TIME EFFECTS (no settings panel per user request) ──────────────
     delay: {
         background: 'var(--plugin-bg-delay)',
         accent: 'var(--token-color-hex-7cc4ff)',
@@ -351,6 +205,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -0.3, suffix: 'dB' },
             { label: 'Ceil', paramNames: 'ceil', fallback: -0.1, suffix: 'dB' },
         ],
+        settingsPanel: { params: ['rel', 'lookahead', 'link'] },
     },
     gate: {
         background: 'var(--plugin-bg-gate)',
@@ -368,6 +223,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [
             { label: 'Thr', paramNames: 'thr', fallback: -40, suffix: 'dB' },
         ],
+        settingsPanel: { params: ['atk', 'hold', 'rel', 'range', 'sc hpf', 'hysteresis'] },
     },
     autoFilter: {
         background: 'var(--plugin-bg-mod)',
@@ -380,6 +236,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         meta: [
             { label: 'Freq', paramNames: ['freq', 'frequency', 'cutoff', 'center'], fallback: 1000, suffix: 'Hz' },
         ],
+        settingsPanel: { params: ['res', 'rate', 'depth', 'env', 'type', 'lfo shape'] },
     },
 
     // ─── COMPRESSORS ──────────────────────────────────────────────────
@@ -396,6 +253,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
             { label: 'Ratio', paramNames: 'ratio', fallback: 4, suffix: ':1' },
         ],
+        settingsPanel: { params: ['atk', 'rel', 'knee', 'makeup', 'sc hpf'] },
     },
     glueCompressor: {
         background: 'var(--plugin-bg-compressor)',
@@ -410,6 +268,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Thr', paramNames: 'thr', fallback: -18, suffix: 'dB' },
             { label: 'Ratio', paramNames: 'ratio', fallback: 4, suffix: ':1' },
         ],
+        settingsPanel: { params: ['atk', 'rel', 'makeup', 'range', 'soft clip'] },
     },
     multibandDynamics: {
         background: 'var(--plugin-bg-compressor)',
@@ -449,6 +308,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         accent: 'var(--token-color-hex-ffac59)',
         viz: { type: 'saturationCurve', satType: 'soft', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
         meta: [{ label: 'Drive', paramNames: 'drive', fallback: 3, suffix: 'dB' }],
+        settingsPanel: { params: ['tone', 'mode', 'output', 'color'] },
     },
     drumBuss: {
         background: 'var(--plugin-bg-saturator)',
@@ -480,6 +340,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
             { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
         ],
+        settingsPanel: { params: ['mode', 'output', 'bias'] },
     },
     overdrive: {
         background: 'var(--plugin-bg-distortion)',
@@ -489,15 +350,17 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
             { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
         ],
+        settingsPanel: { params: ['output', 'bias', 'tight'] },
     },
     amp: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ffb57a)',
-        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'tube', driveParam: 'gain', driveFallback: 3, driveMax: 24 },
         meta: [
             { label: 'Gain', paramNames: 'gain', fallback: 0, suffix: 'dB' },
             { label: 'Master', paramNames: 'master', fallback: 0, suffix: 'dB' },
         ],
+        settingsPanel: { params: ['bass', 'mid', 'treble', 'presence', 'sag'] },
     },
     cabinet: {
         background: 'var(--plugin-bg-distortion)',
@@ -507,6 +370,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             staticDataGenerator: () => Array.from({ length: 11 }, (_, i) => 0.3 + Math.sin(i * 0.7) * 0.25 + Math.cos(i * 0.5) * 0.15),
         },
         meta: [{ label: 'Mic', paramNames: 'mic pos', fallback: 50, suffix: '%' }],
+        settingsPanel: { params: ['type', 'lo cut', 'hi cut', 'resonance', 'output'] },
     },
     erosion: {
         background: 'var(--plugin-bg-distortion)',
@@ -519,6 +383,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Freq', paramNames: 'frequency', fallback: 2000, suffix: 'Hz' },
             { label: 'Amt', paramNames: 'amount', fallback: 0, suffix: '%' },
         ],
+        settingsPanel: { params: ['mode', 'width'] },
     },
     pedal: {
         background: 'var(--plugin-bg-distortion)',
@@ -528,15 +393,17 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
             { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
         ],
+        settingsPanel: { params: ['mode', 'level'] },
     },
     roar: {
         background: 'var(--plugin-bg-distortion)',
         accent: 'var(--token-color-hex-ff965e)',
-        viz: { type: 'saturationCurve', satType: 'fold', driveParam: 'drive', driveFallback: 3, driveMax: 24 },
+        viz: { type: 'saturationCurve', satType: 'fold', driveParam: 'intensity', driveFallback: 3, driveMax: 24 },
         meta: [
-            { label: 'Drive', paramNames: 'drive', fallback: 0, suffix: 'dB' },
-            { label: 'Tone', paramNames: 'tone', fallback: 0, suffix: '%' },
+            { label: 'Intensity', paramNames: 'intensity', fallback: 0, suffix: '%' },
+            { label: 'Color', paramNames: 'color', fallback: 0, suffix: '%' },
         ],
+        settingsPanel: { params: ['character', 'feedback', 'output'] },
     },
     bitcrusher: {
         background: 'var(--plugin-bg-distortion)',
@@ -548,8 +415,9 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         },
         meta: [
             { label: 'Bits', paramNames: 'bits', fallback: 16, suffix: '' },
-            { label: '↓', paramNames: 'downsample', fallback: 1, suffix: 'x' },
+            { label: '↓', paramNames: ['down', 'downsample'], fallback: 1, suffix: 'x' },
         ],
+        settingsPanel: { params: ['jitter', 'pre freq', 'post freq'] },
     },
 
     // ─── NOISE ──────────────────────────────────────────────────────────
@@ -570,6 +438,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: '', paramNames: 'type', fallback: 0, suffix: '' },
             { label: 'Level', paramNames: 'level', fallback: -30, suffix: 'dB' },
         ],
+        settingsPanel: { params: ['stereo', 'lpfreq', 'hpfreq', 'pan'] },
     },
 
     // ─── UTILITY ────────────────────────────────────────────────────────
@@ -579,176 +448,6 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: { type: 'none' },
         meta: [],
         isUtility: true,
-        buttons: [
-            { label: 'Mono', paramName: 'mono', scene: 'mono' },
-        ],
+        buttons: [{ label: 'Mono', paramName: 'mono', scene: 'mono' }],
     },
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-// UNIVERSAL PLUGIN RENDERER
-// ═══════════════════════════════════════════════════════════════════════════
-// Single component that reads a PluginDefinition and assembles modules.
-// This replaces ALL imperative surface files + routing waterfall.
-
-function freqToNorm(hz: number): number {
-    return clamp01((Math.log2(Math.max(20, hz) / 20)) / (Math.log2(20000 / 20)));
-}
-
-/** Resolve a VizConfig into a React element. */
-function resolveViz(
-    viz: VizConfig,
-    device: DeviceSlot,
-    accent: string,
-): React.ReactNode {
-    switch (viz.type) {
-        case 'modulationWave': {
-            const rateRaw = safeParamValue(device, viz.rateParam ?? 'rate', viz.rateFallback ?? 1);
-            const depthRaw = safeParamValue(device, viz.depthParam ?? 'depth', viz.depthFallback ?? 50);
-            const rateNorm = clamp01(Math.min(rateRaw, viz.rateMax ?? 10) / (viz.rateMax ?? 10));
-            const depthNorm = clamp01(depthRaw / (viz.depthMax ?? 100));
-            return <ModulationWave rate={rateNorm} depth={depthNorm} shape={viz.waveShape ?? 'sine'} accent={accent} />;
-        }
-        case 'saturationCurve': {
-            const driveRaw = safeParamValue(device, viz.driveParam ?? 'drive', viz.driveFallback ?? 3);
-            const driveNorm = clamp01(Math.max(0, driveRaw) / (viz.driveMax ?? 24));
-            return <SaturationCurve drive={driveNorm} type={viz.satType ?? 'soft'} accent={accent} />;
-        }
-        case 'miniFilterEq': {
-            const hpHz = safeParamValue(device, viz.hpParam ?? 'hp', viz.hpFallback ?? 200);
-            const lpHz = safeParamValue(device, viz.lpParam ?? 'lp', viz.lpFallback ?? 8000);
-            return <MiniFilterEq hpFreqNorm={freqToNorm(hpHz)} lpFreqNorm={freqToNorm(lpHz)} accentHp={accent} accentLp={accent} />;
-        }
-        case 'gainReductionMeter': {
-            const thrDb = Math.abs(safeParamValue(device, 'thr', -0.3));
-            const grDb = Math.max(0, thrDb * 0.8);
-            return (
-                <div style={{ display: 'flex', height: '100%', gap: 6, padding: 6 }}>
-                    <div style={{ flex: 1 }}><GainReductionMeter grDb={grDb} maxDb={24} orientation={viz.grOrientation ?? 'horizontal'} /></div>
-                </div>
-            );
-        }
-        case 'compressionCurve': {
-            const thr = safeParamValue(device, viz.thrParam ?? 'thr', viz.thrFallback ?? -18);
-            const ratio = safeParamValue(device, viz.ratioParam ?? 'ratio', viz.ratioFallback ?? 4);
-            const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel!) : 0;
-            const pseudoGr = rawGr > 0 ? Math.max(0, Math.min(24, rawGr)) : Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
-            const thrNorm = clamp01((thr + 60) / 60);
-            const ratioNorm = clamp01(Math.min(ratio, 20) / 20);
-            return <CompressionCurve thresholdNorm={thrNorm} ratioNorm={ratioNorm} grDb={pseudoGr} accent={accent} variant={viz.compVariant ?? 'standard'} />;
-        }
-        case 'spectrumBars': {
-            const data = viz.staticDataGenerator?.(device);
-            return <SpectrumBars data={data} barCount={viz.barCount ?? data?.length ?? 16} accent={accent} />;
-        }
-        case 'waveformDisplay': {
-            const data = viz.staticDataGenerator?.(device) ?? [];
-            return <WaveformDisplay data={data} accent={accent} mode={viz.waveMode ?? 'bars'} />;
-        }
-        default:
-            return null;
-    }
-}
-
-/** Resolve meta descriptors into formatted readout spans. */
-function resolveMeta(
-    metaDescs: MetaParamDescriptor[],
-    device: DeviceSlot,
-): React.ReactNode[] {
-    return metaDescs.map((desc, i) => {
-        // Special case: noise type label
-        if (device.effectType === 'noiseMachine' && desc.paramNames === 'type') {
-            const type = Math.round(safeParamValue(device, 'type', 0));
-            const LABELS = ['White', 'Pink', 'Brown', 'Blue', 'Violet', 'Grey'];
-            return <span key={i}>{LABELS[Math.min(type, 5)] ?? 'White'}</span>;
-        }
-        // Special case: stages suffix
-        if (desc.suffix === ' stages') {
-            const val = Math.round(safeParamValue(device, desc.paramNames, desc.fallback));
-            return <span key={i}>{val}{desc.suffix}</span>;
-        }
-        const param = readSurfaceParam(device, desc.paramNames, desc.fallback, desc.suffix);
-        return <span key={i}>{desc.label ? `${desc.label} ` : ''}{formatSurfaceParam(param)}</span>;
-    });
-}
-
-/**
- * UniversalPluginRenderer — THE enterprise-grade single renderer.
- * Reads a PluginDefinition and assembles the UI from modular blocks.
- *
- * To add a new plugin type: add ONE entry to PLUGIN_REGISTRY. Done.
- */
-export const UniversalPluginRenderer = React.memo(function UniversalPluginRenderer({
-    device,
-    handlers,
-    definition,
-}: {
-    device: DeviceSlot;
-    handlers: SurfaceHandlers;
-    definition: PluginDefinition;
-}) {
-    const showDryWet = shouldShowDryWet(device);
-    const knobParams = useMemo(
-        () => buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet }),
-        [device, showDryWet],
-    );
-    const accent = definition.accent;
-    const dryWetAccent = definition.dryWetAccent ?? accent;
-
-    // ─── Utility layout (vertical, no viz card) ──────────────────────
-    if (definition.isUtility) {
-        return (
-            <div data-no-drag style={{
-                display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', height: '100%', padding: 'var(--space-1)',
-            }}>
-                <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
-                {definition.buttons && definition.buttons.length > 0 && (
-                    <ButtonStrip>
-                        {definition.buttons.map((btn) => {
-                            const active = getParamValue(device, [btn.paramName], 0) > (btn.threshold ?? 0.5);
-                            return (
-                                <ToggleButton
-                                    key={btn.paramName}
-                                    label={btn.label}
-                                    active={active}
-                                    onClick={() => btn.scene && handlers.onApplyUtilityScene?.(btn.scene)}
-                                />
-                            );
-                        })}
-                    </ButtonStrip>
-                )}
-                {showDryWet && <DryWetSection device={device} handlers={handlers} accent={dryWetAccent} show={showDryWet} />}
-            </div>
-        );
-    }
-
-    // ─── Standard EQ-style layout ────────────────────────────────────
-    const vizElement = resolveViz(definition.viz, device, accent);
-    const metaSpans = resolveMeta(definition.meta, device);
-
-    return (
-        <PluginSurfaceLayout>
-            <ControlPanel params={knobParams} handlers={handlers} />
-            <VizColumn>
-                <VizCard background={definition.background}>
-                    {vizElement}
-                </VizCard>
-                {metaSpans.length > 0 && (
-                    <MetaReadout>
-                        {metaSpans}
-                    </MetaReadout>
-                )}
-            </VizColumn>
-            <DryWetSection device={device} handlers={handlers} accent={dryWetAccent} show={showDryWet} />
-        </PluginSurfaceLayout>
-    );
-});
-
-/**
- * Lookup helper: resolve effectType → PluginDefinition.
- * Returns null if no definition exists (fallback to hand-crafted surface).
- */
-export function lookupPluginDefinition(device: DeviceSlot): PluginDefinition | null {
-    if (!device.effectType) return null;
-    return PLUGIN_REGISTRY[device.effectType] ?? null;
-}

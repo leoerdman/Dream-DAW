@@ -87,19 +87,12 @@ export const ControlPanel = React.memo(({
         gap: 'var(--plugin-meta-gap)',
     }}>
         {params && params.length > 0 && handlers && (
-            <div style={{
-                ...pluginPanelCardBaseStyle,
-                padding: 'var(--space-1)',
-                display: 'block',
-                height: 'fit-content',
-            }}>
-                <KnobParamGrid
-                    params={params}
-                    handlers={handlers}
-                    maxCols={maxCols}
-                    minCols={minCols}
-                />
-            </div>
+            <KnobParamGrid
+                params={params}
+                handlers={handlers}
+                maxCols={maxCols}
+                minCols={minCols}
+            />
         )}
         {children}
     </div>
@@ -242,6 +235,74 @@ export function usePluginSurfaceProps(device: DeviceSlot) {
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     return { showDryWet, knobParams };
 }
+
+/**
+ * SettingsPanel — collapsible secondary knob grid for overflow parameters.
+ * Toggled via small gear icon at the bottom of the ControlPanel.
+ */
+export const SettingsPanel = React.memo(function SettingsPanel({
+    params,
+    handlers,
+    maxCols = 3,
+    accent,
+}: {
+    /** Pre-filtered secondary params to show. */
+    params: DeviceSlot['params'];
+    handlers: SurfaceHandlers;
+    maxCols?: number;
+    accent?: string;
+}) {
+    const [expanded, setExpanded] = React.useState(false);
+
+    if (params.length === 0) return null;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {/* ─── Toggle button ─── */}
+            <button
+                type="button"
+                onClick={() => setExpanded(prev => !prev)}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: 'var(--space-px) solid var(--color-divider)',
+                    background: expanded
+                        ? 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)'
+                        : 'var(--color-bg-elevated)',
+                    color: expanded
+                        ? (accent ?? 'var(--color-accent-primary)')
+                        : 'var(--color-text-tertiary)',
+                    fontSize: 'var(--font-size-2xs)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                    width: '100%',
+                }}
+            >
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z" />
+                    <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0a1.845 1.845 0 01-2.75 1.042c-1.556-.936-3.35.858-2.414 2.414.552.919.142 2.112-.843 2.455-1.79.527-1.79 3.065 0 3.592a1.845 1.845 0 011.042 2.75c-.936 1.556.858 3.35 2.414 2.414a1.845 1.845 0 012.455.843c.527 1.79 3.065 1.79 3.592 0a1.846 1.846 0 012.75-1.042c1.556.936 3.35-.858 2.414-2.414a1.845 1.845 0 01.843-2.455c1.79-.527 1.79-3.065 0-3.592a1.845 1.845 0 01-1.042-2.75c.936-1.556-.858-3.35-2.414-2.414a1.845 1.845 0 01-2.455-.843z" />
+                </svg>
+                {expanded ? '▴' : '▾'}
+            </button>
+
+            {/* ─── Expandable knob grid ─── */}
+            {expanded && (
+                <KnobParamGrid
+                    params={params}
+                    handlers={handlers}
+                    maxCols={maxCols}
+                    minCols={2}
+                />
+            )}
+        </div>
+    );
+});
+SettingsPanel.displayName = 'SettingsPanel';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // L2 — MINI VISUALIZATION COMPONENTS

@@ -7,6 +7,7 @@ pub type NodeId = u64;
 
 /// A signal in the Flow graph. In a modular synth, almost everything is a
 /// control voltage (CV) or audio signal represented as an f32.
+/// Enterprise: 5 signal types matching Bitwig Grid architecture.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum FlowSignal {
     #[default]
@@ -14,12 +15,18 @@ pub enum FlowSignal {
     Audio(f32),
     Control(f32),
     Midi { pitch: u8, velocity: u8, gate: bool },
+    /// Binary on/off signal for triggers and gating (Bitwig: yellow, Logic).
+    Gate(bool),
+    /// Unipolar cycle position 0.0..1.0, wraps automatically (Bitwig: purple, Phase).
+    Phase(f32),
 }
 
 impl FlowSignal {
     pub fn as_float(&self) -> Option<f32> {
         match self {
             Self::Audio(v) | Self::Control(v) => Some(*v),
+            Self::Gate(on) => Some(if *on { 1.0 } else { 0.0 }),
+            Self::Phase(p) => Some(*p),
             _ => None,
         }
     }
@@ -107,6 +114,14 @@ impl FlowGraph {
             "autofilter" => Box::new(AutoFilterNode::new()),
             "reverse" => Box::new(ReverseNode::new()),
             "audioIn" | "audio_in" => Box::new(AudioInNode::new()),
+            "lfo" => Box::new(LfoNode::new()),
+            "noise" => Box::new(NoiseNode::new()),
+            "add" => Box::new(MathAddNode::new()),
+            "multiply" => Box::new(MathMultiplyNode::new()),
+            "sampleHold" | "sample_hold" => Box::new(SampleHoldNode::new()),
+            "delay" => Box::new(DelayNode::new()),
+            "mixer" => Box::new(MixerNode::new()),
+            "vca" => Box::new(VcaNode::new()),
             _ => return,
         };
 
@@ -336,6 +351,106 @@ impl FlowGraph {
                         out.set_muted(v == "true" || v == "1");
                     }
                     _ => {}
+                }
+            }
+            return;
+        }
+
+        // ── New Phase 1 Nodes ───────────────────────────────────────────
+
+        if let Some(lfo) = node.as_any_mut().downcast_mut::<LfoNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "rate" => {
+                        if let Ok(r) = v.parse::<f64>() {
+                            lfo.set_rate(r);
+                        }
+                    }
+                    "shape" => lfo.set_shape(v),
+                    "bipolar" => lfo.set_bipolar(v == "true" || v == "1"),
+                    "phase_offset" | "phaseOffset" => {
+                        if let Ok(p) = v.parse::<f64>() {
+                            lfo.set_phase_offset(p);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(noise) = node.as_any_mut().downcast_mut::<NoiseNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "color" => noise.set_color(v),
+                    "level" => {
+                        if let Ok(l) = v.parse::<f32>() {
+                            noise.set_level(l);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(mul) = node.as_any_mut().downcast_mut::<MathMultiplyNode>() {
+            for (k, v) in params {
+                if k == "scale" {
+                    if let Ok(s) = v.parse::<f32>() {
+                        mul.set_scale(s);
+                    }
+                }
+            }
+            return;
+        }
+
+        if let Some(dly) = node.as_any_mut().downcast_mut::<DelayNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "time" | "time_ms" | "timeMs" => {
+                        if let Ok(t) = v.parse::<f32>() {
+                            dly.set_time_ms(t);
+                        }
+                    }
+                    "feedback" => {
+                        if let Ok(fb) = v.parse::<f32>() {
+                            dly.set_feedback(fb);
+                        }
+                    }
+                    "mix" => {
+                        if let Ok(m) = v.parse::<f32>() {
+                            dly.set_mix(m);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(mix) = node.as_any_mut().downcast_mut::<MixerNode>() {
+            for (k, v) in params {
+                let ch = match k.as_str() {
+                    "gain_1" | "gain1" => Some(0),
+                    "gain_2" | "gain2" => Some(1),
+                    "gain_3" | "gain3" => Some(2),
+                    "gain_4" | "gain4" => Some(3),
+                    _ => None,
+                };
+                if let (Some(ch), Ok(g)) = (ch, v.parse::<f32>()) {
+                    mix.set_gain(ch, g);
+                }
+            }
+            return;
+        }
+
+        if let Some(vca) = node.as_any_mut().downcast_mut::<VcaNode>() {
+            for (k, v) in params {
+                if k == "bias" {
+                    if let Ok(b) = v.parse::<f32>() {
+                        vca.set_bias(b);
+                    }
                 }
             }
         }
@@ -702,5 +817,169 @@ mod tests {
         assert!(half_rms < full_rms * 0.65,
             "expected half gain to be significantly quieter: full_rms={full_rms}, half_rms={half_rms}");
     }
-}
 
+    // ── Phase 1: New Node Tests ─────────────────────────────────────────
+
+    #[test]
+    fn gate_signal_as_float() {
+        assert_eq!(FlowSignal::Gate(true).as_float(), Some(1.0));
+        assert_eq!(FlowSignal::Gate(false).as_float(), Some(0.0));
+    }
+
+    #[test]
+    fn phase_signal_as_float() {
+        let p = FlowSignal::Phase(0.75);
+        assert!((p.as_float().unwrap() - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn lfo_produces_periodic_output() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "lfo");
+        g.set_node_params(1, &[
+            ("rate".to_string(), "10.0".to_string()),
+            ("shape".to_string(), "sine".to_string()),
+        ]);
+        g.add_node(2, "output");
+        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 4410); // 100ms at 44.1kHz = 1 full cycle at 10Hz
+        let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
+        assert!(peak > 0.5, "LFO should produce significant signal, got peak={peak}");
+    }
+
+    #[test]
+    fn noise_produces_nonzero_signal() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "noise");
+        g.add_node(2, "output");
+        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let rms_val = rms(&out);
+        assert!(rms_val > 0.01, "noise should produce non-trivial signal, rms={rms_val}");
+    }
+
+    #[test]
+    fn math_add_sums_two_signals() {
+        let mut g = FlowGraph::new();
+        // Two oscillators → add → output
+        g.add_node(1, "oscillator");
+        g.add_node(2, "oscillator");
+        g.add_node(3, "add");
+        g.add_node(4, "output");
+        g.set_node_params(4, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 3, to_port: 0 });
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 1 });
+        g.add_connection(FlowConnection { from_node: 3, from_port: 0, to_node: 4, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
+        // Sum of two oscillators should be louder than one
+        assert!(peak > 0.5, "add node should combine signals, peak={peak}");
+    }
+
+    #[test]
+    fn math_multiply_scales_signal() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "multiply");
+        g.set_node_params(2, &[("scale".to_string(), "0.5".to_string())]);
+        g.add_node(3, "output");
+        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        // Only one input to multiply — second defaults to 1.0
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let scaled_rms = rms(&out);
+
+        // Compare with unscaled
+        let mut g2 = FlowGraph::new();
+        g2.add_node(1, "oscillator");
+        g2.add_node(2, "output");
+        g2.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g2.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        let out2 = render(&mut g2, 44_100.0, 512);
+        let full_rms = rms(&out2);
+
+        assert!(scaled_rms < full_rms * 0.65,
+            "multiply with scale=0.5 should halve level: scaled={scaled_rms}, full={full_rms}");
+    }
+
+    #[test]
+    fn sample_hold_captures_on_trigger() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "noise");        // random signal source
+        g.add_node(2, "sampleHold");
+        g.add_node(3, "output");
+        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 }); // signal
+        // No trigger connected yet — should hold initial value (0.0)
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 64);
+        // Without a trigger, S&H should output held value (0.0)
+        let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
+        assert!(peak < 0.001, "S&H without trigger should hold zero, peak={peak}");
+    }
+
+    #[test]
+    fn delay_produces_echoed_signal() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "delay");
+        g.set_node_params(2, &[
+            ("time".to_string(), "10.0".to_string()),  // 10ms delay
+            ("feedback".to_string(), "0.0".to_string()),
+            ("mix".to_string(), "1.0".to_string()),     // 100% wet
+        ]);
+        g.add_node(3, "output");
+        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 882); // 20ms worth
+        // First ~441 samples (10ms) should be ~silence (delay hasn't echoed yet)
+        let first_rms = rms(&out[..441]);
+        let second_rms = rms(&out[441..]);
+        assert!(second_rms > first_rms * 5.0,
+            "delayed signal should be much louder after delay time: first={first_rms}, second={second_rms}");
+    }
+
+    #[test]
+    fn mixer_sums_four_inputs() {
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator"); // ch1
+        g.add_node(2, "oscillator"); // ch2
+        g.add_node(3, "mixer");
+        g.add_node(4, "output");
+        g.set_node_params(4, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 3, to_port: 0 }); // ch1
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 1 }); // ch2
+        g.add_connection(FlowConnection { from_node: 3, from_port: 0, to_node: 4, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let mix_rms = rms(&out);
+        assert!(mix_rms > 0.3, "mixer should combine signals, rms={mix_rms}");
+    }
+
+    #[test]
+    fn vca_amplitude_controlled_by_cv() {
+        // VCA with CV=0 should produce silence
+        let mut g = FlowGraph::new();
+        g.add_node(1, "oscillator");
+        g.add_node(2, "vca");
+        g.add_node(3, "output");
+        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 }); // audio
+        // No CV connected — defaults to 1.0, so pass-through
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let out = render(&mut g, 44_100.0, 512);
+        let pass_rms = rms(&out);
+        assert!(pass_rms > 0.3, "VCA with default CV=1.0 should pass audio, rms={pass_rms}");
+    }
+}

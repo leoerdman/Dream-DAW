@@ -78,14 +78,20 @@ function PortDot({
     const updatePendingConnection = useFlowSynthStore((s) => s.updatePendingConnection);
 
     const cy = portCenterY(index);
-    const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi' : port.type === 'control' ? 'control' : 'audio';
+    const signalType: 'audio' | 'midi' | 'control' = port.type === 'midi' ? 'midi'
+        : (port.type === 'audio' || port.type === 'gate' || port.type === 'phase') ? 'audio'
+            : 'control';
 
 
     const dotColor = port.type === 'midi'
         ? 'var(--color-signal-midi)'
         : port.type === 'audio'
             ? 'var(--color-signal-audio)'
-            : 'var(--color-signal-control)';
+            : port.type === 'gate'
+                ? 'var(--color-signal-gate)'
+                : port.type === 'phase'
+                    ? 'var(--color-signal-phase)'
+                    : 'var(--color-signal-control)';
 
     // ENTERPRISE: All ports are filled circles, differentiated only by color per signal type
     const dotSize = 11;

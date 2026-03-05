@@ -49,6 +49,8 @@ impl FlowNode for AudioOutNode {
                 match s {
                     FlowSignal::Audio(v) => FlowSignal::Audio(v * g),
                     FlowSignal::Control(v) => FlowSignal::Audio(v * g),
+                    FlowSignal::Gate(on) => FlowSignal::Audio(if on { g } else { 0.0 }),
+                    FlowSignal::Phase(p) => FlowSignal::Audio(p * g),
                     other => other,
                 }
             };

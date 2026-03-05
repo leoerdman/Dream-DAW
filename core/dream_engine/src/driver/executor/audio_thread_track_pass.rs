@@ -126,7 +126,15 @@ pub(crate) fn process_track_graph_node(
                 }
             } else {
                 for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
-                    if runtime_slot.is_bypassed { continue; }
+                    // ENTERPRISE-BYPASS-FIX: Only skip external bypassed plugins here.
+                    // Internal slots handle bypass via smooth 5ms IIR crossfade ramp
+                    // inside InternalDeviceSlot::process(). Skipping them entirely
+                    // causes audible clicks because the ramp never runs — the signal
+                    // jumps discontinuously from wet→dry. External plugins don't have
+                    // this ramp, so they need explicit skip.
+                    if runtime_slot.is_bypassed && runtime_slot.internal_slot_index.is_none() {
+                        continue;
+                    }
                     // SC-FIX: Sidechain source resolution strategy:
                     //
                     // All modes use flat-array reads from TrackSlot tap/output buffers.

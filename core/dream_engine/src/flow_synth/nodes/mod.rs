@@ -7,6 +7,14 @@ pub mod eq;
 pub mod autofilter;
 pub mod reverse;
 pub mod audio_in;
+pub mod lfo;
+pub mod noise;
+pub mod math_add;
+pub mod math_multiply;
+pub mod sample_hold;
+pub mod delay;
+pub mod mixer;
+pub mod vca;
 
 pub use oscillator::OscillatorNode;
 pub use filter::FilterNode;
@@ -17,3 +25,12 @@ pub use eq::EqNode;
 pub use autofilter::AutoFilterNode;
 pub use reverse::ReverseNode;
 pub use audio_in::AudioInNode;
+pub use lfo::LfoNode;
+pub use noise::NoiseNode;
+pub use math_add::MathAddNode;
+pub use math_multiply::MathMultiplyNode;
+pub use sample_hold::SampleHoldNode;
+pub use delay::DelayNode;
+pub use mixer::MixerNode;
+pub use vca::VcaNode;
+

@@ -11,16 +11,33 @@ import {
 import { FLOW_NODE_HEADER_HEIGHT, PORT_REGISTRY, portCenterY } from '../model/portRegistry';
 import { viewportProxy } from '../lib/ViewportProxy';
 
-const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string[] }> = [
-    { type: 'midiIn', label: 'MIDI In', keywords: ['midi', 'input', 'source'] },
-    { type: 'oscillator', label: 'Oscillator', keywords: ['osc', 'synth', 'wave'] },
-    { type: 'filter', label: 'Filter', keywords: ['lp', 'hp', 'bp', 'cutoff'] },
-    { type: 'envelope', label: 'Envelope', keywords: ['env', 'adsr', 'mod'] },
-    { type: 'eq', label: 'EQ', keywords: ['equalizer', 'tone'] },
-    { type: 'autofilter', label: 'AutoFilter', keywords: ['auto', 'mod', 'filter'] },
-    { type: 'reverse', label: 'Reverse', keywords: ['fx', 'reverse'] },
-    { type: 'audioIn', label: 'Audio In', keywords: ['audio', 'input', 'source'] },
-    { type: 'output', label: 'Audio Out', keywords: ['master', 'sink', 'output'] },
+const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string[]; category: string }> = [
+    // ── I/O ──
+    { type: 'midiIn', label: 'MIDI In', keywords: ['midi', 'input', 'source', 'note'], category: 'I/O' },
+    { type: 'audioIn', label: 'Audio In', keywords: ['audio', 'input', 'source', 'sidechain'], category: 'I/O' },
+    { type: 'output', label: 'Audio Out', keywords: ['master', 'sink', 'output', 'out'], category: 'I/O' },
+    // ── Oscillator ──
+    { type: 'oscillator', label: 'Oscillator', keywords: ['osc', 'synth', 'wave', 'sine', 'saw', 'square'], category: 'Oscillator' },
+    // ── Filter ──
+    { type: 'filter', label: 'Filter', keywords: ['lp', 'hp', 'bp', 'cutoff', 'svf'], category: 'Filter' },
+    { type: 'autofilter', label: 'Auto Filter', keywords: ['auto', 'mod', 'filter', 'lfo'], category: 'Filter' },
+    { type: 'eq', label: 'EQ', keywords: ['equalizer', 'tone', 'band'], category: 'Filter' },
+    // ── Envelope ──
+    { type: 'envelope', label: 'Envelope', keywords: ['env', 'adsr', 'mod', 'amplitude', 'gate'], category: 'Envelope' },
+    // ── LFO ──
+    { type: 'lfo', label: 'LFO', keywords: ['lfo', 'modulation', 'sine', 'rate', 'vibrato', 'tremolo', 'periodic'], category: 'LFO' },
+    // ── Math ──
+    { type: 'add', label: 'Add', keywords: ['add', 'sum', 'plus', 'combine', 'math'], category: 'Math' },
+    { type: 'multiply', label: 'Multiply', keywords: ['mul', 'multiply', 'scale', 'ring', 'attenuvert', 'math', 'vca'], category: 'Math' },
+    // ── Level ──
+    { type: 'vca', label: 'VCA', keywords: ['vca', 'amplifier', 'amplitude', 'gain', 'cv', 'level'], category: 'Level' },
+    { type: 'mixer', label: 'Mixer', keywords: ['mix', 'mixer', 'blend', 'combine', 'sum', 'bus'], category: 'Level' },
+    // ── Random ──
+    { type: 'noise', label: 'Noise', keywords: ['noise', 'white', 'pink', 'random', 'texture', 'hiss'], category: 'Random' },
+    { type: 'sampleHold', label: 'Sample & Hold', keywords: ['s&h', 'sample', 'hold', 'trigger', 'step', 'random', 'quantize'], category: 'Random' },
+    // ── Delay / FX ──
+    { type: 'delay', label: 'Delay', keywords: ['delay', 'echo', 'repeat', 'time', 'feedback', 'comb'], category: 'Delay/FX' },
+    { type: 'reverse', label: 'Reverse', keywords: ['fx', 'reverse', 'backwards'], category: 'Delay/FX' },
 ];
 
 
@@ -125,6 +142,14 @@ export function FlowCanvas() {
             autofilter: 'AutoFilter',
             reverse: 'Reverse FX',
             audioIn: 'Audio Input',
+            lfo: 'LFO',
+            noise: 'Noise',
+            add: 'Add',
+            multiply: 'Multiply',
+            sampleHold: 'Sample & Hold',
+            delay: 'Delay',
+            mixer: 'Mixer',
+            vca: 'VCA',
         };
         addNode({
             id: nodeId,
@@ -298,6 +323,7 @@ export function FlowCanvas() {
         return source.filter((item) =>
             item.label.toLowerCase().includes(q)
             || item.type.toLowerCase().includes(q)
+            || item.category.toLowerCase().includes(q)
             || item.keywords.some((k) => k.includes(q)),
         );
     }, [menuSearch, hasOutputNode]);

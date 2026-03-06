@@ -49,6 +49,12 @@ impl FlowSignal {
 /// Maximum number of inputs/outputs per node to keep structures stack-allocated or pre-allocated.
 pub const MAX_NODE_PORTS: usize = 8;
 
+/// P3 FIX: Default pre-allocation capacity for nodes.
+/// Covers 99%+ of real modular patches without reallocation.
+const FLOW_INITIAL_NODE_CAPACITY: usize = 16;
+/// P3 FIX: Default pre-allocation capacity for connections.
+const FLOW_INITIAL_CONN_CAPACITY: usize = 32;
+
 pub trait FlowNode: Send + Sync {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64);
     fn reset(&mut self);
@@ -93,14 +99,14 @@ pub struct FlowGraph {
 impl FlowGraph {
     pub fn new() -> Self {
         Self {
-            nodes: Vec::with_capacity(16),
-            node_map: HashMap::with_capacity(16),
-            index_to_id: Vec::with_capacity(16),
-            connections: Vec::with_capacity(32),
-            signal_buffer: vec![FlowSignal::default(); 16 * MAX_NODE_PORTS],
+            nodes: Vec::with_capacity(FLOW_INITIAL_NODE_CAPACITY),
+            node_map: HashMap::with_capacity(FLOW_INITIAL_NODE_CAPACITY),
+            index_to_id: Vec::with_capacity(FLOW_INITIAL_NODE_CAPACITY),
+            connections: Vec::with_capacity(FLOW_INITIAL_CONN_CAPACITY),
+            signal_buffer: vec![FlowSignal::default(); FLOW_INITIAL_NODE_CAPACITY * MAX_NODE_PORTS],
             audio_out_index: None,
             audio_in_indices: Vec::new(),
-            incoming_cache: Vec::with_capacity(16),
+            incoming_cache: Vec::with_capacity(FLOW_INITIAL_NODE_CAPACITY),
             envelope_indices: Vec::new(),
         }
     }

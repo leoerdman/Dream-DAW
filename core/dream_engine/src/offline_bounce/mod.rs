@@ -50,7 +50,7 @@ use dream_dsp::dsp_processor::BuiltinEffectType;
 
 use crate::driver::ExternalPluginRuntimeSlot;
 use crate::driver::MidiFxRuntimeConfig;
-use crate::driver::{TrackAutomationState, AutomationPoint, ExternalParamAutomationLane};
+use crate::driver::{TrackAutomationState, AutomationPoint, AutomationCurveMode, ExternalParamAutomationLane};
 use crate::driver::apply_external_plugin_param_automation_block;
 use crate::driver::apply_track_mixer_automation_sample_accurate;
 use crate::driver::parse_external_param_target;
@@ -2360,9 +2360,18 @@ impl OfflineRenderer {
                     let mut points: Vec<AutomationPoint> = lane
                         .points
                         .iter()
-                        .map(|p| AutomationPoint {
-                            sample_frame: project.pulse_map.sample_frame(p.beat.max(0.0)),
-                            value: p.value as f32,
+                        .map(|p| {
+                            let curve_mode = match p.curve_type.as_str() {
+                                "step" => AutomationCurveMode::Step,
+                                "bezier" => AutomationCurveMode::Bezier,
+                                _ => AutomationCurveMode::Linear,
+                            };
+                            AutomationPoint {
+                                sample_frame: project.pulse_map.sample_frame(p.beat.max(0.0)),
+                                value: p.value as f32,
+                                curve_mode,
+                                tension: p.tension.unwrap_or(0.5) as f32,
+                            }
                         })
                         .collect();
                     points.sort_by_key(|p| p.sample_frame);

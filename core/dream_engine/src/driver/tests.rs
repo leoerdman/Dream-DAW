@@ -79,10 +79,12 @@ fn sample_accurate_plugin_gain_changes_within_buffer() {
         AutomationPoint {
             sample_frame: 0,
             value: 0.0,
+            ..Default::default()
         },
         AutomationPoint {
             sample_frame: 7,
             value: 2.0,
+            ..Default::default()
         },
     ];
 
@@ -110,10 +112,12 @@ fn sample_accurate_plugin_pan_unit_interval_maps_correctly() {
         AutomationPoint {
             sample_frame: 0,
             value: 0.0,
+            ..Default::default()
         },
         AutomationPoint {
             sample_frame: 3,
             value: 1.0,
+            ..Default::default()
         },
     ];
 
@@ -130,6 +134,7 @@ fn sample_accurate_track_pan_all_zero_stays_centered() {
     let pan_points = vec![AutomationPoint {
         sample_frame: 0,
         value: 0.0,
+        ..Default::default()
     }];
 
     apply_track_mixer_automation_sample_accurate(&mut left, &mut right, 0, None, Some(&pan_points));
@@ -147,20 +152,24 @@ fn sample_accurate_track_mixer_volume_and_pan_change_within_buffer() {
         AutomationPoint {
             sample_frame: 0,
             value: 0.5,
+            ..Default::default()
         },
         AutomationPoint {
             sample_frame: 5,
             value: 1.5,
+            ..Default::default()
         },
     ];
     let pan_points = vec![
         AutomationPoint {
             sample_frame: 0,
             value: -1.0,
+            ..Default::default()
         },
         AutomationPoint {
             sample_frame: 5,
             value: 1.0,
+            ..Default::default()
         },
     ];
 

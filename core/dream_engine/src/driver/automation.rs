@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use super::{AutomationPoint, ExternalPluginRuntimeSlot, TrackAutomationState};
+use super::{AutomationCurveMode, AutomationPoint, ExternalPluginRuntimeSlot, TrackAutomationState};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExternalParamTarget {
@@ -96,6 +96,21 @@ fn equal_power_pan_gains(pan: f32) -> (f32, f32) {
     (angle.cos(), angle.sin())
 }
 
+// ── ENTERPRISE: Cubic bezier S-curve interpolation ──────────────────────
+// Attempt to match the frontend bezier curve rendering. Uses a symmetric
+// cubic hermite spline controlled by the `tension` parameter:
+//   tension = 0.0 → identical to linear
+//   tension = 0.5 → mild S-curve (default)
+//   tension = 1.0 → sharp S-curve
+// Zero-allocation, branchless-friendly for the audio thread.
+#[inline]
+fn eval_bezier_t(t: f32, tension: f32) -> f32 {
+    // Symmetric cubic hermite: y = 3t² - 2t³, scaled by tension
+    let smooth = t * t * (3.0 - 2.0 * t); // Hermite smoothstep
+    // Blend between linear (t) and smoothstep, controlled by tension
+    t + (smooth - t) * tension.clamp(0.0, 1.0)
+}
+
 #[inline]
 fn eval_automation_with_cursor(
     points: &[AutomationPoint],
@@ -128,9 +143,24 @@ fn eval_automation_with_cursor(
     let a = &points[*cursor];
     let b = &points[(*cursor + 1).min(points.len() - 1)];
     if at_frame <= b.sample_frame {
-        let span = (b.sample_frame - a.sample_frame).max(1) as f32;
-        let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
-        return Some(a.value + (b.value - a.value) * t);
+        // ── Curve mode dispatch ─────────────────────────────────────────
+        match a.curve_mode {
+            AutomationCurveMode::Step => {
+                // Hold 'a' value until 'b' is reached
+                return Some(a.value);
+            }
+            AutomationCurveMode::Bezier => {
+                let span = (b.sample_frame - a.sample_frame).max(1) as f32;
+                let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
+                let curved_t = eval_bezier_t(t, a.tension.clamp(0.0, 1.0));
+                return Some(a.value + (b.value - a.value) * curved_t);
+            }
+            AutomationCurveMode::Linear => {
+                let span = (b.sample_frame - a.sample_frame).max(1) as f32;
+                let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
+                return Some(a.value + (b.value - a.value) * t);
+            }
+        }
     }
 
     points.last().map(|p| p.value)

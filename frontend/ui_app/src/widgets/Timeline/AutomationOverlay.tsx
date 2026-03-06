@@ -138,7 +138,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
         return offsets;
     }, [trackCount, trackHeight, trackHeights]);
 
-    if (!visible || trackLanes.length === 0) return null;
+    if (trackLanes.length === 0 && !visible) return null;
 
     return (
         <div
@@ -151,6 +151,8 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 pointerEvents: 'none',
                 overflow: 'hidden',
                 zIndex: 'var(--z-timeline-overlays)',
+                opacity: visible ? 1 : 0,
+                transition: 'opacity 200ms ease-out',
             }}
         >
             {trackLanes.map(({ trackIndex, lanes: tLanes }) => {
@@ -188,24 +190,24 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                         zIndex: 'var(--z-timeline-overlays)',
                                     }}
                                 >
-                                    {!isFirstLane && (
-                                        <span
-                                            style={{
-                                                position: 'absolute',
-                                                top: 2,
-                                                left: 8,
-                                                fontSize: 'var(--font-size-2xs)',
-                                                fontWeight: 'var(--font-weight-semibold)',
-                                                color: lane.color,
-                                                opacity: 0.8,
-                                                zIndex: 'var(--z-local)',
-                                                pointerEvents: 'none',
-                                                textShadow: 'var(--text-shadow-dark)',
-                                            }}
-                                        >
-                                            {lane.paramName}
-                                        </span>
-                                    )}
+                                    {/* ── ENTERPRISE: Param name label on ALL lanes ── */}
+                                    <span
+                                        style={{
+                                            position: 'absolute',
+                                            top: 2,
+                                            left: 8,
+                                            fontSize: 'var(--font-size-2xs)',
+                                            fontWeight: 'var(--font-weight-semibold)',
+                                            color: lane.color,
+                                            opacity: isFirstLane ? 0.55 : 0.8,
+                                            zIndex: 'var(--z-local)',
+                                            pointerEvents: 'none',
+                                            textShadow: 'var(--text-shadow-dark)',
+                                            letterSpacing: '0.02em',
+                                        }}
+                                    >
+                                        {lane.paramName}
+                                    </span>
 
                                     <AutomationLane
                                         lane={lane}

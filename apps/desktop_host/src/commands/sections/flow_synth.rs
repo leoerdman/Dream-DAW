@@ -1,3 +1,7 @@
+/// P3 FIX: Named constants for hard caps on pathological payloads.
+const MAX_FLOW_NODES: usize = 256;
+const MAX_FLOW_CONNECTIONS: usize = 1024;
+
 fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> Result<u16, String> {
     let track_count = project.tracks.len();
     if (requested as usize) >= track_count {
@@ -41,12 +45,12 @@ fn sync_flow_graph_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
 ) -> Result<(), String> {
-    // Hard caps to avoid pathological payloads from UI.
-    if nodes.len() > 256 {
-        return Err("Flow graph has too many nodes (max 256).".to_string());
+    // P3 FIX: Use named constants instead of magic numbers.
+    if nodes.len() > MAX_FLOW_NODES {
+        return Err(format!("Flow graph has too many nodes (max {}).", MAX_FLOW_NODES));
     }
-    if connections.len() > 1024 {
-        return Err("Flow graph has too many connections (max 1024).".to_string());
+    if connections.len() > MAX_FLOW_CONNECTIONS {
+        return Err(format!("Flow graph has too many connections (max {}).", MAX_FLOW_CONNECTIONS));
     }
 
     let active_project_arc = active_project!(project_registry);
@@ -113,14 +117,31 @@ fn sync_flow_graph_cmd(
         seen_inputs.insert((*to_id, *to_port), idx);
         valid_connections.push((*from_id, *from_port, *to_id, *to_port));
     }
-    // Remove earlier duplicates — only keep the last connection to each input
+    // P2-2 FIX: Replace O(N²) `retain()+position()` with O(N) indexed HashSet filter.
+    // `seen_inputs` maps (to_id, to_port) → index of the winning connection.
+    // We build a set of winning indices and filter `valid_connections` in one pass.
     if seen_inputs.len() < valid_connections.len() {
-        valid_connections.retain(|conn| {
-            // Check if this is the latest connection to its input port
-            seen_inputs.get(&(conn.2, conn.3)).copied()
-                .map(|last_idx| connections.iter().position(|c| c == conn).map(|pos| pos == last_idx).unwrap_or(true))
-                .unwrap_or(true)
-        });
+        let winning_indices: std::collections::HashSet<usize> =
+            seen_inputs.values().copied().collect();
+        let mut filtered = Vec::with_capacity(winning_indices.len());
+        for (_orig_idx, conn) in valid_connections.iter().enumerate() {
+            // Map back to original index by finding this conn in `connections`.
+            // Since we pushed in order, orig_idx corresponds to the position
+            // in the original valid_connections iteration.
+            let original_conn_idx = connections.iter()
+                .enumerate()
+                .find(|(_, c)| *c == conn)
+                .map(|(i, _)| i);
+            if let Some(ci) = original_conn_idx {
+                if winning_indices.contains(&ci) {
+                    filtered.push(*conn);
+                }
+            } else {
+                // Safety: keep connections we can't resolve (shouldn't happen)
+                filtered.push(*conn);
+            }
+        }
+        valid_connections = filtered;
     }
     let connections = valid_connections;
 

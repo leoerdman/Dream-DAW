@@ -66,6 +66,25 @@ function toWorld(clientX: number, clientY: number, canvas: HTMLElement) {
     };
 }
 
+// P2-4 FIX: Extracted from 7+ identical inline style objects in context menu buttons.
+const ctxMenuBtnStyle: React.CSSProperties = {
+    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+const ctxMenuDeleteBtnStyle: React.CSSProperties = {
+    ...ctxMenuBtnStyle,
+    color: 'var(--color-danger, #ff4444)',
+};
+const ctxMenuShortcutStyle: React.CSSProperties = {
+    fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)',
+};
+const ctxMenuDividerStyle: React.CSSProperties = {
+    height: 1, background: 'var(--color-divider)', margin: 'var(--space-1) var(--space-2)',
+};
+
 export function FlowCanvas() {
     const { viewportRef, handleWheel } = useViewport();
     const selectedNodeIds = useFlowSynthStore((state) => state.selectedNodeIds);
@@ -527,70 +546,40 @@ export function FlowCanvas() {
                         <>
                             <button
                                 onClick={() => { copySelectedNodes(); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Copy</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘C</span>
+                                <span style={ctxMenuShortcutStyle}>⌘C</span>
                             </button>
                             <button
                                 onClick={() => { cutSelectedNodes(); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Cut</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘X</span>
+                                <span style={ctxMenuShortcutStyle}>⌘X</span>
                             </button>
                             <button
                                 onClick={() => { duplicateSelectedNodes(false); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Duplicate</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘D</span>
+                                <span style={ctxMenuShortcutStyle}>⌘D</span>
                             </button>
                             <button
                                 onClick={() => { duplicateSelectedNodes(true); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Deep Duplicate</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⇧⌘D</span>
+                                <span style={ctxMenuShortcutStyle}>⇧⌘D</span>
                             </button>
                             <button
                                 onClick={() => { deleteSelectedNodes(); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-danger, #ff4444)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuDeleteBtnStyle}
                             >
                                 <span>Delete</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌫</span>
+                                <span style={ctxMenuShortcutStyle}>⌫</span>
                             </button>
-                            <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-1) var(--space-2)' }} />
+                            <div style={ctxMenuDividerStyle} />
                         </>
                     )}
 
@@ -599,31 +588,19 @@ export function FlowCanvas() {
                         <>
                             <button
                                 onClick={() => { pasteNodes(false); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Paste</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘V</span>
+                                <span style={ctxMenuShortcutStyle}>⌘V</span>
                             </button>
                             <button
                                 onClick={() => { pasteNodes(true); setMenuState(null); }}
-                                style={{
-                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
-                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
-                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                }}
+                                style={ctxMenuBtnStyle}
                             >
                                 <span>Deep Paste</span>
-                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⇧⌘V</span>
+                                <span style={ctxMenuShortcutStyle}>⇧⌘V</span>
                             </button>
-                            <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-1) var(--space-2)' }} />
+                            <div style={ctxMenuDividerStyle} />
                         </>
                     )}
 

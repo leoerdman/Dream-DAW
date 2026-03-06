@@ -221,27 +221,46 @@ export function useTimelineClipHandlers({
         const newDurationFrames = Math.round(Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate)));
 
         // ENTERPRISE FIX: Apply optimistic Zustand update BEFORE async IPC logic.
-        // This bridges the 100-200ms gap, preventing the TimelineEngine from 
-        // collapsing to stale store values (causing micro-movements) on mouseUp.
+        // This bridges the 100-200ms IPC gap, preventing the TimelineEngine from
+        // collapsing to stale store values (causing waveform snap-back) on mouseUp.
+        //
+        // CRITICAL: Must update ALL 3 store slices (timelineClips, clipsById, clips)
+        // for true SSOT. Previously only patched timelineClips, leaving clipsById/clips
+        // stale during the gap window.
         useEngineStore.setState((state) => {
             const nextClips = state.timelineClips.map((c) => {
-                if (c.id === clipId) {
-                    // BUG-TRIM-01 FIX: Use camelCase `sourceOffset` (matches TimelineClip type).
-                    // Previously used snake_case `source_offset` which had ZERO effect on
-                    // waveform rendering since `useTimelineClipSync` reads `c.sourceOffset`.
-                    // BUG-TRIM-02 FIX: Also update `startBeat`, `durationBeats`, and
-                    // `durationSamples` so the waveform window size is correct during the IPC gap.
-                    return {
-                        ...c,
-                        startBeat: newStartBeat,
-                        durationBeats: newDurationBeats,
-                        durationSamples: newDurationFrames,
-                        ...(typeof optSourceOffset === 'number' ? { sourceOffset: Math.round(optSourceOffset) } : {}),
-                    };
-                }
-                return c;
+                if (c.id !== clipId) return c;
+                // BUG-TRIM-01 FIX: Use camelCase `sourceOffset` (matches TimelineClip type).
+                // BUG-TRIM-02 FIX: Update startBeat/durationBeats/durationSamples — these are
+                // the fields the rendering pipeline actually reads (not position/duration).
+                // BUG-TRIM-04 FIX: Preserve warpSourceDurationFrames from the pre-trim clip.
+                // This field represents the total source file length and must NOT change
+                // during trim — changing it breaks the sourceTotal calculation in
+                // _composeDrawClips and causes the waveform window to drift.
+                return {
+                    ...c,
+                    startBeat: newStartBeat,
+                    durationBeats: newDurationBeats,
+                    durationSamples: newDurationFrames,
+                    ...(typeof optSourceOffset === 'number'
+                        ? { sourceOffset: Math.round(optSourceOffset) }
+                        : {}),
+                };
             });
-            return { timelineClips: nextClips };
+            // SSOT: Also patch clipsById and clips.byId with optimistic values
+            // so resolveClipById() and any other readers get consistent state.
+            const nextClipsById = { ...state.clipsById };
+            const nextClipsByIdEntity = { ...state.clips.byId };
+            const optimisticClip = nextClips.find((c) => c.id === clipId);
+            if (optimisticClip) {
+                nextClipsById[clipId] = optimisticClip;
+                nextClipsByIdEntity[clipId] = optimisticClip;
+            }
+            return {
+                timelineClips: nextClips,
+                clipsById: nextClipsById,
+                clips: { ...state.clips, byId: nextClipsByIdEntity },
+            };
         });
 
         void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)

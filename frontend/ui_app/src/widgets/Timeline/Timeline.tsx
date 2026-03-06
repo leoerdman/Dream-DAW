@@ -467,25 +467,45 @@ export const Timeline = (props: TimelineProps) => {
                     </div>
                 )}
                 {props.automationVisible && (
-                    <div
-                        className="timeline-layer-overlays"
-                        style={{
-                            position: 'absolute',
-                            inset: 0,
-                            pointerEvents: 'none',
-                            zIndex: 'var(--z-timeline-overlays)',
-                        }}
-                    >
-                        <AutomationOverlay
-                            visible
-                            trackCount={trackCount}
-                            trackHeight={normalizedTrackHeight}
-                            trackHeights={normalizedTrackHeights}
-                            scrollTop={timelineScrollTop}
-                            width={arrangementWidth}
-                            bpm={bpm}
+                    <>
+                        {/* ── ENTERPRISE: Clip Dimming Layer ──────────────────────
+                             When automation mode is active, dim the canvas-rendered
+                             clips (waveforms, MIDI notes) with a semi-transparent
+                             overlay so automation curves become the visual focus.
+                             Matches Bitwig/Ableton automation mode behavior. ────── */}
+                        <div
+                            className="timeline-layer-automation-dim"
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                top: RULER_HEIGHT,
+                                background: 'var(--color-bg-panel)',
+                                opacity: 0.45,
+                                pointerEvents: 'none',
+                                zIndex: 'var(--z-timeline-overlays)',
+                                transition: 'opacity 150ms ease-out',
+                            }}
                         />
-                    </div>
+                        <div
+                            className="timeline-layer-overlays"
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                pointerEvents: 'none',
+                                zIndex: 'var(--z-timeline-overlays)',
+                            }}
+                        >
+                            <AutomationOverlay
+                                visible
+                                trackCount={trackCount}
+                                trackHeight={normalizedTrackHeight}
+                                trackHeights={normalizedTrackHeights}
+                                scrollTop={timelineScrollTop}
+                                width={arrangementWidth}
+                                bpm={bpm}
+                            />
+                        </div>
+                    </>
                 )}
             </div>
             <TimelineMasterLane

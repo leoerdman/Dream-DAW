@@ -181,8 +181,20 @@ export function applyProjectDeltasToState(
                         warpBaseBpm: Math.max(1, toFiniteNumber(clip.warp_base_bpm, bpm)),
                         warpSourceDurationFrames: Math.max(1, toFiniteNumber(clip.warp_source_duration_frames, durFrames)),
                         sourceOffset: Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0)),
+                        // BUG-TRIM-05 FIX: Include pitchShiftSemitones from snapshot.
+                        // Previously missing — after EVERY operation (resize/split/move/merge)
+                        // that triggers ProjectSnapshotReplaced, pitch shift was silently lost,
+                        // causing _drawWaveform to use pitchMultiplier=1.0 (wrong sourceWindowSamples).
+                        pitchShiftSemitones: toFiniteNumber(clip.pitch_shift_semitones ?? 0, 0),
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),
                         fadeOut: Math.max(0, toFiniteNumber(clip.fade_out_frames ?? 0, 0)),
+                        // BUG-TRIM-06 FIX: Include fade curve shapes from snapshot.
+                        // Rust AudioClip stores fade_in_curve_slope / fade_out_curve_slope.
+                        // The frontend uses a single `fadeInCurve` / `fadeOutCurve` number
+                        // where 0.5 = linear, <0.5 = logarithmic, >0.5 = exponential.
+                        // Map slope (-1..1) to curve (0..1) for the rendering pipeline.
+                        fadeInCurve: 0.5 + toFiniteNumber(clip.fade_in_curve_slope ?? 0, 0) * 0.5,
+                        fadeOutCurve: 0.5 + toFiniteNumber(clip.fade_out_curve_slope ?? 0, 0) * 0.5,
                         isOffline: isMidiTrack ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
                         muted: Boolean(clip.is_disabled ?? false),
                     });

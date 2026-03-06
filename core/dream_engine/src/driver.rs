@@ -63,7 +63,7 @@ pub use rt_debug::{RtDebugSnapshot, SharedRtDebugStats};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 pub use snapshots::{
-    AutomationPoint, ExternalPluginRuntimeSlot, ExternalParamAutomationLane, MidiFxRuntimeConfig,
+    AutomationCurveMode, AutomationPoint, ExternalPluginRuntimeSlot, ExternalParamAutomationLane, MidiFxRuntimeConfig,
     MidiTrackRuntime, PluginInstanceArc, SharedAutomationSnapshot, SharedClipSnapshot,
     SharedDiskStreamers, SharedExternalPluginSnapshot, SharedMidiSnapshot, SharedPluginRegistry,
     SharedRoutingSnapshot, SharedSampleRackSamples, SharedSamplerSamples, SharedSidechainSnapshot,

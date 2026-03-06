@@ -276,6 +276,21 @@ export const TransportBar = ({
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [keyMenuOpen, gridOpen]);
+
+    // ── ENTERPRISE: "A" keyboard shortcut toggles automation mode ─────
+    // Matches Bitwig Studio 6 behavior: pressing [A] switches to Automation Mode.
+    // Ignored when focus is in an input field or text area to avoid conflicts.
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() !== 'a' || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+            e.preventDefault();
+            onAutomationToggle?.();
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [onAutomationToggle]);
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>

@@ -348,10 +348,31 @@ impl Default for SharedPluginRegistry {
 // Automation Snapshot
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── ENTERPRISE: Automation curve interpolation modes ─────────────────────
+// Matches the frontend CurveType enum ('linear' | 'bezier' | 'step').
+// These modes control how the audio engine interpolates between breakpoints.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AutomationCurveMode {
+    /// Linear interpolation between points (default, zero-cost).
+    #[default]
+    Linear,
+    /// Hold previous value until next point is reached (step/hold).
+    /// Useful for discrete parameter changes (e.g., on/off switches).
+    Step,
+    /// Cubic bezier S-curve with configurable tension.
+    /// Creates smooth, musical-sounding automation transitions.
+    Bezier,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AutomationPoint {
     pub sample_frame: i64,
     pub value: f32,
+    /// Interpolation mode for the segment FOLLOWING this point.
+    pub curve_mode: AutomationCurveMode,
+    /// Bezier tension (0.0–1.0): 0.0 = linear, 1.0 = sharp S-curve.
+    /// Only used when `curve_mode == Bezier`. Default: 0.5.
+    pub tension: f32,
 }
 
 #[derive(Debug, Clone, Default)]

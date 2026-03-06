@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, memo } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react';
 import {
     useAutomationStore,
     type AutomationLane as LaneData,
@@ -51,6 +51,45 @@ export const AutomationLane = memo(function AutomationLane({
     const [curveDragBp, setCurveDragBp] = useState<string | null>(null);
 
     const { flushPointsToEngine, pushPointsImmediate, pushPointsThrottled } = useAutomationLaneSync(lane);
+
+    // ── ENTERPRISE: Curve Type Keyboard Shortcuts ──────────────────────
+    // L → Linear, B → Bezier, H → Step/Hold, Delete → Remove selected
+    // Active when breakpoints are selected. Ignored in input fields.
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+            const selected = useAutomationStore.getState().selectedBreakpoints;
+            if (selected.size === 0) return;
+
+            const key = e.key.toLowerCase();
+            let newCurve: 'linear' | 'bezier' | 'step' | null = null;
+
+            if (key === 'l') newCurve = 'linear';
+            else if (key === 'b') newCurve = 'bezier';
+            else if (key === 'h') newCurve = 'step';
+            else if (key === 'delete' || key === 'backspace') {
+                e.preventDefault();
+                for (const bpId of selected) {
+                    removeBreakpoint(lane.id, bpId);
+                }
+                flushPointsToEngine();
+                return;
+            }
+
+            if (newCurve) {
+                e.preventDefault();
+                for (const bpId of selected) {
+                    setBreakpointCurve(lane.id, bpId, newCurve);
+                }
+                flushPointsToEngine();
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [lane.id, setBreakpointCurve, removeBreakpoint, flushPointsToEngine]);
 
 
     const beatToX = useCallback(

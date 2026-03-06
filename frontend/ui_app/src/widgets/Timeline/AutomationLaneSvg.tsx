@@ -59,6 +59,17 @@ export function AutomationLaneSvg({
     onItemDragStart,
     onItemResizeStart,
 }: AutomationLaneSvgProps) {
+    // ── ENTERPRISE: Default value computation ──────────────────────────
+    // When there are no breakpoints, show a dashed line at the default value
+    // for the parameter (Volume=1.0 top, Pan=0.5 center, others=0.5 center).
+    const paramNameLower = lane.paramName.toLowerCase();
+    const defaultValue = paramNameLower === 'volume' ? 1.0
+        : paramNameLower === 'pan' ? 0.5
+            : paramNameLower.includes('send') ? 0.0
+                : 0.5;
+    const defaultY = valueToPxY(defaultValue);
+    const hasBreakpoints = bps.length > 0;
+
     return (
         <svg
             ref={svgRef}
@@ -68,6 +79,53 @@ export function AutomationLaneSvg({
             onDoubleClick={onSvgDoubleClick}
             style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair', pointerEvents: 'all' }}
         >
+            {/* ── Value Range Labels ──────────────────────────────────── */}
+            <text
+                x={6} y={10}
+                fill={lane.color} fontSize={8} fontWeight={600} opacity={0.35}
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+            >
+                100%
+            </text>
+            <text
+                x={6} y={height - 4}
+                fill={lane.color} fontSize={8} fontWeight={600} opacity={0.35}
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+            >
+                0%
+            </text>
+
+            {/* ── Default Line (when no breakpoints) ─────────────────── */}
+            {!hasBreakpoints && (
+                <>
+                    <line
+                        x1={0} y1={defaultY}
+                        x2={width} y2={defaultY}
+                        stroke={lane.color}
+                        strokeWidth={1.5}
+                        strokeDasharray="6 3"
+                        opacity={0.5}
+                        style={{ pointerEvents: 'none' }}
+                    />
+                    {/* Subtle fill below default line */}
+                    <rect
+                        x={0} y={defaultY}
+                        width={width} height={height - defaultY}
+                        fill={lane.color}
+                        opacity={0.04}
+                        style={{ pointerEvents: 'none' }}
+                    />
+                    {/* Default value label */}
+                    <text
+                        x={width - 6} y={defaultY - 4}
+                        fill={lane.color} fontSize={8} fontWeight={600} opacity={0.45}
+                        textAnchor="end"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                        {defaultValue === 1.0 ? '100%' : defaultValue === 0.0 ? '0%' : `${Math.round(defaultValue * 100)}%`}
+                    </text>
+                </>
+            )}
             {automationItems.map((item) => {
                 const x = beatToX(item.startBeat);
                 const w = Math.max(8, beatToX(item.endBeat) - x);
@@ -181,32 +239,88 @@ export function AutomationLaneSvg({
                 const isSelected = selectedBreakpoints.has(bp.id);
                 const isHover = hoveredBp === bp.id;
                 const r = isHover ? bpRadiusHover : bpRadius;
+                const isStep = bp.curve === 'step';
 
                 return (
-                    <circle
-                        key={bp.id}
-                        cx={x}
-                        cy={y}
-                        r={r}
-                        fill={isSelected ? 'var(--token-color-hex-ffffff)' : lane.color}
-                        stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
-                        strokeWidth={isSelected ? 2 : 1}
-                        style={{
-                            cursor: 'grab',
-                            transition: 'r var(--transition-micro)',
-                            filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
-                            opacity: curveDragBp === bp.id ? 0.9 : 1,
-                        }}
-                        onMouseDown={(e) => onBpMouseDown(e, bp.id)}
-                        onDoubleClick={(e) => onBpDblClick(e, bp.id)}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onBpCurveToggle(bp.id);
-                        }}
-                        onMouseEnter={() => onHoverChange(bp.id)}
-                        onMouseLeave={() => onHoverChange(null)}
-                    />
+                    <g key={bp.id}>
+                        {/* ── ENTERPRISE: Step curve indicator (square) ── */}
+                        {isStep ? (
+                            <rect
+                                x={x - r}
+                                y={y - r}
+                                width={r * 2}
+                                height={r * 2}
+                                rx={1.5}
+                                fill={isSelected ? 'var(--token-color-hex-ffffff)' : lane.color}
+                                stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
+                                strokeWidth={isSelected ? 2 : 1}
+                                style={{
+                                    cursor: 'grab',
+                                    transition: 'all 100ms ease',
+                                    filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
+                                    opacity: curveDragBp === bp.id ? 0.9 : 1,
+                                }}
+                                onMouseDown={(e) => onBpMouseDown(e, bp.id)}
+                                onDoubleClick={(e) => onBpDblClick(e, bp.id)}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onBpCurveToggle(bp.id);
+                                }}
+                                onMouseEnter={() => onHoverChange(bp.id)}
+                                onMouseLeave={() => onHoverChange(null)}
+                            />
+                        ) : (
+                            <circle
+                                cx={x}
+                                cy={y}
+                                r={r}
+                                fill={isSelected ? 'var(--token-color-hex-ffffff)' : lane.color}
+                                stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
+                                strokeWidth={isSelected ? 2 : 1}
+                                style={{
+                                    cursor: 'grab',
+                                    transition: 'r var(--transition-micro)',
+                                    filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
+                                    opacity: curveDragBp === bp.id ? 0.9 : 1,
+                                }}
+                                onMouseDown={(e) => onBpMouseDown(e, bp.id)}
+                                onDoubleClick={(e) => onBpDblClick(e, bp.id)}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onBpCurveToggle(bp.id);
+                                }}
+                                onMouseEnter={() => onHoverChange(bp.id)}
+                                onMouseLeave={() => onHoverChange(null)}
+                            />
+                        )}
+                        {/* ── ENTERPRISE: Hover value tooltip ── */}
+                        {isHover && (
+                            <g style={{ pointerEvents: 'none' }}>
+                                <rect
+                                    x={x - 18} y={y - 22}
+                                    width={36} height={16}
+                                    rx={4}
+                                    fill="var(--color-bg-panel)"
+                                    opacity={0.92}
+                                    stroke={lane.color}
+                                    strokeWidth={0.5}
+                                    strokeOpacity={0.6}
+                                />
+                                <text
+                                    x={x} y={y - 10}
+                                    textAnchor="middle"
+                                    fill={lane.color}
+                                    fontSize={9}
+                                    fontWeight={700}
+                                    fontFamily="system-ui"
+                                >
+                                    {`${Math.round(bp.value * 100)}%`}
+                                </text>
+                            </g>
+                        )}
+                    </g>
                 );
             })}
         </svg>

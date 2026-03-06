@@ -12,10 +12,14 @@ import { FlowConnectionComponent } from './FlowConnectionComponent';
 
 export function ConnectionsLayer() {
     const connections = useFlowSynthStore((state) => state.connections);
-    // re-rendering all cables when a fader value changes (node.data mutation).
-    // The shallow comparison on this selector returns the same reference when only data changes.
-    const nodePositionData = useFlowSynthStore((state) =>
-        state.nodes.map(n => ({ id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0 }))
+    // Subscribe to the nodes array directly (stable reference from zustand).
+    // Derive position-only data in useMemo to avoid re-computing getPortPosition
+    // on every unrelated state change. Never use .map() inside a zustand selector
+    // without a custom equality comparator — it creates new refs every call.
+    const nodes = useFlowSynthStore((state) => state.nodes);
+    const nodePositionData = useMemo(
+        () => nodes.map(n => ({ id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),
+        [nodes]
     );
     const connectionPulseById = useFlowSynthStore((state) => state.connectionPulseById);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);

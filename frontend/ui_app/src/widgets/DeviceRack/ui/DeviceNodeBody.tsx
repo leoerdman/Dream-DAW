@@ -14,7 +14,7 @@ const PluginGuiSurfaceLazy = lazy(async () => ({
 
 interface DeviceNodeBodyProps {
     device: DeviceSlot;
-
+    showSettings: boolean;
     supportsSettingsToggle: boolean;
     sidechainSourceTrackId?: string;
     sidechainSendMode?: SidechainSendMode;
@@ -42,7 +42,7 @@ interface DeviceNodeBodyProps {
 
 export const DeviceNodeBody = React.memo(({
     device,
-
+    showSettings,
     supportsSettingsToggle,
     sidechainSourceTrackId,
     sidechainSendMode,
@@ -288,7 +288,7 @@ export const DeviceNodeBody = React.memo(({
                     minWidth: 0,
                     minHeight: 0,
                     display: 'grid',
-                    gridTemplateRows: supportsSettingsToggle
+                    gridTemplateRows: showSettings && supportsSettingsToggle
                         ? (showFlowSidechain ? 'auto 1fr auto' : '1fr auto')
                         : (showFlowSidechain ? 'auto 1fr' : '1fr'),
                     gap: 'var(--space-1)',
@@ -346,7 +346,7 @@ export const DeviceNodeBody = React.memo(({
                         />
                     </Suspense>
                 </div>
-                {supportsSettingsToggle && (
+                {showSettings && supportsSettingsToggle && (
                     <div
                         style={{
                             maxHeight: 230,
@@ -364,7 +364,7 @@ export const DeviceNodeBody = React.memo(({
         );
     }
 
-    if (supportsSettingsToggle) {
+    if (showSettings && supportsSettingsToggle) {
         return <div style={{ padding: 'var(--space-1-5)', flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>{settingsPanel}</div>;
     }
 

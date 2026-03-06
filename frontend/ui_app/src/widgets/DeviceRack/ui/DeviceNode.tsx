@@ -7,7 +7,7 @@ import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { DeviceNodeBody } from '@/widgets/DeviceRack/ui/DeviceNodeBody';
 import { DeviceNodeHeader } from '@/widgets/DeviceRack/ui/DeviceNodeHeader';
-
+import { resolveDeviceCardWidth } from '@/widgets/DeviceRack/model/deviceCardSizing';
 
 interface DeviceNodeProps {
     device: DeviceSlot;
@@ -15,8 +15,9 @@ interface DeviceNodeProps {
     canReorder: boolean;
     onToggle: () => void;
     isSelected: boolean;
+    showSettings: boolean;
     onSelect: (e: React.MouseEvent) => void;
-
+    onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
@@ -30,28 +31,32 @@ interface DeviceNodeProps {
     onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
-
-
+    onOpenGUI?: () => void;
+    isNativeEditorOpen?: boolean;
     editorSupported?: boolean;
     editorReason?: string;
     runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     sidechainSourceTrackId?: string;
     sidechainSendMode?: SidechainSendMode;
+    sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
     onSidechainSendModeChange?: (mode: SidechainSendMode) => void;
+    onEnsureActive?: () => void;
     onContextMenu?: (e: React.MouseEvent) => void;
-    sidechainOptions?: { id: string; name: string }[];
-
 }
 
 export const DeviceNode = React.memo(({
     device,
     deviceIndex,
     canReorder,
-    isSelected,
-    onSelect,
     onToggle,
+    onOpenGUI,
+    isSelected,
+    isNativeEditorOpen,
+    showSettings,
+    onSelect,
+    onOpenSettings,
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
@@ -74,6 +79,7 @@ export const DeviceNode = React.memo(({
     sidechainOptions,
     onSidechainSourceChange,
     onSidechainSendModeChange,
+    onEnsureActive,
     onContextMenu,
 }: DeviceNodeProps) => {
     const lastPointerTargetRef = useRef<HTMLElement | null>(null);
@@ -83,7 +89,16 @@ export const DeviceNode = React.memo(({
         || device.effectType === 'sample_rack'
         || device.effectType === 'waveSynth';
     const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
+    const baseWidth = resolveDeviceCardWidth(device.source, device.effectType, manifest.cardWidth);
+    const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
+    const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = manifest.supportsSettings;
+    // Always show the "eye" button for external plugin formats (VST2/VST3/AU).
+    // If native editor support is unavailable at runtime, the click handler
+    // falls back to inline controls.
+    const showUiButton = manifest.hasEditor;
+    const nativeEditorOpen = isNativeEditorOpen ?? false;
+    const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
     let rackAccent: string | undefined = undefined;
     if (device.rack) {
         const rackColors: Record<string, string> = {
@@ -151,8 +166,8 @@ export const DeviceNode = React.memo(({
                 });
             }}
             style={{
-                minWidth: 'max-content',
-                width: 'max-content',
+                minWidth: rackWidth,
+                width: rackWidth,
                 display: 'flex',
                 flexDirection: 'row',
                 background: rackAccent ? `color-mix(in srgb, var(--surface-card) 92%, ${rackAccent} 8%)` : 'var(--surface-card, var(--color-bg-hover))',
@@ -188,11 +203,23 @@ export const DeviceNode = React.memo(({
                 device={device}
                 deviceIndex={deviceIndex}
                 canReorder={canReorder}
+                showSettings={showSettings}
+                supportsSettingsToggle={supportsSettingsToggle}
+                showUiButton={showUiButton}
+                nativeEditorOpen={nativeEditorOpen}
+                showRecoverAction={showRecoverAction}
+                pluginFormat={manifest.format}
+                editorSupported={editorSupported}
+                editorReason={editorReason}
                 onToggle={onToggle}
+                onOpenGUI={onOpenGUI}
+                onEnsureActive={onEnsureActive}
+                onOpenSettings={onOpenSettings}
                 onSelect={onSelect}
             />
             <DeviceNodeBody
                 device={device}
+                showSettings={showSettings}
                 supportsSettingsToggle={supportsSettingsToggle}
                 sidechainSourceTrackId={sidechainSourceTrackId}
                 sidechainSendMode={sidechainSendMode}

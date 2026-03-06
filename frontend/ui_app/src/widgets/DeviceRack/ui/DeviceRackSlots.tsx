@@ -91,6 +91,11 @@ export function DeviceSlot({
                     logic.rackRef.current?.focus();
                     logic.statusClear();
                 }}
+                onOpenSettings={() => {
+                    logic.selectDevice(device.id, false);
+                    logic.setInlineSettingsOpen((prev) => ({ ...prev, [device.id]: !prev[device.id] }));
+                    logic.statusClear();
+                }}
                 onParamChange={(name, value) => {
                     const canonicalName = device.params.find((p) => p.name.toLowerCase() === name.toLowerCase())?.name ?? name;
                     logic.setPluginParam(device.id, canonicalName, value);
@@ -116,6 +121,7 @@ export function DeviceSlot({
                 snapshotState={logic.paramSnapshotsByDevice[device.id]}
                 onApplyUtilityScene={(scene) => logic.applyQuickUtilityScene(device, scene)}
                 onParamContextMenu={(e, paramName) => logic.handleParamContextMenu(e, paramName, device.id)}
+                showSettings={!!logic.inlineSettingsOpen[device.id]}
                 sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
                 sidechainSendMode={device.sidechainSendMode ?? 'pre_fx'}
                 sidechainOptions={logic.sidechainOptions}
@@ -124,6 +130,9 @@ export function DeviceSlot({
                 }}
                 onSidechainSendModeChange={(mode) => {
                     void logic.setSidechainSendMode(device.id, device.sidechainSourceTrackId ?? '', mode);
+                }}
+                onEnsureActive={async () => {
+                    await logic.ensureSlotRuntimeActive(device.id);
                 }}
                 onDropSample={async (samplePath) => {
                     if (!selectedTrack) return;
@@ -159,6 +168,26 @@ export function DeviceSlot({
                     } catch (err) {
                         console.error('[Dream] setSamplerSample failed:', err);
                         logic.statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                    }
+                }}
+                isNativeEditorOpen={!!(selectedTrack && logic.openEditorsByTrack[selectedTrack.id]?.has(device.id))}
+                onOpenGUI={async () => {
+                    logic.selectDevice(device.id, false);
+                    if (!selectedTrack) return;
+                    try {
+                        if (device.pluginId === 'internal://instrument/flow') {
+                            const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                            useFlowSynthStore.getState().openFlowEditor(device.id, selectedTrack.id);
+                        } else if (device.source !== 'internal') {
+                            await logic.ensureSlotRuntimeActive(device.id);
+                            await logic.togglePluginEditor(selectedTrack.id, device.id);
+                        } else {
+                            logic.setInlineSettingsOpen((prev) => ({ ...prev, [device.id]: !prev[device.id] }));
+                        }
+                        logic.statusClear();
+                    } catch (err) {
+                        console.error('[Dream] togglePluginEditor failed:', err);
+                        logic.statusError(`Failed to open native plugin UI: ${errorMessage(err)}`);
                     }
                 }}
             />

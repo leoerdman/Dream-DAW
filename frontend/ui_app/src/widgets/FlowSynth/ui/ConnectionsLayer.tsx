@@ -146,6 +146,18 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
         return { x, y: py + cy };
     };
 
+    // Deterministic port offset from PORT_REGISTRY — no proxy timing dependency.
+    const getPortOffsetY = (nodeId: string, portId: string, side: 'in' | 'out') => {
+        const node = nodeMap.get(nodeId);
+        if (!node) return FLOW_NODE_HEADER_HEIGHT;
+        const config = PORT_REGISTRY[node.type as SynthNodeType];
+        if (!config) return FLOW_NODE_HEADER_HEIGHT;
+        const portList = side === 'in' ? config.inputs : config.outputs;
+        const portIndex = portList.findIndex((p) => p.id === portId);
+        const idx = portIndex >= 0 ? portIndex : 0;
+        return FLOW_NODE_HEADER_HEIGHT + portCenterY(idx);
+    };
+
     return (
         <svg
             ref={layerRef}
@@ -165,6 +177,8 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
             {connections.map((conn) => {
                 const initialStart = getPortPosition(conn.fromNode, conn.fromPort, 'out');
                 const initialEnd = getPortPosition(conn.toNode, conn.toPort, 'in');
+                const fromPortOffsetY = getPortOffsetY(conn.fromNode, conn.fromPort, 'out');
+                const toPortOffsetY = getPortOffsetY(conn.toNode, conn.toPort, 'in');
                 const isSelected = selectedConnectionId === conn.id;
                 const pulseTs = connectionPulseById[conn.id] ?? 0;
                 return (
@@ -173,6 +187,8 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
                         conn={conn}
                         initialStart={initialStart}
                         initialEnd={initialEnd}
+                        fromPortOffsetY={fromPortOffsetY}
+                        toPortOffsetY={toPortOffsetY}
                         isSelected={isSelected}
                         pulseTs={pulseTs}
                         selectConnection={selectConnection}

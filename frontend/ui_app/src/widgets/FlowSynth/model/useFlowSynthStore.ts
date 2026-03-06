@@ -412,29 +412,40 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     presetIndex: 0,
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
-        // Save previous track state before switching context
-        if (state.activeTrackId && state.activeTrackId !== trackId) {
+        // ── 0) Save previous track state before switching context ──
+        // IMPORTANT: Do NOT mutate state.* fields directly — zustand is vanilla (no Immer).
+        // All cache updates must be included in the returned partial state object.
+        let prevViewportUpdate: Record<string, { x: number; y: number; zoom: number }> | null = null;
+        let prevGraphUpdate: Record<string, { nodes: SynthNode[]; connections: SynthConnection[] }> | null = null;
+
+        if (state.activeTrackId && state.activeTrackId !== trackId && state.activeDeviceId) {
             _forceSaveConfig(state);
-            if (state.activeDeviceId) {
-                const currentVp = viewportProxy.getViewport();
-                state.viewportByDeviceId[state.activeDeviceId] = { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom };
-                state.graphsByDeviceId[state.activeDeviceId] = { nodes: state.nodes, connections: state.connections };
-            }
+            const currentVp = viewportProxy.getViewport();
+            prevViewportUpdate = {
+                ...state.viewportByDeviceId,
+                [state.activeDeviceId]: { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom },
+            };
+            prevGraphUpdate = {
+                ...state.graphsByDeviceId,
+                [state.activeDeviceId]: { nodes: state.nodes, connections: state.connections },
+            };
         }
 
         // ── 1) Check if SAME context (editor already open for this device) ──
         const isSameContext = state.activeDeviceId === deviceId && state.activeTrackId === trackId && state.nodes.length > 0;
         if (isSameContext) {
-            // Already open, do nothing — keep current state:
             return { isOpen: true };
         }
 
+        // Use updated caches if we saved previous state, otherwise use existing
+        const vpCache = prevViewportUpdate ?? state.viewportByDeviceId ?? {};
+        const graphCache = prevGraphUpdate ?? state.graphsByDeviceId ?? {};
+
         // ── 2) Check per-device cache (survives close/reopen) ──
-        const cachedGraph = state.graphsByDeviceId[deviceId];
+        const cachedGraph = graphCache[deviceId];
         if (cachedGraph && cachedGraph.nodes.length > 0) {
-            const savedViewport = state.viewportByDeviceId[deviceId];
+            const savedViewport = vpCache[deviceId];
             viewportProxy.setViewport(savedViewport ?? DEFAULT_FLOW_GRAPH.viewport);
-            // Skip engine sync — engine already has this graph from last time
             return {
                 isOpen: true,
                 activeDeviceId: deviceId,
@@ -444,6 +455,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 selectedNodeIds: [],
                 selectedConnectionId: null,
                 pendingConnection: null,
+                viewportByDeviceId: vpCache,
+                graphsByDeviceId: graphCache,
             };
         }
 
@@ -495,7 +508,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             graph = cloneDefaultGraph();
         }
 
-        const savedViewport = state.viewportByDeviceId[deviceId];
+        const savedViewport = vpCache[deviceId];
         viewportProxy.setViewport(savedViewport ?? graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
 
         // First open — sync graph to engine
@@ -510,6 +523,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedNodeIds: [],
             selectedConnectionId: null,
             pendingConnection: null,
+            viewportByDeviceId: vpCache,
+            graphsByDeviceId: graphCache,
         };
     }),
 

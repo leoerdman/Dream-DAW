@@ -15,6 +15,8 @@ interface Props {
     conn: SynthConnection;
     initialStart: { x: number; y: number };
     initialEnd: { x: number; y: number };
+    fromPortOffsetY: number;
+    toPortOffsetY: number;
     isSelected: boolean;
     pulseTs: number;
     selectConnection: (id: string) => void;
@@ -26,6 +28,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     conn,
     initialStart,
     initialEnd,
+    fromPortOffsetY,
+    toPortOffsetY,
     isSelected,
     pulseTs,
     selectConnection,
@@ -64,37 +68,26 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     }, []);
 
 
-    // ENTERPRISE FIX (#3+#4): Store the port-relative Y offset as a ref.
-    // The port Y position = nodePosition.y + portRelativeY.
-    // We compute portRelativeY once from initial props and use absolute math thereafter.
-    const startPortOffsetY = useRef(0);
-    const endPortOffsetY = useRef(0);
-
-    // Compute port offsets from the initial positions.
-    // initialStart.y = initialNodePosition.y + portRelativeY.
-    // We can derive nodePosition from the proxy or from initial positions.
-    useEffect(() => {
-        const fromNodePos = nodeMotionProxy.getPosition(conn.fromNode);
-        const toNodePos = nodeMotionProxy.getPosition(conn.toNode);
-        // portRelativeY = initialStart.y - node.y
-        startPortOffsetY.current = fromNodePos ? initialStart.y - fromNodePos.y : 0;
-        endPortOffsetY.current = toNodePos ? initialEnd.y - toNodePos.y : 0;
-    }, [conn.fromNode, conn.toNode, initialStart.y, initialEnd.y]);
+    // ENTERPRISE: Port offsets are computed deterministically from PORT_REGISTRY
+    // by ConnectionsLayer and passed as stable props. No proxy timing dependency.
+    const fromOffsetRef = useRef(fromPortOffsetY);
+    const toOffsetRef = useRef(toPortOffsetY);
+    fromOffsetRef.current = fromPortOffsetY;
+    toOffsetRef.current = toPortOffsetY;
 
     useEffect(() => {
         let isDisposed = false;
 
         const unsubStart = nodeMotionProxy.subscribe(conn.fromNode, (pos) => {
             if (isDisposed) return;
-            // ENTERPRISE FIX: Absolute positioning — no prev-dependent accumulation.
             // Output port X = node.x + FLOW_NODE_WIDTH (right edge)
-            setStart({ x: pos.x + FLOW_NODE_WIDTH, y: pos.y + startPortOffsetY.current });
+            setStart({ x: pos.x + FLOW_NODE_WIDTH, y: pos.y + fromOffsetRef.current });
         });
 
         const unsubEnd = nodeMotionProxy.subscribe(conn.toNode, (pos) => {
             if (isDisposed) return;
             // Input port X = node.x (left edge)
-            setEnd({ x: pos.x, y: pos.y + endPortOffsetY.current });
+            setEnd({ x: pos.x, y: pos.y + toOffsetRef.current });
         });
 
         return () => {
@@ -262,6 +255,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
         && prev.initialStart.y === next.initialStart.y
         && prev.initialEnd.x === next.initialEnd.x
         && prev.initialEnd.y === next.initialEnd.y
+        && prev.fromPortOffsetY === next.fromPortOffsetY
+        && prev.toPortOffsetY === next.toPortOffsetY
         && prev.isSelected === next.isSelected
         && prev.pulseTs === next.pulseTs;
 });

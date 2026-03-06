@@ -168,6 +168,18 @@ export function FlowCanvas() {
         setMenuState(null);
     };
 
+    const filteredCatalog = useMemo(() => {
+        const q = menuSearch.trim().toLowerCase();
+        const source = NODE_CATALOG.filter((item) => (item.type !== 'output' || !hasOutputNode));
+        if (!q) return source;
+        return source.filter((item) =>
+            item.label.toLowerCase().includes(q)
+            || item.type.toLowerCase().includes(q)
+            || item.category.toLowerCase().includes(q)
+            || item.keywords.some((k) => k.includes(q)),
+        );
+    }, [menuSearch, hasOutputNode]);
+
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             // ENTERPRISE: Do NOT capture Space key — it must propagate to DAW transport play/stop.
@@ -242,22 +254,9 @@ export function FlowCanvas() {
         return () => {
             document.removeEventListener('keydown', onKeyDown, true);
             document.removeEventListener('keyup', onKeyUp, true);
+            window.removeEventListener('blur', onBlur);
         };
-    }, [menuState, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex]);
-
-
-
-    const filteredCatalog = useMemo(() => {
-        const q = menuSearch.trim().toLowerCase();
-        const source = NODE_CATALOG.filter((item) => (item.type !== 'output' || !hasOutputNode));
-        if (!q) return source;
-        return source.filter((item) =>
-            item.label.toLowerCase().includes(q)
-            || item.type.toLowerCase().includes(q)
-            || item.category.toLowerCase().includes(q)
-            || item.keywords.some((k) => k.includes(q)),
-        );
-    }, [menuSearch, hasOutputNode]);
+    }, [menuState, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex, filteredCatalog]);
 
     useEffect(() => {
         setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));

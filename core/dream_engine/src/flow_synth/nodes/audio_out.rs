@@ -45,12 +45,20 @@ impl FlowNode for AudioOutNode {
             outputs[1] = FlowSignal::Audio(0.0);
         } else {
             let g = self.gain;
+            // ENTERPRISE BUG-04 FIX: Sanitize raw float values before gain multiplication.
+            // The as_float() sanitizer is a read-side guard — nodes that write directly
+            // into FlowSignal::Audio(v) bypass it. This closure is the last line of defense.
+            let sanitize = |v: f32| -> f32 {
+                if !v.is_finite() { return 0.0; }
+                if v.abs() < 1e-15 { return 0.0; }
+                v
+            };
             let apply_gain = |s: FlowSignal| -> FlowSignal {
                 match s {
-                    FlowSignal::Audio(v) => FlowSignal::Audio(v * g),
-                    FlowSignal::Control(v) => FlowSignal::Audio(v * g),
+                    FlowSignal::Audio(v) => FlowSignal::Audio(sanitize(v) * g),
+                    FlowSignal::Control(v) => FlowSignal::Audio(sanitize(v) * g),
                     FlowSignal::Gate(on) => FlowSignal::Audio(if on { g } else { 0.0 }),
-                    FlowSignal::Phase(p) => FlowSignal::Audio(p * g),
+                    FlowSignal::Phase(p) => FlowSignal::Audio(sanitize(p) * g),
                     other => other,
                 }
             };

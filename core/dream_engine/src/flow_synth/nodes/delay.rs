@@ -83,8 +83,8 @@ impl FlowNode for DelayNode {
         let fb_signal = wet * effective_fb;
         let mut write_val = dry + fb_signal;
 
-        // Denormal flush — prevents CPU spikes on silent passages
-        if write_val.abs() < 1e-18 { write_val = 0.0; }
+        // ENTERPRISE BUG-09 FIX: Denormal flush — standardized to 1e-15
+        if write_val.abs() < 1e-15 { write_val = 0.0; }
         // NaN/Inf guard — prevents corruption from bad upstream signals
         if !write_val.is_finite() { write_val = 0.0; }
         // Soft clip feedback to prevent runaway even with near-unity feedback

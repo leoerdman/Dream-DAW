@@ -85,9 +85,18 @@ impl FlowNode for UtilityNode {
         }
 
         // DC blocker (removes DC offset from accumulated processing)
-        let dc_out = sample - self.dc_x_prev + self.dc_coeff * self.dc_y_prev;
-        self.dc_x_prev = sample;
-        self.dc_y_prev = dc_out;
+        let mut dc_out = sample - self.dc_x_prev + self.dc_coeff * self.dc_y_prev;
+        // ENTERPRISE BUG-06 FIX: Guard DC blocker state against NaN corruption
+        if !dc_out.is_finite() {
+            dc_out = 0.0;
+            self.dc_x_prev = 0.0;
+            self.dc_y_prev = 0.0;
+        } else {
+            // Denormal flush — standardized to 1e-15
+            if dc_out.abs() < 1e-15 { dc_out = 0.0; }
+            self.dc_x_prev = sample;
+            self.dc_y_prev = dc_out;
+        }
         sample = dc_out;
 
         // Pan (constant-power): for mono output, apply pan as attenuation

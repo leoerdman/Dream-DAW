@@ -40,12 +40,13 @@ impl FlowNode for PitchNode {
         // Input 1: External octave offset modulation
         let ext_octave = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.0);
 
-        let total_octave = self.octave_offset + ext_octave;
+        // ENTERPRISE BUG-11 FIX: Clamp octave range to prevent Infinity from 2^extreme
+        let total_octave = (self.octave_offset + ext_octave).clamp(-10.0, 10.0);
 
         // Transpose: freq * 2^octave
         let transposed = freq * (2.0_f32).powf(total_octave);
 
-        outputs[0] = FlowSignal::Control(transposed.max(0.0));
+        outputs[0] = FlowSignal::Control(transposed.clamp(0.0, 100_000.0));
     }
 
     fn reset(&mut self) {}

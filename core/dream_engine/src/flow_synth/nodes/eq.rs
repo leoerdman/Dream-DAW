@@ -80,8 +80,14 @@ impl BiquadBand {
     }
 
     fn process_sample(&mut self, x: f32) -> f32 {
-        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
+        let mut y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
                 - self.a1 * self.y1 - self.a2 * self.y2;
+
+        // ENTERPRISE BUG-02: Guard against NaN/Infinity corrupting biquad state permanently
+        if !y.is_finite() { y = 0.0; }
+        // Denormal flush — standardized to 1e-15 across all DSP nodes
+        if y.abs() < 1e-15 { y = 0.0; }
+
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -135,13 +141,9 @@ impl Default for EqNode {
 
 impl FlowNode for EqNode {
     fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], sample_rate: f64) {
-        let input = inputs.first().cloned().unwrap_or(FlowSignal::Audio(0.0));
-
-        let x = match input {
-            FlowSignal::Audio(v) => v,
-            FlowSignal::Control(v) => v,
-            _ => 0.0,
-        };
+        // ENTERPRISE BUG-01 FIX: Route through as_float() to benefit from
+        // global NaN/Infinity/Denormal sanitization in FlowSignal.
+        let x = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
 
         // Update coefficients if dirty (lazy recompute on param change)
         for band in &mut self.bands {

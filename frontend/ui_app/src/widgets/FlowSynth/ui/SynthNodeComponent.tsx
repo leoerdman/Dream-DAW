@@ -119,7 +119,7 @@ function PortDot({
     // Optimized subscription: only re-render when drag state or type changes, not on every X/Y move
     const isDragging = useFlowSynthStore((s) => s.pendingConnection !== null);
     const dragType = useFlowSynthStore((s) => s.pendingConnection?.signalType);
-    const updatePendingConnection = useFlowSynthStore((s) => s.updatePendingConnection);
+
 
     const cy = portCenterY(index);
     // ENTERPRISE: Pass actual port type as signalType — enables per-type cable colors (Bitwig Grid pattern)
@@ -149,15 +149,6 @@ function PortDot({
             startX,
             startY,
         });
-
-        const canvas = (e.currentTarget as HTMLElement).closest('.flow-canvas');
-        if (canvas) {
-            const vp = viewportProxy.getViewport();
-            const rect = (canvas as HTMLElement).getBoundingClientRect();
-            const worldX = (e.clientX - rect.left - vp.x) / vp.zoom;
-            const worldY = (e.clientY - rect.top - vp.y) / vp.zoom;
-            updatePendingConnection(worldX, worldY);
-        }
     };
 
     const handlePointerUp = (e: React.PointerEvent) => {

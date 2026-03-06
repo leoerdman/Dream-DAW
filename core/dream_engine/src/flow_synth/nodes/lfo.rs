@@ -99,8 +99,8 @@ impl FlowNode for LfoNode {
         let effective_rate = (self.rate + rate_mod).clamp(0.001, 100.0);
         self.phase += effective_rate / sample_rate;
 
-        // ENTERPRISE: Denormal flush — prevents CPU spikes after long silence
-        if self.phase.abs() < 1e-18 { self.phase = 0.0; }
+        // ENTERPRISE BUG-08 FIX: Denormal flush — standardized to 1e-15
+        if self.phase.abs() < 1e-15 { self.phase = 0.0; }
         // Detect cycle wrap for random S&H
         if self.phase >= 1.0 {
             self.phase -= self.phase.floor();

@@ -87,7 +87,12 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
         setIsDragging(false);
     }, []);
 
-    // Mouse wheel support
+    // ENTERPRISE BUG-13 FIX: Store safeValue in a ref to prevent
+    // re-subscribing the wheel event listener on every value change.
+    // This prevents stale closure issues and avoids continuous teardown/recreation.
+    const safeValueRef = useRef(safeValue);
+    safeValueRef.current = safeValue;
+
     React.useEffect(() => {
         const node = trackRef.current;
         if (!node) return;
@@ -95,11 +100,11 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
             e.preventDefault();
             e.stopPropagation();
             const delta = -e.deltaY * (max - min) * 0.002;
-            onChange(quantize(safeValue + delta));
+            onChange(quantize(safeValueRef.current + delta));
         };
         node.addEventListener('wheel', handleWheel, { passive: false });
         return () => node.removeEventListener('wheel', handleWheel);
-    }, [safeValue, min, max, onChange, quantize]);
+    }, [min, max, onChange, quantize]);
 
     // ── Double-click-to-edit on value display ──────────────────────────
     const handleValueDoubleClick = useCallback((e: React.MouseEvent) => {

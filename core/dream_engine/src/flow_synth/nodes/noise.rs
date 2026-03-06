@@ -77,8 +77,8 @@ impl NoiseNode {
         self.pink_running_sum += new_val;
         self.pink_index = self.pink_index.wrapping_add(1);
 
-        // ENTERPRISE: Denormal flush for running sum
-        if self.pink_running_sum.abs() < 1e-18 { self.pink_running_sum = 0.0; }
+        // ENTERPRISE BUG-07 FIX: Denormal flush — standardized to 1e-15
+        if self.pink_running_sum.abs() < 1e-15 { self.pink_running_sum = 0.0; }
 
         // Normalize (16 rows contribute, each in -1..1, so max sum ~ 16)
         self.pink_running_sum / 16.0

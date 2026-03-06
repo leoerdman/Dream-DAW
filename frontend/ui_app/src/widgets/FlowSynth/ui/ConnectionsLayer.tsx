@@ -12,7 +12,11 @@ import { FlowConnectionComponent } from './FlowConnectionComponent';
 
 export function ConnectionsLayer() {
     const connections = useFlowSynthStore((state) => state.connections);
-    const nodes = useFlowSynthStore((state) => state.nodes);
+    // re-rendering all cables when a fader value changes (node.data mutation).
+    // The shallow comparison on this selector returns the same reference when only data changes.
+    const nodePositionData = useFlowSynthStore((state) =>
+        state.nodes.map(n => ({ id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0 }))
+    );
     const connectionPulseById = useFlowSynthStore((state) => state.connectionPulseById);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
     const selectConnection = useFlowSynthStore((state) => state.selectConnection);
@@ -27,8 +31,8 @@ export function ConnectionsLayer() {
         });
     }, []);
 
-    // O(1) node lookup
-    const nodeMap = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
+    // O(1) node lookup — rebuilds only when positions/IDs change, not on data changes
+    const nodeMap = useMemo(() => new Map(nodePositionData.map(n => [n.id, n])), [nodePositionData]);
 
     // Calculate port position with multi-port support
     const getPortPosition = (nodeId: string, portId: string, side: 'in' | 'out') => {
@@ -36,8 +40,8 @@ export function ConnectionsLayer() {
         if (!node) return { x: 0, y: 0 };
 
         const config = PORT_REGISTRY[node.type as SynthNodeType];
-        const px = node.position?.x ?? 0;
-        const py = node.position?.y ?? 0;
+        const px = node.x;
+        const py = node.y;
         if (!config) return { x: px, y: py + FLOW_NODE_HEADER_HEIGHT };
 
         const portList = side === 'in' ? config.inputs : config.outputs;

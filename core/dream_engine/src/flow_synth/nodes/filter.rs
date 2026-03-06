@@ -108,9 +108,9 @@ impl FlowNode for FilterNode {
         let a2 = self.a2;
         let a3 = self.a3;
 
-        // Denormal flush
-        if self.state.ic1eq.abs() < 1e-18 { self.state.ic1eq = 0.0; }
-        if self.state.ic2eq.abs() < 1e-18 { self.state.ic2eq = 0.0; }
+        // ENTERPRISE BUG-05 FIX: Denormal flush — standardized to 1e-15 across all nodes
+        if self.state.ic1eq.abs() < 1e-15 { self.state.ic1eq = 0.0; }
+        if self.state.ic2eq.abs() < 1e-15 { self.state.ic2eq = 0.0; }
 
         let ic1eq = self.state.ic1eq;
         let ic2eq = self.state.ic2eq;

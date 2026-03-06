@@ -94,6 +94,9 @@ impl FlowNode for AutoFilterNode {
         } else {
             self.envelope_state += (abs_input - self.envelope_state) * (1.0 - (-1.0 / (sr_f32 * release)).exp());
         }
+        // ENTERPRISE BUG-03 FIX: Prevent permanent NaN corruption of envelope state
+        if !self.envelope_state.is_finite() { self.envelope_state = 0.0; }
+        if self.envelope_state.abs() < 1e-15 { self.envelope_state = 0.0; }
 
         // LFO (Sine) — ENTERPRISE: normalized 0..1 phase prevents f32 precision
         // drift after long sessions. Previous raw radian approach lost accuracy.

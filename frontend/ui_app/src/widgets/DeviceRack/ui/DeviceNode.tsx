@@ -30,8 +30,8 @@ interface DeviceNodeProps {
     onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
-    onOpenGUI?: () => void;
-    isNativeEditorOpen?: boolean;
+
+
     editorSupported?: boolean;
     editorReason?: string;
     runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
@@ -42,7 +42,7 @@ interface DeviceNodeProps {
     onSidechainSendModeChange?: (mode: SidechainSendMode) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     sidechainOptions?: { id: string; name: string }[];
-    onEnsureActive?: () => void;
+
 }
 
 export const DeviceNode = React.memo(({

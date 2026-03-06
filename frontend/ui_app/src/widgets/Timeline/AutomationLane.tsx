@@ -128,7 +128,18 @@ export const AutomationLane = memo(function AutomationLane({
                 tension: bp.tension,
             }));
 
-            let d = `M ${points[0].x} ${points[0].y}`;
+            // ── ENTERPRISE: Extend line to viewport edges ─────────────
+            // Professional DAWs show the held value before the first point
+            // and after the last point, filling the entire viewport width.
+            const firstY = points[0].y;
+            const lastY = points[points.length - 1].y;
+
+            // Start from left viewport edge at first point's value
+            let d = `M 0 ${firstY}`;
+            // Connect to first actual breakpoint (if it's not at x=0)
+            if (points[0].x > 0) {
+                d += ` L ${points[0].x} ${firstY}`;
+            }
 
             for (let i = 1; i < points.length; i++) {
                 const prev = points[i - 1];
@@ -147,13 +158,16 @@ export const AutomationLane = memo(function AutomationLane({
                 }
             }
 
+            // Extend to right viewport edge at last point's value
+            d += ` L ${width} ${lastY}`;
+
             if (forFill) {
-                d += ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+                d += ` L ${width} ${height} L 0 ${height} Z`;
             }
 
             return d;
         },
-        [beatToX, valueToPxY, height],
+        [beatToX, valueToPxY, height, width],
     );
 
 

@@ -7,6 +7,21 @@ interface CanvasGridProps {
 
 const SNAP_GRID = 20;
 
+// P3 FIX: Named constants for grid extent and opacity.
+/** The SVG pattern rect spans this half-width from origin in each direction. */
+const GRID_EXTENT_HALF = 50000;
+/** Base dot opacity before zoom fade. */
+const GRID_BASE_OPACITY = 0.22;
+/** Zoom level below which dots start fading. */
+const GRID_FADE_START = 0.5;
+/** Zoom level at which dots are fully invisible. */
+const GRID_FADE_END = 0.15;
+
+// P3 FIX: Named constants for origin crosshair.
+const ORIGIN_ARM_LENGTH = 15;
+const ORIGIN_ARM_THICKNESS = 2;
+const ORIGIN_DOT_SIZE = 6;
+
 /**
  * CanvasGrid — ENTERPRISE: SVG pattern-based grid with viewport transform.
  *
@@ -35,13 +50,10 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                     `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
 
                 // Fade out at very low zoom to reduce visual noise
-                const baseOpacity = 0.22;
-                const fadeStart = 0.5;
-                const fadeEnd = 0.15;
-                let opacity = baseOpacity;
-                if (vp.zoom < fadeStart) {
-                    const t = Math.min(1, (fadeStart - vp.zoom) / (fadeStart - fadeEnd));
-                    opacity = baseOpacity * (1 - t);
+                let opacity = GRID_BASE_OPACITY;
+                if (vp.zoom < GRID_FADE_START) {
+                    const t = Math.min(1, (GRID_FADE_START - vp.zoom) / (GRID_FADE_START - GRID_FADE_END));
+                    opacity = GRID_BASE_OPACITY * (1 - t);
                 }
                 svgRef.current.style.opacity = String(opacity);
             }
@@ -69,7 +81,7 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                     pointerEvents: 'none',
                     willChange: 'transform',
                     zIndex: 0,
-                    opacity: 0.22,
+                    opacity: GRID_BASE_OPACITY,
                 }}
             >
                 <defs>
@@ -88,10 +100,10 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                     </pattern>
                 </defs>
                 <rect
-                    x={-50000}
-                    y={-50000}
-                    width={100000}
-                    height={100000}
+                    x={-GRID_EXTENT_HALF}
+                    y={-GRID_EXTENT_HALF}
+                    width={GRID_EXTENT_HALF * 2}
+                    height={GRID_EXTENT_HALF * 2}
                     fill="url(#flow-grid-pattern)"
                 />
             </svg>
@@ -113,28 +125,28 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                 >
                     <div style={{
                         position: 'absolute',
-                        left: -15,
-                        top: -1,
-                        width: 30,
-                        height: 2,
+                        left: -ORIGIN_ARM_LENGTH,
+                        top: -(ORIGIN_ARM_THICKNESS / 2),
+                        width: ORIGIN_ARM_LENGTH * 2,
+                        height: ORIGIN_ARM_THICKNESS,
                         background: 'var(--color-accent-tertiary)',
-                        borderRadius: 1,
+                        borderRadius: ORIGIN_ARM_THICKNESS / 2,
                     }} />
                     <div style={{
                         position: 'absolute',
-                        left: -1,
-                        top: -15,
-                        width: 2,
-                        height: 30,
+                        left: -(ORIGIN_ARM_THICKNESS / 2),
+                        top: -ORIGIN_ARM_LENGTH,
+                        width: ORIGIN_ARM_THICKNESS,
+                        height: ORIGIN_ARM_LENGTH * 2,
                         background: 'var(--color-accent-tertiary)',
-                        borderRadius: 1,
+                        borderRadius: ORIGIN_ARM_THICKNESS / 2,
                     }} />
                     <div style={{
                         position: 'absolute',
-                        left: -3,
-                        top: -3,
-                        width: 6,
-                        height: 6,
+                        left: -(ORIGIN_DOT_SIZE / 2),
+                        top: -(ORIGIN_DOT_SIZE / 2),
+                        width: ORIGIN_DOT_SIZE,
+                        height: ORIGIN_DOT_SIZE,
                         background: 'var(--color-accent-tertiary)',
                         borderRadius: '50%',
                     }} />

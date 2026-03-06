@@ -4,6 +4,9 @@ import { TypeIcon } from './AssetBrowserPrimitives';
 import { renderHighlightedMatch } from './AssetBrowserRowUtils';
 import type { RowBaseProps } from './AssetBrowserRows';
 
+/** P3: Auto-scroll suppression fallback timeout (ms). */
+const AUTO_SCROLL_SUPPRESS_MS = 500;
+
 const HEADER_ROW_STYLE: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: 8, padding: 'var(--space-1) var(--space-2)',
@@ -72,7 +75,7 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                 }
                 suppressNextAutoScrollRef.current = true;
                 // BUG-099: Auto-reset after 500ms in case the scroll effect never fires.
-                setTimeout(() => { suppressNextAutoScrollRef.current = false; }, 500);
+                setTimeout(() => { suppressNextAutoScrollRef.current = false; }, AUTO_SCROLL_SUPPRESS_MS);
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
             }}

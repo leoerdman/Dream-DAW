@@ -44,8 +44,10 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
                 groups.push({
                     slotName: 'Track',
                     params: [
-                        { name: 'Volume', key: 'Track:Volume' },
-                        { name: 'Pan', key: 'Track:Pan' },
+                        { name: 'Volume', key: 'volume' },
+                        { name: 'Pan', key: 'pan' },
+                        { name: 'Send A', key: 'send.a' },
+                        { name: 'Send B', key: 'send.b' },
                     ],
                 });
 
@@ -165,9 +167,46 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
                             {group.params.map((param) => (
                                 <button
                                     key={param.key}
-                                    onClick={() => {
-                                        // Update the lane
+                                    onClick={async () => {
+                                        // BUG-FIX: Sync parameter change to audio engine.
+                                        // 1. Read old state before mutation
+                                        const store = useAutomationStore.getState();
+                                        const lane = store.lanes[paramSelectorCtxMenu.laneId];
+                                        const oldParamKey = lane?.paramKey;
+                                        const trackId = lane?.trackId ?? paramSelectorCtxMenu.trackId;
+
+                                        // 2. Update the lane's parameter in the store
                                         useAutomationStore.getState().setLaneParameter(paramSelectorCtxMenu.laneId, param.name, param.key);
+
+                                        // 3. Clear old parameter's automation on engine
+                                        if (oldParamKey && oldParamKey !== param.key) {
+                                            try {
+                                                const { setAutomationPointsWithDeltas } = await import('@/shared/api/engine');
+                                                const { applyProjectDeltas } = useEngineStore.getState();
+                                                const clearResponse = await setAutomationPointsWithDeltas(trackId, oldParamKey, []);
+                                                applyProjectDeltas(clearResponse.deltas, 'automation:param-switch-clear');
+                                            } catch (err) {
+                                                console.error('[Dream] Failed to clear old automation param:', err);
+                                            }
+                                        }
+
+                                        // 4. Push existing breakpoints to new param key on engine
+                                        try {
+                                            const { setAutomationPointsWithDeltas } = await import('@/shared/api/engine');
+                                            const { applyProjectDeltas } = useEngineStore.getState();
+                                            const updatedLane = useAutomationStore.getState().lanes[paramSelectorCtxMenu.laneId];
+                                            const enginePoints = (updatedLane?.breakpoints ?? []).map((bp) => ({
+                                                beat: bp.beat,
+                                                value: bp.value,
+                                                curveType: bp.curve === 'step' ? 'step' as const : bp.curve === 'bezier' ? 'bezier' as const : 'linear' as const,
+                                                tension: bp.curve === 'bezier' ? (bp.tension ?? 0.5) : undefined,
+                                            }));
+                                            const pushResponse = await setAutomationPointsWithDeltas(trackId, param.key, enginePoints);
+                                            applyProjectDeltas(pushResponse.deltas, 'automation:param-switch-push');
+                                        } catch (err) {
+                                            console.error('[Dream] Failed to push automation to new param:', err);
+                                        }
+
                                         setParamSelectorCtxMenu(null);
                                     }}
                                     style={{

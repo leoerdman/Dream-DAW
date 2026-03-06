@@ -4,6 +4,9 @@ import { BrowserGlyph, TypeIcon } from './AssetBrowserPrimitives';
 import type { BrowserItem } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
 import { renderHighlightedMatch } from './AssetBrowserRowUtils';
 
+/** P3: Auto-scroll suppression fallback timeout (ms). */
+const AUTO_SCROLL_SUPPRESS_MS = 500;
+
 // ── Props & Shared Logic ────────────────────────────────────
 
 export interface RowBaseProps {
@@ -95,7 +98,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                 }
                 suppressNextAutoScrollRef.current = true;
                 // BUG-099: Auto-reset after 500ms in case the scroll effect never fires.
-                setTimeout(() => { suppressNextAutoScrollRef.current = false; }, 500);
+                setTimeout(() => { suppressNextAutoScrollRef.current = false; }, AUTO_SCROLL_SUPPRESS_MS);
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
             }}

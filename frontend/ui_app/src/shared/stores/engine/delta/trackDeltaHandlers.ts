@@ -263,6 +263,14 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
         state.clips = { byId: nextClips, allIds: nextAllIds };
         state.changed = true;
+
+        // ENTERPRISE FIX: Clean up automation lanes for the removed track.
+        // Without this, undo/redo track removal leaves stale lanes + breakpoints
+        // in useAutomationStore — memory leak and data integrity bug.
+        import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
+            useAutomationStore.getState().cleanupTrackLanes(delta.data.track_id);
+        }).catch(() => { /* Ignore if store not available during SSR/test */ });
+
         return true;
     }
 

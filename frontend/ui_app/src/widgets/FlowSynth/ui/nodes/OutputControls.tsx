@@ -8,6 +8,32 @@ interface Props {
     node: SynthNode;
 }
 
+// P3 FIX: Named constants for mute toggle dimensions (were hardcoded 32/20/16).
+const MUTE_TOGGLE_W = 32;
+const MUTE_TOGGLE_H = 20;
+const MUTE_THUMB_SIZE = 16;
+
+// P3 FIX: Extracted to module-level (were inline objects recreated every render).
+const muteToggleBase: React.CSSProperties = {
+    width: MUTE_TOGGLE_W,
+    height: MUTE_TOGGLE_H,
+    borderRadius: 'var(--radius-full)',
+    border: 'none',
+    cursor: 'pointer',
+    transition: 'background var(--transition-fast)',
+    display: 'flex',
+    alignItems: 'center',
+    padding: 'var(--space-0-5)',
+};
+
+const muteThumbStyle: React.CSSProperties = {
+    width: MUTE_THUMB_SIZE,
+    height: MUTE_THUMB_SIZE,
+    borderRadius: '50%',
+    background: 'var(--color-text-primary)',
+    transition: 'transform var(--transition-fast)',
+};
+
 export function OutputControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
 
@@ -17,6 +43,11 @@ export function OutputControls({ node }: Props) {
     const updateData = useCallback((patch: Record<string, unknown>) => {
         updateNodeData(node.id, patch);
     }, [node.id, updateNodeData]);
+
+    const handleMuteClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        updateData({ muted: !muted });
+    }, [muted, updateData]);
 
     return (
         <div style={{
@@ -37,30 +68,16 @@ export function OutputControls({ node }: Props) {
                 onChange={(v) => updateData({ gain: v })}
             />
             <button
-                onClick={(e) => { e.stopPropagation(); updateData({ muted: !muted }); }}
+                onClick={handleMuteClick}
                 style={{
-                    width: 32,
-                    height: 20,
-                    borderRadius: 'var(--radius-full)',
-                    border: 'none',
-                    cursor: 'pointer',
+                    ...muteToggleBase,
                     background: muted
                         ? 'color-mix(in srgb, var(--color-accent-error) 60%, transparent)'
                         : 'color-mix(in srgb, var(--color-synth-out) 50%, transparent)',
-                    transition: 'background var(--transition-fast)',
-                    display: 'flex',
-                    alignItems: 'center',
                     justifyContent: muted ? 'flex-start' : 'flex-end',
-                    padding: 'var(--space-0-5)',
                 }}
             >
-                <div style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    background: 'var(--color-text-primary)',
-                    transition: 'transform var(--transition-fast)',
-                }} />
+                <div style={muteThumbStyle} />
             </button>
         </div>
     );

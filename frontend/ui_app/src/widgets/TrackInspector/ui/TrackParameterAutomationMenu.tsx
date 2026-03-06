@@ -78,10 +78,13 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
 
     if (!autoCtxMenu) return null;
 
+    // BUG-FIX: Use lowercased paramName to match Rust backend matchers ('volume', 'pan')
+    // and AutomationOverlay auto-creation. Old format 'Track:Volume' didn't match anything.
+    const normalizedParamKey = autoCtxMenu.paramName.toLowerCase();
     const existingLane = Object.values(useAutomationStore.getState().lanes).find(
         (lane) =>
             lane.trackId === autoCtxMenu.trackId &&
-            lane.paramKey === `Track:${autoCtxMenu.paramName}`,
+            lane.paramKey === normalizedParamKey,
     );
 
     return (
@@ -140,11 +143,10 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
             ) : (
                 <button
                     onClick={() => {
-                        const paramKey = `Track:${autoCtxMenu.paramName}`;
                         useAutomationStore.getState().addLane(
                             autoCtxMenu.trackId,
                             autoCtxMenu.paramName,
-                            paramKey,
+                            normalizedParamKey,
                         );
                         useAutomationStore.setState((s) => {
                             const nextExpanded = new Set(s.expandedTracks);

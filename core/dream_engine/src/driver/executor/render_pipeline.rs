@@ -341,13 +341,13 @@ pub(super) fn mix_preview_audio(
 ) {
     let preview_snap = preview_buffer.load();
     if let Some(ref preview_data) = **preview_snap {
-        let cursor = preview_cursor.load(Ordering::Relaxed);
+        let cursor = preview_cursor.load(Ordering::Acquire);
         let total = preview_data.len();
         let preview_channels = 2usize;
         let total_frames = total / preview_channels;
         if cursor < total {
             let cursor_frame = cursor / preview_channels;
-            let src_sr = preview_source_sr.load(Ordering::Relaxed);
+            let src_sr = preview_source_sr.load(Ordering::Acquire);
             let rate = if src_sr > 0 && sample_rate > 0 {
                 src_sr as f64 / sample_rate as f64
             } else {

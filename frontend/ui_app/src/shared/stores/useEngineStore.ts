@@ -429,6 +429,52 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     keySigMode: nextKeySigMode,
                 };
             });
+            // ── ENTERPRISE: Sync AutomationPointsChanged deltas to useAutomationStore ──
+            // BUG-FIX: Without this, undo/redo updates the engine store's
+            // track.automation_lanes but NOT the automation overlay store,
+            // causing the UI to show stale breakpoints.
+            const automationDeltas = sanitizedDeltas.filter(
+                (d) => d.kind === 'AutomationPointsChanged',
+            );
+            if (automationDeltas.length > 0) {
+                // Lazy import to avoid circular deps and minimize bundle impact.
+                import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
+                    const autoState = useAutomationStore.getState();
+                    for (const delta of automationDeltas) {
+                        const trackId: string = delta.data.track_id;
+                        const paramId: string = delta.data.param_id;
+                        const deltaPoints: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> = delta.data.points;
+
+                        // Find matching lane in automation store
+                        const lane = Object.values(autoState.lanes).find(
+                            (l) => l.trackId === trackId && l.paramKey === paramId,
+                        );
+
+                        if (lane) {
+                            // Update breakpoints from delta
+                            const newBreakpoints = deltaPoints.map((p, idx) => ({
+                                id: lane.breakpoints[idx]?.id ?? `bp_${Math.random().toString(36).slice(2, 14)}`,
+                                beat: p.beat,
+                                value: p.value,
+                                curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
+                                tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
+                            }));
+                            useAutomationStore.setState((prev) => ({
+                                lanes: {
+                                    ...prev.lanes,
+                                    [lane.id]: {
+                                        ...prev.lanes[lane.id],
+                                        breakpoints: newBreakpoints,
+                                    },
+                                },
+                            }));
+                        }
+                    }
+                }).catch((err) => {
+                    console.error('[engine-store] Failed to sync automation delta to AutomationStore:', err);
+                });
+            }
+
             // BUG-001: Mark project dirty for any mutation-type delta.
             // Snapshot replacements (project open) reset dirty; everything else marks dirty.
             // BUG-F015 FIX: Explicit allow-set instead of fragile prefix/suffix matching.
@@ -476,6 +522,68 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 if (viewportDeltaPx > VIEWPORT_POSITION_EPSILON || viewportDeltaY > VIEWPORT_POSITION_EPSILON || viewportDeltaZoom > VIEWPORT_ZOOM_EPSILON) {
                     timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft, requestedScrollTop);
                 }
+            }
+
+            // ── ENTERPRISE: Restore automation store lanes from project snapshot ──
+            // When a project loads (snapshot replace), automation_lanes from each track
+            // need to be synced to useAutomationStore so the UI overlay shows them.
+            const snapshotDeltaForAuto = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
+            if (snapshotDeltaForAuto) {
+                import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
+                    const currentTracks = get().tracks;
+                    const newLanes: Record<string, {
+                        id: string;
+                        trackId: string;
+                        paramName: string;
+                        paramKey: string;
+                        color: string;
+                        visible: boolean;
+                        breakpoints: Array<{
+                            id: string;
+                            beat: number;
+                            value: number;
+                            curve: 'linear' | 'bezier' | 'step';
+                            tension?: number;
+                            itemId?: string;
+                        }>;
+                    }> = {};
+
+                    for (const trackId of currentTracks.allIds) {
+                        const track = currentTracks.byId[trackId];
+                        if (!track || !track.automation_lanes || track.automation_lanes.length === 0) continue;
+
+                        for (const autoLane of track.automation_lanes) {
+                            if (!autoLane.points || autoLane.points.length === 0) continue;
+                            const laneId = `auto_${trackId.slice(0, 8)}_${autoLane.param_id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
+                            // Derive a readable param name from the param_id
+                            const paramName = autoLane.param_id.charAt(0).toUpperCase() + autoLane.param_id.slice(1).replace(/[._:]/g, ' ');
+                            newLanes[laneId] = {
+                                id: laneId,
+                                trackId,
+                                paramName,
+                                paramKey: autoLane.param_id,
+                                color: track.color || 'var(--token-color-hex-58a6ff)',
+                                visible: true,
+                                breakpoints: autoLane.points.map((p, idx) => ({
+                                    id: `bp_${laneId}_${idx}`,
+                                    beat: p.beat,
+                                    value: p.value,
+                                    curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
+                                    tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
+                                })),
+                            };
+                        }
+                    }
+
+                    if (Object.keys(newLanes).length > 0) {
+                        useAutomationStore.setState({
+                            lanes: newLanes,
+                            // Don't auto-show — user toggles via "A" key
+                        });
+                    }
+                }).catch((err) => {
+                    console.error('[engine-store] Failed to restore automation lanes from snapshot:', err);
+                });
             }
         } catch (err) {
             // BUG-010: Error boundary — catch and report any crash in delta application.

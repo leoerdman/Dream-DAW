@@ -496,7 +496,7 @@ export const Timeline = (props: TimelineProps) => {
                             }}
                         >
                             <AutomationOverlay
-                                visible
+                                visible={props.automationVisible ?? false}
                                 trackCount={trackCount}
                                 trackHeight={normalizedTrackHeight}
                                 trackHeights={normalizedTrackHeights}

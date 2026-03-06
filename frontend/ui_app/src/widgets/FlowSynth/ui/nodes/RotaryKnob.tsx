@@ -43,6 +43,9 @@ export function RotaryKnob({
 }: RotaryKnobProps) {
     const dragRef = useRef<{ startY: number; startValue: number } | null>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editText, setEditText] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
     const valueAngle = START_ANGLE + normalized * SWEEP;
@@ -87,6 +90,33 @@ export function RotaryKnob({
         const center = (min + max) / 2;
         onChange(Math.round(center / step) * step);
     }, [min, max, step, onChange]);
+
+    // ── Double-click-to-edit on value display ──────────────────────────
+    const handleValueDoubleClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const displayValue = Number.isInteger(value) ? String(value) : value.toFixed(1);
+        setEditText(displayValue);
+        setIsEditing(true);
+        // Focus input after React renders it
+        requestAnimationFrame(() => inputRef.current?.select());
+    }, [value]);
+
+    const commitEdit = useCallback(() => {
+        setIsEditing(false);
+        const parsed = Number(editText);
+        if (Number.isFinite(parsed)) {
+            const quantized = Math.round(parsed / step) * step;
+            const clamped = Math.max(min, Math.min(max, quantized));
+            onChange(clamped);
+        }
+    }, [editText, min, max, step, onChange]);
+
+    const handleEditKeyDown = useCallback((e: React.KeyboardEvent) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commitEdit();
+        if (e.key === 'Escape') setIsEditing(false);
+    }, [commitEdit]);
 
     // Arc paths
     const bgArc = describeArc(CENTER, CENTER, RADIUS, START_ANGLE, END_ANGLE);
@@ -185,15 +215,46 @@ export function RotaryKnob({
                     fill="color-mix(in srgb, var(--color-text-primary) 15%, transparent)"
                 />
             </svg>
-            <span style={{
-                fontSize: 'var(--font-size-2xs)',
-                fontFamily: 'var(--font-role-data)',
-                color: 'var(--color-text-secondary)',
-                fontVariantNumeric: 'tabular-nums',
-                lineHeight: 1,
-            }}>
-                {displayValue}{unit && <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 'var(--space-0-5)' }}>{unit}</span>}
-            </span>
+            {/* Value display — double-click to edit */}
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleEditKeyDown}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    autoFocus
+                    style={{
+                        width: 40,
+                        fontSize: 'var(--font-size-2xs)',
+                        fontFamily: 'var(--font-role-data)',
+                        color: 'var(--color-text-primary)',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
+                        border: '1px solid var(--color-accent-primary)',
+                        borderRadius: 'var(--radius-sm)',
+                        textAlign: 'center',
+                        outline: 'none',
+                        padding: '0 2px',
+                        lineHeight: 1.2,
+                    }}
+                />
+            ) : (
+                <span
+                    onDoubleClick={handleValueDoubleClick}
+                    style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontFamily: 'var(--font-role-data)',
+                        color: 'var(--color-text-secondary)',
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1,
+                        cursor: 'text',
+                    }}
+                >
+                    {displayValue}{unit && <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 'var(--space-0-5)' }}>{unit}</span>}
+                </span>
+            )}
         </div>
     );
 }

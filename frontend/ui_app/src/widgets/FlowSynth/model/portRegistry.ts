@@ -10,6 +10,8 @@ export interface PortFaderConfig {
     step: number;
     dataKey: string;
     unit?: string;
+    /** Default value when node.data has no stored value. Falls back to `min` if omitted. */
+    default?: number;
 }
 
 export interface PortDefinition {
@@ -246,7 +248,7 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-synth-ctrl)',
         inputs: [
             { id: 'freq', label: 'Freq', type: 'control' },
-            { id: 'octave', label: 'Octave', type: 'control', fader: { min: -4, max: 4, step: 1, dataKey: 'octaveOffset' } },
+            { id: 'octave', label: 'Octave', type: 'control', fader: { min: -4, max: 4, step: 1, dataKey: 'octaveOffset', default: 0 } },
         ],
         outputs: [
             { id: 'freq_out', label: 'Out', type: 'control' },

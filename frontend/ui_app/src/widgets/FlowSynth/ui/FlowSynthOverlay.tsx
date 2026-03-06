@@ -60,12 +60,10 @@ function FloatingPresetBar() {
             const text = await invoke<string>('load_flow_user_preset', { name: selected });
             const preset = JSON.parse(text);
             if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
-                // BUG-8 FIX: Use setState directly since setNodes/setConnections don't exist in store
-                useFlowSynthStore.setState({
-                    nodes: preset.nodes,
-                    connections: preset.connections,
-                    presetName: preset.name || selected,
-                });
+                // BUG-13 FIX: Use proper store actions (they trigger sync + graphsByDeviceId update)
+                useFlowSynthStore.getState().setNodes(preset.nodes);
+                useFlowSynthStore.getState().setConnections(preset.connections);
+                useFlowSynthStore.setState({ presetName: preset.name || selected });
                 // Sync restored graph to engine
                 void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
             }

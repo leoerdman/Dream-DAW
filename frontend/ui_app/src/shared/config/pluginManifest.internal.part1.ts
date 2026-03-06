@@ -129,7 +129,7 @@ export const INTERNAL_PLUGINS_PART_1: PluginManifestEntry[] = [
         effectType: 'gate',
         format: 'INT',
         hasEditor: false,
-        cardWidth: 340,
+        cardWidth: 420,
         supportsSettings: false,
         supportsSidechain: true,
     },

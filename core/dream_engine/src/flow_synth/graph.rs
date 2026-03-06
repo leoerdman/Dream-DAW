@@ -123,6 +123,7 @@ impl FlowGraph {
             "mixer" => Box::new(MixerNode::new()),
             "vca" => Box::new(VcaNode::new()),
             "pitch" => Box::new(PitchNode::new()),
+            "utility" => Box::new(UtilityNode::new()),
             _ => return,
         };
 
@@ -463,6 +464,28 @@ impl FlowGraph {
                     if let Ok(o) = v.parse::<f32>() {
                         pitch.set_octave_offset(o);
                     }
+                }
+            }
+            return;
+        }
+
+        if let Some(util) = node.as_any_mut().downcast_mut::<UtilityNode>() {
+            for (k, v) in params {
+                match k.as_str() {
+                    "gain" => {
+                        if let Ok(g) = v.parse::<f32>() {
+                            util.set_gain(g);
+                        }
+                    }
+                    "pan" => {
+                        if let Ok(p) = v.parse::<f32>() {
+                            util.set_pan(p);
+                        }
+                    }
+                    "phaseInvert" | "phase_invert" => {
+                        util.set_phase_invert(v == "true" || v == "1");
+                    }
+                    _ => {}
                 }
             }
         }

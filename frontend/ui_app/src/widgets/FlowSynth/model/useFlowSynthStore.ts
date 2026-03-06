@@ -156,6 +156,27 @@ function resolvePortIndex(nodeId: string, portId: string, side: 'in' | 'out', no
     return portNameToIndex(node.type as SynthNodeType, portId, side);
 }
 
+/**
+ * BUG-15 FIX: Re-parse Rust HashMap<String,String> values to proper JS types.
+ * Numeric strings → numbers, "true"/"false" → booleans, rest stays as strings.
+ * Without this, node controls receive string "440" instead of number 440.
+ */
+function _rehydrateData(data: Record<string, unknown> | undefined): Record<string, unknown> {
+    if (!data) return {};
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (v === null || v === undefined) continue;
+        if (typeof v === 'string') {
+            if (v === 'true') { out[k] = true; continue; }
+            if (v === 'false') { out[k] = false; continue; }
+            const num = Number(v);
+            if (v !== '' && Number.isFinite(num)) { out[k] = num; continue; }
+        }
+        out[k] = v;
+    }
+    return out;
+}
+
 function cloneDefaultGraph(): FlowGraph {
     return {
         nodes: DEFAULT_FLOW_GRAPH.nodes.map((n) => ({
@@ -242,7 +263,13 @@ function _scheduleSaveConfig(get: () => FlowSynthState): void {
         if (state.activeTrackId !== capturedTrackId) return;
         const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
         if (trackIndex < 0) return;
-        await engine.saveFlowSynthConfig(trackIndex, buildFlowConfigJson(state));
+        const response = await engine.saveFlowSynthConfig(trackIndex, buildFlowConfigJson(state));
+        // ENTERPRISE FIX: Apply returned delta so useEngineStore.tracks.byId[trackId].flow_synth
+        // is populated. Without this, the frontend store never learns about the saved config,
+        // and on project reopen the graph is lost.
+        if (response?.deltas?.length) {
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig');
+        }
     }, 1500);
 }
 
@@ -277,7 +304,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                         id: n.id,
                         type: n.type as SynthNodeType,
                         position: { x: n.position_x, y: n.position_y },
-                        data: n.data ?? {}
+                        // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse numeric/boolean values
+                        data: _rehydrateData(n.data)
                     })),
                     connections: track.flow_synth.connections.map((c: any) => ({
                         id: c.id,
@@ -286,7 +314,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                         toNode: c.to_node,
                         // ENTERPRISE MIGRATION: audioL/audioR → audio (single stereo input)
                         toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
-                        signalType: c.signal_type ?? 'audio'
+                        // BUG-10 FIX: Rust uses #[serde(rename = "signalType")] → JS receives "signalType", not "signal_type"
+                        signalType: c.signalType ?? c.signal_type ?? 'audio'
                     })),
                     viewport: {
                         x: track.flow_synth.viewport?.x ?? 0,
@@ -677,7 +706,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             fromPort: pending.fromPort,
             toNode,
             toPort,
-            signalType,
+            // BUG-19 FIX: Store the FROM port's signalType — the cable carries the source signal type.
+            signalType: pending.signalType,
         };
         const nextConnections = [...baseConnections, newConnection];
 
@@ -809,10 +839,14 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // otherwise the graph sync arrives while the engine is still in disabled
         // state and may be silently dropped or cause state inconsistency.
         await engine.setFlowEnabled(trackIndex, true);
-        await Promise.all([
+        const [, saveResponse] = await Promise.all([
             engine.syncFlowGraph(trackIndex, nodes, connections),
             engine.saveFlowSynthConfig(trackIndex, configJson)
         ]);
+        // ENTERPRISE FIX: Apply save response deltas to sync track.flow_synth in frontend store.
+        if (saveResponse?.deltas?.length) {
+            await useEngineStore.getState().applyProjectDeltas(saveResponse.deltas, 'syncFlowGraphSave');
+        }
     },
 
     // ── Preset Actions ─────────────────────────────────────────────────
@@ -902,7 +936,8 @@ export async function initFlowEnginesFromProject(): Promise<void> {
                     id: n.id,
                     type: n.type as SynthNodeType,
                     position: { x: n.position_x, y: n.position_y },
-                    data: n.data ?? {},
+                    // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse
+                    data: _rehydrateData(n.data),
                 })),
                 connections: track.flow_synth.connections.map((c: any) => ({
                     id: c.id,
@@ -910,7 +945,8 @@ export async function initFlowEnginesFromProject(): Promise<void> {
                     fromPort: c.from_port,
                     toNode: c.to_node,
                     toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
-                    signalType: c.signal_type ?? 'audio',
+                    // BUG-11 FIX: same as Bug 10 — Rust sends "signalType" not "signal_type"
+                    signalType: c.signalType ?? c.signal_type ?? 'audio',
                 })),
                 viewport: {
                     x: track.flow_synth.viewport?.x ?? 0,

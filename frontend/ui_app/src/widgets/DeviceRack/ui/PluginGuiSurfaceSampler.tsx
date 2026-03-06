@@ -295,7 +295,7 @@ export function PluginGuiSurfaceSampler({
                             decay={normDecay}
                             sustain={normSustain}
                             release={normRelease}
-                            accent="var(--token-color-hex-ffcc58)"
+                            accent="var(--token-color-hex-4a9eff)"
                             transparent
                         />
                     </div>
@@ -387,9 +387,10 @@ export function PluginGuiSurfaceSampler({
                     }}>
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: `repeat(${Math.min(8, resolvedParams.filter(r => r.entry.control === 'knob').length)}, minmax(0, 1fr))`,
+                            gridTemplateColumns: `repeat(${Math.min(8, resolvedParams.filter(r => r.entry.control === 'knob').length)}, minmax(0, 90px))`,
                             gap: 'var(--plugin-grid-gap)',
                             alignItems: 'center',
+                            justifyContent: 'center',
                         }}>
                             {resolvedParams
                                 .filter(r => r.entry.control === 'knob')

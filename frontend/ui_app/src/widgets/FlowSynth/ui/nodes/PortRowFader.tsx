@@ -10,6 +10,7 @@ import type { PortFaderConfig } from '../../model/portRegistry';
  *
  * ENTERPRISE: Uses pointer capture for robust cross-element dragging.
  * Supports mouse wheel with smooth linear interpolation.
+ * Double-click on value display opens inline edit input.
  */
 
 const TRACK_H = 4;
@@ -25,7 +26,10 @@ interface Props {
 
 export const PortRowFader = React.memo(function PortRowFader({ value, config, onChange }: Props) {
     const trackRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editText, setEditText] = useState('');
 
     const { min, max, step, unit } = config;
 
@@ -79,6 +83,30 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
         node.addEventListener('wheel', handleWheel, { passive: false });
         return () => node.removeEventListener('wheel', handleWheel);
     }, [safeValue, min, max, onChange, quantize]);
+
+    // ── Double-click-to-edit on value display ──────────────────────────
+    const handleValueDoubleClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const display = step >= 1 ? Math.round(safeValue).toString() : safeValue.toFixed(2);
+        setEditText(display);
+        setIsEditing(true);
+        requestAnimationFrame(() => inputRef.current?.select());
+    }, [safeValue, step]);
+
+    const commitEdit = useCallback(() => {
+        setIsEditing(false);
+        const parsed = Number(editText);
+        if (Number.isFinite(parsed)) {
+            onChange(quantize(parsed));
+        }
+    }, [editText, onChange, quantize]);
+
+    const handleEditKeyDown = useCallback((e: React.KeyboardEvent) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commitEdit();
+        if (e.key === 'Escape') setIsEditing(false);
+    }, [commitEdit]);
 
     // Format display value
     const displayValue = step >= 1 ? Math.round(safeValue).toString() : safeValue.toFixed(2);
@@ -150,18 +178,48 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
                     boxShadow: isDragging ? '0 0 6px var(--color-accent-primary)' : 'none',
                 }} />
             </div>
-            {/* Value */}
-            <span style={{
-                fontSize: 'var(--font-size-2xs)',
-                fontFamily: 'var(--font-role-data)',
-                color: 'var(--color-text-tertiary)',
-                fontVariantNumeric: 'tabular-nums',
-                flexShrink: 0,
-                minWidth: 28,
-                textAlign: 'right',
-            }}>
-                {displayValue}{unit ? <span style={{ opacity: 0.6 }}>{unit}</span> : null}
-            </span>
+            {/* Value — double-click to edit */}
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={handleEditKeyDown}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    autoFocus
+                    style={{
+                        width: 36,
+                        fontSize: 'var(--font-size-2xs)',
+                        fontFamily: 'var(--font-role-data)',
+                        color: 'var(--color-text-primary)',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
+                        border: '1px solid var(--color-accent-primary)',
+                        borderRadius: 'var(--radius-sm)',
+                        textAlign: 'right',
+                        outline: 'none',
+                        padding: '0 2px',
+                        flexShrink: 0,
+                    }}
+                />
+            ) : (
+                <span
+                    onDoubleClick={handleValueDoubleClick}
+                    style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontFamily: 'var(--font-role-data)',
+                        color: 'var(--color-text-tertiary)',
+                        fontVariantNumeric: 'tabular-nums',
+                        flexShrink: 0,
+                        minWidth: 28,
+                        textAlign: 'right',
+                        cursor: 'text',
+                    }}
+                >
+                    {displayValue}{unit ? <span style={{ opacity: 0.6 }}>{unit}</span> : null}
+                </span>
+            )}
         </div>
     );
 });

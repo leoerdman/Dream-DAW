@@ -228,8 +228,16 @@ fn delete_flow_user_preset(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<(), String> {
+    // ENTERPRISE GUARD: Sanitize filename to prevent path traversal attacks
+    let safe_name: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .collect();
+    if safe_name.is_empty() {
+        return Err("Preset name contains no valid characters.".to_string());
+    }
     let dir = flow_presets_dir(&app)?;
-    let path = dir.join(format!("{name}.json"));
+    let path = dir.join(format!("{safe_name}.json"));
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| format!("Cannot delete preset: {e}"))?;
     }

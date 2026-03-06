@@ -64,7 +64,7 @@ PluginSurfaceLayout.displayName = 'PluginSurfaceLayout';
 export const ControlPanel = React.memo(({
     params,
     handlers,
-    maxCols = 2,
+    maxCols = 3,
     minCols = 2,
     width,
     children,
@@ -73,14 +73,13 @@ export const ControlPanel = React.memo(({
     handlers?: SurfaceHandlers;
     maxCols?: number;
     minCols?: number;
-    /** Override panel width (defaults to --plugin-control-panel-width = 130px). */
+    /** Override panel width. When omitted, panel uses flex:1 to fill available space. */
     width?: number | string;
     /** Additional elements below the knob grid. */
     children?: React.ReactNode;
 }) => (
     <div style={{
-        width: width ?? 'var(--plugin-control-panel-width)',
-        flexShrink: 0,
+        ...(width ? { width, flexShrink: 0 } : { flex: 1, minWidth: 0 }),
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--plugin-meta-gap)',
@@ -128,7 +127,8 @@ export const VizCard = React.memo(({
         background: background ?? 'var(--plugin-card-bg-main)',
         overflow: 'hidden',
         padding: 0,
-        flex: 1,
+        flex: '0 0 40%',
+        maxWidth: '40%',
         position: 'relative',
         ...style,
     }}>
@@ -482,51 +482,55 @@ export const AdsrCurve = React.memo(function AdsrCurve({
     onParamChange,
     onGestureStart,
     onGestureEnd,
-    accent = 'var(--token-color-hex-53b0ff)',
+    accent = 'var(--token-color-hex-4a9eff)',
     transparent = false,
 }: AdsrCurveProps) {
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<{ param: string; startX: number; startY: number; startVal: number } | null>(null);
 
-    // ── Geometry ──
-    const M = 14;       // horizontal margin
+    // ── Geometry — FIXED segment proportions (no visual coupling) ──
+    const M = 4;        // minimal horizontal margin (start near left edge)
     const W = VB_W - 2 * M;   // usable width
     const TOP = 10;     // top margin
     const BOT = 108;    // bottom Y
     const H = BOT - TOP;
 
-    const segA = Math.max(0.02, attack) * 0.28;    // Attack segment fraction of W
-    const segD = Math.max(0.02, decay) * 0.22;     // Decay segment
-    const segS = 0.3;                                // Sustain hold (fixed fraction)
-    const segR = Math.max(0.02, release) * 0.2;    // Release segment
+    // Fixed width fractions — parameter values only affect Y-shape, NOT X-width
+    const segAFrac = 0.25;  // Attack segment = 25% of width
+    const segDFrac = 0.20;  // Decay = 20%
+    const segSFrac = 0.30;  // Sustain hold = 30%
+    const segRFrac = 0.25;  // Release = 25%
 
-    const totalSeg = segA + segD + segS + segR;
-    const scaleX = W / totalSeg;
+    const xA = M;                                    // Start (left edge)
+    const xB = M + segAFrac * W;                     // Attack peak
+    const xC = xB + segDFrac * W;                    // Decay end / sustain start
+    const xD = xC + segSFrac * W;                    // Sustain end / release start
 
-    const xA = M;                         // Start
-    const xB = M + segA * scaleX;         // Attack peak
-    const xC = xB + segD * scaleX;        // Decay end / sustain start
-    const xD = xC + segS * scaleX;        // Sustain end / release start
-    const xE = xD + segR * scaleX;        // Release end
+    const susY = BOT - sustain * H;                  // Sustain level Y
 
-    const susY = BOT - sustain * H;       // Sustain level Y
+    // Attack controls the peak position within the attack segment
+    const attackPeakX = M + Math.max(0.02, attack) * segAFrac * W;
+    // Decay controls how quickly it reaches sustain within the decay segment
+    const decayMidX = xB + Math.max(0.02, decay) * segDFrac * W;
+    // Release controls the slope within the release segment
+    const releaseEndX = xD + Math.max(0.02, release) * segRFrac * W;
 
     const curvePath = [
         `M ${xA} ${BOT}`,                 // Start at bottom-left
-        `L ${xB} ${TOP}`,                 // Attack to peak
-        `L ${xC} ${susY}`,                // Decay to sustain level
+        `L ${attackPeakX} ${TOP}`,         // Attack to peak
+        `L ${decayMidX} ${susY}`,          // Decay to sustain level
         `L ${xD} ${susY}`,                // Sustain hold
-        `L ${xE} ${BOT}`,                 // Release to zero
+        `L ${releaseEndX} ${BOT}`,         // Release to zero
     ].join(' ');
 
-    const fillPath = `${curvePath} L ${xE} ${BOT} L ${xA} ${BOT} Z`;
+    const fillPath = `${curvePath} L ${releaseEndX} ${BOT} L ${xA} ${BOT} Z`;
 
     // ── Handle positions ──
     const handles = [
-        { param: 'attack', cx: xB, cy: TOP, color: 'var(--token-color-hex-53b0ff)' },
-        { param: 'decay', cx: xC, cy: susY, color: 'var(--token-color-hex-7ab6ff)' },
+        { param: 'attack', cx: attackPeakX, cy: TOP, color: 'var(--token-color-hex-4a9eff)' },
+        { param: 'decay', cx: decayMidX, cy: susY, color: 'var(--token-color-hex-6db3ff)' },
         { param: 'sustain', cx: (xC + xD) / 2, cy: susY, color: 'var(--token-color-hex-78d6ad)' },
-        { param: 'release', cx: xE, cy: BOT, color: 'var(--token-color-hex-ffac59)' },
+        { param: 'release', cx: releaseEndX, cy: BOT, color: 'var(--token-color-hex-7ab6ff)' },
     ];
 
     // ── Drag interaction ──
@@ -597,18 +601,18 @@ export const AdsrCurve = React.memo(function AdsrCurve({
             )}
 
             {/* Fill below curve */}
-            <path d={fillPath} fill={accent} opacity={transparent ? "0.25" : "0.1"} />
+            <path d={fillPath} fill={accent} opacity={transparent ? "0.2" : "0.08"} />
 
-            {/* Envelope curve */}
-            <path d={curvePath} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            {/* Envelope curve — thinner stroke */}
+            <path d={curvePath} fill="none" stroke={accent} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
 
             {/* Segment labels */}
             {!transparent && (
                 <>
-                    <text x={xB} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>
-                    <text x={xC} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>
+                    <text x={attackPeakX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>
+                    <text x={decayMidX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>
                     <text x={(xC + xD) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">S</text>
-                    <text x={xE} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>
+                    <text x={releaseEndX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>
                 </>
             )}
 

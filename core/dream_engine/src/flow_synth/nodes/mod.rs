@@ -16,6 +16,7 @@ pub mod delay;
 pub mod mixer;
 pub mod vca;
 pub mod pitch;
+pub mod utility;
 
 pub use oscillator::OscillatorNode;
 pub use filter::FilterNode;
@@ -35,3 +36,4 @@ pub use delay::DelayNode;
 pub use mixer::MixerNode;
 pub use vca::VcaNode;
 pub use pitch::PitchNode;
+pub use utility::UtilityNode;

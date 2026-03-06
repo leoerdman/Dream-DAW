@@ -1,38 +1,8 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef } from 'react';
 import { viewportProxy } from '../lib/ViewportProxy';
 
 export function useViewport() {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const spaceKeyPressed = useRef(false);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const target = e.target as HTMLElement | null;
-            const isTypingTarget = !!target && (
-                target.tagName === 'INPUT'
-                || target.tagName === 'TEXTAREA'
-                || target.isContentEditable
-            );
-            if (isTypingTarget) return;
-            if (e.code === 'Space' && !e.repeat) spaceKeyPressed.current = true;
-        };
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.code === 'Space') spaceKeyPressed.current = false;
-        };
-        const handleBlur = () => {
-            spaceKeyPressed.current = false;
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        window.addEventListener('blur', handleBlur);
-        document.addEventListener('visibilitychange', handleBlur);
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-            window.removeEventListener('blur', handleBlur);
-            document.removeEventListener('visibilitychange', handleBlur);
-        };
-    }, []);
 
     const pan = useCallback((dx: number, dy: number) => {
         const vp = viewportProxy.getViewport();

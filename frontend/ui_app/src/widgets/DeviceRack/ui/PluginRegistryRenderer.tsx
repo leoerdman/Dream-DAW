@@ -28,7 +28,6 @@ import {
     ModulationWave,
     PluginSurfaceLayout,
     SaturationCurve,
-    SettingsPanel,
     SpectrumBars,
     ToggleButton,
     VizCard,
@@ -180,16 +179,7 @@ function resolveMeta(
     });
 }
 
-/**
- * Resolve settings panel params — filter device.params by the settings config.
- */
-function resolveSettingsParams(
-    device: DeviceSlot,
-    settingsParamNames: string[],
-): DeviceSlot['params'] {
-    const nameSet = new Set(settingsParamNames.map(n => n.toLowerCase()));
-    return device.params.filter(p => nameSet.has(p.name.toLowerCase()));
-}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // UNIVERSAL PLUGIN RENDERER
@@ -205,24 +195,30 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
     definition: PluginDefinition;
 }) {
     const showDryWet = shouldShowDryWet(device);
-    // Resolve settings panel params
-    const settingsParams = useMemo(
-        () => definition.settingsPanel
-            ? resolveSettingsParams(device, definition.settingsPanel.params)
-            : [],
-        [device, definition.settingsPanel],
-    );
-
-    const knobParams = useMemo(() => {
-        const raw = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
-        if (!definition.settingsPanel || definition.settingsPanel.params.length === 0) return raw;
-        const settingsSet = new Set(definition.settingsPanel.params.map(p => p.toLowerCase()));
-        return raw.filter(p => !settingsSet.has(p.name.toLowerCase()));
-    }, [device, showDryWet, definition.settingsPanel]);
     const accent = definition.accent;
     const dryWetAccent = definition.dryWetAccent ?? accent;
 
-    // Settings params moved above
+    // ── Build enum/toggle sets from settings config ──
+    const enumLabels = definition.settingsPanel?.enumLabels ?? {};
+    const enumParamSet = useMemo(() => new Set(Object.keys(enumLabels).map(k => k.toLowerCase())), [enumLabels]);
+    const toggleParamSet = useMemo(() => new Set((definition.settingsPanel?.toggleParams ?? []).map(k => k.toLowerCase())), [definition.settingsPanel?.toggleParams]);
+
+    // ── ALL params merged (main + settings) — no hidden settings anymore ──
+    const allKnobParams = useMemo(() => {
+        const raw = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+        // Filter out enum and toggle params — they render as dropdowns/buttons, not knobs
+        return raw.filter(p => !enumParamSet.has(p.name.toLowerCase()) && !toggleParamSet.has(p.name.toLowerCase()));
+    }, [device, showDryWet, enumParamSet, toggleParamSet]);
+
+    // ── Enum params (render as inline dropdowns) ──
+    const enumParams = useMemo(() => {
+        return device.params.filter(p => enumParamSet.has(p.name.toLowerCase()));
+    }, [device.params, enumParamSet]);
+
+    // ── Toggle params (render as inline buttons) ──
+    const toggleParams = useMemo(() => {
+        return device.params.filter(p => toggleParamSet.has(p.name.toLowerCase()));
+    }, [device.params, toggleParamSet]);
 
     // ── Utility layout (vertical, no viz card) ──────────────────────
     if (definition.isUtility) {
@@ -230,13 +226,11 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
             <div data-no-drag style={{
                 display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', height: '100%', padding: 'var(--space-1)',
             }}>
-                <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
+                <KnobParamGrid params={allKnobParams} handlers={handlers} maxCols={2} minCols={2} />
                 {definition.buttons && definition.buttons.length > 0 && (
                     <ButtonStrip>
                         {definition.buttons.map((btn) => {
                             const active = getParamValue(device, [btn.paramName], 0) > (btn.threshold ?? 0.5);
-                            // Utility scenes (center/mono/wide) use onApplyUtilityScene.
-                            // Non-utility buttons (sync) toggle param value directly.
                             const isUtilityScene = btn.scene === 'center' || btn.scene === 'mono' || btn.scene === 'wide';
                             return (
                                 <ToggleButton
@@ -247,7 +241,6 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                                         if (isUtilityScene && btn.scene) {
                                             handlers.onApplyUtilityScene?.(btn.scene as 'center' | 'mono' | 'wide');
                                         } else {
-                                            // Toggle param between 0 and 1
                                             handlers.onParamGestureStart?.(btn.paramName);
                                             handlers.onParamChange(btn.paramName, active ? 0 : 1);
                                             handlers.onParamGestureEnd?.(btn.paramName);
@@ -263,23 +256,117 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
         );
     }
 
-    // ── Standard EQ-style layout ────────────────────────────────────
+    // ── Standard layout: ControlPanel | VizCard | DryWet ────────────
     const vizElement = resolveViz(definition.viz, device, accent, handlers);
     const metaSpans = resolveMeta(definition.meta, device);
 
     return (
         <PluginSurfaceLayout>
-            <ControlPanel params={knobParams} handlers={handlers}>
-                {/* Settings panel sits below knob grid inside ControlPanel */}
-                {settingsParams.length > 0 && (
-                    <SettingsPanel
-                        params={settingsParams}
-                        handlers={handlers}
-                        maxCols={definition.settingsPanel?.maxCols ?? 3}
-                        accent={accent}
-                        enumLabels={definition.settingsPanel?.enumLabels}
-                        toggleParams={definition.settingsPanel?.toggleParams}
-                    />
+            <ControlPanel params={allKnobParams} handlers={handlers}>
+                {/* ── Inline enum dropdowns ── */}
+                {enumParams.length > 0 && (
+                    <div style={{ display: 'grid', gap: 4 }}>
+                        {enumParams.map((p) => {
+                            const labels = enumLabels[p.name] ?? enumLabels[p.name.toLowerCase()] ?? [];
+                            const currentValue = Math.round(p.value ?? 0);
+                            return (
+                                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{
+                                        fontSize: 'var(--font-size-2xs)',
+                                        color: 'var(--color-text-tertiary)',
+                                        fontWeight: 600,
+                                        minWidth: 36,
+                                        textTransform: 'capitalize',
+                                    }}>
+                                        {p.name}
+                                    </span>
+                                    <select
+                                        value={currentValue}
+                                        onChange={(e) => {
+                                            handlers.onParamGestureStart?.(p.name);
+                                            handlers.onParamChange(p.name, Number(e.target.value));
+                                            handlers.onParamGestureEnd?.(p.name);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            border: 'var(--space-px) solid var(--color-divider)',
+                                            borderRadius: 'var(--radius-md)',
+                                            background: 'var(--color-bg-header)',
+                                            color: 'var(--color-text-primary)',
+                                            fontSize: 'var(--font-size-2xs)',
+                                            padding: '3px 6px',
+                                            outline: 'none',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {labels.map((label, idx) => (
+                                            <option key={idx} value={idx}>{label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {/* ── Inline toggle buttons ── */}
+                {toggleParams.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {toggleParams.map((p) => {
+                            const active = (p.value ?? 0) > 0.5;
+                            return (
+                                <button
+                                    key={p.name}
+                                    type="button"
+                                    onClick={() => {
+                                        handlers.onParamGestureStart?.(p.name);
+                                        handlers.onParamChange(p.name, active ? 0 : 1);
+                                        handlers.onParamGestureEnd?.(p.name);
+                                    }}
+                                    style={{
+                                        padding: '3px 10px',
+                                        borderRadius: 'var(--radius-md)',
+                                        border: 'var(--space-px) solid var(--color-divider)',
+                                        background: active
+                                            ? `color-mix(in srgb, ${accent} 30%, var(--color-bg-elevated))`
+                                            : 'var(--color-bg-elevated)',
+                                        color: active ? accent : 'var(--color-text-tertiary)',
+                                        fontSize: 'var(--font-size-2xs)',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s ease, color 0.15s ease',
+                                        textTransform: 'capitalize',
+                                    }}
+                                >
+                                    {p.name}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+                {/* ── Main-surface buttons (e.g. Delay Sync L/R) ── */}
+                {definition.buttons && definition.buttons.length > 0 && (
+                    <ButtonStrip>
+                        {definition.buttons.map((btn) => {
+                            const active = getParamValue(device, [btn.paramName], 0) > (btn.threshold ?? 0.5);
+                            const isUtilityScene = btn.scene === 'center' || btn.scene === 'mono' || btn.scene === 'wide';
+                            return (
+                                <ToggleButton
+                                    key={btn.paramName}
+                                    label={btn.label}
+                                    active={active}
+                                    onClick={() => {
+                                        if (isUtilityScene && btn.scene) {
+                                            handlers.onApplyUtilityScene?.(btn.scene as 'center' | 'mono' | 'wide');
+                                        } else {
+                                            handlers.onParamGestureStart?.(btn.paramName);
+                                            handlers.onParamChange(btn.paramName, active ? 0 : 1);
+                                            handlers.onParamGestureEnd?.(btn.paramName);
+                                        }
+                                    }}
+                                />
+                            );
+                        })}
+                    </ButtonStrip>
                 )}
             </ControlPanel>
             <VizColumn>

@@ -243,7 +243,7 @@ function InlinePortFader({
     if (!port.fader) return null;
 
     const fader = port.fader;
-    const value = Number(node.data?.[fader.dataKey] ?? fader.min);
+    const value = Number(node.data?.[fader.dataKey] ?? fader.default ?? fader.min);
     const cy = portCenterY(index);
 
     return (

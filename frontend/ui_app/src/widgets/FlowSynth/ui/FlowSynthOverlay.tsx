@@ -96,10 +96,17 @@ function FloatingPresetBar() {
             const preset = JSON.parse(text);
             if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
                 const { nodeMotionProxy } = await import('../lib/NodeMotionProxy');
-                nodeMotionProxy.clearAll();
+                nodeMotionProxy.clearPositions();
                 useFlowSynthStore.getState().setNodes(preset.nodes);
                 useFlowSynthStore.getState().setConnections(preset.connections);
                 useFlowSynthStore.setState({ presetName: preset.name || name });
+                // Invalidate graph cache for current device
+                const { activeDeviceId, graphsByDeviceId } = useFlowSynthStore.getState();
+                if (activeDeviceId) {
+                    const updated = { ...graphsByDeviceId };
+                    delete updated[activeDeviceId];
+                    useFlowSynthStore.setState({ graphsByDeviceId: updated });
+                }
                 void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
             }
         } catch (err) {

@@ -78,13 +78,24 @@ class MotionProxy {
         this.subscribers.delete(nodeId);
     }
     /**
-     * ENTERPRISE: Clear ALL positions and subscribers.
-     * Called when the entire graph changes (preset switch, project load).
-     * Prevents stale node positions from persisting across graph replacements.
+     * ENTERPRISE: Clear only position cache.
+     * Subscribers (owned by mounted React components) must NOT be destroyed.
+     * React manages subscriber lifecycle via useEffect cleanup.
+     * Clearing subscribers kills connection drag-following for mounted connections.
+     */
+    clearPositions() {
+        this.positions.clear();
+    }
+
+    /**
+     * @deprecated Use clearPositions() instead.
+     * clearAll() was destroying active subscribers, causing connections
+     * to stop following node drags.
      */
     clearAll() {
         this.positions.clear();
-        this.subscribers.clear();
+        // DO NOT clear subscribers — they are managed by React useEffect cleanup.
+        // Clearing them here destroys active FlowConnectionComponent subscriptions.
     }
 }
 

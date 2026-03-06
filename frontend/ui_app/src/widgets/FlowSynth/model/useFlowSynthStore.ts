@@ -925,13 +925,20 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         const safeIndex = ((index % total) + total) % total;
         const preset = clonePreset(FACTORY_PRESETS[safeIndex]);
 
-        // ENTERPRISE: Clear stale node positions from the motion proxy before
-        // replacing the graph. Without this, SynthNodeComponents for newly
-        // mounted nodes would read stale positions from the previous graph.
-        nodeMotionProxy.clearAll();
+        // Clear stale node positions but NOT subscribers.
+        // Subscribers are owned by mounted FlowConnectionComponents —
+        // destroying them kills real-time connection-follows-drag.
+        nodeMotionProxy.clearPositions();
 
-        set(() => {
-            const patch: Partial<FlowSynthState> = {
+        set((state) => {
+            // Invalidate the per-device graph cache for the current device
+            // so the new preset is what gets cached on next close.
+            const updatedGraphs = { ...state.graphsByDeviceId };
+            if (state.activeDeviceId) {
+                delete updatedGraphs[state.activeDeviceId];
+            }
+
+            return {
                 nodes: preset.nodes,
                 connections: preset.connections,
                 presetName: preset.name,
@@ -939,8 +946,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 selectedNodeIds: [],
                 selectedConnectionId: null,
                 pendingConnection: null,
+                graphsByDeviceId: updatedGraphs,
             };
-            return patch;
         });
 
         // Sync new graph to engine + save to disk

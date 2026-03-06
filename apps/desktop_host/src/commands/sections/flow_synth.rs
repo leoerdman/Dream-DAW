@@ -1,9 +1,9 @@
-fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> u16 {
+fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> Result<u16, String> {
     let track_count = project.tracks.len();
-    if track_count == 0 {
-        return 0;
+    if (requested as usize) >= track_count {
+        return Err(format!("Track index {} is out of bounds (total {}).", requested, track_count));
     }
-    (requested as usize).min(track_count.saturating_sub(1)) as u16
+    Ok(requested)
 }
 
 #[tauri::command]
@@ -20,7 +20,7 @@ fn set_flow_enabled_cmd(
             .project
             .lock()
             .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        resolve_flow_track_index(&project, track_index)
+        resolve_flow_track_index(&project, track_index)?
     };
 
     push_command(
@@ -56,15 +56,84 @@ fn sync_flow_graph_cmd(
             .project
             .lock()
             .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        resolve_flow_track_index(&project, track_index)
+        resolve_flow_track_index(&project, track_index)?
     };
+
+    let mut mapped_nodes = Vec::with_capacity(nodes.len());
+    for (id, ty_str, params) in nodes {
+        let node_type = dream_ipc::FlowNodeType::from_str(&ty_str);
+        let mut mapped_params = Vec::with_capacity(params.len());
+        for (k_str, v_str) in params {
+            let key = dream_ipc::FlowParamKey::from_str(&k_str);
+            let value = dream_ipc::parse_flow_param_value(key, &v_str);
+            mapped_params.push((key, value));
+        }
+        mapped_nodes.push((id, node_type, mapped_params));
+    }
+
+    // ENTERPRISE: Execute topological sorting on the non-real-time layer
+    // to prevent HashMap allocation and O(N) operations inside the audio callback.
+    let mut index_by_id = std::collections::HashMap::with_capacity(mapped_nodes.len());
+    for (idx, (id, _, _)) in mapped_nodes.iter().enumerate() {
+        index_by_id.insert(*id, idx);
+    }
+    let mut indegree: std::collections::HashMap<u64, usize> = std::collections::HashMap::with_capacity(mapped_nodes.len());
+    let mut outgoing: std::collections::HashMap<u64, Vec<u64>> = std::collections::HashMap::with_capacity(mapped_nodes.len());
+    for (id, _, _) in &mapped_nodes {
+        indegree.insert(*id, 0);
+        outgoing.insert(*id, Vec::new());
+    }
+    for (from_id, _, to_id, _) in &connections {
+        if from_id == to_id { continue; }
+        if !index_by_id.contains_key(from_id) || !index_by_id.contains_key(to_id) { continue; }
+        if let Some(v) = outgoing.get_mut(from_id) { v.push(*to_id); }
+        if let Some(d) = indegree.get_mut(to_id) { *d += 1; }
+    }
+    let mut ready: std::collections::VecDeque<u64> = indegree
+        .iter()
+        .filter_map(|(id, &d)| if d == 0 { Some(*id) } else { None })
+        .collect();
+    let mut ready_vec: Vec<u64> = ready.drain(..).collect();
+    ready_vec.sort_by_key(|id| index_by_id.get(id).copied().unwrap_or(usize::MAX));
+    ready = ready_vec.into();
+    
+    let mut ordered_ids = Vec::with_capacity(mapped_nodes.len());
+    while let Some(id) = ready.pop_front() {
+        ordered_ids.push(id);
+        if let Some(neighbors) = outgoing.get(&id) {
+            let mut new_ready = Vec::new();
+            for &n in neighbors {
+                if let Some(d) = indegree.get_mut(&n) {
+                    *d = d.saturating_sub(1);
+                    if *d == 0 { new_ready.push(n); }
+                }
+            }
+            new_ready.sort_by_key(|nid| index_by_id.get(nid).copied().unwrap_or(usize::MAX));
+            ready.extend(new_ready);
+        }
+    }
+    if ordered_ids.len() < mapped_nodes.len() {
+        for (id, _, _) in &mapped_nodes {
+            if !ordered_ids.iter().any(|v| v == id) {
+                ordered_ids.push(*id);
+            }
+        }
+    }
+    let mut by_id: std::collections::HashMap<u64, (dream_ipc::FlowNodeType, Vec<(dream_ipc::FlowParamKey, f32)>)> = std::collections::HashMap::with_capacity(mapped_nodes.len());
+    for (id, node_type, params) in mapped_nodes {
+        by_id.insert(id, (node_type, params));
+    }
+    let final_nodes: Vec<dream_ipc::FlowNodeDescriptor> = ordered_ids
+        .into_iter()
+        .filter_map(|id| by_id.remove(&id).map(|(node_type, params)| (id, node_type, params)))
+        .collect();
 
     push_command(
         &handle,
         EngineCommand::SyncFlowGraph {
             track_index: resolved_track_index,
-            nodes,
-            connections,
+            nodes: std::sync::Arc::new(final_nodes),
+            connections: std::sync::Arc::new(connections),
         },
     )?;
     Ok(())
@@ -127,16 +196,19 @@ fn update_flow_node_param_cmd(
             .project
             .lock()
             .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        resolve_flow_track_index(&project, track_index)
+        resolve_flow_track_index(&project, track_index)?
     };
+
+    let parsed_key = dream_ipc::FlowParamKey::from_str(&key);
+    let parsed_value = dream_ipc::parse_flow_param_value(parsed_key, &value);
 
     push_command(
         &handle,
         EngineCommand::UpdateFlowNodeParam {
             track_index: resolved_track_index,
             node_id,
-            key,
-            value,
+            key: parsed_key,
+            value: parsed_value,
         },
     )?;
     Ok(())

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { viewportProxy } from '../lib/ViewportProxy';
 import {
@@ -9,20 +9,15 @@ import {
 } from '../model/portRegistry';
 import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
 import { FlowConnectionComponent } from './FlowConnectionComponent';
-import { signalColor } from './FlowNodeStyles';
-
-const PULSE_DURATION_MS = 520;
 
 export function ConnectionsLayer() {
     const connections = useFlowSynthStore((state) => state.connections);
     const nodes = useFlowSynthStore((state) => state.nodes);
-    const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
     const connectionPulseById = useFlowSynthStore((state) => state.connectionPulseById);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
     const selectConnection = useFlowSynthStore((state) => state.selectConnection);
     const deleteConnection = useFlowSynthStore((state) => state.deleteConnection);
     const layerRef = useRef<SVGSVGElement>(null);
-    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
         return viewportProxy.subscribe((vp) => {
@@ -31,24 +26,6 @@ export function ConnectionsLayer() {
             }
         });
     }, []);
-
-    useEffect(() => {
-        const hasActive = Object.values(connectionPulseById).some((pulseTs) => (Date.now() - pulseTs) < PULSE_DURATION_MS);
-        if (!hasActive) return;
-
-        let raf = 0;
-        const tick = () => {
-            const ts = Date.now();
-            setNow(ts);
-            const pulseMap = useFlowSynthStore.getState().connectionPulseById;
-            const stillActive = Object.values(pulseMap).some((pulseTs) => (ts - pulseTs) < PULSE_DURATION_MS);
-            if (stillActive) raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => {
-            cancelAnimationFrame(raf);
-        };
-    }, [connectionPulseById]);
 
     // O(1) node lookup
     const nodeMap = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
@@ -102,37 +79,12 @@ export function ConnectionsLayer() {
                         initialEnd={initialEnd}
                         isSelected={isSelected}
                         pulseTs={pulseTs}
-                        now={now}
                         selectConnection={selectConnection}
                         deleteConnection={deleteConnection}
                     />
                 );
             })}
-            {pendingConnection && (() => {
-                const start = { x: pendingConnection.startX, y: pendingConnection.startY };
-                const end = { x: pendingConnection.currentX, y: pendingConnection.currentY };
-                const dx = Math.abs(end.x - start.x);
-                const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
-                // ENTERPRISE: Match improved bezier formula from FlowConnectionComponent
-                const cpOffset = Math.min(200, Math.max(30, distance / 3));
-                const c1x = start.x + cpOffset;
-                const c1y = start.y;
-                const c2x = end.x - cpOffset;
-                const c2y = end.y;
-                const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
-                const baseColor = signalColor(pendingConnection.signalType);
-                return (
-                    <path
-                        d={pathData}
-                        fill="none"
-                        stroke={baseColor}
-                        strokeWidth={2.5}
-                        strokeLinecap="round"
-                        opacity={0.9}
-                        pointerEvents="none"
-                    />
-                );
-            })()}
+
         </svg>
     );
 }

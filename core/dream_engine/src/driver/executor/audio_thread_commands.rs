@@ -68,6 +68,8 @@ pub(super) struct CommandProcessingContext<'a> {
     /// When true, skip all external VST plugin try_lock() calls.
     /// Set via SetExportActive command to prevent RT/export state contention.
     pub export_active: &'a mut bool,
+    /// Wait-free garbage collection producer for offloading dropped references.
+    pub gc_producer: &'a mut rtrb::Producer<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 pub(super) fn drain_commands(
@@ -461,11 +463,16 @@ pub(super) fn drain_commands(
                 if idx < ctx.flow_engines.len() {
                     ctx.flow_engines[idx].sync_graph(&nodes, &connections);
                 }
+                // ENTERPRISE RT-SAFETY FIX: By pushing these Arcs into the Wait-Free GC queue,
+                // their respective Vec structures are deallocated asynchronously on the background
+                // GC thread rather than blocking the audio block execution.
+                let _ = ctx.gc_producer.push(nodes as std::sync::Arc<dyn std::any::Any + Send + Sync>);
+                let _ = ctx.gc_producer.push(connections as std::sync::Arc<dyn std::any::Any + Send + Sync>);
             }
             EngineCommand::UpdateFlowNodeParam { track_index, node_id, key, value } => {
                 let idx = track_index as usize;
                 if idx < ctx.flow_engines.len() {
-                    ctx.flow_engines[idx].update_node_param(node_id, &key, &value);
+                    ctx.flow_engines[idx].update_node_param(node_id, key, value);
                 }
             }
             // ── Essence Synth Commands ────────────────────────────────

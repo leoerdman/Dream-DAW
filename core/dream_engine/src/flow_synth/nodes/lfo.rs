@@ -45,14 +45,13 @@ impl LfoNode {
         self.rate = rate.clamp(0.01, 40.0);
     }
 
-    pub fn set_shape(&mut self, shape: &str) {
-        self.shape = match shape {
-            "sine" => LfoShape::Sine,
-            "triangle" | "tri" => LfoShape::Triangle,
-            "saw" | "sawtooth" => LfoShape::Saw,
-            "square" | "pulse" => LfoShape::Square,
-            "random" | "rand" | "s&h" => LfoShape::Random,
-            _ => self.shape,
+    pub fn set_shape_by_float(&mut self, val: f32) {
+        self.shape = match val as i32 {
+            1 => LfoShape::Triangle,
+            2 => LfoShape::Square,
+            3 | 4 => LfoShape::Saw, // map both up and down to Saw for now
+            5 => LfoShape::Random,
+            _ => LfoShape::Sine,
         };
     }
 

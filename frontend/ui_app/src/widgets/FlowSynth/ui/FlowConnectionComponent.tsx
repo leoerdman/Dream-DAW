@@ -17,7 +17,6 @@ interface Props {
     initialEnd: { x: number; y: number };
     isSelected: boolean;
     pulseTs: number;
-    now: number;
     selectConnection: (id: string) => void;
     deleteConnection: (id: string) => void;
 }
@@ -29,12 +28,29 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     initialEnd,
     isSelected,
     pulseTs,
-    now,
     selectConnection,
     deleteConnection
 }: Props) {
     const [start, setStart] = useState(initialStart);
     const [end, setEnd] = useState(initialEnd);
+    const [localNow, setLocalNow] = useState(() => Date.now());
+
+    useEffect(() => {
+        if (pulseTs === 0) return;
+        const timeSincePulse = Date.now() - pulseTs;
+        if (timeSincePulse >= PULSE_DURATION_MS) return;
+
+        let raf = 0;
+        const tick = () => {
+            setLocalNow(Date.now());
+            if (Date.now() - pulseTs < PULSE_DURATION_MS) {
+                raf = requestAnimationFrame(tick);
+            }
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [pulseTs]);
+
     // Hover tracking: use a ref+timeout to avoid flicker when mouse moves from cable to delete button
     const [isHovered, setIsHovered] = useState(false);
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,8 +115,8 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const baseColor = signalColor(signalType);
     const glowColor = signalGlowColor(signalType);
 
-    const elapsed = Math.max(0, now - pulseTs);
-    const pulseActive = elapsed < PULSE_DURATION_MS;
+    const elapsed = Math.max(0, localNow - pulseTs);
+    const pulseActive = pulseTs > 0 && elapsed < PULSE_DURATION_MS;
     const pulseT = Math.min(1, elapsed / PULSE_DURATION_MS);
 
     // Calculate dynamic bezier path
@@ -222,4 +238,21 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
             })()}
         </g>
     );
+}, (prev, next) => {
+    // ENTERPRISE FIX: Custom equality prevents O(N) re-renders of ALL connections
+    // when one node moves (initialStart/End object ref changes)
+
+    // 2. Perform deep coordinate equality instead of object reference equality
+    return prev.conn.id === next.conn.id
+        && prev.conn.signalType === next.conn.signalType
+        && prev.conn.fromNode === next.conn.fromNode
+        && prev.conn.toNode === next.conn.toNode
+        && prev.conn.fromPort === next.conn.fromPort
+        && prev.conn.toPort === next.conn.toPort
+        && prev.initialStart.x === next.initialStart.x
+        && prev.initialStart.y === next.initialStart.y
+        && prev.initialEnd.x === next.initialEnd.x
+        && prev.initialEnd.y === next.initialEnd.y
+        && prev.isSelected === next.isSelected
+        && prev.pulseTs === next.pulseTs;
 });

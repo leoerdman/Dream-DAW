@@ -4,6 +4,7 @@ use crate::essence_synth::EssenceSynthEngine;
 use crate::flow_synth::FlowSynthEngine;
 use crate::frame_domain::FrameDomainConverter;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
+use crate::driver::automation::apply_flow_synth_automation_block;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_instrument_sources(
@@ -21,6 +22,7 @@ pub(super) fn render_instrument_sources(
     is_playing: bool,
     midi_playhead_pos: i64,
     converter: &FrameDomainConverter,
+    automation: &[TrackAutomationState],
 ) {
     for track_idx in 0..track_count {
         if track_idx >= midi_snap.len() || track_idx >= sampler_engines.len() {
@@ -219,12 +221,19 @@ pub(super) fn render_instrument_sources(
                         }
                 if use_flow
                     && let Some(ref mut fl) = flow {
-                        fl.render(
-                            &mut slot.buf_left[cursor..cursor + seg],
-                            &mut slot.buf_right[cursor..cursor + seg],
-                            seg,
+                    if let Some(lane) = automation.get(track_idx) {
+                        apply_flow_synth_automation_block(
+                            fl,
+                            Some(lane),
+                            midi_playhead_pos + converter.device_to_timeline_offset(cursor) as i64,
                         );
                     }
+                    fl.render(
+                        &mut slot.buf_left[cursor..cursor + seg],
+                        &mut slot.buf_right[cursor..cursor + seg],
+                        seg,
+                    );
+                }
                 cursor += seg;
             } else if frame > cursor {
                 cursor = frame;
@@ -346,6 +355,13 @@ pub(super) fn render_instrument_sources(
                     }
             if use_flow
                 && let Some(ref mut fl) = flow {
+                    if let Some(lane) = automation.get(track_idx) {
+                        apply_flow_synth_automation_block(
+                            fl,
+                            Some(lane),
+                            midi_playhead_pos + converter.device_to_timeline_offset(cursor) as i64,
+                        );
+                    }
                     fl.render(
                         &mut slot.buf_left[cursor..fc],
                         &mut slot.buf_right[cursor..fc],

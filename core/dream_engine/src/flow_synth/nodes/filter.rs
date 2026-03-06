@@ -50,11 +50,11 @@ impl FilterNode {
         self.filter_type = filter_type;
     }
 
-    pub fn set_filter_type_by_name(&mut self, name: &str) {
-        self.filter_type = match name {
-            "highpass" => SynthFilterType::Highpass,
-            "bandpass" => SynthFilterType::Bandpass,
-            "notch" => SynthFilterType::Notch,
+    pub fn set_filter_type_by_float(&mut self, val: f32) {
+        self.filter_type = match val as i32 {
+            1 => SynthFilterType::Highpass,
+            2 => SynthFilterType::Bandpass,
+            3 => SynthFilterType::Notch,
             _ => SynthFilterType::Lowpass,
         };
     }

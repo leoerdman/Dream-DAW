@@ -298,30 +298,6 @@ pub struct RenderContext {
     pro_warp_start_track: usize,
 }
 
-pub fn soft_clip(sample: f32) -> f32 {
-    // ENTERPRISE: Guard NaN/Inf inputs early to prevent propagation.
-    if !sample.is_finite() {
-        return 0.0;
-    }
-    let abs = sample.abs();
-
-    // BUG-004 FIX: Raised threshold from 0.8 (-1.9 dBFS) to 0.95 (-0.45 dBFS).
-    // The old 0.8 threshold was compressing transients in the top 1.9 dB, causing
-    // noticeably quieter output than Ableton (which passes float samples cleanly).
-    // 0.95 preserves 99.5% of dynamic range while preventing harsh digital clips
-    // that occur when CoreAudio/CPAL hard-clip f32 outputs at 1.0.
-    const THRESH: f32 = 0.95;
-    const BETA: f32 = 1.0 - THRESH; // 0.05
-
-    if abs <= THRESH {
-        sample // 100% transparent below -0.45 dBFS
-    } else {
-        let excess = abs - THRESH;
-        // Rational curve mapping [0.95, inf) to [0.95, 1.0] with slope=1.0 at THRESH
-        let mapped = THRESH + (BETA * excess) / (BETA + excess);
-        sample.signum() * mapped
-    }
-}
 
 impl RenderContext {
     /// Creates a fully pre-allocated render context.
@@ -998,23 +974,23 @@ impl RenderContext {
         if self.channels == 2 {
             for i in 0..safe_frames {
                 let base = i * 2;
-                output[base] = soft_clip(master_l[i]);
-                output[base + 1] = soft_clip(master_r[i]);
+                output[base] = master_l[i];
+                output[base + 1] = master_r[i];
             }
         } else if self.channels == 1 {
             // BUG-078 FIX: Mix stereo to mono, preventing sample overlap corruption.
             for i in 0..safe_frames {
                 let mono = (master_l[i] + master_r[i]) * std::f32::consts::FRAC_1_SQRT_2;
                 if i < output.len() {
-                    output[i] = soft_clip(mono);
+                    output[i] = mono;
                 }
             }
         } else {
             for i in 0..safe_frames {
                 let base = i * self.channels;
                 if base + 1 < output.len() {
-                    output[base] = soft_clip(master_l[i]);
-                    output[base + 1] = soft_clip(master_r[i]);
+                    output[base] = master_l[i];
+                    output[base + 1] = master_r[i];
                     for ch in 2..self.channels {
                         let idx = base + ch;
                         if idx < output.len() {

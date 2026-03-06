@@ -1,5 +1,4 @@
 use super::super::*;
-use crate::render_callback::soft_clip;
 use dream_dsp::device_slot::ProcessContext;
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
@@ -439,9 +438,7 @@ pub(super) fn finalize_output_and_publish(
     render_ctx: &mut RenderContext,
     sample_rate_f64: f64,
 ) {
-    for sample in data[..n * channels].iter_mut() {
-        *sample = soft_clip(*sample);
-    }
+    let valid_data = &data[..n * channels];
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {
         // BUG-013 FIX: Track drops as boolean per-buffer, not per-sample counter.
@@ -449,7 +446,7 @@ pub(super) fn finalize_output_and_publish(
         // atomic ops at 48kHz) — pure overhead when the ring is full.
         let mut had_drops = false;
         if channels >= 2 {
-            for frame in data.chunks_exact(channels) {
+            for frame in valid_data.chunks_exact(channels) {
                 let mono = (frame[0] + frame[1]) * 0.5;
                 if producer.push(mono).is_err() {
                     had_drops = true;
@@ -458,7 +455,7 @@ pub(super) fn finalize_output_and_publish(
         } else if channels == 1 {
             // ENTERPRISE FIX: For mono devices, iterate frame-by-frame
             // instead of per-sample to avoid pushing extra surround channel data.
-            for frame in data.chunks_exact(channels) {
+            for frame in valid_data.chunks_exact(channels) {
                 if producer.push(frame[0]).is_err() {
                     had_drops = true;
                 }
@@ -477,7 +474,7 @@ pub(super) fn finalize_output_and_publish(
         let mut peak_r = 0.0f32;
         let mut frames = 0usize;
 
-        for frame in data.chunks_exact(channels) {
+        for frame in valid_data.chunks_exact(channels) {
             let l = frame[0];
             let r = frame[1];
             sum_sq_l += (l as f64) * (l as f64);

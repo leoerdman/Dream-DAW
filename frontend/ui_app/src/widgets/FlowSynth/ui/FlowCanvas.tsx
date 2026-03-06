@@ -3,12 +3,17 @@ import { Hand, MousePointer2 } from 'lucide-react';
 import { CanvasGrid } from './CanvasGrid';
 import { NodesLayer } from './NodesLayer';
 import { ConnectionsLayer } from './ConnectionsLayer';
+import { PendingConnectionLayer } from './PendingConnectionLayer';
+import {
+    FLOW_MENU_WIDTH,
+    FLOW_MENU_HEIGHT,
+    FLOW_MENU_MARGIN,
+} from '../model/portRegistry';
 import { useViewport } from '../model/useViewport';
 import {
     useFlowSynthStore,
     type SynthNodeType,
 } from '../model/useFlowSynthStore';
-import { FLOW_NODE_HEADER_HEIGHT, PORT_REGISTRY, portCenterY } from '../model/portRegistry';
 import { viewportProxy } from '../lib/ViewportProxy';
 
 const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string[]; category: string }> = [
@@ -63,8 +68,6 @@ function toWorld(clientX: number, clientY: number, canvas: HTMLElement) {
 export function FlowCanvas() {
     const { viewportRef, handleWheel } = useViewport();
     const nodes = useFlowSynthStore((state) => state.nodes);
-    const connections = useFlowSynthStore((state) => state.connections);
-    const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
     const selectedNodeIds = useFlowSynthStore((state) => state.selectedNodeIds);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
 
@@ -82,9 +85,6 @@ export function FlowCanvas() {
     const [menuIndex, setMenuIndex] = useState(0);
     const [selectionBox, setSelectionBoxUi] = useState<SelectionBox>(null);
     const addNode = useFlowSynthStore((state) => state.addNode);
-    const updatePendingConnection = useFlowSynthStore((state) => state.updatePendingConnection);
-    const cancelConnectionDrag = useFlowSynthStore((state) => state.cancelConnectionDrag);
-    const commitConnection = useFlowSynthStore((state) => state.commitConnection);
     const clearSelection = useFlowSynthStore((state) => state.clearSelection);
     const setSelectionBox = useFlowSynthStore((state) => state.setSelectionBox);
     const deleteSelectedNodes = useFlowSynthStore((state) => state.deleteSelectedNodes);
@@ -108,10 +108,9 @@ export function FlowCanvas() {
         const canvasX = (e.clientX - rect.left - vp.x) / vp.zoom;
         const canvasY = (e.clientY - rect.top - vp.y) / vp.zoom;
 
-        const MENU_WIDTH = 196;
-        const MENU_HEIGHT = 248;
-        const clampedX = Math.max(8, Math.min(e.clientX, window.innerWidth - MENU_WIDTH - 8));
-        const clampedY = Math.max(8, Math.min(e.clientY, window.innerHeight - MENU_HEIGHT - 8));
+        // Position the menu near the click but keep it on screen
+        const clampedX = Math.max(FLOW_MENU_MARGIN, Math.min(e.clientX, window.innerWidth - FLOW_MENU_WIDTH - FLOW_MENU_MARGIN));
+        const clampedY = Math.max(FLOW_MENU_MARGIN, Math.min(e.clientY, window.innerHeight - FLOW_MENU_HEIGHT - FLOW_MENU_MARGIN));
         setMenuState({ x: clampedX, y: clampedY, canvasX, canvasY });
         setMenuSearch('');
         setMenuIndex(0);
@@ -125,10 +124,8 @@ export function FlowCanvas() {
         const canvasX = (clientX - rect.left - vp.x) / vp.zoom;
         const canvasY = (clientY - rect.top - vp.y) / vp.zoom;
 
-        const MENU_WIDTH = 196;
-        const MENU_HEIGHT = 248;
-        const clampedX = Math.max(8, Math.min(clientX, window.innerWidth - MENU_WIDTH - 8));
-        const clampedY = Math.max(8, Math.min(clientY, window.innerHeight - MENU_HEIGHT - 8));
+        const clampedX = Math.max(FLOW_MENU_MARGIN, Math.min(clientX, window.innerWidth - FLOW_MENU_WIDTH - FLOW_MENU_MARGIN));
+        const clampedY = Math.max(FLOW_MENU_MARGIN, Math.min(clientY, window.innerHeight - FLOW_MENU_HEIGHT - FLOW_MENU_MARGIN));
         setMenuState({ x: clampedX, y: clampedY, canvasX, canvasY });
         setMenuSearch('');
         setMenuIndex(0);
@@ -185,12 +182,6 @@ export function FlowCanvas() {
                     e.preventDefault();
                     e.stopPropagation();
                     setMenuState(null);
-                    return;
-                }
-                if (pendingConnection) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    cancelConnectionDrag();
                     return;
                 }
                 clearSelection();
@@ -251,82 +242,10 @@ export function FlowCanvas() {
         return () => {
             document.removeEventListener('keydown', onKeyDown, true);
             document.removeEventListener('keyup', onKeyUp, true);
-            window.removeEventListener('blur', onBlur);
         };
-    }, [menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex]);
+    }, [menuState, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex]);
 
-    useEffect(() => {
-        if (!menuState) return;
-        menuInputRef.current?.focus();
-    }, [menuState]);
 
-    useEffect(() => {
-        if (!pendingConnection) return;
-        const findSnapTarget = (worldX: number, worldY: number) => {
-            const occupiedInputs = new Set(
-                connections.map((conn) => `${conn.toNode}:${conn.toPort}`),
-            );
-            let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
-            let bestDist = Infinity;
-            for (const node of nodes) {
-                if (node.id === pendingConnection.fromNode) continue;
-                if (!node.position) continue; // ENTERPRISE GUARD: skip corrupt nodes
-                const config = PORT_REGISTRY[node.type as SynthNodeType];
-                if (!config || config.inputs.length === 0) continue;
-                // Check each input port
-                for (let pi = 0; pi < config.inputs.length; pi++) {
-                    const portDef = config.inputs[pi];
-                    const signalType: 'audio' | 'midi' | 'control' = portDef.type === 'midi' ? 'midi' : portDef.type === 'control' ? 'control' : 'audio';
-                    // ENTERPRISE FIX: Strict port matching. No exceptions allowed per user mandate.
-                    // Yellow port ONLY to yellow port, blue port ONLY to blue port.
-                    if (signalType !== pendingConnection.signalType) continue;
-                    const toPort = portDef.id;
-                    const x = node.position.x;
-                    const y = node.position.y + FLOW_NODE_HEADER_HEIGHT + portCenterY(pi);
-                    const dx = worldX - x;
-                    const dy = worldY - y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist >= 24) continue;
-                    const occupied = occupiedInputs.has(`${node.id}:${toPort}`);
-                    if (!best ||
-                        (best.occupied && !occupied) ||
-                        (best.occupied === occupied && dist < bestDist)
-                    ) {
-                        bestDist = dist;
-                        best = { nodeId: node.id, signalType, toPort, x, y, occupied };
-                    }
-                }
-            }
-
-            return best;
-        };
-
-        const onPointerMove = (e: PointerEvent) => {
-            const canvas = viewportRef.current;
-            if (!canvas) return;
-            const world = toWorld(e.clientX, e.clientY, canvas);
-            const snapTarget = findSnapTarget(world.x, world.y);
-            if (snapTarget) updatePendingConnection(snapTarget.x, snapTarget.y);
-            else updatePendingConnection(world.x, world.y);
-        };
-        const onPointerUp = (e: PointerEvent) => {
-            const canvas = viewportRef.current;
-            if (!canvas) return;
-            const world = toWorld(e.clientX, e.clientY, canvas);
-            const snapTarget = findSnapTarget(world.x, world.y);
-            if (snapTarget) {
-                commitConnection(snapTarget.nodeId, snapTarget.toPort, snapTarget.signalType);
-                return;
-            }
-            cancelConnectionDrag();
-        };
-        window.addEventListener('pointermove', onPointerMove);
-        window.addEventListener('pointerup', onPointerUp, { once: true });
-        return () => {
-            window.removeEventListener('pointermove', onPointerMove);
-            window.removeEventListener('pointerup', onPointerUp);
-        };
-    }, [pendingConnection, updatePendingConnection, cancelConnectionDrag, commitConnection, viewportRef, nodes, connections]);
 
     const filteredCatalog = useMemo(() => {
         const q = menuSearch.trim().toLowerCase();
@@ -440,6 +359,7 @@ export function FlowCanvas() {
         >
             <CanvasGrid showOrigin={true} />
             <ConnectionsLayer />
+            <PendingConnectionLayer viewportRef={viewportRef} />
             <NodesLayer interactionDisabled={ctrlPressed || tool === 'hand'} />
             {selectionBox && (
                 <div
@@ -451,8 +371,8 @@ export function FlowCanvas() {
                         height: Math.abs(selectionBox.currentY - selectionBox.startY),
                         transform: `translate(${viewportProxy.getViewport().x}px, ${viewportProxy.getViewport().y}px) scale(${viewportProxy.getViewport().zoom})`,
                         transformOrigin: '0 0',
-                        background: 'color-mix(in srgb, var(--color-accent-primary) 18%, transparent)',
-                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, transparent)',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
                         pointerEvents: 'none',
                         zIndex: 9,
                     }}
@@ -462,27 +382,27 @@ export function FlowCanvas() {
                 style={{
                     position: 'absolute',
                     left: '50%',
-                    bottom: 14,
+                    bottom: 'var(--space-4)',
                     transform: 'translateX(-50%)',
                     display: 'flex',
-                    gap: 8,
-                    padding: 6,
-                    borderRadius: 10,
-                    border: '1px solid color-mix(in srgb, var(--color-divider) 80%, transparent)',
-                    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, black 8%)',
-                    zIndex: 20,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+                    gap: 'var(--space-2)',
+                    padding: 'var(--space-1-5)',
+                    borderRadius: 'var(--radius-lg)',
+                    border: 'var(--space-px) solid var(--color-divider)',
+                    background: 'var(--color-bg-elevated)',
+                    zIndex: 'var(--z-fixed)',
+                    boxShadow: 'var(--shadow-lg)',
                 }}
             >
                 <button
                     onClick={() => setTool('cursor')}
                     title="Cursor"
                     style={{
-                        width: 32,
-                        height: 28,
-                        border: '1px solid color-mix(in srgb, var(--color-divider) 85%, transparent)',
-                        borderRadius: 8,
-                        background: tool === 'cursor' ? 'color-mix(in srgb, var(--color-accent-primary) 28%, transparent)' : 'transparent',
+                        width: 'var(--space-8)',
+                        height: 'var(--space-7)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 80%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        background: tool === 'cursor' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, transparent)' : 'transparent',
                         color: 'var(--color-text-primary)',
                         display: 'flex',
                         alignItems: 'center',
@@ -496,11 +416,11 @@ export function FlowCanvas() {
                     onClick={() => setTool('hand')}
                     title="Hand"
                     style={{
-                        width: 32,
-                        height: 28,
-                        border: '1px solid color-mix(in srgb, var(--color-divider) 85%, transparent)',
-                        borderRadius: 8,
-                        background: tool === 'hand' ? 'color-mix(in srgb, var(--color-accent-primary) 28%, transparent)' : 'transparent',
+                        width: 'var(--space-8)',
+                        height: 'var(--space-7)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 80%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        background: tool === 'hand' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, transparent)' : 'transparent',
                         color: 'var(--color-text-primary)',
                         display: 'flex',
                         alignItems: 'center',
@@ -519,7 +439,7 @@ export function FlowCanvas() {
                         position: 'fixed',
                         top: menuState.y,
                         left: menuState.x,
-                        background: 'color-mix(in srgb, var(--color-bg-panel) 88%, transparent)',
+                        background: 'var(--color-bg-blur)',
                         backdropFilter: 'blur(var(--blur-lg))',
                         WebkitBackdropFilter: 'blur(var(--blur-lg))',
                         border: 'var(--space-px) solid var(--color-divider)',

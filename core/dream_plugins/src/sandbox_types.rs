@@ -40,6 +40,7 @@ pub struct PluginSandboxRuntimeInfo {
     pub crash_count: u32,
     pub restart_count: u32,
     pub bypass_requested: bool,
+    pub has_reached_running: bool,
     pub last_error: Option<String>,
     pub shared_region: Option<SharedAudioRegion>,
 }

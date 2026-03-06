@@ -1,9 +1,7 @@
 use crate::instrument_core::MAX_VOICES;
-use crate::flow_synth::graph::{FlowGraph, FlowConnection};
+use crate::flow_synth::graph::FlowGraph;
 use crate::flow_synth::nodes::MidiInNode;
 use crate::oscillator::ParameterSmoother;
-use std::collections::{HashMap, VecDeque};
-
 /// A single polyphonic voice in the Flow Synth.
 pub struct FlowVoice {
     pub active: bool,
@@ -133,125 +131,32 @@ impl FlowSynthEngine {
         self.voices.iter().any(|v| v.active)
     }
 
-    /// Synchronize the entire graph structure from the UI thread.
-    /// This is called from the command handler and replaces all voices' graphs.
-    fn topologically_sorted_nodes(
-        nodes: &[dream_ipc::FlowNodeDescriptor],
-        connections: &[(u64, usize, u64, usize)],
-    ) -> Vec<dream_ipc::FlowNodeDescriptor> {
-        let mut index_by_id = HashMap::with_capacity(nodes.len());
-        for (idx, (id, _, _)) in nodes.iter().enumerate() {
-            index_by_id.insert(*id, idx);
-        }
-
-        let mut indegree: HashMap<u64, usize> = HashMap::with_capacity(nodes.len());
-        let mut outgoing: HashMap<u64, Vec<u64>> = HashMap::with_capacity(nodes.len());
-        for (id, _, _) in nodes {
-            indegree.insert(*id, 0);
-            outgoing.insert(*id, Vec::new());
-        }
-
-        for (from_id, _, to_id, _) in connections {
-            if from_id == to_id {
-                continue;
-            }
-            if !index_by_id.contains_key(from_id) || !index_by_id.contains_key(to_id) {
-                continue;
-            }
-            if let Some(v) = outgoing.get_mut(from_id) {
-                v.push(*to_id);
-            }
-            if let Some(d) = indegree.get_mut(to_id) {
-                *d += 1;
-            }
-        }
-
-        // ENTERPRISE: Use VecDeque for efficient O(1) pop_front instead of Vec::remove(0).
-        let mut ready: VecDeque<u64> = indegree
-            .iter()
-            .filter_map(|(id, &d)| if d == 0 { Some(*id) } else { None })
-            .collect();
-        // Sort initial ready set deterministically by original index.
-        let mut ready_vec: Vec<u64> = ready.drain(..).collect();
-        ready_vec.sort_by_key(|id| index_by_id.get(id).copied().unwrap_or(usize::MAX));
-        ready = ready_vec.into();
-
-        let mut ordered_ids = Vec::with_capacity(nodes.len());
-        while let Some(id) = ready.pop_front() {
-            ordered_ids.push(id);
-            if let Some(neighbors) = outgoing.get(&id) {
-                let mut new_ready = Vec::new();
-                for &n in neighbors {
-                    if let Some(d) = indegree.get_mut(&n) {
-                        *d = d.saturating_sub(1);
-                        if *d == 0 {
-                            new_ready.push(n);
-                        }
-                    }
-                }
-                // Sort newly ready nodes by original index for deterministic ordering.
-                new_ready.sort_by_key(|nid| index_by_id.get(nid).copied().unwrap_or(usize::MAX));
-                ready.extend(new_ready);
-            }
-        }
-
-        // ENTERPRISE: Detect feedback loops — if some nodes weren't reached by topo sort,
-        // they form a cycle. Log a warning and append them (best-effort processing).
-        if ordered_ids.len() < nodes.len() {
-            let cycle_count = nodes.len() - ordered_ids.len();
-            log::warn!(
-                "[FlowSynth] Feedback loop detected: {} node(s) form a cycle. \
-                 Sound may not render correctly. Consider breaking the loop.",
-                cycle_count
-            );
-            for (id, _, _) in nodes {
-                if !ordered_ids.iter().any(|v| v == id) {
-                    ordered_ids.push(*id);
-                }
-            }
-        }
-
-        let mut by_id: HashMap<u64, (String, Vec<(String, String)>)> = HashMap::with_capacity(nodes.len());
-        for (id, node_type, params) in nodes {
-            by_id.insert(*id, (node_type.clone(), params.clone()));
-        }
-
-        ordered_ids
-            .into_iter()
-            .filter_map(|id| by_id.remove(&id).map(|(node_type, params)| (id, node_type, params)))
-            .collect()
-    }
-
     pub fn sync_graph(
         &mut self,
         nodes: &[dream_ipc::FlowNodeDescriptor],
         connections: &[(u64, usize, u64, usize)],
     ) {
         // ENTERPRISE FIX: Auto-enable the engine when a graph is synced.
-        // Previously the engine started disabled and required the user
-        // to explicitly open the Flow editor UI (eye icon) to enable it.
-        // This caused MIDI notes to be silent on tracks with a Flow
-        // instrument until the UI was opened.
         if !nodes.is_empty() {
             self.enabled = true;
         }
 
-        let ordered_nodes = Self::topologically_sorted_nodes(nodes, connections);
+        // ENTERPRISE FIX: Nodes are already topologically sorted by the desktop_host
+        // command handler before being sent to the audio thread via IPC.
         for voice in &mut self.voices {
             voice.graph.clear();
             voice.midi_in_index = None;
 
-            for (id, node_type, params) in &ordered_nodes {
-                voice.graph.add_node(*id, node_type);
+            for (id, node_type, params) in nodes {
+                voice.graph.add_node(*id, *node_type);
                 voice.graph.set_node_params(*id, params);
 
-                // Track the MidiInNode index for note routing.
-                if node_type == "midiIn" || node_type == "midi_in" {
+                if *node_type == dream_ipc::FlowNodeType::MidiIn {
                     voice.midi_in_index = voice.graph.get_node_index(*id);
                 }
             }
             for &(from_id, from_port, to_id, to_port) in connections {
-                voice.graph.add_connection(FlowConnection {
+                voice.graph.add_connection(crate::flow_synth::graph::FlowConnection {
                     from_node: from_id,
                     from_port,
                     to_node: to_id,
@@ -262,9 +167,10 @@ impl FlowSynthEngine {
     }
 
     /// ENTERPRISE: Update a single parameter on a specific node across all polyphonic voices.
-    /// Bypasses the expensive O(N) `sync_graph` topological sort and allocation.
-    pub fn update_node_param(&mut self, node_id: u64, key: &str, value: &str) {
-        let param_slice = [(key.to_string(), value.to_string())];
+    /// This now avoids String allocations entirely by using the `FlowParamKey` enum and `f32`.
+    pub fn update_node_param(&mut self, node_id: u64, key: dream_ipc::FlowParamKey, value: f32) {
+        // Re-use set_node_params with a stack slice to avoid allocations
+        let param_slice = [(key, value)];
         for voice in &mut self.voices {
             voice.graph.set_node_params(node_id, &param_slice);
         }

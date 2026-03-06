@@ -36,8 +36,8 @@ impl Default for AutoFilterNode {
 }
 
 impl AutoFilterNode {
-    pub fn set_filter_type_by_name(&mut self, name: &str) {
-        self.filter.set_filter_type_by_name(name);
+    pub fn set_filter_type_by_float(&mut self, val: f32) {
+        self.filter.set_filter_type_by_float(val);
     }
 
     pub fn set_base_freq(&mut self, freq: f32) {

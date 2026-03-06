@@ -30,6 +30,8 @@ export function EqControls({ node }: Props) {
             justifyContent: 'space-around',
         }}>
             <RotaryKnob
+                nodeId={node.id}
+                paramId="lowFreq"
                 value={lowFreq}
                 min={40}
                 max={800}
@@ -40,6 +42,8 @@ export function EqControls({ node }: Props) {
                 onChange={(v) => setParam('lowFreq', v)}
             />
             <RotaryKnob
+                nodeId={node.id}
+                paramId="highFreq"
                 value={highFreq}
                 min={1000}
                 max={16000}

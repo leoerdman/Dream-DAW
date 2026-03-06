@@ -40,11 +40,10 @@ impl NoiseNode {
         }
     }
 
-    pub fn set_color(&mut self, color: &str) {
-        self.color = match color {
-            "white" => NoiseColor::White,
-            "pink" => NoiseColor::Pink,
-            _ => self.color,
+    pub fn set_color_by_float(&mut self, val: f32) {
+        self.color = match val as i32 {
+            1 => NoiseColor::Pink,
+            _ => NoiseColor::White,
         };
     }
 

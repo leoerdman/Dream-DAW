@@ -352,6 +352,7 @@ pub(crate) fn spawn_background_runtime_threads(
             // the rest of this session.
             if !snapshot.instances.is_empty()
                 && snapshot.instances.iter().all(|i| i.bypass_requested)
+                && !snapshot.instances.iter().any(|i| i.has_reached_running)
                 && !plugin_host_state.is_sandbox_disabled_for_session()
             {
                 plugin_host_state.disable_sandbox_for_session();

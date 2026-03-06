@@ -1,14 +1,27 @@
 import { create } from 'zustand';
+import { z } from 'zod';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
-import { portNameToIndex, PORT_REGISTRY, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType, type PortDefinition } from './portRegistry';
+import {
+    portNameToIndex,
+    PORT_REGISTRY,
+    FLOW_NODE_HEADER_HEIGHT,
+    FLOW_PULSE_GC_MS,
+    FLOW_SELECTION_PADDING_Y,
+    type SynthNodeType,
+    type PortDefinition
+} from './portRegistry';
 import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
 import { FACTORY_PRESETS, clonePreset, type FlowPreset } from './flowPresets';
 
 export type { SynthNodeType };
 export type { FlowPreset };
+
+export const FLOW_SYNTH_PLUGIN_ID = 'internal://instrument/flow';
+export const FLOW_AUTO_SAVE_DEBOUNCE_MS = 1500;
+export const FLOW_ENGINE_SETTLE_MS = 500;
 
 export interface SynthNode {
     id: string;
@@ -54,7 +67,6 @@ interface FlowSynthState {
     selectedConnectionId: string | null;
     connectionPulseById: Record<string, number>;
     pendingConnection: PendingConnection | null;
-    graphsByDeviceId: Record<string, FlowGraph>;
 
     // ── Preset state ───────────────────────────────────────────────────
     presetName: string;
@@ -133,7 +145,7 @@ const DEFAULT_FLOW_GRAPH: FlowGraph = {
     viewport: { x: 0, y: 0, zoom: 1 },
 };
 
-function stableNodeNumericId(nodeId: string): number {
+export function stableNodeNumericId(nodeId: string): number {
     // ENTERPRISE GUARD: Prevent crash when nodeId is undefined/null
     // (can happen during project hydration with corrupt/partial FlowSynth data)
     if (!nodeId) return 1;
@@ -156,25 +168,77 @@ function resolvePortIndex(nodeId: string, portId: string, side: 'in' | 'out', no
     return portNameToIndex(node.type as SynthNodeType, portId, side);
 }
 
-/**
- * BUG-15 FIX: Re-parse Rust HashMap<String,String> values to proper JS types.
- * Numeric strings → numbers, "true"/"false" → booleans, rest stays as strings.
- * Without this, node controls receive string "440" instead of number 440.
- */
-function _rehydrateData(data: Record<string, unknown> | undefined): Record<string, unknown> {
-    if (!data) return {};
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(data)) {
-        if (v === null || v === undefined) continue;
-        if (typeof v === 'string') {
-            if (v === 'true') { out[k] = true; continue; }
-            if (v === 'false') { out[k] = false; continue; }
-            const num = Number(v);
-            if (v !== '' && Number.isFinite(num)) { out[k] = num; continue; }
-        }
-        out[k] = v;
+// ENTERPRISE FIX: Strict scalar coercion
+const flowNumber = z.preprocess((v) => {
+    if (v === undefined || v === null || v === '') return undefined;
+    if (typeof v === 'string') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
     }
-    return out;
+    if (typeof v === 'number') return v;
+    return undefined;
+}, z.number().optional());
+
+const flowBoolean = z.preprocess((v) => {
+    if (v === 'true' || v === true) return true;
+    if (v === 'false' || v === false) return false;
+    return undefined;
+}, z.boolean().optional());
+
+const flowString = z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    return String(v);
+}, z.string().optional());
+
+// ENTERPRISE FIX: Exhaustive schema definitions per node type preventing arbitrary unhandled data keys
+const NodeSchemas: Record<SynthNodeType, z.ZodObject<any>> = {
+    oscillator: z.object({ label: flowString, waveform: flowString, frequency: flowNumber, pulseWidth: flowNumber }),
+    filter: z.object({ label: flowString, filterType: flowString, cutoff: flowNumber, resonance: flowNumber }),
+    envelope: z.object({ label: flowString, attack: flowNumber, decay: flowNumber, sustain: flowNumber, release: flowNumber }),
+    eq: z.object({ label: flowString, lowFreq: flowNumber, highFreq: flowNumber, lowGain: flowNumber, midGain: flowNumber, highGain: flowNumber }),
+    autofilter: z.object({ label: flowString, filterType: flowString, cutoff: flowNumber, resonance: flowNumber, rate: flowNumber, depth: flowNumber, envDepth: flowNumber }),
+    reverse: z.object({ label: flowString, windowMs: flowNumber, feedback: flowNumber }),
+    audioIn: z.object({ label: flowString }),
+    midiIn: z.object({ label: flowString, channel: flowString, transpose: flowNumber }),
+    output: z.object({ label: flowString, gain: flowNumber, muted: flowBoolean }),
+    lfo: z.object({ label: flowString, shape: flowString, bipolar: flowBoolean, rate: flowNumber }),
+    noise: z.object({ label: flowString, color: flowString, level: flowNumber }),
+    delay: z.object({ label: flowString, time: flowNumber, feedback: flowNumber, mix: flowNumber }),
+    mixer: z.object({ label: flowString, gain1: flowNumber, gain2: flowNumber, gain3: flowNumber, gain4: flowNumber }),
+    vca: z.object({ label: flowString, bias: flowNumber }),
+    pitch: z.object({ label: flowString, octaveOffset: flowNumber }),
+    utility: z.object({ label: flowString, phaseInvert: flowBoolean, gain: flowNumber, pan: flowNumber }),
+    distortion: z.object({ label: flowString, mode: flowString, drive: flowNumber, mix: flowNumber }),
+    vst3: z.object({ label: flowString, pluginName: flowString }),
+    add: z.object({ label: flowString }),
+    multiply: z.object({ label: flowString, scale: flowNumber }),
+    sampleHold: z.object({ label: flowString }),
+};
+
+/**
+ * ENTERPRISE FIX: Re-parse Rust HashMap<String,String> values to proper JS types
+ * using strict Zod schemas for robust Enterprise-grade hydration and fault tolerance.
+ */
+function _rehydrateData(type: SynthNodeType, data: Record<string, unknown> | undefined): Record<string, unknown> {
+    if (!data) return {};
+
+    const cleanData: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (v !== null && v !== undefined) cleanData[k] = v;
+    }
+
+    const schema = NodeSchemas[type];
+    if (schema) {
+        const parsed = schema.safeParse(cleanData);
+        if (parsed.success) {
+            return parsed.data as Record<string, unknown>;
+        }
+        console.warn(`[FlowSynth] Zod Schema mismatch for ${type}:`, parsed.error);
+        return {}; // Zero-trust policy: Drop corrupt data payloads entirely
+    }
+
+    // Fallback security zero-trust
+    return {};
 }
 
 function cloneDefaultGraph(): FlowGraph {
@@ -245,7 +309,25 @@ function buildFlowConfigJson(state: FlowSynthState, viewportX: number, viewportY
     });
 }
 
-// ENTERPRISE: Aggressively debounced disk-save (1.5 seconds).
+function _forceSaveConfig(state: FlowSynthState) {
+    if (_saveTimeout !== null) {
+        window.clearTimeout(_saveTimeout);
+        _saveTimeout = null;
+    }
+    const capturedTrackId = state.activeTrackId;
+    if (!capturedTrackId) return;
+    const vp = viewportProxy.getViewport();
+    const jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
+    const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
+    if (trackIndex < 0) return;
+    engine.saveFlowSynthConfig(trackIndex, jsonStr).then(response => {
+        if (response?.deltas?.length) {
+            useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig').catch(console.error);
+        }
+    }).catch(console.error);
+}
+
+// ENTERPRISE: Aggressively debounced disk-save.
 // Separates the fast RT-safe parameter modulation from disk I/O serialization.
 let _saveTimeout: number | null = null;
 function _scheduleSaveConfig(get: () => FlowSynthState): void {
@@ -265,18 +347,12 @@ function _scheduleSaveConfig(get: () => FlowSynthState): void {
         // ENTERPRISE FIX: If the user closed the editor or switched tracks BEFORE the debounce fired,
         // activeTrackId no longer matches capturedTrackId.
         // In that case, we MUST NOT abort the save, otherwise their work is permanently lost from the disk file!
-        // Instead, pull the latest nodes/connections from the authoritative graphsByDeviceId cache.
-        if (state.activeTrackId === capturedTrackId) {
-            const vp = viewportProxy.getViewport();
-            jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
-        } else {
-            const cachedGraph = state.graphsByDeviceId[capturedDeviceId];
-            if (!cachedGraph) return; // Edge case: graph somehow deleted completely
+        // But since we removed the stale cache, the sync save should ALREADY be triggered by closeFlowEditor!
+        // So we only save here if we are still on the same track.
+        if (state.activeTrackId !== capturedTrackId) return;
 
-            // Reconstruct a temporary state-like struct for the json builder
-            const tempState = { ...state, nodes: cachedGraph.nodes, connections: cachedGraph.connections };
-            jsonStr = buildFlowConfigJson(tempState, cachedGraph.viewport.x, cachedGraph.viewport.y, cachedGraph.viewport.zoom);
-        }
+        const vp = viewportProxy.getViewport();
+        jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
 
         const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
         if (trackIndex < 0) return;
@@ -286,8 +362,18 @@ function _scheduleSaveConfig(get: () => FlowSynthState): void {
         if (response?.deltas?.length) {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig');
         }
-    }, 1500);
+    }, FLOW_AUTO_SAVE_DEBOUNCE_MS);
 }
+
+/**
+ * ENTERPRISE FIX: Converts legacy project port IDs to the unified Modular standard
+ */
+function migrateLegacyPortName(portName: string): string {
+    if (portName === 'audioL' || portName === 'audioR') return 'audio';
+    return portName;
+}
+
+
 
 export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     isOpen: false,
@@ -303,15 +389,19 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     selectedConnectionId: null,
     connectionPulseById: {},
     pendingConnection: null,
-    graphsByDeviceId: {},
 
     // ── Preset initial state ───────────────────────────────────────────
     presetName: FACTORY_PRESETS[0].name,
     presetIndex: 0,
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
-        let graph = state.graphsByDeviceId[deviceId];
-        const isFirstOpen = !graph;
+        // Automatically save previous track state synchronously before switching context!
+        if (state.activeTrackId && state.activeTrackId !== trackId) {
+            _forceSaveConfig(state);
+        }
+
+        let graph: FlowGraph | null = null;
+        const isFirstOpen = true; // Always true now since we rely on SSOT
         if (!graph) {
             // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
             const track = useEngineStore.getState().tracks.byId[trackId];
@@ -327,10 +417,10 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                         type: n.type as SynthNodeType,
                         position: { x: n.position_x, y: n.position_y },
                         // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse numeric/boolean values
-                        data: _rehydrateData(n.data)
+                        data: _rehydrateData(n.type as SynthNodeType, n.data)
                     })),
                     connections: track.flow_synth.connections.map((c: any) => {
-                        const toPort = (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port;
+                        const toPort = migrateLegacyPortName(c.to_port ?? '');
                         // Signal type: use saved value, or infer from the source port's type in PORT_REGISTRY
                         let signalType = c.signalType ?? c.signal_type ?? null;
                         if (!signalType) {
@@ -383,9 +473,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedNodeIds: [],
             selectedConnectionId: null,
             pendingConnection: null,
-            graphsByDeviceId: state.graphsByDeviceId[deviceId]
-                ? state.graphsByDeviceId
-                : { ...state.graphsByDeviceId, [deviceId]: graph },
         };
     }),
 
@@ -401,15 +488,10 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 pendingConnection: null,
             };
         }
-        const activeDeviceId = state.activeDeviceId;
-        const nextGraphs = {
-            ...state.graphsByDeviceId,
-            [activeDeviceId]: {
-                nodes: state.nodes,
-                connections: state.connections,
-                viewport: viewportProxy.getViewport(),
-            },
-        };
+
+        // ENTERPRISE FIX: Synchronously save upon closing editor so we don't lose data
+        _forceSaveConfig(state);
+
         viewportProxy.reset();
         return {
             isOpen: false,
@@ -418,7 +500,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedNodeIds: [],
             selectedConnectionId: null,
             pendingConnection: null,
-            graphsByDeviceId: nextGraphs,
         };
     }),
 
@@ -440,14 +521,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             nodes: nextNodes,
             selectedNodeIds: [safeNode.id],
             selectedConnectionId: null,
-            graphsByDeviceId: {
-                ...state.graphsByDeviceId,
-                [state.activeDeviceId]: {
-                    nodes: nextNodes,
-                    connections: state.connections,
-                    viewport: viewportProxy.getViewport(),
-                },
-            },
         };
     }),
 
@@ -489,16 +562,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedConnectionId: state.selectedConnectionId && nextConnections.some((c) => c.id === state.selectedConnectionId)
                 ? state.selectedConnectionId
                 : null,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: nextNodes,
-                        connections: nextConnections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         };
     }),
 
@@ -541,16 +604,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             });
             return {
                 nodes: nextNodes,
-                graphsByDeviceId: state.activeDeviceId
-                    ? {
-                        ...state.graphsByDeviceId,
-                        [state.activeDeviceId]: {
-                            nodes: nextNodes,
-                            connections: state.connections,
-                            viewport: viewportProxy.getViewport(),
-                        },
-                    }
-                    : state.graphsByDeviceId,
             };
         });
     },
@@ -574,16 +627,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             connections: nextConnections,
             selectedNodeIds: [],
             selectedConnectionId: null,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: nextNodes,
-                        connections: nextConnections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         };
     }),
 
@@ -595,7 +638,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 const left = node.position.x;
                 const right = node.position.x + FLOW_NODE_WIDTH;
                 const top = node.position.y;
-                const bottom = node.position.y + FLOW_NODE_HEADER_HEIGHT + 100;
+                const bottom = node.position.y + FLOW_NODE_HEADER_HEIGHT + FLOW_SELECTION_PADDING_Y;
                 return right >= box.x
                     && left <= box.x + box.width
                     && bottom >= box.y
@@ -615,16 +658,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         return {
             connections: nextConnections,
             selectedConnectionId: state.selectedConnectionId === id ? null : state.selectedConnectionId,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: state.nodes,
-                        connections: nextConnections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         };
     }),
 
@@ -640,16 +673,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         });
         return {
             nodes: nextNodes,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: nextNodes,
-                        connections: state.connections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         };
     }),
 
@@ -661,16 +684,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedConnectionId: state.selectedConnectionId && state.connections.some((c) => c.id === state.selectedConnectionId)
                 ? state.selectedConnectionId
                 : null,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes,
-                        connections: state.connections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         }));
     },
 
@@ -681,16 +694,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedConnectionId: state.selectedConnectionId && connections.some((c) => c.id === state.selectedConnectionId)
                 ? state.selectedConnectionId
                 : null,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: state.nodes,
-                        connections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         }));
     },
 
@@ -757,16 +760,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         return {
             connections: nextConnections,
             pendingConnection: null,
-            graphsByDeviceId: state.activeDeviceId
-                ? {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: state.nodes,
-                        connections: nextConnections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                }
-                : state.graphsByDeviceId,
         };
     }),
 
@@ -778,7 +771,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
         // Phase 9.2: Memory Leak Garbage Collection
         Object.keys(nextPulseById).forEach((key) => {
-            if (now - nextPulseById[key] > 1000) delete nextPulseById[key];
+            if (now - nextPulseById[key] > FLOW_PULSE_GC_MS) delete nextPulseById[key];
         });
 
         const pulsePatch: Record<string, number> = {};
@@ -798,7 +791,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
         // Phase 9.2: Memory Leak Garbage Collection
         Object.keys(nextPulseById).forEach((key) => {
-            if (now - nextPulseById[key] > 1000) delete nextPulseById[key];
+            if (now - nextPulseById[key] > FLOW_PULSE_GC_MS) delete nextPulseById[key];
         });
 
         nextPulseById[connectionId] = now;
@@ -817,8 +810,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // Safety: enable Flow only on tracks that actually host a Flow instrument.
         const track = engineState.tracks.byId[activeTrackId];
         const hasFlowOnTrack =
-            (track?.instrument?.plugin_id === 'internal://instrument/flow')
-            || !!track?.effects?.some((slot) => slot.plugin_id === 'internal://instrument/flow');
+            (track?.instrument?.plugin_id === FLOW_SYNTH_PLUGIN_ID)
+            || !!track?.effects?.some((slot) => slot.plugin_id === FLOW_SYNTH_PLUGIN_ID);
         if (!hasFlowOnTrack) return;
 
         const idMap = new Map<string, number>();
@@ -902,7 +895,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // mounted nodes would read stale positions from the previous graph.
         nodeMotionProxy.clearAll();
 
-        set((state) => {
+        set(() => {
             const patch: Partial<FlowSynthState> = {
                 nodes: preset.nodes,
                 connections: preset.connections,
@@ -912,18 +905,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 selectedConnectionId: null,
                 pendingConnection: null,
             };
-            // BUG-4 FIX: Also persist preset into graphsByDeviceId so close/reopen
-            // restores the preset graph instead of the stale pre-preset state.
-            if (state.activeDeviceId) {
-                (patch as any).graphsByDeviceId = {
-                    ...state.graphsByDeviceId,
-                    [state.activeDeviceId]: {
-                        nodes: preset.nodes,
-                        connections: preset.connections,
-                        viewport: viewportProxy.getViewport(),
-                    },
-                };
-            }
             return patch;
         });
 
@@ -954,7 +935,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
 export async function initFlowEnginesFromProject(): Promise<void> {
     const engineState = useEngineStore.getState();
-    const store = useFlowSynthStore.getState();
 
     for (let trackIdx = 0; trackIdx < engineState.tracks.allIds.length; trackIdx++) {
         const trackId = engineState.tracks.allIds[trackIdx];
@@ -963,54 +943,61 @@ export async function initFlowEnginesFromProject(): Promise<void> {
 
         // Check if this track has a Flow instrument
         const hasFlow =
-            track.instrument?.plugin_id === 'internal://instrument/flow'
-            || track.effects?.some((slot: any) => slot.plugin_id === 'internal://instrument/flow');
+            track.instrument?.plugin_id === FLOW_SYNTH_PLUGIN_ID
+            || track.effects?.some((slot: any) => slot.plugin_id === FLOW_SYNTH_PLUGIN_ID);
         if (!hasFlow) continue;
 
-        // Find the device ID for this Flow instrument
-        const flowDeviceId =
-            track.instrument?.plugin_id === 'internal://instrument/flow'
-                ? track.instrument.id
-                : track.effects?.find((s: any) => s.plugin_id === 'internal://instrument/flow')?.id;
-        if (!flowDeviceId) continue;
+        // Hydrate graph from SSOT
+        let graph: FlowGraph | null = null;
+        if (track.flow_synth) {
+            interface RustFlowNode {
+                id?: string; type?: string; node_type?: string;
+                position?: { x: number; y: number }; position_x?: number; position_y?: number;
+                data?: Record<string, string>;
+            }
+            interface RustFlowConnection {
+                id?: string; fromNode?: string; from_node?: string; fromPort?: string; from_port?: string;
+                toNode?: string; to_node?: string; toPort?: string; to_port?: string;
+                signalType?: string; signal_type?: string;
+            }
+            interface RustFlowConfig { nodes?: RustFlowNode[]; connections?: RustFlowConnection[]; viewport?: { x: number; y: number; zoom: number }; }
 
-        // Hydrate graph: prefer graphsByDeviceId (editor state), fallback to project model
-        let graph = store.graphsByDeviceId[flowDeviceId];
-        if (!graph && track.flow_synth) {
+            const typedConfig = track.flow_synth as RustFlowConfig;
+
             graph = {
-                nodes: track.flow_synth.nodes.map((n: any) => ({
-                    id: n.id,
-                    type: n.type as SynthNodeType,
-                    position: { x: n.position_x, y: n.position_y },
-                    // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse
-                    data: _rehydrateData(n.data),
+                nodes: (typedConfig.nodes ?? []).map((n) => ({
+                    id: n.id ?? '',
+                    type: (n.type ?? n.node_type ?? 'oscillator') as SynthNodeType,
+                    position: n.position ?? { x: n.position_x ?? 0, y: n.position_y ?? 0 },
+                    // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse via typed Zod schema
+                    data: _rehydrateData((n.type ?? n.node_type ?? 'oscillator') as SynthNodeType, n.data),
                 })),
-                connections: track.flow_synth.connections.map((c: any) => {
+                connections: (typedConfig.connections ?? []).map((c) => {
                     let signalType = c.signalType ?? c.signal_type ?? null;
                     if (!signalType) {
-                        const fromNode = track.flow_synth!.nodes.find((n: any) => n.id === c.from_node);
+                        const fromNode = (typedConfig.nodes ?? []).find((n) => n.id === (c.fromNode ?? c.from_node));
                         if (fromNode) {
-                            const reg = PORT_REGISTRY[fromNode.type as SynthNodeType];
+                            const reg = PORT_REGISTRY[(fromNode.type ?? fromNode.node_type ?? 'oscillator') as SynthNodeType];
                             if (reg) {
-                                const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
+                                const port = reg.outputs.find((p: PortDefinition) => p.id === (c.fromPort ?? c.from_port));
                                 signalType = port?.type ?? 'audio';
                             }
                         }
                         if (!signalType) signalType = 'audio';
                     }
                     return {
-                        id: c.id,
-                        fromNode: c.from_node,
-                        fromPort: c.from_port,
-                        toNode: c.to_node,
-                        toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
-                        signalType,
+                        id: c.id ?? '',
+                        fromNode: c.fromNode ?? c.from_node ?? '',
+                        fromPort: c.fromPort ?? c.from_port ?? '',
+                        toNode: c.toNode ?? c.to_node ?? '',
+                        toPort: migrateLegacyPortName(c.toPort ?? c.to_port ?? ''),
+                        signalType: signalType as ('audio' | 'midi' | 'control' | 'gate' | 'phase'),
                     };
                 }),
                 viewport: {
-                    x: track.flow_synth.viewport?.x ?? 0,
-                    y: track.flow_synth.viewport?.y ?? 0,
-                    zoom: track.flow_synth.viewport?.zoom ?? 1,
+                    x: typedConfig.viewport?.x ?? 0,
+                    y: typedConfig.viewport?.y ?? 0,
+                    zoom: typedConfig.viewport?.zoom ?? 1,
                 },
             };
         }
@@ -1027,9 +1014,9 @@ export async function initFlowEnginesFromProject(): Promise<void> {
             idMap.set(id, numeric);
             return numeric;
         };
-        graph.nodes.forEach((n) => mapNode(n.id));
+        graph.nodes.forEach((n: SynthNode) => mapNode(n.id));
 
-        const nodes: [number, string, [string, string][]][] = graph.nodes.map((n) => {
+        const nodes: [number, string, [string, string][]][] = graph.nodes.map((n: SynthNode) => {
             const params: [string, string][] = n.data
                 ? Object.entries(n.data)
                     .filter(([, v]) => v !== null && v !== undefined)
@@ -1039,9 +1026,9 @@ export async function initFlowEnginesFromProject(): Promise<void> {
         });
 
         const connections: [number, number, number, number][] = graph.connections
-            .map((c) => {
-                const fromNode = graph!.nodes.find((n) => n.id === c.fromNode);
-                const toNode = graph!.nodes.find((n) => n.id === c.toNode);
+            .map((c: SynthConnection) => {
+                const fromNode = graph!.nodes.find((n: SynthNode) => n.id === c.fromNode);
+                const toNode = graph!.nodes.find((n: SynthNode) => n.id === c.toNode);
                 if (!fromNode || !toNode) return null;
                 const fromId = mapNode(c.fromNode);
                 const toId = mapNode(c.toNode);
@@ -1105,27 +1092,40 @@ useEngineStore.subscribe((state) => {
     _prevFlowSynthConfigObj = currentConfig;
 
     if (currentConfig) {
-        // ENTERPRISE FIX: Rust FlowSynthConfig uses flat fields (position_x, position_y, node_type)
-        // but our store uses nested SynthNode format (position: {x,y}, type).
-        // The raw cast was the root cause of the n.position.x crash.
-        const mappedNodes: SynthNode[] = ((currentConfig as any).nodes ?? [])
-            .filter((n: any) => n && (n.id || n.node_type || n.type))
-            .map((n: any) => ({
+        // ENTERPRISE FIX: Strict typings for Rust IPC to prevent silent undefined crashes
+        interface RustFlowNode {
+            id?: string; type?: string; node_type?: string;
+            position?: { x: number; y: number }; position_x?: number; position_y?: number;
+            data?: Record<string, string>;
+        }
+        interface RustFlowConnection {
+            id?: string; fromNode?: string; from_node?: string; fromPort?: string; from_port?: string;
+            toNode?: string; to_node?: string; toPort?: string; to_port?: string;
+            signalType?: string; signal_type?: string;
+        }
+        interface RustFlowConfig { nodes?: RustFlowNode[]; connections?: RustFlowConnection[]; }
+
+        const typedConfig = currentConfig as RustFlowConfig;
+
+        const mappedNodes: SynthNode[] = (typedConfig.nodes ?? [])
+            .filter((n) => n && (n.id || n.node_type || n.type))
+            .map((n) => ({
                 id: n.id ?? '',
                 type: (n.type ?? n.node_type ?? 'oscillator') as SynthNodeType,
                 position: n.position ?? { x: n.position_x ?? 0, y: n.position_y ?? 0 },
-                data: n.data ?? {},
+                data: _rehydrateData((n.type ?? n.node_type ?? 'oscillator') as SynthNodeType, n.data),
             }));
-        const mappedConnections: SynthConnection[] = ((currentConfig as any).connections ?? [])
-            .filter((c: any) => c && (c.fromNode || c.from_node) && (c.toNode || c.to_node))
-            .map((c: any) => ({
+        const mappedConnections: SynthConnection[] = (typedConfig.connections ?? [])
+            .filter((c) => c && (c.fromNode || c.from_node) && (c.toNode || c.to_node))
+            .map((c) => ({
                 id: c.id ?? '',
                 fromNode: c.fromNode ?? c.from_node ?? '',
                 fromPort: c.fromPort ?? c.from_port ?? '',
                 toNode: c.toNode ?? c.to_node ?? '',
-                toPort: (c.toPort ?? c.to_port ?? '') === 'audioL' || (c.toPort ?? c.to_port ?? '') === 'audioR' ? 'audio' : (c.toPort ?? c.to_port ?? ''),
-                signalType: c.signalType ?? c.signal_type ?? 'audio',
+                toPort: migrateLegacyPortName(c.toPort ?? c.to_port ?? ''),
+                signalType: (c.signalType ?? c.signal_type ?? 'audio') as ('audio' | 'midi' | 'control' | 'gate' | 'phase'),
             }));
+
         useFlowSynthStore.setState((s) => ({
             nodes: mappedNodes.length > 0 ? mappedNodes : s.nodes,
             connections: mappedConnections,

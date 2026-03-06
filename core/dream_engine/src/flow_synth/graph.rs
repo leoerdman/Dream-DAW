@@ -99,31 +99,32 @@ impl Default for FlowGraph {
 }
 
 impl FlowGraph {
-    pub fn add_node(&mut self, id: NodeId, node_type: &str) {
-        let is_audio_out = node_type == "audio_out" || node_type == "output";
-        let is_audio_in = node_type == "audioIn" || node_type == "audio_in";
-        let is_envelope = node_type == "envelope";
+    pub fn add_node(&mut self, id: NodeId, node_type: dream_ipc::FlowNodeType) {
+        use dream_ipc::FlowNodeType::*;
+        let is_audio_out = node_type == Output;
+        let is_audio_in = node_type == AudioIn;
+        let is_envelope = node_type == Envelope;
 
         let node: Box<dyn FlowNode> = match node_type {
-            "oscillator" => Box::new(OscillatorNode::new()),
-            "filter" => Box::new(FilterNode::new()),
-            "envelope" => Box::new(EnvelopeNode::new()),
-            "midiIn" | "midi_in" => Box::new(MidiInNode::new()),
-            "audioOut" | "audio_out" | "output" => Box::new(AudioOutNode::new()),
-            "eq" => Box::new(EqNode::new()),
-            "autofilter" => Box::new(AutoFilterNode::new()),
-            "reverse" => Box::new(ReverseNode::new()),
-            "audioIn" | "audio_in" => Box::new(AudioInNode::new()),
-            "lfo" => Box::new(LfoNode::new()),
-            "noise" => Box::new(NoiseNode::new()),
-            "add" => Box::new(MathAddNode::new()),
-            "multiply" => Box::new(MathMultiplyNode::new()),
-            "sampleHold" | "sample_hold" => Box::new(SampleHoldNode::new()),
-            "delay" => Box::new(DelayNode::new()),
-            "mixer" => Box::new(MixerNode::new()),
-            "vca" => Box::new(VcaNode::new()),
-            "pitch" => Box::new(PitchNode::new()),
-            "utility" => Box::new(UtilityNode::new()),
+            Oscillator => Box::new(OscillatorNode::new()),
+            Filter => Box::new(FilterNode::new()),
+            Envelope => Box::new(EnvelopeNode::new()),
+            MidiIn => Box::new(MidiInNode::new()),
+            Output => Box::new(AudioOutNode::new()),
+            Eq => Box::new(EqNode::new()),
+            AutoFilter => Box::new(AutoFilterNode::new()),
+            Reverse => Box::new(ReverseNode::new()),
+            AudioIn => Box::new(AudioInNode::new()),
+            Lfo => Box::new(LfoNode::new()),
+            Noise => Box::new(NoiseNode::new()),
+            Add => Box::new(MathAddNode::new()),
+            Multiply => Box::new(MathMultiplyNode::new()),
+            SampleHold => Box::new(SampleHoldNode::new()),
+            Delay => Box::new(DelayNode::new()),
+            Mixer => Box::new(MixerNode::new()),
+            Vca => Box::new(VcaNode::new()),
+            Pitch => Box::new(PitchNode::new()),
+            Utility => Box::new(UtilityNode::new()),
             _ => return,
         };
 
@@ -185,23 +186,16 @@ impl FlowGraph {
         }
     }
 
-    pub fn set_node_params(&mut self, id: NodeId, params: &[(String, String)]) {
-        let Some(&idx) = self.node_map.get(&id) else {
-            return;
-        };
-        let Some(node) = self.nodes.get_mut(idx) else {
-            return;
-        };
+    pub fn set_node_params(&mut self, id: NodeId, params: &[(dream_ipc::FlowParamKey, f32)]) {
+        let Some(&idx) = self.node_map.get(&id) else { return; };
+        let Some(node) = self.nodes.get_mut(idx) else { return; };
+        use dream_ipc::FlowParamKey::*;
 
         if let Some(osc) = node.as_any_mut().downcast_mut::<OscillatorNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "waveform" => osc.set_waveform_by_name(v),
-                    "frequency" => {
-                        if let Ok(freq) = v.parse::<f32>() {
-                            osc.set_base_frequency(freq);
-                        }
-                    }
+                match *k {
+                    Waveform => osc.set_waveform_by_float(*v),
+                    Frequency => osc.set_base_frequency(*v),
                     _ => {}
                 }
             }
@@ -210,18 +204,10 @@ impl FlowGraph {
 
         if let Some(filter) = node.as_any_mut().downcast_mut::<FilterNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "filterType" => filter.set_filter_type_by_name(v),
-                    "cutoff" => {
-                        if let Ok(cutoff) = v.parse::<f32>() {
-                            filter.set_default_cutoff(cutoff);
-                        }
-                    }
-                    "resonance" => {
-                        if let Ok(resonance) = v.parse::<f32>() {
-                            filter.set_default_resonance(resonance);
-                        }
-                    }
+                match *k {
+                    FilterType => filter.set_filter_type_by_float(*v),
+                    Cutoff => filter.set_default_cutoff(*v),
+                    Resonance => filter.set_default_resonance(*v),
                     _ => {}
                 }
             }
@@ -229,59 +215,29 @@ impl FlowGraph {
         }
 
         if let Some(eq) = node.as_any_mut().downcast_mut::<EqNode>() {
-            // AUDIT-G04 FIX: Only update bands that are explicitly provided.
-            // Previously, `unwrap_or(0.0)` reset unchanged bands to 0 dB
-            // when only one parameter was updated via IPC.
-            let mut low = None;
-            let mut mid = None;
-            let mut high = None;
+            let mut low = None; let mut mid = None; let mut high = None;
             for (k, v) in params {
-                match k.as_str() {
-                    "eqLow" => low = v.parse::<f32>().ok(),
-                    "eqMid" => mid = v.parse::<f32>().ok(),
-                    "eqHigh" => high = v.parse::<f32>().ok(),
+                match *k {
+                    EqLow => low = Some(*v),
+                    EqMid => mid = Some(*v),
+                    EqHigh => high = Some(*v),
                     _ => {}
                 }
             }
-            // Read existing gains for bands that weren't updated.
             let current = eq.current_band_gains();
-            eq.set_band_gains(
-                low.unwrap_or(current.0),
-                mid.unwrap_or(current.1),
-                high.unwrap_or(current.2),
-            );
+            eq.set_band_gains(low.unwrap_or(current.0), mid.unwrap_or(current.1), high.unwrap_or(current.2));
             return;
         }
 
         if let Some(af) = node.as_any_mut().downcast_mut::<AutoFilterNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "filterType" => af.set_filter_type_by_name(v),
-                    "cutoff" => {
-                        if let Ok(cutoff) = v.parse::<f32>() {
-                            af.set_base_freq(cutoff);
-                        }
-                    }
-                    "resonance" => {
-                        if let Ok(res) = v.parse::<f32>() {
-                            af.set_resonance(res);
-                        }
-                    }
-                    "rate" => {
-                        if let Ok(rate) = v.parse::<f32>() {
-                            af.set_lfo_rate(rate);
-                        }
-                    }
-                    "depth" => {
-                        if let Ok(depth) = v.parse::<f32>() {
-                            af.set_lfo_depth(depth);
-                        }
-                    }
-                    "envDepth" | "envFollow" => {
-                        if let Ok(depth) = v.parse::<f32>() {
-                            af.set_env_follow_depth(depth);
-                        }
-                    }
+                match *k {
+                    FilterType => af.set_filter_type_by_float(*v),
+                    Cutoff => af.set_base_freq(*v),
+                    Resonance => af.set_resonance(*v),
+                    Rate => af.set_lfo_rate(*v),
+                    Depth => af.set_lfo_depth(*v),
+                    EnvDepth => af.set_env_follow_depth(*v),
                     _ => {}
                 }
             }
@@ -290,22 +246,10 @@ impl FlowGraph {
 
         if let Some(rv) = node.as_any_mut().downcast_mut::<ReverseNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "windowMs" => {
-                        if let Ok(ms) = v.parse::<f32>() {
-                            rv.set_window_ms(ms);
-                        }
-                    }
-                    "feedback" => {
-                        if let Ok(feedback) = v.parse::<f32>() {
-                            rv.set_feedback(feedback);
-                        }
-                    }
-                    "mix" => {
-                        if let Ok(mix) = v.parse::<f32>() {
-                            rv.set_mix(mix);
-                        }
-                    }
+                match *k {
+                    WindowMs => rv.set_window_ms(*v),
+                    Feedback => rv.set_feedback(*v),
+                    Mix => rv.set_mix(*v),
                     _ => {}
                 }
             }
@@ -314,27 +258,11 @@ impl FlowGraph {
 
         if let Some(env) = node.as_any_mut().downcast_mut::<EnvelopeNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "attack" => {
-                        if let Ok(a) = v.parse::<f32>() {
-                            env.set_attack(a as f64);
-                        }
-                    }
-                    "decay" => {
-                        if let Ok(d) = v.parse::<f32>() {
-                            env.set_decay(d as f64);
-                        }
-                    }
-                    "sustain" => {
-                        if let Ok(s) = v.parse::<f32>() {
-                            env.set_sustain(s as f64);
-                        }
-                    }
-                    "release" => {
-                        if let Ok(r) = v.parse::<f32>() {
-                            env.set_release(r as f64);
-                        }
-                    }
+                match *k {
+                    Attack => env.set_attack(*v as f64),
+                    Decay => env.set_decay(*v as f64),
+                    Sustain => env.set_sustain(*v as f64),
+                    Release => env.set_release(*v as f64),
                     _ => {}
                 }
             }
@@ -343,38 +271,22 @@ impl FlowGraph {
 
         if let Some(out) = node.as_any_mut().downcast_mut::<AudioOutNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "gain" => {
-                        if let Ok(g) = v.parse::<f32>() {
-                            out.set_gain(g);
-                        }
-                    }
-                    "muted" => {
-                        out.set_muted(v == "true" || v == "1");
-                    }
+                match *k {
+                    Gain => out.set_gain(*v),
+                    Muted => out.set_muted(*v > 0.5),
                     _ => {}
                 }
             }
             return;
         }
 
-        // ── New Phase 1 Nodes ───────────────────────────────────────────
-
         if let Some(lfo) = node.as_any_mut().downcast_mut::<LfoNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "rate" => {
-                        if let Ok(r) = v.parse::<f64>() {
-                            lfo.set_rate(r);
-                        }
-                    }
-                    "shape" => lfo.set_shape(v),
-                    "bipolar" => lfo.set_bipolar(v == "true" || v == "1"),
-                    "phase_offset" | "phaseOffset" => {
-                        if let Ok(p) = v.parse::<f64>() {
-                            lfo.set_phase_offset(p);
-                        }
-                    }
+                match *k {
+                    Rate => lfo.set_rate(*v as f64),
+                    Shape => lfo.set_shape_by_float(*v),
+                    Bipolar => lfo.set_bipolar(*v > 0.5),
+                    PhaseOffset => lfo.set_phase_offset(*v as f64),
                     _ => {}
                 }
             }
@@ -383,13 +295,9 @@ impl FlowGraph {
 
         if let Some(noise) = node.as_any_mut().downcast_mut::<NoiseNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "color" => noise.set_color(v),
-                    "level" => {
-                        if let Ok(l) = v.parse::<f32>() {
-                            noise.set_level(l);
-                        }
-                    }
+                match *k {
+                    Color => noise.set_color_by_float(*v),
+                    Level => noise.set_level(*v),
                     _ => {}
                 }
             }
@@ -398,33 +306,17 @@ impl FlowGraph {
 
         if let Some(mul) = node.as_any_mut().downcast_mut::<MathMultiplyNode>() {
             for (k, v) in params {
-                if k == "scale" {
-                    if let Ok(s) = v.parse::<f32>() {
-                        mul.set_scale(s);
-                    }
-                }
+                if *k == Scale { mul.set_scale(*v); }
             }
             return;
         }
 
         if let Some(dly) = node.as_any_mut().downcast_mut::<DelayNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "time" | "time_ms" | "timeMs" => {
-                        if let Ok(t) = v.parse::<f32>() {
-                            dly.set_time_ms(t);
-                        }
-                    }
-                    "feedback" => {
-                        if let Ok(fb) = v.parse::<f32>() {
-                            dly.set_feedback(fb);
-                        }
-                    }
-                    "mix" => {
-                        if let Ok(m) = v.parse::<f32>() {
-                            dly.set_mix(m);
-                        }
-                    }
+                match *k {
+                    TimeMs => dly.set_time_ms(*v),
+                    Feedback => dly.set_feedback(*v),
+                    Mix => dly.set_mix(*v),
                     _ => {}
                 }
             }
@@ -433,15 +325,12 @@ impl FlowGraph {
 
         if let Some(mix) = node.as_any_mut().downcast_mut::<MixerNode>() {
             for (k, v) in params {
-                let ch = match k.as_str() {
-                    "gain_1" | "gain1" => Some(0),
-                    "gain_2" | "gain2" => Some(1),
-                    "gain_3" | "gain3" => Some(2),
-                    "gain_4" | "gain4" => Some(3),
-                    _ => None,
-                };
-                if let (Some(ch), Ok(g)) = (ch, v.parse::<f32>()) {
-                    mix.set_gain(ch, g);
+                match *k {
+                    Gain1 => mix.set_gain(0, *v),
+                    Gain2 => mix.set_gain(1, *v),
+                    Gain3 => mix.set_gain(2, *v),
+                    Gain4 => mix.set_gain(3, *v),
+                    _ => {}
                 }
             }
             return;
@@ -449,42 +338,24 @@ impl FlowGraph {
 
         if let Some(vca) = node.as_any_mut().downcast_mut::<VcaNode>() {
             for (k, v) in params {
-                if k == "bias" {
-                    if let Ok(b) = v.parse::<f32>() {
-                        vca.set_bias(b);
-                    }
-                }
+                if *k == Bias { vca.set_bias(*v); }
             }
             return;
         }
 
         if let Some(pitch) = node.as_any_mut().downcast_mut::<PitchNode>() {
             for (k, v) in params {
-                if k == "octaveOffset" || k == "octave_offset" {
-                    if let Ok(o) = v.parse::<f32>() {
-                        pitch.set_octave_offset(o);
-                    }
-                }
+                if *k == OctaveOffset { pitch.set_octave_offset(*v); }
             }
             return;
         }
 
         if let Some(util) = node.as_any_mut().downcast_mut::<UtilityNode>() {
             for (k, v) in params {
-                match k.as_str() {
-                    "gain" => {
-                        if let Ok(g) = v.parse::<f32>() {
-                            util.set_gain(g);
-                        }
-                    }
-                    "pan" => {
-                        if let Ok(p) = v.parse::<f32>() {
-                            util.set_pan(p);
-                        }
-                    }
-                    "phaseInvert" | "phase_invert" => {
-                        util.set_phase_invert(v == "true" || v == "1");
-                    }
+                match *k {
+                    Gain => util.set_gain(*v),
+                    Pan => util.set_pan(*v),
+                    PhaseInvert => util.set_phase_invert(*v > 0.5),
                     _ => {}
                 }
             }

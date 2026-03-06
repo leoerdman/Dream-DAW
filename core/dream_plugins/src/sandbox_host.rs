@@ -49,6 +49,8 @@ struct PluginSandboxInstance {
     ticks_since_last_save: u32,
     /// VST3 ENTERPRISE: Buffer for IPC events received while blocking for synchronous save.
     pending_events: Vec<PluginHostEventMessage>,
+    /// VST3 ENTERPRISE: Track if the daemon ever successfully reached the Running state.
+    has_reached_running: bool,
 }
 
 impl Drop for PluginSandboxInstance {
@@ -341,6 +343,7 @@ impl PluginSandboxSupervisor {
                 last_known_state_blob: None,
                 ticks_since_last_save: 0,
                 pending_events: Vec::new(),
+                has_reached_running: false,
             },
         );
         if let Some(inst) = self.instances.get_mut(&instance_id) {
@@ -418,6 +421,7 @@ impl PluginSandboxSupervisor {
                                 instance.status = PluginSandboxStatus::Running;
                                 instance.heartbeat_seen = true;
                                 instance.bypass_requested = false;
+                                instance.has_reached_running = true;
                                 // LAZARUS: Clear crash flag on successful recovery.
                                 Self::signal_recovery(&crash_flags, id);
                                 if should_emit_recovery {
@@ -543,6 +547,7 @@ impl PluginSandboxSupervisor {
                                     };
                                     instance.heartbeat_seq = 0;
                                     instance.heartbeat_seen = false;
+                                    // Do not reset has_reached_running on restart.
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
                                     instance.restart_count =
@@ -740,6 +745,7 @@ impl PluginSandboxSupervisor {
         };
         instance.heartbeat_seq = 0;
         instance.heartbeat_seen = false;
+        // Do not reset has_reached_running on manual restart.
         instance.process = Some(new_child);
         instance.status = PluginSandboxStatus::Spawning;
         instance.restart_count = instance.restart_count.saturating_add(1);
@@ -833,6 +839,7 @@ impl PluginSandboxSupervisor {
                 crash_count: inst.crash_count,
                 restart_count: inst.restart_count,
                 bypass_requested: inst.bypass_requested,
+                has_reached_running: inst.has_reached_running,
                 last_error: inst.last_error.clone(),
                 shared_region: Some(inst.shared_region.clone()),
             });

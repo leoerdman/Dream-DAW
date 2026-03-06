@@ -1,5 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 import type { PortFaderConfig } from '../../model/portRegistry';
+import { useAutomationStore } from '../../../../shared/stores/useAutomationStore';
+import { useEngineStore } from '../../../../shared/stores/useEngineStore';
+import { stableNodeNumericId, useFlowSynthStore } from '../../model/useFlowSynthStore';
 
 /**
  * PortRowFader — compact inline fader for Flow node port rows (Bitwig Grid attenuator).
@@ -19,12 +22,14 @@ const THUMB_H = 14;
 const FADER_HEIGHT = 20;
 
 interface Props {
+    nodeId: string;
+    portId: string;
     value: number;
     config: PortFaderConfig;
     onChange: (value: number) => void;
 }
 
-export const PortRowFader = React.memo(function PortRowFader({ value, config, onChange }: Props) {
+export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, value, config, onChange }: Props) {
     const trackRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -33,7 +38,15 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
 
     const { min, max, step, unit } = config;
 
-    const safeValue = Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : min;
+    // ENTERPRISE FIX: Smooth dragging using local state
+    const [localValue, setLocalValue] = useState(value);
+    const inPropRef = useRef(value);
+    if (value !== inPropRef.current) {
+        inPropRef.current = value;
+        if (!isDragging && !isEditing) setLocalValue(value);
+    }
+
+    const safeValue = Number.isFinite(localValue) ? Math.min(max, Math.max(min, localValue)) : min;
     const pct = (safeValue - min) / (max - min);
 
     const quantize = useCallback((v: number): number => {
@@ -55,14 +68,18 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
 
         const rect = target.getBoundingClientRect();
         const p = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
-        onChange(quantize(pctToValue(p)));
+        const v = quantize(pctToValue(p));
+        setLocalValue(v);
+        onChange(v);
     }, [onChange, pctToValue, quantize]);
 
     const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (!isDragging) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const p = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
-        onChange(quantize(pctToValue(p)));
+        const v = quantize(pctToValue(p));
+        setLocalValue(v);
+        onChange(v);
     }, [isDragging, onChange, pctToValue, quantize]);
 
     const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -111,6 +128,28 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
     // Format display value
     const displayValue = step >= 1 ? Math.round(safeValue).toString() : safeValue.toFixed(2);
 
+    // ── Context Menu (Automation Integration) ─────────────────────────
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const activeTrackId = useFlowSynthStore.getState().activeTrackId;
+        if (!activeTrackId) return;
+
+        // Ensure track is loaded in Engine to attach automation lanes
+        const engineState = useEngineStore.getState();
+        const track = engineState.tracks.byId[activeTrackId];
+        if (!track) return;
+
+        const addLane = useAutomationStore.getState().addLane;
+        const numericId = stableNodeNumericId(nodeId);
+        const automationKey = `flow:${numericId}:${portId}`;
+        const paramLabel = `FlowSynth: ${portId}`;
+
+        // Add automation lane with backend-consumable Flow target hash
+        addLane(activeTrackId, paramLabel, automationKey, 'var(--color-accent-primary)');
+    }, [nodeId, portId]);
+
     return (
         <div
             style={{
@@ -121,10 +160,12 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
                 flex: 1,
                 minWidth: 0,
             }}
+            onContextMenu={handleContextMenu}
         >
             {/* Track + Thumb */}
             <div
                 ref={trackRef}
+                onContextMenu={handleContextMenu}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}

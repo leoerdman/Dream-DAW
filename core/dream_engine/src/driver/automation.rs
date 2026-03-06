@@ -417,3 +417,35 @@ pub(crate) fn apply_external_plugin_param_automation_block(
         }
     }
 }
+
+pub(crate) fn apply_flow_synth_automation_block(
+    engine: &mut crate::flow_synth::FlowSynthEngine,
+    lane: Option<&TrackAutomationState>,
+    playhead_pos: i64,
+) {
+    let Some(lane) = lane else {
+        return;
+    };
+    if lane.plugin_params.is_empty() {
+        return;
+    }
+
+    for (key, points) in &lane.plugin_params {
+        // Expected format: "flow:<numeric_id>:<param_key>"
+        if key.starts_with("flow:") {
+            let mut parts = key.split(':');
+            let _ = parts.next(); // "flow"
+
+            if let Some(id_str) = parts.next()
+                && let Ok(node_id) = id_str.parse::<u64>()
+                && let Some(param_key_str) = parts.next()
+            {
+                let mut cursor = 0usize;
+                if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
+                    let flow_key = dream_ipc::FlowParamKey::from_str(param_key_str);
+                    engine.update_node_param(node_id, flow_key, value);
+                }
+            }
+        }
+    }
+}

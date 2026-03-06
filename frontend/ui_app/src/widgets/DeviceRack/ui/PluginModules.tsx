@@ -58,6 +58,30 @@ export const PluginSurfaceLayout = React.memo(({
 PluginSurfaceLayout.displayName = 'PluginSurfaceLayout';
 
 /**
+ * Wraparound Layout — specialized flex-row layout for Reverb and Delay.
+ * Distributes controls flexibly around a central or larger VizCard.
+ */
+export const WraparoundLayout = React.memo(({
+    children,
+    gap,
+}: {
+    children: React.ReactNode;
+    gap?: number | string;
+}) => (
+    <div
+        className="plugin-wraparound-layout"
+        style={{
+            display: 'flex',
+            gap: gap ?? 'var(--plugin-surface-gap)',
+            height: '100%',
+        }}
+    >
+        {children}
+    </div>
+));
+WraparoundLayout.displayName = 'WraparoundLayout';
+
+/**
  * Left control panel — fixed width, wraps KnobParamGrid with card styling.
  * Automatically applies pluginPanelCardBaseStyle and 2×2 grid.
  */

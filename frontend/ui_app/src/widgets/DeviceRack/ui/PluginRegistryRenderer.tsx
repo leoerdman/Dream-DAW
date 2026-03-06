@@ -33,6 +33,7 @@ import {
     VizCard,
     VizColumn,
     WaveformDisplay,
+    WraparoundLayout,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 import { PLUGIN_REGISTRY } from '@/widgets/DeviceRack/ui/PluginRegistryData';
 import type { MetaParamDescriptor, PluginDefinition, VizConfig } from '@/widgets/DeviceRack/ui/PluginRegistryTypes';
@@ -304,6 +305,166 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
     // ── Standard layout: ControlPanel | VizCard | DryWet ────────────
     const vizElement = resolveViz(definition.viz, device, accent, wrappedHandlers);
     const metaSpans = resolveMeta(definition.meta, device);
+
+    // ── Delay / Reverb: Custom Wraparound Layout ────────────────────
+    if (device.effectType === 'reverb' || device.effectType === 'delay' || device.effectType === 'filterDelay' || device.effectType === 'grainDelay' || device.effectType === 'spectralTime' || device.effectType === 'hybridReverb') {
+        const isReverb = device.effectType.toLowerCase().includes('reverb');
+
+        // Split parameters: Time/Space on left, Tone/Mod on right
+        const leftParamNames = new Set(isReverb
+            ? ['lo cut', 'hi cut', 'size', 'predelay', 'width']
+            : ['time l', 'time r', 'time', 'delay', 'c delay', 'r delay', 'l delay']
+        );
+        const leftKnobs = filteredKnobParams.filter(p => leftParamNames.has(p.name.toLowerCase()));
+        const rightKnobs = filteredKnobParams.filter(p => !leftParamNames.has(p.name.toLowerCase()));
+
+        return (
+            <WraparoundLayout>
+                <ControlPanel params={leftKnobs} handlers={wrappedHandlers} minCols={1} maxCols={2}>
+                    {/* Time/Sync Dropdown & Link for Delay */}
+                    {definition.delaySync && (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 6 }}>
+                            <select
+                                value={isSyncMode ? 1 : 0}
+                                onChange={(e) => {
+                                    const syncVal = Number(e.target.value);
+                                    wrappedHandlers.onParamGestureStart?.('sync l');
+                                    wrappedHandlers.onParamChange('sync l', syncVal);
+                                    wrappedHandlers.onParamChange('sync r', syncVal);
+                                    wrappedHandlers.onParamGestureEnd?.('sync l');
+                                }}
+                                style={{
+                                    flex: 1,
+                                    border: 'var(--space-px) solid var(--color-divider)',
+                                    borderRadius: 'var(--radius-md)',
+                                    background: 'var(--color-bg-header)',
+                                    color: 'var(--color-text-primary)',
+                                    fontSize: 'var(--font-size-2xs)',
+                                    padding: '3px 6px',
+                                    outline: 'none',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <option value={0}>Time</option>
+                                <option value={1}>Sync</option>
+                            </select>
+                            <ToggleButton
+                                label="🔗"
+                                active={isLinkActive}
+                                onClick={() => setLinkActive(prev => !prev)}
+                            />
+                        </div>
+                    )}
+                    {/* Note L/R Dropdowns for Delay */}
+                    {filteredEnumParams.filter(p => p.name.toLowerCase().startsWith('note')).length > 0 && (
+                        <div style={{ display: 'grid', gap: 4 }}>
+                            {filteredEnumParams.filter(p => p.name.toLowerCase().startsWith('note')).map((p) => {
+                                const labels = enumLabels[p.name] ?? enumLabels[p.name.toLowerCase()] ?? [];
+                                const currentValue = Math.round(p.value ?? 0);
+                                return (
+                                    <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', fontWeight: 600, minWidth: 32, textTransform: 'capitalize' }}>
+                                            {p.name.replace('note ', '')}
+                                        </span>
+                                        <select
+                                            value={currentValue}
+                                            onChange={(e) => {
+                                                wrappedHandlers.onParamGestureStart?.(p.name);
+                                                wrappedHandlers.onParamChange(p.name, Number(e.target.value));
+                                                wrappedHandlers.onParamGestureEnd?.(p.name);
+                                            }}
+                                            style={{ flex: 1, border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', padding: '3px 6px', outline: 'none', cursor: 'pointer' }}
+                                        >
+                                            {labels.map((label, idx) => <option key={idx} value={idx}>{label}</option>)}
+                                        </select>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </ControlPanel>
+
+                <VizColumn>
+                    <VizCard background={definition.background} style={{ flex: 1, minWidth: 160, maxWidth: 'none' }}>
+                        {vizElement}
+                    </VizCard>
+                    {metaSpans.length > 0 && (
+                        <MetaReadout>
+                            {metaSpans}
+                        </MetaReadout>
+                    )}
+                </VizColumn>
+
+                <ControlPanel params={rightKnobs} handlers={wrappedHandlers} minCols={2} maxCols={3}>
+                    {/* Other Enum Dropdowns (Voicing, Modes) */}
+                    {filteredEnumParams.filter(p => !p.name.toLowerCase().startsWith('note')).length > 0 && (
+                        <div style={{ display: 'grid', gap: 4 }}>
+                            {filteredEnumParams.filter(p => !p.name.toLowerCase().startsWith('note')).map((p) => {
+                                const labels = enumLabels[p.name] ?? enumLabels[p.name.toLowerCase()] ?? [];
+                                const currentValue = Math.round(p.value ?? 0);
+                                return (
+                                    <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', fontWeight: 600, minWidth: 40, textTransform: 'capitalize' }}>{p.name}</span>
+                                        <select
+                                            value={currentValue}
+                                            onChange={(e) => {
+                                                wrappedHandlers.onParamGestureStart?.(p.name);
+                                                wrappedHandlers.onParamChange(p.name, Number(e.target.value));
+                                                wrappedHandlers.onParamGestureEnd?.(p.name);
+                                            }}
+                                            style={{ flex: 1, border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', padding: '3px 6px', outline: 'none', cursor: 'pointer' }}
+                                        >
+                                            {labels.map((label, idx) => <option key={idx} value={idx}>{label}</option>)}
+                                        </select>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {/* Toggles and Buttons */}
+                    {toggleParams.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {toggleParams.map((p) => {
+                                const active = (p.value ?? 0) > 0.5;
+                                return (
+                                    <ToggleButton
+                                        key={p.name}
+                                        label={p.name}
+                                        active={active}
+                                        onClick={() => {
+                                            wrappedHandlers.onParamGestureStart?.(p.name);
+                                            wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
+                                            wrappedHandlers.onParamGestureEnd?.(p.name);
+                                        }}
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
+                    {definition.buttons && definition.buttons.length > 0 && (
+                        <ButtonStrip>
+                            {definition.buttons.map((btn) => {
+                                const active = getParamValue(device, [btn.paramName], 0) > (btn.threshold ?? 0.5);
+                                return (
+                                    <ToggleButton
+                                        key={btn.paramName}
+                                        label={btn.label}
+                                        active={active}
+                                        onClick={() => {
+                                            wrappedHandlers.onParamGestureStart?.(btn.paramName);
+                                            wrappedHandlers.onParamChange(btn.paramName, active ? 0 : 1);
+                                            wrappedHandlers.onParamGestureEnd?.(btn.paramName);
+                                        }}
+                                    />
+                                );
+                            })}
+                        </ButtonStrip>
+                    )}
+                </ControlPanel>
+                <DryWetSection device={device} handlers={wrappedHandlers} accent={dryWetAccent} show={showDryWet} />
+            </WraparoundLayout>
+        );
+    }
 
     return (
         <PluginSurfaceLayout>

@@ -25,6 +25,8 @@ export function ReverseControls({ node }: Props) {
             justifyContent: 'space-around',
         }}>
             <RotaryKnob
+                nodeId={node.id}
+                paramId="windowMs"
                 value={windowMs}
                 min={50}
                 max={2000}
@@ -35,6 +37,8 @@ export function ReverseControls({ node }: Props) {
                 onChange={(v) => updateData({ windowMs: v })}
             />
             <RotaryKnob
+                nodeId={node.id}
+                paramId="feedback"
                 value={feedback}
                 min={0}
                 max={0.95}

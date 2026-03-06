@@ -23,8 +23,138 @@ pub mod prealloc_queue;
 
 // ── Flow Synth Graph Descriptors ────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FlowNodeType {
+    Oscillator, Filter, Envelope, Eq, AutoFilter, Reverse, Output, MidiIn, Lfo, Noise, 
+    Delay, Mixer, Multiply, Vca, Utility, Add, SampleHold, AudioIn, Pitch, Distortion, Vst3, Unknown
+}
+
+impl FlowNodeType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "oscillator" => Self::Oscillator,
+            "filter" => Self::Filter,
+            "envelope" => Self::Envelope,
+            "eq" => Self::Eq,
+            "autofilter" => Self::AutoFilter,
+            "reverse" => Self::Reverse,
+            "output" => Self::Output,
+            "midiIn" | "midi_in" => Self::MidiIn,
+            "lfo" => Self::Lfo,
+            "noise" => Self::Noise,
+            "delay" => Self::Delay,
+            "mixer" => Self::Mixer,
+            "multiply" => Self::Multiply,
+            "vca" => Self::Vca,
+            "utility" => Self::Utility,
+            "add" => Self::Add,
+            "sampleHold" | "sample_hold" => Self::SampleHold,
+            "audioIn" | "audio_in" => Self::AudioIn,
+            "pitch" => Self::Pitch,
+            "distortion" => Self::Distortion,
+            "vst3" => Self::Vst3,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FlowParamKey {
+    Waveform, Frequency, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,
+    Rate, Depth, EnvDepth, WindowMs, Feedback, Mix, Attack, Decay, Sustain, Release,
+    Gain, Muted, Shape, Bipolar, PhaseOffset, Color, Level, Scale, TimeMs,
+    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Pan, PhaseInvert, Custom(u32),
+}
+
+impl FlowParamKey {
+    pub fn from_str(key: &str) -> Self {
+        match key {
+            "waveform" => Self::Waveform,
+            "frequency" => Self::Frequency,
+            "filterType" | "filter_type" => Self::FilterType,
+            "cutoff" => Self::Cutoff,
+            "resonance" => Self::Resonance,
+            "eqLow" | "eq_low" => Self::EqLow,
+            "eqMid" | "eq_mid" => Self::EqMid,
+            "eqHigh" | "eq_high" => Self::EqHigh,
+            "rate" => Self::Rate,
+            "depth" => Self::Depth,
+            "envDepth" | "envFollow" | "env_depth" | "env_follow" => Self::EnvDepth,
+            "windowMs" | "window_ms" => Self::WindowMs,
+            "feedback" => Self::Feedback,
+            "mix" => Self::Mix,
+            "attack" => Self::Attack,
+            "decay" => Self::Decay,
+            "sustain" => Self::Sustain,
+            "release" => Self::Release,
+            "gain" => Self::Gain,
+            "muted" => Self::Muted,
+            "shape" => Self::Shape,
+            "bipolar" => Self::Bipolar,
+            "phaseOffset" | "phase_offset" => Self::PhaseOffset,
+            "color" => Self::Color,
+            "level" => Self::Level,
+            "scale" => Self::Scale,
+            "time" | "timeMs" | "time_ms" => Self::TimeMs,
+            "gain1" | "gain_1" => Self::Gain1,
+            "gain2" | "gain_2" => Self::Gain2,
+            "gain3" | "gain_3" => Self::Gain3,
+            "gain4" | "gain_4" => Self::Gain4,
+            "bias" => Self::Bias,
+            "octaveOffset" | "octave_offset" => Self::OctaveOffset,
+            "pan" => Self::Pan,
+            "phaseInvert" | "phase_invert" => Self::PhaseInvert,
+            _ => {
+                let hash = key.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+                Self::Custom(hash)
+            }
+        }
+    }
+}
+
+pub fn parse_flow_param_value(key: FlowParamKey, val_str: &str) -> f32 {
+    match key {
+        FlowParamKey::Waveform => {
+            match val_str {
+                "saw" => 1.0,
+                "square" => 2.0,
+                "triangle" => 3.0,
+                _ => 0.0,
+            }
+        }
+        FlowParamKey::FilterType => {
+            match val_str {
+                "highpass" => 1.0,
+                "bandpass" => 2.0,
+                "notch" => 3.0,
+                _ => 0.0,
+            }
+        }
+        FlowParamKey::Shape => {
+            match val_str {
+                "triangle" => 1.0,
+                "square" => 2.0,
+                "sawUp" | "saw_up" => 3.0,
+                "sawDown" | "saw_down" => 4.0,
+                "random" => 5.0,
+                _ => 0.0,
+            }
+        }
+        FlowParamKey::Color => {
+            match val_str {
+                "pink" => 1.0,
+                "brown" => 2.0,
+                _ => 0.0,
+            }
+        }
+        _ => {
+            if val_str == "true" { 1.0 } else if val_str == "false" { 0.0 } else { val_str.parse::<f32>().unwrap_or(0.0) }
+        }
+    }
+}
+
 /// A single Flow Synth node: `(node_id, node_type, params[(key, value)])`.
-pub type FlowNodeDescriptor = (u64, String, Vec<(String, String)>);
+pub type FlowNodeDescriptor = (u64, FlowNodeType, Vec<(FlowParamKey, f32)>);
 
 /// A single Flow Synth connection: `(from_node_id, from_port, to_node_id, to_port)`.
 pub type FlowConnectionDescriptor = (u64, usize, u64, usize);
@@ -231,8 +361,8 @@ pub enum EngineCommand {
     /// This is an O(N) operation on the audio thread, use sparingly.
     SyncFlowGraph {
         track_index: u16,
-        nodes: Vec<FlowNodeDescriptor>,
-        connections: Vec<FlowConnectionDescriptor>,
+        nodes: std::sync::Arc<Vec<FlowNodeDescriptor>>,
+        connections: std::sync::Arc<Vec<FlowConnectionDescriptor>>,
     },
 
     /// Update a single parameter on a specific node in the Flow Synth graph.
@@ -240,8 +370,8 @@ pub enum EngineCommand {
     UpdateFlowNodeParam {
         track_index: u16,
         node_id: u64,
-        key: String,
-        value: String,
+        key: FlowParamKey,
+        value: f32,
     },
 
     // ── Test / Legacy ────────────────────────────────────────────────

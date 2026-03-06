@@ -1,6 +1,11 @@
 import React, { useCallback, useRef, useState } from 'react';
+import { useAutomationStore } from '../../../../shared/stores/useAutomationStore';
+import { useEngineStore } from '../../../../shared/stores/useEngineStore';
+import { stableNodeNumericId, useFlowSynthStore } from '../../model/useFlowSynthStore';
 
 interface RotaryKnobProps {
+    nodeId?: string;
+    paramId?: string;
     value: number;
     min: number;
     max: number;
@@ -32,6 +37,8 @@ function describeArc(cx: number, cy: number, r: number, startAngle: number, endA
 }
 
 export function RotaryKnob({
+    nodeId,
+    paramId,
     value,
     min,
     max,
@@ -135,8 +142,32 @@ export function RotaryKnob({
 
     const displayValue = Number.isInteger(value) ? String(value) : value.toFixed(1);
 
+    // ── Context Menu (Automation Integration) ─────────────────────────
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        if (!nodeId || !paramId) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const activeTrackId = useFlowSynthStore.getState().activeTrackId;
+        if (!activeTrackId) return;
+
+        // Ensure track is loaded in Engine to attach automation lanes
+        const engineState = useEngineStore.getState();
+        const track = engineState.tracks.byId[activeTrackId];
+        if (!track) return;
+
+        const addLane = useAutomationStore.getState().addLane;
+        const numericId = stableNodeNumericId(nodeId);
+        const automationKey = `flow:${numericId}:${paramId}`;
+        const paramLabel = `FlowSynth: ${label}`;
+
+        // Add automation lane with backend-consumable Flow target hash
+        addLane(activeTrackId, paramLabel, automationKey, color);
+    }, [nodeId, paramId, label, color]);
+
     return (
         <div
+            onContextMenu={handleContextMenu}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
                 display: 'flex',

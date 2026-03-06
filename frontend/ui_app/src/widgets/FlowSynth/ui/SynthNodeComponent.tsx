@@ -278,6 +278,8 @@ function InlinePortFader({
                 {port.label}
             </span>
             <PortRowFader
+                nodeId={node.id}
+                portId={fader.dataKey}
                 value={value}
                 config={fader}
                 onChange={(v) => updateNodeData(node.id, { [fader.dataKey]: v })}
@@ -286,11 +288,11 @@ function InlinePortFader({
     );
 }
 
-export function SynthNodeComponent({ node, interactionDisabled = false }: Props) {
+export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ node, interactionDisabled = false }: Props) {
     const updateNodePosition = useFlowSynthStore((s) => s.updateNodePosition);
     const selectNode = useFlowSynthStore((s) => s.selectNode);
-    const selectedNodeIds = useFlowSynthStore((s) => s.selectedNodeIds);
-    const isSelected = selectedNodeIds.includes(node.id);
+    // ENTERPRISE FIX: Direct boolean selector prevents O(N) re-renders across all nodes when selection changes
+    const isSelected = useFlowSynthStore((s) => s.selectedNodeIds.includes(node.id));
     const nodeRef = React.useRef<HTMLDivElement>(null);
 
     // ENTERPRISE: Sync proxy to React prop on mount/change, allowing proxy to take over during drag 
@@ -431,4 +433,4 @@ export function SynthNodeComponent({ node, interactionDisabled = false }: Props)
             <div style={{ height: FLOW_NODE_BODY_PADDING }} />
         </div >
     );
-}
+});

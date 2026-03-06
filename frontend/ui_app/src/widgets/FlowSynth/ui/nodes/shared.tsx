@@ -38,8 +38,6 @@ export function NodeSelect({ value, options, onChange }: NodeSelectProps) {
         <select
             value={value}
             onChange={(e) => { e.stopPropagation(); onChange(e.target.value); }}
-            onPointerDown={(e) => { e.stopPropagation(); }}
-            onMouseDown={(e) => { e.stopPropagation(); }}
             style={nodeSelectStyle}
         >
             {options.map((opt) => (
@@ -68,7 +66,6 @@ export function NodeSlider({ value, min, max, step, onChange }: NodeSliderProps)
             step={step}
             value={value}
             onChange={(e) => onChange(Number(e.target.value))}
-            onPointerDown={(e) => e.stopPropagation()}
             style={nodeSliderStyle}
         />
     );

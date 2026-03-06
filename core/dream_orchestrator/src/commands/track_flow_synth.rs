@@ -14,12 +14,15 @@ pub struct UpdateTrackFlowSynthConfigCommand {
     pub config: Option<FlowSynthConfig>,
 }
 
-fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> u16 {
+fn resolve_flow_track_index(project: &dream_models::project::Project, requested: u16) -> OrchestratorResult<u16> {
     let track_count = project.tracks.len();
-    if track_count == 0 {
-        return 0;
+    if (requested as usize) >= track_count {
+        return Err(OrchestratorError::TrackOutOfRange {
+            requested: requested as usize,
+            total: track_count,
+        });
     }
-    (requested as usize).min(track_count.saturating_sub(1)) as u16
+    Ok(requested)
 }
 
 impl Command for UpdateTrackFlowSynthConfigCommand {
@@ -28,7 +31,7 @@ impl Command for UpdateTrackFlowSynthConfigCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
         
-        let resolved_track_index = resolve_flow_track_index(&project, self.track_index);
+        let resolved_track_index = resolve_flow_track_index(&project, self.track_index)?;
         
         let total = project.tracks.len();
         let track = project

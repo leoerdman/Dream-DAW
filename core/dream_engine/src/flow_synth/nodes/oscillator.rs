@@ -32,11 +32,11 @@ impl OscillatorNode {
         self.waveform = waveform;
     }
 
-    pub fn set_waveform_by_name(&mut self, name: &str) {
-        self.waveform = match name {
-            "saw" => Waveform::Saw,
-            "square" => Waveform::Square,
-            "triangle" => Waveform::Triangle,
+    pub fn set_waveform_by_float(&mut self, val: f32) {
+        self.waveform = match val as i32 {
+            1 => Waveform::Saw,
+            2 => Waveform::Square,
+            3 => Waveform::Triangle,
             _ => Waveform::Sine,
         };
     }

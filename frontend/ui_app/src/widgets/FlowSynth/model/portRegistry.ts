@@ -306,6 +306,14 @@ export const FLOW_PORT_ROW_HEIGHT = 32;
 export const FLOW_NODE_HEADER_HEIGHT = 42;
 export const FLOW_NODE_BODY_PADDING = 12;
 
+// ENTERPRISE FIX: Consolidated unified layout and behavior constants
+export const FLOW_MENU_WIDTH = 200;
+export const FLOW_MENU_HEIGHT = 250;
+export const FLOW_MENU_MARGIN = 16;
+export const FLOW_CONNECTION_SNAP_DIST = 24;
+export const FLOW_PULSE_GC_MS = 1000;
+export const FLOW_SELECTION_PADDING_Y = 100;
+
 /**
  * Calculate Y center of a port given its index within the port list.
  */

@@ -371,6 +371,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 routing_snapshot: &routing_snapshot,
                                 rt_debug_stats: rt_debug_stats.as_ref(),
                                 export_active: &mut export_active,
+                                gc_producer: &mut gc_producer,
                             },
                         );
 
@@ -565,6 +566,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             is_playing,
                             midi_playhead_pos,
                             &frame_converter,
+                            &automation,
                         );
 
                         // Graph pass: route pre-rendered tracks through DAG.

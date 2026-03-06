@@ -8,43 +8,43 @@ interface CanvasGridProps {
 const SNAP_GRID = 20;
 
 /**
- * CanvasGrid — ENTERPRISE: CSS radial-gradient dot pattern.
+ * CanvasGrid — ENTERPRISE: SVG pattern-based grid with viewport transform.
  *
- * Uses CSS radial-gradient for infinite tiling with minimal GPU memory.
- * Background position/size are updated directly via DOM manipulation
- * (bypassing React) in sync with the viewport proxy.
+ * WHY SVG PATTERN instead of CSS radial-gradient:
+ * CSS backgroundPosition + backgroundSize both change during zoom.
+ * The modulo wrapping of backgroundPosition creates DISCONTINUOUS jumps
+ * when backgroundSize changes continuously — visible as grid jitter.
+ * This is mathematically unfixable with CSS backgrounds.
  *
- * Reference: Ultra Deep Service CanvasGrid (proven pattern).
+ * SVG <pattern patternUnits="userSpaceOnUse"> tiles in local coordinates.
+ * The viewport transform (translate + scale) is applied to the ENTIRE SVG
+ * via the same mechanism used by NodesLayer and ConnectionsLayer.
+ * This makes jitter physically impossible — all layers use one transform.
+ *
+ * The browser only rasterizes visible pattern tiles, so the large rect
+ * has zero GPU memory overhead.
  */
 export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
-    const gridRef = useRef<HTMLDivElement>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
     const originRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         return viewportProxy.subscribe((vp) => {
-            if (!gridRef.current) return;
+            if (svgRef.current) {
+                svgRef.current.style.transform =
+                    `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
 
-            // Calculate tiled grid offset.
-            // radial-gradient places dot at CENTER of tile, so we offset by half tile size
-            // to align a dot exactly at world origin (0,0).
-            const scaledSize = SNAP_GRID * vp.zoom;
-            const halfSize = scaledSize / 2;
-            const offsetX = (((vp.x - halfSize) % scaledSize) + scaledSize) % scaledSize;
-            const offsetY = (((vp.y - halfSize) % scaledSize) + scaledSize) % scaledSize;
-
-            gridRef.current.style.backgroundPosition = `${offsetX}px ${offsetY}px`;
-            gridRef.current.style.backgroundSize = `${scaledSize}px ${scaledSize}px`;
-
-            // Fade out at low zoom
-            const baseOpacity = 0.2;
-            const fadeStart = 0.6;
-            const fadeEnd = 0.1;
-            let opacity = baseOpacity;
-            if (vp.zoom < fadeStart) {
-                const fadeProgress = Math.min(1, (fadeStart - vp.zoom) / (fadeStart - fadeEnd));
-                opacity = baseOpacity * (1 - fadeProgress);
+                // Fade out at very low zoom to reduce visual noise
+                const baseOpacity = 0.22;
+                const fadeStart = 0.5;
+                const fadeEnd = 0.15;
+                let opacity = baseOpacity;
+                if (vp.zoom < fadeStart) {
+                    const t = Math.min(1, (fadeStart - vp.zoom) / (fadeStart - fadeEnd));
+                    opacity = baseOpacity * (1 - t);
+                }
+                svgRef.current.style.opacity = String(opacity);
             }
-            gridRef.current.style.opacity = String(opacity);
 
             if (originRef.current) {
                 originRef.current.style.transform =
@@ -53,34 +53,50 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
         });
     }, []);
 
-    const initial = viewportProxy.getViewport();
-    const initialScaledSize = SNAP_GRID * initial.zoom;
-    const initialHalfSize = initialScaledSize / 2;
-    const initialOffsetX = (((initial.x - initialHalfSize) % initialScaledSize) + initialScaledSize) % initialScaledSize;
-    const initialOffsetY = (((initial.y - initialHalfSize) % initialScaledSize) + initialScaledSize) % initialScaledSize;
-
     return (
         <>
-            <div
-                ref={gridRef}
+            {/* Grid dots — SVG pattern in world coordinates */}
+            <svg
+                ref={svgRef}
                 style={{
                     position: 'absolute',
-                    inset: 0,
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'visible',
+                    transformOrigin: '0 0',
                     pointerEvents: 'none',
+                    willChange: 'transform',
                     zIndex: 0,
-                    // GPU compositing layer promotion — synchronizes background
-                    // updates with transform-based node/connection layers.
-                    // Without this, background pos/size updates on the main thread
-                    // desync from GPU-composited transforms by 1 frame.
-                    willChange: 'background-position, background-size, opacity',
-                    transform: 'translateZ(0)',
-                    backgroundImage: `radial-gradient(circle, var(--color-text-secondary) 1px, transparent 1px)`,
-                    backgroundSize: `${initialScaledSize}px ${initialScaledSize}px`,
-                    backgroundPosition: `${initialOffsetX}px ${initialOffsetY}px`,
-                    opacity: 0.2,
+                    opacity: 0.22,
                 }}
-            />
+            >
+                <defs>
+                    <pattern
+                        id="flow-grid-pattern"
+                        width={SNAP_GRID}
+                        height={SNAP_GRID}
+                        patternUnits="userSpaceOnUse"
+                    >
+                        <circle
+                            cx={SNAP_GRID / 2}
+                            cy={SNAP_GRID / 2}
+                            r={1}
+                            fill="var(--color-text-secondary)"
+                        />
+                    </pattern>
+                </defs>
+                <rect
+                    x={-50000}
+                    y={-50000}
+                    width={100000}
+                    height={100000}
+                    fill="url(#flow-grid-pattern)"
+                />
+            </svg>
 
+            {/* Origin crosshair — same viewport transform */}
             {showOrigin && (
                 <div
                     ref={originRef}
@@ -93,7 +109,6 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                         pointerEvents: 'none',
                         zIndex: 0,
                         transformOrigin: '0 0',
-                        transform: `translate(${initial.x}px, ${initial.y}px) scale(${initial.zoom})`,
                     }}
                 >
                     <div style={{

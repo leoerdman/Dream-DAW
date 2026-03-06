@@ -66,8 +66,9 @@ interface FlowSynthState {
     connectionPulseById: Record<string, number>;
     pendingConnection: PendingConnection | null;
 
-    // Per-device viewport cache — each Flow Synth instance remembers its own pan/zoom
+    // Per-device caches — survives close/open cycles within a session
     viewportByDeviceId: Record<string, { x: number; y: number; zoom: number }>;
+    graphsByDeviceId: Record<string, { nodes: SynthNode[]; connections: SynthConnection[] }>;
 
     // ── Preset state ───────────────────────────────────────────────────
     presetName: string;
@@ -402,95 +403,103 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     connectionPulseById: {},
     pendingConnection: null,
 
-    // Per-device viewport cache
+    // Per-device caches
     viewportByDeviceId: {},
+    graphsByDeviceId: {},
 
     // ── Preset initial state ───────────────────────────────────────────
     presetName: FACTORY_PRESETS[0].name,
     presetIndex: 0,
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
-        // Automatically save previous track state synchronously before switching context!
+        // Save previous track state before switching context
         if (state.activeTrackId && state.activeTrackId !== trackId) {
             _forceSaveConfig(state);
-            // Save viewport for the previous device before switching
             if (state.activeDeviceId) {
                 const currentVp = viewportProxy.getViewport();
                 state.viewportByDeviceId[state.activeDeviceId] = { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom };
+                state.graphsByDeviceId[state.activeDeviceId] = { nodes: state.nodes, connections: state.connections };
             }
         }
 
-        // ENTERPRISE: If already open for the SAME device+track, keep current state.
-        // Only re-hydrate from project model on FIRST open or when switching tracks.
-        // BUG FIX: Previous code always set graph=null, causing preset reset on every re-open.
+        // ── 1) Check if SAME context (editor already open for this device) ──
         const isSameContext = state.activeDeviceId === deviceId && state.activeTrackId === trackId && state.nodes.length > 0;
-        let graph: FlowGraph | null = isSameContext
-            ? { nodes: state.nodes, connections: state.connections, viewport: viewportProxy.getViewport() }
-            : null;
-        if (!graph) {
-            // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
-            const track = useEngineStore.getState().tracks.byId[trackId];
-            if (track?.flow_synth) {
-                // Build node type map for signal type inference
-                const nodeTypeMap = new Map<string, string>();
-                for (const n of track.flow_synth.nodes) {
-                    nodeTypeMap.set(n.id, n.type);
-                }
-                graph = {
-                    nodes: track.flow_synth.nodes.map((n: any) => ({
-                        id: n.id,
-                        type: n.type as SynthNodeType,
-                        position: { x: n.position_x, y: n.position_y },
-                        // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse numeric/boolean values
-                        data: _rehydrateData(n.type as SynthNodeType, n.data)
-                    })),
-                    connections: track.flow_synth.connections.map((c: any) => {
-                        const toPort = migrateLegacyPortName(c.to_port ?? '');
-                        // Signal type: use saved value, or infer from the source port's type in PORT_REGISTRY
-                        let signalType = c.signalType ?? c.signal_type ?? null;
-                        if (!signalType) {
-                            // ENTERPRISE: Infer from source port definition
-                            const fromNodeType = nodeTypeMap.get(c.from_node);
-                            if (fromNodeType) {
-                                const reg = PORT_REGISTRY[fromNodeType as SynthNodeType];
-                                if (reg) {
-                                    const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
-                                    signalType = port?.type ?? 'audio';
-                                }
-                            }
-                            if (!signalType) signalType = 'audio';
-                        }
-                        return {
-                            id: c.id,
-                            fromNode: c.from_node,
-                            fromPort: c.from_port,
-                            toNode: c.to_node,
-                            toPort,
-                            signalType
-                        };
-                    }),
-                    viewport: {
-                        x: track.flow_synth.viewport?.x ?? 0,
-                        y: track.flow_synth.viewport?.y ?? 0,
-                        zoom: track.flow_synth.viewport?.zoom ?? 1
-                    }
-                };
-            } else {
-                graph = cloneDefaultGraph();
+        if (isSameContext) {
+            // Already open, do nothing — keep current state:
+            return { isOpen: true };
+        }
+
+        // ── 2) Check per-device cache (survives close/reopen) ──
+        const cachedGraph = state.graphsByDeviceId[deviceId];
+        if (cachedGraph && cachedGraph.nodes.length > 0) {
+            const savedViewport = state.viewportByDeviceId[deviceId];
+            viewportProxy.setViewport(savedViewport ?? DEFAULT_FLOW_GRAPH.viewport);
+            // Skip engine sync — engine already has this graph from last time
+            return {
+                isOpen: true,
+                activeDeviceId: deviceId,
+                activeTrackId: trackId,
+                nodes: cachedGraph.nodes,
+                connections: cachedGraph.connections,
+                selectedNodeIds: [],
+                selectedConnectionId: null,
+                pendingConnection: null,
+            };
+        }
+
+        // ── 3) Hydrate from project model (first open) ──
+        let graph: FlowGraph;
+        const track = useEngineStore.getState().tracks.byId[trackId];
+        if (track?.flow_synth) {
+            const nodeTypeMap = new Map<string, string>();
+            for (const n of track.flow_synth.nodes) {
+                nodeTypeMap.set(n.id, n.type);
             }
+            graph = {
+                nodes: track.flow_synth.nodes.map((n: any) => ({
+                    id: n.id,
+                    type: n.type as SynthNodeType,
+                    position: { x: n.position_x, y: n.position_y },
+                    data: _rehydrateData(n.type as SynthNodeType, n.data)
+                })),
+                connections: track.flow_synth.connections.map((c: any) => {
+                    const toPort = migrateLegacyPortName(c.to_port ?? '');
+                    let signalType = c.signalType ?? c.signal_type ?? null;
+                    if (!signalType) {
+                        const fromNodeType = nodeTypeMap.get(c.from_node);
+                        if (fromNodeType) {
+                            const reg = PORT_REGISTRY[fromNodeType as SynthNodeType];
+                            if (reg) {
+                                const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
+                                signalType = port?.type ?? 'audio';
+                            }
+                        }
+                        if (!signalType) signalType = 'audio';
+                    }
+                    return {
+                        id: c.id,
+                        fromNode: c.from_node,
+                        fromPort: c.from_port,
+                        toNode: c.to_node,
+                        toPort,
+                        signalType
+                    };
+                }),
+                viewport: {
+                    x: track.flow_synth.viewport?.x ?? 0,
+                    y: track.flow_synth.viewport?.y ?? 0,
+                    zoom: track.flow_synth.viewport?.zoom ?? 1
+                }
+            };
+        } else {
+            graph = cloneDefaultGraph();
         }
 
-        // ENTERPRISE: Restore saved viewport for this device, or use graph/project viewport
         const savedViewport = state.viewportByDeviceId[deviceId];
-        const vpToRestore = savedViewport ?? graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport;
-        viewportProxy.setViewport(vpToRestore);
+        viewportProxy.setViewport(savedViewport ?? graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
 
-        // ENTERPRISE: Only sync to engine on FIRST open or track switch.
-        // Re-syncing on every editor re-open resets the engine audio state,
-        // losing the current preset/sound. Skip if same device+track.
-        if (!isSameContext) {
-            _scheduleSyncFlowGraph(get);
-        }
+        // First open — sync graph to engine
+        _scheduleSyncFlowGraph(get);
 
         return {
             isOpen: true,
@@ -517,14 +526,18 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             };
         }
 
-        // ENTERPRISE FIX: Synchronously save upon closing editor so we don't lose data
+        // Save config to project model
         _forceSaveConfig(state);
 
-        // Save the current viewport for this device before resetting
+        // Cache graph + viewport for this device (survives close/reopen)
         const currentVp = viewportProxy.getViewport();
         const updatedViewports = {
             ...state.viewportByDeviceId,
             [state.activeDeviceId]: { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom },
+        };
+        const updatedGraphs = {
+            ...state.graphsByDeviceId,
+            [state.activeDeviceId]: { nodes: state.nodes, connections: state.connections },
         };
 
         viewportProxy.reset();
@@ -536,6 +549,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedConnectionId: null,
             pendingConnection: null,
             viewportByDeviceId: updatedViewports,
+            graphsByDeviceId: updatedGraphs,
         };
     }),
 

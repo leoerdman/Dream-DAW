@@ -87,6 +87,8 @@ export function FlowCanvas() {
     const setSelectionBox = useFlowSynthStore((state) => state.setSelectionBox);
     const deleteSelectedNodes = useFlowSynthStore((state) => state.deleteSelectedNodes);
     const deleteConnection = useFlowSynthStore((state) => state.deleteConnection);
+    const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
+    const cancelConnectionDrag = useFlowSynthStore((state) => state.cancelConnectionDrag);
     // ENTERPRISE FIX: Selector prevents FlowCanvas from re-rendering when node data/faders change
     const hasOutputNode = useFlowSynthStore((state) => state.nodes.some((node) => node.type === 'output'));
     const menuInputRef = useRef<HTMLInputElement>(null);
@@ -195,6 +197,12 @@ export function FlowCanvas() {
                     setMenuState(null);
                     return;
                 }
+                if (pendingConnection) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    cancelConnectionDrag();
+                    return;
+                }
                 clearSelection();
                 return;
             }
@@ -255,7 +263,7 @@ export function FlowCanvas() {
             document.removeEventListener('keyup', onKeyUp, true);
             window.removeEventListener('blur', onBlur);
         };
-    }, [menuState, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, setSelectionBox, menuIndex, filteredCatalog]);
+    }, [menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, cancelConnectionDrag, setSelectionBox, menuIndex, filteredCatalog]);
 
     useEffect(() => {
         setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));

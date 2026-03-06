@@ -306,6 +306,7 @@ impl FlowSynthEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dream_ipc::{FlowNodeType, FlowParamKey};
 
     #[test]
     fn flow_engine_output_is_finite_and_bounded_under_feedback() {
@@ -313,13 +314,13 @@ mod tests {
         engine.set_enabled(true);
         engine.sync_graph(
             &[
-                (1, "oscillator".to_string(), vec![]),
-                (2, "reverse".to_string(), vec![
-                    ("windowMs".to_string(), "30".to_string()),
-                    ("feedback".to_string(), "0.95".to_string()),
-                    ("mix".to_string(), "1.0".to_string()),
+                (1, FlowNodeType::Oscillator, vec![]),
+                (2, FlowNodeType::Reverse, vec![
+                    (FlowParamKey::WindowMs, 30.0),
+                    (FlowParamKey::Feedback, 0.95),
+                    (FlowParamKey::Mix, 1.0),
                 ]),
-                (3, "output".to_string(), vec![]),
+                (3, FlowNodeType::Output, vec![]),
             ],
             &[
                 (1, 0, 2, 0),
@@ -346,15 +347,15 @@ mod tests {
         engine.set_enabled(true);
         engine.sync_graph(
             &[
-                (1, "midiIn".to_string(), vec![]),
-                (2, "oscillator".to_string(), vec![]),
-                (3, "envelope".to_string(), vec![
-                    ("attack".to_string(), "0.005".to_string()),
-                    ("decay".to_string(), "0.01".to_string()),
-                    ("sustain".to_string(), "0.8".to_string()),
-                    ("release".to_string(), "0.1".to_string()),
+                (1, FlowNodeType::MidiIn, vec![]),
+                (2, FlowNodeType::Oscillator, vec![]),
+                (3, FlowNodeType::Envelope, vec![
+                    (FlowParamKey::Attack, 0.005),
+                    (FlowParamKey::Decay, 0.01),
+                    (FlowParamKey::Sustain, 0.8),
+                    (FlowParamKey::Release, 0.1),
                 ]),
-                (4, "output".to_string(), vec![]),
+                (4, FlowNodeType::Output, vec![]),
             ],
             &[
                 (1, 0, 2, 0), // freq -> osc
@@ -386,9 +387,9 @@ mod tests {
         engine.set_enabled(true);
         engine.sync_graph(
             &[
-                (1, "midiIn".to_string(), vec![]),
-                (2, "oscillator".to_string(), vec![]),
-                (3, "output".to_string(), vec![]),
+                (1, FlowNodeType::MidiIn, vec![]),
+                (2, FlowNodeType::Oscillator, vec![]),
+                (3, FlowNodeType::Output, vec![]),
             ],
             &[
                 (1, 0, 2, 0),
@@ -430,8 +431,8 @@ mod tests {
         engine.set_enabled(true);
         engine.sync_graph(
             &[
-                (1, "oscillator".to_string(), vec![]),
-                (2, "output".to_string(), vec![]),
+                (1, FlowNodeType::Oscillator, vec![]),
+                (2, FlowNodeType::Output, vec![]),
             ],
             &[
                 (1, 0, 2, 0),
@@ -465,3 +466,4 @@ mod tests {
         assert!((FlowSynthEngine::soft_limit(-0.5) + 0.5).abs() < 0.001);
     }
 }
+

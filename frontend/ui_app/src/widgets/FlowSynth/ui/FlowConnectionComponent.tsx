@@ -55,6 +55,15 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const [isHovered, setIsHovered] = useState(false);
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // ENTERPRISE: Clear any pending hover timeout on unmount to prevent
+    // React state update on an unmounted component.
+    useEffect(() => {
+        return () => {
+            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+        };
+    }, []);
+
+
     // ENTERPRISE FIX (#3+#4): Store the port-relative Y offset as a ref.
     // The port Y position = nodePosition.y + portRelativeY.
     // We compute portRelativeY once from initial props and use absolute math thereafter.

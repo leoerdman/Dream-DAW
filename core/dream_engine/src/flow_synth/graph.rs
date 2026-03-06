@@ -484,6 +484,7 @@ impl FlowGraph {
 mod tests {
     use super::*;
     use crate::flow_synth::nodes::MidiInNode;
+    use dream_ipc::{FlowNodeType, FlowParamKey};
 
     fn rms(samples: &[f32]) -> f32 {
         if samples.is_empty() {
@@ -496,7 +497,6 @@ mod tests {
     fn render(graph: &mut FlowGraph, sample_rate: f64, frames: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(frames);
         for _ in 0..frames {
-            // Unpack stereo tuple and use left channel for assertions
             let (l, _r) = graph.process_sample(sample_rate);
             out.push(l);
         }
@@ -521,8 +521,8 @@ mod tests {
     #[test]
     fn oscillator_to_output_generates_signal() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.add_node(2, "output");
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Output);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
@@ -532,17 +532,17 @@ mod tests {
     #[test]
     fn oscillator_params_affect_rendered_audio() {
         let mut g_default = FlowGraph::new();
-        g_default.add_node(1, "oscillator");
-        g_default.add_node(2, "output");
+        g_default.add_node(1, FlowNodeType::Oscillator);
+        g_default.add_node(2, FlowNodeType::Output);
         g_default.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let mut g_tweaked = FlowGraph::new();
-        g_tweaked.add_node(1, "oscillator");
+        g_tweaked.add_node(1, FlowNodeType::Oscillator);
         g_tweaked.set_node_params(1, &[
-            ("waveform".to_string(), "square".to_string()),
-            ("frequency".to_string(), "880".to_string()),
+            (FlowParamKey::Waveform, 2.0),   // square
+            (FlowParamKey::Frequency, 880.0),
         ]);
-        g_tweaked.add_node(2, "output");
+        g_tweaked.add_node(2, FlowNodeType::Output);
         g_tweaked.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let a = render(&mut g_default, 44_100.0, 512);
@@ -560,21 +560,21 @@ mod tests {
     #[test]
     fn eq_band_gain_changes_level() {
         let mut dry = FlowGraph::new();
-        dry.add_node(1, "oscillator");
-        dry.add_node(2, "eq");
-        dry.add_node(3, "output");
+        dry.add_node(1, FlowNodeType::Oscillator);
+        dry.add_node(2, FlowNodeType::Eq);
+        dry.add_node(3, FlowNodeType::Output);
         dry.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         dry.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
         let mut boosted = FlowGraph::new();
-        boosted.add_node(1, "oscillator");
-        boosted.add_node(2, "eq");
+        boosted.add_node(1, FlowNodeType::Oscillator);
+        boosted.add_node(2, FlowNodeType::Eq);
         boosted.set_node_params(2, &[
-            ("eqLow".to_string(), "12".to_string()),
-            ("eqMid".to_string(), "0".to_string()),
-            ("eqHigh".to_string(), "0".to_string()),
+            (FlowParamKey::EqLow, 12.0),
+            (FlowParamKey::EqMid, 0.0),
+            (FlowParamKey::EqHigh, 0.0),
         ]);
-        boosted.add_node(3, "output");
+        boosted.add_node(3, FlowNodeType::Output);
         boosted.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         boosted.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
@@ -586,10 +586,9 @@ mod tests {
     #[test]
     fn audio_in_to_output_passes_injected_sample() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "audioIn");
-        g.add_node(2, "output");
-        // Set gain to 1.0 for exact pass-through validation (default is 0.8)
-        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(1, FlowNodeType::AudioIn);
+        g.add_node(2, FlowNodeType::Output);
+        g.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         g.set_audio_in_sample(0.37);
@@ -600,26 +599,26 @@ mod tests {
     #[test]
     fn autofilter_depth_changes_output_shape() {
         let mut base = FlowGraph::new();
-        base.add_node(1, "oscillator");
-        base.add_node(2, "autofilter");
+        base.add_node(1, FlowNodeType::Oscillator);
+        base.add_node(2, FlowNodeType::AutoFilter);
         base.set_node_params(2, &[
-            ("cutoff".to_string(), "1200".to_string()),
-            ("rate".to_string(), "2.0".to_string()),
-            ("depth".to_string(), "0.0".to_string()),
+            (FlowParamKey::Cutoff, 1200.0),
+            (FlowParamKey::Rate, 2.0),
+            (FlowParamKey::Depth, 0.0),
         ]);
-        base.add_node(3, "output");
+        base.add_node(3, FlowNodeType::Output);
         base.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         base.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
         let mut modulated = FlowGraph::new();
-        modulated.add_node(1, "oscillator");
-        modulated.add_node(2, "autofilter");
+        modulated.add_node(1, FlowNodeType::Oscillator);
+        modulated.add_node(2, FlowNodeType::AutoFilter);
         modulated.set_node_params(2, &[
-            ("cutoff".to_string(), "1200".to_string()),
-            ("rate".to_string(), "2.0".to_string()),
-            ("depth".to_string(), "0.8".to_string()),
+            (FlowParamKey::Cutoff, 1200.0),
+            (FlowParamKey::Rate, 2.0),
+            (FlowParamKey::Depth, 0.8),
         ]);
-        modulated.add_node(3, "output");
+        modulated.add_node(3, FlowNodeType::Output);
         modulated.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         modulated.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
@@ -632,15 +631,15 @@ mod tests {
     #[test]
     fn reverse_node_produces_wet_signal_after_warmup() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.set_node_params(1, &[("waveform".to_string(), "saw".to_string())]);
-        g.add_node(2, "reverse");
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.set_node_params(1, &[(FlowParamKey::Waveform, 1.0)]); // saw
+        g.add_node(2, FlowNodeType::Reverse);
         g.set_node_params(2, &[
-            ("windowMs".to_string(), "40".to_string()),
-            ("feedback".to_string(), "0.25".to_string()),
-            ("mix".to_string(), "1.0".to_string()),
+            (FlowParamKey::WindowMs, 40.0),
+            (FlowParamKey::Feedback, 0.25),
+            (FlowParamKey::Mix, 1.0),
         ]);
-        g.add_node(3, "output");
+        g.add_node(3, FlowNodeType::Output);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
@@ -652,9 +651,9 @@ mod tests {
     #[test]
     fn midi_freq_controls_oscillator_pitch() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "midiIn");
-        g.add_node(2, "oscillator");
-        g.add_node(3, "output");
+        g.add_node(1, FlowNodeType::MidiIn);
+        g.add_node(2, FlowNodeType::Oscillator);
+        g.add_node(3, FlowNodeType::Output);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
@@ -676,15 +675,15 @@ mod tests {
     #[test]
     fn midi_gate_drives_envelope_output() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "midiIn");
-        g.add_node(2, "envelope");
+        g.add_node(1, FlowNodeType::MidiIn);
+        g.add_node(2, FlowNodeType::Envelope);
         g.set_node_params(2, &[
-            ("attack".to_string(), "0.005".to_string()),
-            ("decay".to_string(), "0.02".to_string()),
-            ("sustain".to_string(), "0.5".to_string()),
-            ("release".to_string(), "0.01".to_string()),
+            (FlowParamKey::Attack, 0.005),
+            (FlowParamKey::Decay, 0.02),
+            (FlowParamKey::Sustain, 0.5),
+            (FlowParamKey::Release, 0.01),
         ]);
-        g.add_node(3, "output");
+        g.add_node(3, FlowNodeType::Output);
         g.add_connection(FlowConnection { from_node: 1, from_port: 2, to_node: 2, to_port: 0 }); // gate
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 }); // env cv
 
@@ -702,9 +701,9 @@ mod tests {
     #[test]
     fn output_node_muted_produces_silence() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.add_node(2, "output");
-        g.set_node_params(2, &[("muted".to_string(), "true".to_string())]);
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Output);
+        g.set_node_params(2, &[(FlowParamKey::Muted, 1.0)]); // true
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
@@ -715,15 +714,15 @@ mod tests {
     #[test]
     fn output_node_gain_scales_level() {
         let mut full = FlowGraph::new();
-        full.add_node(1, "oscillator");
-        full.add_node(2, "output");
-        full.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        full.add_node(1, FlowNodeType::Oscillator);
+        full.add_node(2, FlowNodeType::Output);
+        full.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
         full.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let mut half = FlowGraph::new();
-        half.add_node(1, "oscillator");
-        half.add_node(2, "output");
-        half.set_node_params(2, &[("gain".to_string(), "0.5".to_string())]);
+        half.add_node(1, FlowNodeType::Oscillator);
+        half.add_node(2, FlowNodeType::Output);
+        half.set_node_params(2, &[(FlowParamKey::Gain, 0.5)]);
         half.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let full_out = render(&mut full, 44_100.0, 512);
@@ -751,16 +750,16 @@ mod tests {
     #[test]
     fn lfo_produces_periodic_output() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "lfo");
+        g.add_node(1, FlowNodeType::Lfo);
         g.set_node_params(1, &[
-            ("rate".to_string(), "10.0".to_string()),
-            ("shape".to_string(), "sine".to_string()),
+            (FlowParamKey::Rate, 10.0),
+            (FlowParamKey::Shape, 0.0), // sine
         ]);
-        g.add_node(2, "output");
-        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(2, FlowNodeType::Output);
+        g.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
-        let out = render(&mut g, 44_100.0, 4410); // 100ms at 44.1kHz = 1 full cycle at 10Hz
+        let out = render(&mut g, 44_100.0, 4410);
         let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
         assert!(peak > 0.5, "LFO should produce significant signal, got peak={peak}");
     }
@@ -768,9 +767,9 @@ mod tests {
     #[test]
     fn noise_produces_nonzero_signal() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "noise");
-        g.add_node(2, "output");
-        g.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(1, FlowNodeType::Noise);
+        g.add_node(2, FlowNodeType::Output);
+        g.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
@@ -781,42 +780,38 @@ mod tests {
     #[test]
     fn math_add_sums_two_signals() {
         let mut g = FlowGraph::new();
-        // Two oscillators → add → output
-        g.add_node(1, "oscillator");
-        g.add_node(2, "oscillator");
-        g.add_node(3, "add");
-        g.add_node(4, "output");
-        g.set_node_params(4, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Oscillator);
+        g.add_node(3, FlowNodeType::Add);
+        g.add_node(4, FlowNodeType::Output);
+        g.set_node_params(4, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 3, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 1 });
         g.add_connection(FlowConnection { from_node: 3, from_port: 0, to_node: 4, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
         let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
-        // Sum of two oscillators should be louder than one
         assert!(peak > 0.5, "add node should combine signals, peak={peak}");
     }
 
     #[test]
     fn math_multiply_scales_signal() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.add_node(2, "multiply");
-        g.set_node_params(2, &[("scale".to_string(), "0.5".to_string())]);
-        g.add_node(3, "output");
-        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Multiply);
+        g.set_node_params(2, &[(FlowParamKey::Scale, 0.5)]);
+        g.add_node(3, FlowNodeType::Output);
+        g.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
-        // Only one input to multiply — second defaults to 1.0
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
         let scaled_rms = rms(&out);
 
-        // Compare with unscaled
         let mut g2 = FlowGraph::new();
-        g2.add_node(1, "oscillator");
-        g2.add_node(2, "output");
-        g2.set_node_params(2, &[("gain".to_string(), "1.0".to_string())]);
+        g2.add_node(1, FlowNodeType::Oscillator);
+        g2.add_node(2, FlowNodeType::Output);
+        g2.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
         g2.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         let out2 = render(&mut g2, 44_100.0, 512);
         let full_rms = rms(&out2);
@@ -828,16 +823,14 @@ mod tests {
     #[test]
     fn sample_hold_captures_on_trigger() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "noise");        // random signal source
-        g.add_node(2, "sampleHold");
-        g.add_node(3, "output");
-        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
-        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 }); // signal
-        // No trigger connected yet — should hold initial value (0.0)
+        g.add_node(1, FlowNodeType::Noise);
+        g.add_node(2, FlowNodeType::SampleHold);
+        g.add_node(3, FlowNodeType::Output);
+        g.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 64);
-        // Without a trigger, S&H should output held value (0.0)
         let peak = out.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
         assert!(peak < 0.001, "S&H without trigger should hold zero, peak={peak}");
     }
@@ -845,20 +838,19 @@ mod tests {
     #[test]
     fn delay_produces_echoed_signal() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.add_node(2, "delay");
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Delay);
         g.set_node_params(2, &[
-            ("time".to_string(), "10.0".to_string()),  // 10ms delay
-            ("feedback".to_string(), "0.0".to_string()),
-            ("mix".to_string(), "1.0".to_string()),     // 100% wet
+            (FlowParamKey::TimeMs, 10.0),
+            (FlowParamKey::Feedback, 0.0),
+            (FlowParamKey::Mix, 1.0),
         ]);
-        g.add_node(3, "output");
-        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
+        g.add_node(3, FlowNodeType::Output);
+        g.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
         g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
-        let out = render(&mut g, 44_100.0, 882); // 20ms worth
-        // First ~441 samples (10ms) should be ~silence (delay hasn't echoed yet)
+        let out = render(&mut g, 44_100.0, 882);
         let first_rms = rms(&out[..441]);
         let second_rms = rms(&out[441..]);
         assert!(second_rms > first_rms * 5.0,
@@ -868,13 +860,13 @@ mod tests {
     #[test]
     fn mixer_sums_four_inputs() {
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator"); // ch1
-        g.add_node(2, "oscillator"); // ch2
-        g.add_node(3, "mixer");
-        g.add_node(4, "output");
-        g.set_node_params(4, &[("gain".to_string(), "1.0".to_string())]);
-        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 3, to_port: 0 }); // ch1
-        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 1 }); // ch2
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Oscillator);
+        g.add_node(3, FlowNodeType::Mixer);
+        g.add_node(4, FlowNodeType::Output);
+        g.set_node_params(4, &[(FlowParamKey::Gain, 1.0)]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 3, to_port: 0 });
+        g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 1 });
         g.add_connection(FlowConnection { from_node: 3, from_port: 0, to_node: 4, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
@@ -884,14 +876,12 @@ mod tests {
 
     #[test]
     fn vca_amplitude_controlled_by_cv() {
-        // VCA with CV=0 should produce silence
         let mut g = FlowGraph::new();
-        g.add_node(1, "oscillator");
-        g.add_node(2, "vca");
-        g.add_node(3, "output");
-        g.set_node_params(3, &[("gain".to_string(), "1.0".to_string())]);
-        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 }); // audio
-        // No CV connected — defaults to 1.0, so pass-through
+        g.add_node(1, FlowNodeType::Oscillator);
+        g.add_node(2, FlowNodeType::Vca);
+        g.add_node(3, FlowNodeType::Output);
+        g.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
+        g.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
         g.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
 
         let out = render(&mut g, 44_100.0, 512);
@@ -899,3 +889,4 @@ mod tests {
         assert!(pass_rms > 0.3, "VCA with default CV=1.0 should pass audio, rms={pass_rms}");
     }
 }
+

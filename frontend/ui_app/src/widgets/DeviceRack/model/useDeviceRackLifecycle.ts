@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react';
-import * as engineApi from '@/shared/api/engine';
+import { useEffect, useMemo, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 interface DeviceLike {
@@ -9,7 +8,6 @@ interface DeviceLike {
 interface UseDeviceRackLifecycleArgs {
     selectedTrackId: string;
     chain: DeviceLike[];
-    openEditorsByTrack: Record<string, Set<string>>;
     prevTrackIdRef: React.MutableRefObject<string>;
     cleanupGestures: () => void;
     setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>;
@@ -19,7 +17,6 @@ interface UseDeviceRackLifecycleArgs {
 export function useDeviceRackLifecycle({
     selectedTrackId,
     chain,
-    openEditorsByTrack,
     prevTrackIdRef,
     cleanupGestures,
     setSelectedDeviceIds,
@@ -49,31 +46,60 @@ export function useDeviceRackLifecycle({
         });
     }, [chain, chainKey, setSelectedDeviceIds, setInlineSettingsOpen]);
 
-    // ── Close editors when switching tracks ──
+    // ── ENTERPRISE: Track-switch editor hide/restore ──
+    // Ref to track FlowSynth open state per track (for restore on return).
+    const flowOpenByTrackRef = useRef<Record<string, { deviceId: string; trackId: string }>>({});
+
     useEffect(() => {
         const prevId = prevTrackIdRef.current;
         prevTrackIdRef.current = selectedTrackId;
         if (prevId === selectedTrackId) return;
 
-        const prevSlots = openEditorsByTrack[prevId];
-        if (prevSlots && prevSlots.size > 0 && prevId) {
-            // BUG-S06 FIX: Wait for backend to actually close before removing from UI state
-            // to prevent race conditions where user opens plugin while close is in flight.
-            Promise.all(
-                Array.from(prevSlots).map((slotId) =>
-                    engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
-                        console.warn('[Dream] close editor on track leave failed:', err),
-                    ),
-                ),
-            ).finally(() => {
-                useEngineStore.setState((s) => {
-                    const next = { ...s.openEditorsByTrack };
-                    next[prevId] = new Set<string>();
-                    return { openEditorsByTrack: next };
-                });
-            });
+        const { hideEditorsForTrack, restoreEditorsForTrack } = useEngineStore.getState();
+
+        // ── 1) HIDE editors on the previous track (preserve open Set) ──
+        if (prevId) {
+            // Hide VST/AU native windows (Set stays intact for restore)
+            void hideEditorsForTrack(prevId);
+
+            // Hide FlowSynth if it was open on the previous track
+            void (async () => {
+                try {
+                    const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                    const flowState = useFlowSynthStore.getState();
+                    if (flowState.isOpen && flowState.activeTrackId === prevId) {
+                        // Remember that Flow was open on this track
+                        flowOpenByTrackRef.current[prevId] = {
+                            deviceId: flowState.activeDeviceId ?? '',
+                            trackId: prevId,
+                        };
+                        flowState.closeFlowEditor();
+                    }
+                } catch {
+                    // FlowSynth module not loaded — nothing to hide
+                }
+            })();
         }
-    }, [selectedTrackId, openEditorsByTrack, prevTrackIdRef]);
+
+        // ── 2) RESTORE editors on the new track ──
+        // Restore VST/AU native windows from preserved Set
+        void restoreEditorsForTrack(selectedTrackId);
+
+        // Restore FlowSynth if it was previously open on the new track
+        const savedFlow = flowOpenByTrackRef.current[selectedTrackId];
+        if (savedFlow && savedFlow.deviceId) {
+            void (async () => {
+                try {
+                    const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                    useFlowSynthStore.getState().openFlowEditor(savedFlow.deviceId, selectedTrackId);
+                    // Clean up — editor is now open, no need to track it
+                    delete flowOpenByTrackRef.current[selectedTrackId];
+                } catch {
+                    // FlowSynth module not loaded — skip restore
+                }
+            })();
+        }
+    }, [selectedTrackId, prevTrackIdRef]);
 
     // BUG-S05 FIX: Cleanup gestures ONLY after track changes — not on every render.
     // This prevents losing pending gesture commits.

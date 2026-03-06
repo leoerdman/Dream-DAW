@@ -84,7 +84,7 @@ interface SandboxSlotUpdateEvent {
 export function createTelemetryActions(
     set: StoreApi<EngineStore>['setState'],
     get: StoreApi<EngineStore>['getState'],
-): Pick<EngineStore, 'startTelemetryLoop' | 'stopTelemetryLoop' | 'reloadCrashedSandboxPlugins' | 'togglePluginEditor' | 'closeAllPluginEditors'> {
+): Pick<EngineStore, 'startTelemetryLoop' | 'stopTelemetryLoop' | 'reloadCrashedSandboxPlugins' | 'togglePluginEditor' | 'closeAllPluginEditors' | 'hideEditorsForTrack' | 'restoreEditorsForTrack'> {
     const pluginEditorActions = createPluginEditorActions(set, get);
 
     return {

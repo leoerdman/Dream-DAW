@@ -5,7 +5,7 @@ import type { EngineStore } from '@/shared/stores/useEngineStore';
 export function createPluginEditorActions(
     set: StoreApi<EngineStore>['setState'],
     get: StoreApi<EngineStore>['getState'],
-): Pick<EngineStore, 'togglePluginEditor' | 'closeAllPluginEditors'> {
+): Pick<EngineStore, 'togglePluginEditor' | 'closeAllPluginEditors' | 'hideEditorsForTrack' | 'restoreEditorsForTrack'> {
     return {
         togglePluginEditor: async (trackId: string, slotId: string) => {
             const { openEditorsByTrack } = get();
@@ -41,6 +41,45 @@ export function createPluginEditorActions(
                 }
             }
             set({ openEditorsByTrack: {} });
+        },
+
+        /**
+         * ENTERPRISE: Hide native plugin windows for a track.
+         * Closes the native OS windows but PRESERVES the openEditorsByTrack Set.
+         * When user returns to this track, restoreEditorsForTrack will reopen them.
+         */
+        hideEditorsForTrack: async (trackId: string) => {
+            const { openEditorsByTrack } = get();
+            const slots = openEditorsByTrack[trackId];
+            if (!slots || slots.size === 0) return;
+
+            // Close native windows silently — do NOT modify the Set
+            await Promise.all(
+                Array.from(slots).map((slotId) =>
+                    engine.closePluginWindowForSlot(trackId, slotId).catch((err) =>
+                        console.warn('[PluginEditors] hideEditorsForTrack: close failed:', err),
+                    ),
+                ),
+            );
+        },
+
+        /**
+         * ENTERPRISE: Restore native plugin windows for a track.
+         * Reads the preserved openEditorsByTrack Set and reopens native windows.
+         */
+        restoreEditorsForTrack: async (trackId: string) => {
+            const { openEditorsByTrack } = get();
+            const slots = openEditorsByTrack[trackId];
+            if (!slots || slots.size === 0) return;
+
+            // Reopen native windows from the preserved Set
+            await Promise.all(
+                Array.from(slots).map((slotId) =>
+                    engine.openPluginWindowForSlot(trackId, slotId).catch((err) =>
+                        console.warn('[PluginEditors] restoreEditorsForTrack: open failed:', err),
+                    ),
+                ),
+            );
         },
     };
 }

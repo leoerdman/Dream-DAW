@@ -105,6 +105,10 @@ export interface EngineStore {
     reloadCrashedSandboxPlugins: () => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     closeAllPluginEditors: () => Promise<void>;
+    /** Hide native plugin windows for a track (close windows, preserve open set for later restore). */
+    hideEditorsForTrack: (trackId: string) => Promise<void>;
+    /** Restore native plugin windows for a track (reopen from preserved open set). */
+    restoreEditorsForTrack: (trackId: string) => Promise<void>;
     resetMeterPeakHold: (trackIndex: number | 'master') => void;
 }
 const DEFAULT_TRANSPORT: TransportState = {

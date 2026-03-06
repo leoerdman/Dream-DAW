@@ -256,7 +256,6 @@ export function useDeviceRackLogic(
     useDeviceRackLifecycle({
         selectedTrackId,
         chain,
-        openEditorsByTrack,
         prevTrackIdRef,
         cleanupGestures: gestures.cleanupGestures,
         setSelectedDeviceIds: core.setSelectedDeviceIds,

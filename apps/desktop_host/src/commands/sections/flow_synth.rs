@@ -158,6 +158,12 @@ fn flow_presets_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String
 }
 
 #[tauri::command]
+fn get_flow_presets_dir_cmd(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = flow_presets_dir(&app)?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn list_flow_user_presets(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let dir = flow_presets_dir(&app)?;
     let mut names: Vec<String> = Vec::new();

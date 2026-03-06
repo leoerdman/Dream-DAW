@@ -3,7 +3,7 @@
 // Universal renderer that reads PluginDefinition and assembles UI modules
 // ═══════════════════════════════════════════════════════════════════════════
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { clamp01 } from '@/shared/lib/audioMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
@@ -255,18 +255,97 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
             </div>
         );
     }
+    // ── Delay-specific: Time/Sync mode + L↔R Link (Enterprise) ──
+    const isSyncMode = definition.delaySync
+        ? getParamValue(device, ['sync l'], 1) > 0.5
+        : false;
+    const [isLinkActive, setLinkActive] = useState(false);
+
+    // Dynamic knob filtering for Delay: hide time knobs in Sync, hide note enums in Time
+    const filteredKnobParams = useMemo(() => {
+        if (!definition.delaySync) return allKnobParams;
+        const hideSet = isSyncMode
+            ? new Set(['time l', 'time r'])   // In Sync: hide time knobs (notes shown as dropdowns)
+            : new Set<string>();               // In Time: show all knobs
+        return allKnobParams.filter(p => !hideSet.has(p.name.toLowerCase()));
+    }, [allKnobParams, definition.delaySync, isSyncMode]);
+
+    // Dynamic enum filtering for Delay: only show note dropdowns in Sync mode
+    const filteredEnumParams = useMemo(() => {
+        if (!definition.delaySync) return enumParams;
+        if (isSyncMode) return enumParams; // Show note l/r dropdowns in Sync
+        return enumParams.filter(p => {
+            const n = p.name.toLowerCase();
+            return n !== 'note l' && n !== 'note r'; // Hide note dropdowns in Time mode
+        });
+    }, [enumParams, definition.delaySync, isSyncMode]);
+
+    // L↔R mirroring handler (active only when link is ON)
+    const wrappedHandlers = useMemo((): SurfaceHandlers => {
+        if (!isLinkActive || !definition.delaySync) return handlers;
+        const mirrorMap: Record<string, string> = {
+            'time l': 'time r', 'time r': 'time l',
+            'note l': 'note r', 'note r': 'note l',
+            'sync l': 'sync r', 'sync r': 'sync l',
+        };
+        return {
+            ...handlers,
+            onParamChange: (paramName: string, value: number) => {
+                handlers.onParamChange(paramName, value);
+                const mirrorTarget = mirrorMap[paramName.toLowerCase()];
+                if (mirrorTarget) {
+                    const canonical = device.params.find(p => p.name.toLowerCase() === mirrorTarget);
+                    if (canonical) handlers.onParamChange(canonical.name, value);
+                }
+            },
+        };
+    }, [handlers, isLinkActive, definition.delaySync, device.params]);
 
     // ── Standard layout: ControlPanel | VizCard | DryWet ────────────
-    const vizElement = resolveViz(definition.viz, device, accent, handlers);
+    const vizElement = resolveViz(definition.viz, device, accent, wrappedHandlers);
     const metaSpans = resolveMeta(definition.meta, device);
 
     return (
         <PluginSurfaceLayout>
-            <ControlPanel params={allKnobParams} handlers={handlers}>
+            <ControlPanel params={filteredKnobParams} handlers={wrappedHandlers}>
+                {/* ── Delay-specific: Mode dropdown + Link ── */}
+                {definition.delaySync && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select
+                            value={isSyncMode ? 1 : 0}
+                            onChange={(e) => {
+                                const syncVal = Number(e.target.value);
+                                wrappedHandlers.onParamGestureStart?.('sync l');
+                                wrappedHandlers.onParamChange('sync l', syncVal);
+                                wrappedHandlers.onParamChange('sync r', syncVal);
+                                wrappedHandlers.onParamGestureEnd?.('sync l');
+                            }}
+                            style={{
+                                flex: 1,
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-md)',
+                                background: 'var(--color-bg-header)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: '3px 6px',
+                                outline: 'none',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <option value={0}>Time</option>
+                            <option value={1}>Sync</option>
+                        </select>
+                        <ToggleButton
+                            label="🔗"
+                            active={isLinkActive}
+                            onClick={() => setLinkActive(prev => !prev)}
+                        />
+                    </div>
+                )}
                 {/* ── Inline enum dropdowns ── */}
-                {enumParams.length > 0 && (
+                {filteredEnumParams.length > 0 && (
                     <div style={{ display: 'grid', gap: 4 }}>
-                        {enumParams.map((p) => {
+                        {filteredEnumParams.map((p) => {
                             const labels = enumLabels[p.name] ?? enumLabels[p.name.toLowerCase()] ?? [];
                             const currentValue = Math.round(p.value ?? 0);
                             return (
@@ -283,9 +362,9 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                                     <select
                                         value={currentValue}
                                         onChange={(e) => {
-                                            handlers.onParamGestureStart?.(p.name);
-                                            handlers.onParamChange(p.name, Number(e.target.value));
-                                            handlers.onParamGestureEnd?.(p.name);
+                                            wrappedHandlers.onParamGestureStart?.(p.name);
+                                            wrappedHandlers.onParamChange(p.name, Number(e.target.value));
+                                            wrappedHandlers.onParamGestureEnd?.(p.name);
                                         }}
                                         style={{
                                             flex: 1,
@@ -314,36 +393,21 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                         {toggleParams.map((p) => {
                             const active = (p.value ?? 0) > 0.5;
                             return (
-                                <button
+                                <ToggleButton
                                     key={p.name}
-                                    type="button"
+                                    label={p.name}
+                                    active={active}
                                     onClick={() => {
-                                        handlers.onParamGestureStart?.(p.name);
-                                        handlers.onParamChange(p.name, active ? 0 : 1);
-                                        handlers.onParamGestureEnd?.(p.name);
+                                        wrappedHandlers.onParamGestureStart?.(p.name);
+                                        wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
+                                        wrappedHandlers.onParamGestureEnd?.(p.name);
                                     }}
-                                    style={{
-                                        padding: '3px 10px',
-                                        borderRadius: 'var(--radius-md)',
-                                        border: 'var(--space-px) solid var(--color-divider)',
-                                        background: active
-                                            ? `color-mix(in srgb, ${accent} 30%, var(--color-bg-elevated))`
-                                            : 'var(--color-bg-elevated)',
-                                        color: active ? accent : 'var(--color-text-tertiary)',
-                                        fontSize: 'var(--font-size-2xs)',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        transition: 'background 0.15s ease, color 0.15s ease',
-                                        textTransform: 'capitalize',
-                                    }}
-                                >
-                                    {p.name}
-                                </button>
+                                />
                             );
                         })}
                     </div>
                 )}
-                {/* ── Main-surface buttons (e.g. Delay Sync L/R) ── */}
+                {/* ── Main-surface buttons (e.g. Ping Pong) ── */}
                 {definition.buttons && definition.buttons.length > 0 && (
                     <ButtonStrip>
                         {definition.buttons.map((btn) => {
@@ -356,11 +420,11 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                                     active={active}
                                     onClick={() => {
                                         if (isUtilityScene && btn.scene) {
-                                            handlers.onApplyUtilityScene?.(btn.scene as 'center' | 'mono' | 'wide');
+                                            wrappedHandlers.onApplyUtilityScene?.(btn.scene as 'center' | 'mono' | 'wide');
                                         } else {
-                                            handlers.onParamGestureStart?.(btn.paramName);
-                                            handlers.onParamChange(btn.paramName, active ? 0 : 1);
-                                            handlers.onParamGestureEnd?.(btn.paramName);
+                                            wrappedHandlers.onParamGestureStart?.(btn.paramName);
+                                            wrappedHandlers.onParamChange(btn.paramName, active ? 0 : 1);
+                                            wrappedHandlers.onParamGestureEnd?.(btn.paramName);
                                         }
                                     }}
                                 />
@@ -379,7 +443,7 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                     </MetaReadout>
                 )}
             </VizColumn>
-            <DryWetSection device={device} handlers={handlers} accent={dryWetAccent} show={showDryWet} />
+            <DryWetSection device={device} handlers={wrappedHandlers} accent={dryWetAccent} show={showDryWet} />
         </PluginSurfaceLayout>
     );
 });

@@ -47,7 +47,10 @@ export type SynthNodeType =
     | 'delay'
     | 'mixer'
     | 'vca'
-    | 'pitch';
+    | 'pitch'
+    | 'utility'
+    | 'distortion'
+    | 'vst3';
 
 export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
     midiIn: {
@@ -104,6 +107,9 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         color: 'var(--color-signal-audio)',
         inputs: [
             { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'low_gain', label: 'Low', type: 'control', fader: { min: -12, max: 12, step: 0.1, dataKey: 'lowGain', unit: 'dB', default: 0 } },
+            { id: 'mid_gain', label: 'Mid', type: 'control', fader: { min: -12, max: 12, step: 0.1, dataKey: 'midGain', unit: 'dB', default: 0 } },
+            { id: 'high_gain', label: 'High', type: 'control', fader: { min: -12, max: 12, step: 0.1, dataKey: 'highGain', unit: 'dB', default: 0 } },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },
@@ -254,6 +260,41 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
             { id: 'freq_out', label: 'Out', type: 'control' },
         ],
     },
+    utility: {
+        title: 'Utility',
+        color: 'var(--color-synth-fx)',
+        inputs: [
+            { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'gain', label: 'Gain', type: 'control', fader: { min: 0, max: 4, step: 0.01, dataKey: 'gain', default: 1, unit: 'x' } },
+            { id: 'pan', label: 'Pan', type: 'control', fader: { min: -1, max: 1, step: 0.01, dataKey: 'pan', default: 0 } },
+        ],
+        outputs: [
+            { id: 'audio', label: 'Out', type: 'audio' },
+        ],
+    },
+    distortion: {
+        title: 'Distortion',
+        color: 'var(--color-synth-fx)',
+        inputs: [
+            { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'drive', label: 'Drive', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'drive', default: 0.5 } },
+            { id: 'mix', label: 'Mix', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'mix', default: 1 } },
+        ],
+        outputs: [
+            { id: 'audio', label: 'Out', type: 'audio' },
+        ],
+    },
+    vst3: {
+        title: 'VST3',
+        color: 'var(--color-accent-tertiary)',
+        inputs: [
+            { id: 'audio', label: 'In', type: 'audio' },
+            { id: 'midi', label: 'MIDI', type: 'midi' },
+        ],
+        outputs: [
+            { id: 'audio', label: 'Out', type: 'audio' },
+        ],
+    },
 };
 
 /**
@@ -281,7 +322,7 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     oscillator: 1,   // waveform select only
     filter: 1,       // filter type select only
     envelope: 1,     // ADSR visualizer (compact)
-    eq: 3,
+    eq: 2,           // crossover frequency knobs (band gain via inline faders)
     autofilter: 1,   // filter type select only
     reverse: 3,
     midiIn: 1,
@@ -291,6 +332,8 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     mixer: 4,        // ch1-4 gain sliders
     vca: 1,          // bias
     multiply: 1,     // scale
+    distortion: 1,   // mode selector
+    vst3: 2,         // plugin selector
 };
 
 const CONTROL_ROW_HEIGHT = 28;

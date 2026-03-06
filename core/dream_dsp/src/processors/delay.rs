@@ -120,10 +120,10 @@ impl DelayProcessor {
             fb_hp_prev_r: 0.0,
             fb_hp_coeff: 0.0,
             bpm: 120.0,
-            sync_l: false,
-            sync_r: false,
+            sync_l: true,
+            sync_r: true,
             note_l: 5, // 1/8 note
-            note_r: 6, // 1/8D note
+            note_r: 5, // 1/8 note
             lfo_phase: 0.0,
             cross_fb_l: 0.0,
             cross_fb_r: 0.0,

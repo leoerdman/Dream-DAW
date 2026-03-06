@@ -38,8 +38,13 @@ const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string
     // ── Delay / FX ──
     { type: 'delay', label: 'Delay', keywords: ['delay', 'echo', 'repeat', 'time', 'feedback', 'comb'], category: 'Delay/FX' },
     { type: 'reverse', label: 'Reverse', keywords: ['fx', 'reverse', 'backwards'], category: 'Delay/FX' },
+    { type: 'distortion', label: 'Distortion', keywords: ['distort', 'drive', 'clip', 'waveshaper', 'saturate', 'overdrive', 'crush'], category: 'Delay/FX' },
     // ── Pitch ──
     { type: 'pitch', label: 'Pitch', keywords: ['pitch', 'octave', 'transpose', 'tune', 'semitone'], category: 'Pitch' },
+    // ── Utility ──
+    { type: 'utility', label: 'Utility', keywords: ['utility', 'gain', 'pan', 'phase', 'invert', 'dc', 'trim', 'level', 'volume'], category: 'Utility' },
+    // ── External ──
+    { type: 'vst3', label: 'VST3 Plugin', keywords: ['vst', 'vst3', 'plugin', 'external', 'instrument', 'effect', 'serum', 'vital'], category: 'External' },
 ];
 
 
@@ -153,6 +158,9 @@ export function FlowCanvas() {
             mixer: 'Mixer',
             vca: 'VCA',
             pitch: 'Pitch',
+            utility: 'Utility',
+            distortion: 'Distortion',
+            vst3: 'VST3 Plugin',
         };
         addNode({
             id: nodeId,
@@ -165,7 +173,8 @@ export function FlowCanvas() {
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.code === 'Space' && !e.repeat) spacePressedRef.current = true;
+            // ENTERPRISE: Do NOT capture Space key — it must propagate to DAW transport play/stop.
+            // Canvas panning is handled via mouse middle button or Ctrl+drag.
             if (e.key === 'Control') {
                 ctrlPressedRef.current = true;
                 setCtrlPressed(true);
@@ -226,7 +235,6 @@ export function FlowCanvas() {
             }
         };
         const onKeyUp = (e: KeyboardEvent) => {
-            if (e.code === 'Space') spacePressedRef.current = false;
             if (e.key === 'Control') {
                 ctrlPressedRef.current = false;
                 setCtrlPressed(false);

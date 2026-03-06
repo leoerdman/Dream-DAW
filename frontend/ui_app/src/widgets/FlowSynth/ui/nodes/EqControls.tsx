@@ -8,14 +8,19 @@ interface Props {
     node: SynthNode;
 }
 
+/**
+ * EQ Controls — 3-Band EQ (Band EQ / Bitwig-style)
+ *
+ * Low/Mid/High gain values are driven by inline port faders (dataKeys: lowGain, midGain, highGain).
+ * The controls section provides crossover frequency knobs to define the band boundaries.
+ */
 export function EqControls({ node }: Props) {
     const updateNodeData = useFlowSynthStore((s) => s.updateNodeData);
-    const low = Number(node.data?.eqLow ?? 0);
-    const mid = Number(node.data?.eqMid ?? 0);
-    const high = Number(node.data?.eqHigh ?? 0);
+    const lowFreq = Number(node.data?.lowFreq ?? 200);
+    const highFreq = Number(node.data?.highFreq ?? 5000);
 
-    const setBand = useCallback((band: 'eqLow' | 'eqMid' | 'eqHigh', value: number) => {
-        updateNodeData(node.id, { [band]: value });
+    const setParam = useCallback((key: string, value: number) => {
+        updateNodeData(node.id, { [key]: value });
     }, [node.id, updateNodeData]);
 
     return (
@@ -25,34 +30,24 @@ export function EqControls({ node }: Props) {
             justifyContent: 'space-around',
         }}>
             <RotaryKnob
-                value={low}
-                min={-18}
-                max={18}
-                step={0.5}
-                label="Low"
-                unit="dB"
+                value={lowFreq}
+                min={40}
+                max={800}
+                step={1}
+                label="Low Freq"
+                unit="Hz"
                 color="var(--color-accent-warm)"
-                onChange={(v) => setBand('eqLow', v)}
+                onChange={(v) => setParam('lowFreq', v)}
             />
             <RotaryKnob
-                value={mid}
-                min={-18}
-                max={18}
-                step={0.5}
-                label="Mid"
-                unit="dB"
-                color="var(--color-accent-primary)"
-                onChange={(v) => setBand('eqMid', v)}
-            />
-            <RotaryKnob
-                value={high}
-                min={-18}
-                max={18}
-                step={0.5}
-                label="High"
-                unit="dB"
+                value={highFreq}
+                min={1000}
+                max={16000}
+                step={10}
+                label="High Freq"
+                unit="Hz"
                 color="var(--color-accent-cool)"
-                onChange={(v) => setBand('eqHigh', v)}
+                onChange={(v) => setParam('highFreq', v)}
             />
         </div>
     );

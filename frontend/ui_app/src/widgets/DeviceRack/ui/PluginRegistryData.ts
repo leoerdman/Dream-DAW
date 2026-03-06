@@ -107,7 +107,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         settingsPanel: {
             params: ['delay', 'stereo', 'fb damp', 'lfo shape', 'tz mode', 'mix'],
             enumLabels: { 'tz mode': ['Off', 'Through-Zero'], 'lfo shape': ['Sine', 'Triangle', 'Saw', 'Square', 'S&H'] },
-            toggleParams: ['tz mode', 'stereo'],
+            toggleParams: ['tz mode'],
         },
     },
 
@@ -131,14 +131,15 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'R', paramNames: 'time r', fallback: 375, suffix: 'ms' },
             { label: 'FB', paramNames: 'fb', fallback: 30, suffix: '%' },
         ],
-        // ENTERPRISE: Sync L/R toggle buttons visible on main surface.
-        // Previously hidden in settings panel — users couldn't find sync mode.
+        // Single Ping Pong button + Link (frontend-only state via renderer)
         buttons: [
-            { label: 'Sync L', paramName: 'sync l', scene: 'sync' },
-            { label: 'Sync R', paramName: 'sync r', scene: 'sync' },
+            { label: 'Ping Pong', paramName: 'pingpong' },
         ],
+        // Enterprise Delay: Time/Sync mode as dropdown, note divisions as enums
+        // When mode='Sync' (sync l=1, sync r=1): hide time knobs, show note dropdowns
+        // When mode='Time' (sync l=0, sync r=0): show time knobs, hide note dropdowns
         settingsPanel: {
-            params: ['time l', 'time r', 'note l', 'note r', 'pingpong', 'mod rate', 'mod depth', 'filter'],
+            params: ['sync l', 'sync r', 'note l', 'note r', 'pingpong'],
             maxCols: 2,
             toggleParams: ['pingpong'],
             enumLabels: {
@@ -146,6 +147,8 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
                 'note r': ['1/32', '1/16T', '1/16', '1/16D', '1/8T', '1/8', '1/8D', '1/4T', '1/4', '1/4D', '1/2T', '1/2', '1/2D', '1 Bar'],
             },
         },
+        // Feature flag: renderer uses this to implement Time↔Note switching + Link
+        delaySync: true,
     },
     filterDelay: {
         background: 'var(--plugin-bg-delay)',
@@ -291,7 +294,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         ],
         settingsPanel: {
             params: ['rel', 'lookahead', 'link', 'auto rel'],
-            toggleParams: ['link', 'auto rel'],
+            toggleParams: ['auto rel'],
         },
     },
     gate: {
@@ -379,7 +382,6 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         settingsPanel: {
             params: ['ratio', 'atk', 'rel', 'makeup', 'range', 'mix', 'soft clip'],
             enumLabels: { 'ratio': ['2', '4', '10'] },
-            toggleParams: ['soft clip'],
         },
     },
     multibandDynamics: {
@@ -586,7 +588,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Bits', paramNames: 'bits', fallback: 16, suffix: 'bit' },
             { label: 'Down', paramNames: ['down', 'downsample'], fallback: 1, suffix: 'x' },
         ],
-        settingsPanel: { params: ['jitter', 'pre freq', 'post freq', 'stereo', 'dither'] },
+        settingsPanel: { params: ['jitter', 'pre freq', 'post freq', 'stereo', 'dither'], toggleParams: ['stereo'] },
     },
 
     // ─── NOISE ──────────────────────────────────────────────────────────
@@ -621,7 +623,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         viz: { type: 'none' },
         meta: [],
         isUtility: true,
-        buttons: [{ label: 'Mono', paramName: 'mono', scene: 'mono' }],
+        // Mono button: toggles 'mono' param 0↔1 (no scene — simple param toggle)
+        buttons: [{ label: 'Mono', paramName: 'mono' }],
+        // 'mono' in toggleParams ensures it's excluded from the knob grid (no duplicate)
+        settingsPanel: { params: ['mono'], toggleParams: ['mono'] },
     },
 
     // ─── CHANNEL EQ (3-band DJ-style) ─────────────────────────────────
@@ -643,7 +648,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
             { label: 'Mid', paramNames: 'mid', fallback: 0, suffix: 'dB' },
             { label: 'High', paramNames: 'high', fallback: 0, suffix: 'dB' },
         ],
-        settingsPanel: { params: ['lowfreq', 'highfreq', 'lowkill', 'midkill', 'highkill', 'out'] },
+        settingsPanel: { params: ['lowfreq', 'highfreq', 'lowkill', 'midkill', 'highkill', 'out'], toggleParams: ['lowkill', 'midkill', 'highkill'] },
     },
 
     // ─── ANALYZER (spectrum display) ───────────────────────────────────

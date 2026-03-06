@@ -3,7 +3,7 @@ import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
-import { portNameToIndex, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType } from './portRegistry';
+import { portNameToIndex, PORT_REGISTRY, FLOW_NODE_HEADER_HEIGHT, type SynthNodeType, type PortDefinition } from './portRegistry';
 import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
 import { FACTORY_PRESETS, clonePreset, type FlowPreset } from './flowPresets';
 
@@ -295,10 +295,16 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
     openFlowEditor: (deviceId, trackId) => set((state) => {
         let graph = state.graphsByDeviceId[deviceId];
+        const isFirstOpen = !graph;
         if (!graph) {
             // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
             const track = useEngineStore.getState().tracks.byId[trackId];
             if (track?.flow_synth) {
+                // Build node type map for signal type inference
+                const nodeTypeMap = new Map<string, string>();
+                for (const n of track.flow_synth.nodes) {
+                    nodeTypeMap.set(n.id, n.type);
+                }
                 graph = {
                     nodes: track.flow_synth.nodes.map((n: any) => ({
                         id: n.id,
@@ -307,16 +313,31 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                         // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse numeric/boolean values
                         data: _rehydrateData(n.data)
                     })),
-                    connections: track.flow_synth.connections.map((c: any) => ({
-                        id: c.id,
-                        fromNode: c.from_node,
-                        fromPort: c.from_port,
-                        toNode: c.to_node,
-                        // ENTERPRISE MIGRATION: audioL/audioR → audio (single stereo input)
-                        toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
-                        // BUG-10 FIX: Rust uses #[serde(rename = "signalType")] → JS receives "signalType", not "signal_type"
-                        signalType: c.signalType ?? c.signal_type ?? 'audio'
-                    })),
+                    connections: track.flow_synth.connections.map((c: any) => {
+                        const toPort = (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port;
+                        // Signal type: use saved value, or infer from the source port's type in PORT_REGISTRY
+                        let signalType = c.signalType ?? c.signal_type ?? null;
+                        if (!signalType) {
+                            // ENTERPRISE: Infer from source port definition
+                            const fromNodeType = nodeTypeMap.get(c.from_node);
+                            if (fromNodeType) {
+                                const reg = PORT_REGISTRY[fromNodeType as SynthNodeType];
+                                if (reg) {
+                                    const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
+                                    signalType = port?.type ?? 'audio';
+                                }
+                            }
+                            if (!signalType) signalType = 'audio';
+                        }
+                        return {
+                            id: c.id,
+                            fromNode: c.from_node,
+                            fromPort: c.from_port,
+                            toNode: c.to_node,
+                            toPort,
+                            signalType
+                        };
+                    }),
                     viewport: {
                         x: track.flow_synth.viewport?.x ?? 0,
                         y: track.flow_synth.viewport?.y ?? 0,
@@ -330,9 +351,12 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
         viewportProxy.setViewport(graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
 
-        // CRITICAL: Sync graph to engine on editor open so the Rust backend
-        // receives the graph and enables Flow processing for this track.
-        _scheduleSyncFlowGraph(get);
+        // ENTERPRISE: Only sync to engine on FIRST open — when there's no cached graph.
+        // Re-syncing on every editor open resets the engine state, causing sound artifacts.
+        // The engine already has the graph from the initial load or previous save.
+        if (isFirstOpen) {
+            _scheduleSyncFlowGraph(get);
+        }
 
         return {
             isOpen: true,
@@ -855,6 +879,11 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         if (total === 0) return;
         const safeIndex = ((index % total) + total) % total;
         const preset = clonePreset(FACTORY_PRESETS[safeIndex]);
+
+        // ENTERPRISE: Clear stale node positions from the motion proxy before
+        // replacing the graph. Without this, SynthNodeComponents for newly
+        // mounted nodes would read stale positions from the previous graph.
+        nodeMotionProxy.clearAll();
 
         set((state) => {
             const patch: Partial<FlowSynthState> = {

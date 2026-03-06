@@ -9,8 +9,8 @@
 import type { CSSProperties } from 'react';
 
 // ── Port Dimensions ────────────────────────────────────────────────────
-export const FLOW_PORT_DOT_SIZE = 4;
-export const FLOW_PORT_HIT_PAD = 8;
+export const FLOW_PORT_DOT_SIZE = 10;
+export const FLOW_PORT_HIT_PAD = 6;
 
 // ── Signal Type → Color Token Map ──────────────────────────────────────
 export const SIGNAL_COLOR_MAP: Record<string, string> = {
@@ -42,11 +42,11 @@ export const nodeShellStyle: CSSProperties = {
     position: 'absolute',
     left: 0,
     top: 0,
-    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, transparent)',
+    background: 'color-mix(in srgb, var(--color-bg-panel) 97%, transparent)',
     backdropFilter: 'blur(var(--blur-lg))',
     WebkitBackdropFilter: 'blur(var(--blur-lg))',
     borderRadius: 'var(--radius-xl)',
-    border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--color-text-primary) 22%, transparent)',
     boxShadow: 'var(--shadow-md)',
     display: 'flex',
     flexDirection: 'column',
@@ -70,7 +70,7 @@ export const nodeHeaderStyle: CSSProperties = {
     alignItems: 'center',
     gap: 'var(--space-2)',
     borderBottom: '1px solid var(--color-divider)',
-    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 5%, transparent), transparent)',
+    background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 10%, transparent), transparent)',
     borderTopLeftRadius: 'var(--radius-xl)',
     borderTopRightRadius: 'var(--radius-xl)',
     boxSizing: 'border-box',
@@ -99,7 +99,7 @@ export const portLabelStyle: CSSProperties = {
     fontSize: 'var(--font-size-xs)',
     fontFamily: 'var(--font-role-data)',
     fontWeight: 'var(--font-weight-semibold)',
-    color: 'var(--color-text-secondary)',
+    color: 'color-mix(in srgb, var(--color-text-primary) 80%, transparent)',
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
     lineHeight: 'var(--space-3-5)',

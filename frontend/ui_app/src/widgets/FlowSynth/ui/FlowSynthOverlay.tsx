@@ -31,9 +31,27 @@ function FloatingPresetBar() {
 
     const handleSavePreset = useCallback(async () => {
         try {
-            const name = window.prompt('Preset name:', presetName || 'My Preset');
-            if (!name) return;
+            const { save } = await import('@tauri-apps/plugin-dialog');
             const { invoke } = await import('@tauri-apps/api/core');
+
+            // Get default presets directory path from Rust
+            let defaultPath: string | undefined;
+            try {
+                defaultPath = await invoke<string>('get_flow_presets_dir_cmd');
+            } catch { /* fallback: no defaultPath */ }
+
+            const filePath = await save({
+                title: 'Save Flow Preset',
+                defaultPath: defaultPath ? `${defaultPath}/${presetName || 'My Preset'}.json` : undefined,
+                filters: [{ name: 'Flow Preset', extensions: ['json'] }],
+            });
+            if (!filePath) return;
+
+            // Extract name from selected path (without .json extension)
+            const parts = filePath.replace(/\\/g, '/').split('/');
+            const fileName = parts[parts.length - 1] || 'Untitled';
+            const name = fileName.replace(/\.json$/i, '');
+
             const presetJson = JSON.stringify({
                 name,
                 nodes: nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
@@ -47,23 +65,41 @@ function FloatingPresetBar() {
 
     const handleLoadPreset = useCallback(async () => {
         try {
+            const { open } = await import('@tauri-apps/plugin-dialog');
             const { invoke } = await import('@tauri-apps/api/core');
-            const names = await invoke<string[]>('list_flow_user_presets');
-            if (!names || names.length === 0) {
-                window.alert('No user presets saved yet.');
-                return;
-            }
-            const selected = window.prompt(
-                `Available presets:\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nEnter preset name:`
-            );
-            if (!selected) return;
-            const text = await invoke<string>('load_flow_user_preset', { name: selected });
+
+            // Get default presets directory path from Rust
+            let defaultPath: string | undefined;
+            try {
+                defaultPath = await invoke<string>('get_flow_presets_dir_cmd');
+            } catch { /* fallback: no defaultPath */ }
+
+            const filePath = await open({
+                title: 'Open Flow Preset',
+                defaultPath: defaultPath || undefined,
+                multiple: false,
+                directory: false,
+                filters: [{ name: 'Flow Preset', extensions: ['json'] }],
+            });
+            if (!filePath) return;
+
+            // Extract name from selected path
+            const pathStr = typeof filePath === 'string' ? filePath : filePath;
+            const parts = pathStr.replace(/\\/g, '/').split('/');
+            const fileName = parts[parts.length - 1] || '';
+            const name = fileName.replace(/\.json$/i, '');
+            if (!name) return;
+
+            const text = await invoke<string>('load_flow_user_preset', { name });
             const preset = JSON.parse(text);
             if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
-                // BUG-13 FIX: Use proper store actions (they trigger sync + graphsByDeviceId update)
+                // Clear stale motion proxy positions before replacing graph
+                const { nodeMotionProxy } = await import('../lib/NodeMotionProxy');
+                nodeMotionProxy.clearAll();
+                // Use proper store actions (they trigger sync + graphsByDeviceId update)
                 useFlowSynthStore.getState().setNodes(preset.nodes);
                 useFlowSynthStore.getState().setConnections(preset.connections);
-                useFlowSynthStore.setState({ presetName: preset.name || selected });
+                useFlowSynthStore.setState({ presetName: preset.name || name });
                 // Sync restored graph to engine
                 void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
             }
@@ -278,7 +314,7 @@ export function FlowSynthOverlay() {
     return (
         <PluginWindow
             pluginId={activeDeviceId ?? 'flow'}
-            pluginName=""
+            pluginName="Flow"
             pluginType="effect"
             isBypassed={false}
             onToggleBypass={() => { }}
@@ -289,8 +325,9 @@ export function FlowSynthOverlay() {
             initialY={84}
             showPresetControls={false}
             showBypassControl={false}
-            headerBackground="linear-gradient(135deg, color-mix(in srgb, var(--color-bg-elevated) 95%, var(--color-accent-primary) 5%), var(--color-bg-elevated))"
-            headerBorderColor="color-mix(in srgb, var(--color-divider) 82%, transparent)"
+            leftDotColor="var(--color-accent-primary)"
+            headerBackground="linear-gradient(180deg, color-mix(in srgb, var(--color-bg-elevated) 98%, transparent), var(--color-bg-elevated))"
+            headerBorderColor="color-mix(in srgb, var(--color-divider) 60%, transparent)"
             contentPadding="0"
         >
             <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', boxShadow: 'none' }}>

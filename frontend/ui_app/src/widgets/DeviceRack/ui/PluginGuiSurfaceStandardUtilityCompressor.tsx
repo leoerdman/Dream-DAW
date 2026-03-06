@@ -27,7 +27,6 @@ import {
 } from '@/widgets/DeviceRack/ui/PluginModules';
 
 export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onApplyUtilityScene } = handlers;
     const normalizedInternalId = getDevicePluginKey(device);
 
     if (device.effectType === 'utility') {
@@ -43,7 +42,11 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
             }}>
                 <KnobParamGrid params={knobParams} handlers={handlers} maxCols={2} minCols={2} />
                 <ButtonStrip>
-                    <ToggleButton label="Mono" active={mono} onClick={() => onApplyUtilityScene?.('mono')} />
+                    <ToggleButton label="Mono" active={mono} onClick={() => {
+                        handlers.onParamGestureStart?.('mono');
+                        handlers.onParamChange('mono', mono ? 0 : 1);
+                        handlers.onParamGestureEnd?.('mono');
+                    }} />
                 </ButtonStrip>
                 {showDryWet && (
                     <DryWetSection device={device} handlers={handlers} accent="var(--token-color-hex-7ab6ff)" show={showDryWet} />

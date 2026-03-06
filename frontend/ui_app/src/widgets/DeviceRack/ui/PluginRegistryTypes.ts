@@ -97,4 +97,6 @@ export interface PluginDefinition {
     buttons?: ButtonConfig[];
     /** Secondary settings panel for overflow params. */
     settingsPanel?: SettingsPanelConfig;
+    /** When true, renderer adds Time/Sync mode dropdown + L↔R link button + dynamic knob switching. */
+    delaySync?: boolean;
 }

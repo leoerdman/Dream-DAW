@@ -104,6 +104,7 @@ pub(crate) fn invoke_handler()
         sync_flow_graph_cmd,
         update_flow_node_param_cmd,
         save_flow_synth_config_cmd,
+        get_flow_presets_dir_cmd,
         list_flow_user_presets,
         save_flow_user_preset,
         load_flow_user_preset,

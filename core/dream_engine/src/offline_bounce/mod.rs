@@ -55,7 +55,7 @@ use crate::driver::apply_external_plugin_param_automation_block;
 use crate::driver::apply_track_mixer_automation_sample_accurate;
 use crate::driver::parse_external_param_target;
 use crate::driver::midi_dispatcher::{clamp_midi_pitch, quantize_to_scale};
-use crate::render_callback::{RenderContext, soft_clip};
+use crate::render_callback::RenderContext;
 use crate::essence_synth::EssenceSynthEngine;
 use crate::flow_synth::FlowSynthEngine;
 use crate::instrument_core::AdsrParams;
@@ -2766,11 +2766,22 @@ impl OfflineRenderer {
             (mix_l, mix_r)
         };
 
-        // Final output limiter pass: apply soft clipping once at the end of
-        // the offline pipeline (mirrors realtime final output safety stage).
-        for (l, r) in final_l.iter_mut().zip(final_r.iter_mut()) {
-            *l = soft_clip(*l);
-            *r = soft_clip(*r);
+        // ENTERPRISE EXPORT PARITY FIX: Do NOT apply soft_clip to exports.
+        // Professional DAWs (Ableton, Logic, Pro Tools) export the mix
+        // transparently — 32-bit float WAV/AIFF can hold values above 0 dBFS.
+        // Soft clipping was compressing transients above -0.45 dBFS, making
+        // exports sound "squashed" compared to playback. The real-time path
+        // correctly uses soft_clip to prevent DAC hard-clipping, but exports
+        // must preserve the exact mix as the user created it.
+        //
+        // For 16/24-bit integer formats, clamp to [-1.0, 1.0] since integer
+        // PCM cannot represent values above 0 dBFS. For 32-bit float, pass
+        // through as-is for maximum fidelity.
+        if self.config.bit_depth < 32 {
+            for (l, r) in final_l.iter_mut().zip(final_r.iter_mut()) {
+                *l = l.clamp(-1.0, 1.0);
+                *r = r.clamp(-1.0, 1.0);
+            }
         }
 
         progress_callback(0.85);

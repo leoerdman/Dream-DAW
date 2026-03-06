@@ -227,6 +227,15 @@ impl FlowSynthEngine {
         nodes: &[dream_ipc::FlowNodeDescriptor],
         connections: &[(u64, usize, u64, usize)],
     ) {
+        // ENTERPRISE FIX: Auto-enable the engine when a graph is synced.
+        // Previously the engine started disabled and required the user
+        // to explicitly open the Flow editor UI (eye icon) to enable it.
+        // This caused MIDI notes to be silent on tracks with a Flow
+        // instrument until the UI was opened.
+        if !nodes.is_empty() {
+            self.enabled = true;
+        }
+
         let ordered_nodes = Self::topologically_sorted_nodes(nodes, connections);
         for voice in &mut self.voices {
             voice.graph.clear();

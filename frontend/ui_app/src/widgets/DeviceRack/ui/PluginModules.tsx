@@ -127,8 +127,8 @@ export const VizCard = React.memo(({
         background: background ?? 'var(--plugin-card-bg-main)',
         overflow: 'hidden',
         padding: 0,
-        flex: '0 0 40%',
-        maxWidth: '40%',
+        flex: '0 0 43%',
+        maxWidth: '43%',
         position: 'relative',
         ...style,
     }}>
@@ -213,13 +213,13 @@ export const ToggleButton = React.memo(({
         style={{
             padding: '3px 14px',
             borderRadius: 'var(--radius-md)',
-            border: 'var(--space-px) solid var(--color-divider)',
+            border: `var(--space-px) solid ${active ? 'var(--color-accent-primary)' : 'var(--color-divider)'}`,
             background: active ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-            color: active ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+            color: '#fff',
             fontSize: 'var(--font-size-2xs)',
             fontWeight: 600,
             cursor: 'pointer',
-            transition: 'background 0.15s ease, color 0.15s ease',
+            transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease',
         }}
     >
         {label}

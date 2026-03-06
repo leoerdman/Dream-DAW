@@ -77,6 +77,15 @@ class MotionProxy {
         this.positions.delete(nodeId);
         this.subscribers.delete(nodeId);
     }
+    /**
+     * ENTERPRISE: Clear ALL positions and subscribers.
+     * Called when the entire graph changes (preset switch, project load).
+     * Prevents stale node positions from persisting across graph replacements.
+     */
+    clearAll() {
+        this.positions.clear();
+        this.subscribers.clear();
+    }
 }
 
 export const nodeMotionProxy = new MotionProxy();

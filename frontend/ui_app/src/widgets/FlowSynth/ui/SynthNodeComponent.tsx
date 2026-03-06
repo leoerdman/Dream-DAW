@@ -3,7 +3,6 @@ import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import type { SynthNode } from '../model/useFlowSynthStore';
 import {
     PORT_REGISTRY,
-    FLOW_PORT_SIZE,
     FLOW_PORT_ROW_HEIGHT,
     FLOW_NODE_HEADER_HEIGHT,
     FLOW_NODE_BODY_PADDING,
@@ -14,7 +13,6 @@ import {
 import { viewportProxy } from '../lib/ViewportProxy';
 import {
     FLOW_PORT_DOT_SIZE,
-    FLOW_PORT_HIT_PAD,
     signalColor,
     nodeShellStyle,
     selectionOverlayStyle,
@@ -38,6 +36,9 @@ import { DelayControls } from './nodes/DelayControls';
 import { MixerControls } from './nodes/MixerControls';
 import { MultiplyControls } from './nodes/MultiplyControls';
 import { VcaControls } from './nodes/VcaControls';
+import { UtilityControls } from './nodes/UtilityControls';
+import { DistortionControls } from './nodes/DistortionControls';
+import { Vst3Controls } from './nodes/Vst3Controls';
 
 import { PortRowFader } from './nodes/PortRowFader';
 
@@ -83,6 +84,12 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <VcaControls node={node} />;
         case 'multiply':
             return <MultiplyControls node={node} />;
+        case 'utility':
+            return <UtilityControls node={node} />;
+        case 'distortion':
+            return <DistortionControls node={node} />;
+        case 'vst3':
+            return <Vst3Controls node={node} />;
         // Stateless nodes with no additional controls:
         case 'add':
         case 'sampleHold':
@@ -121,7 +128,6 @@ function PortDot({
     const dotColor = signalColor(port.type);
 
     const dotSize = FLOW_PORT_DOT_SIZE;
-    const HIT_PAD = FLOW_PORT_HIT_PAD;
 
     const handlePointerDown = (e: React.PointerEvent) => {
         if (side !== 'out' || interactionDisabled) return;
@@ -168,6 +174,10 @@ function PortDot({
 
 
 
+    // ENTERPRISE: Filled circle = output (produces signal), outlined = input (receives signal)
+    // Matches Bitwig Grid convention for intuitive I/O distinction.
+    const isFilled = side === 'out';
+
     return (
         <div
             onPointerDown={handlePointerDown}
@@ -182,22 +192,20 @@ function PortDot({
                 height: dotSize,
                 borderRadius: '50%',
                 transform: isHovered
-                    ? 'scale(1.4)'
+                    ? 'scale(1.35)'
                     : showTargetGlow
                         ? 'scale(1.15)'
                         : 'none',
-                backgroundColor: dotColor,
+                backgroundColor: isFilled ? dotColor : 'transparent',
                 border: `2px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
                 boxShadow: isHovered
                     ? `0 0 14px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
                     : showTargetGlow
                         ? `0 0 10px ${dotColor}`
-                        : `0 0 6px ${dotColor}`,
+                        : `0 0 5px ${dotColor}`,
                 transition: 'transform var(--transition-fast) cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow var(--transition-fast)',
                 zIndex: isHovered ? 10 : 5,
-                padding: HIT_PAD,
-                margin: -HIT_PAD,
             }}
         />
     );
@@ -220,7 +228,7 @@ function PortLabel({
         <span
             style={{
                 ...portLabelStyle,
-                [side === 'in' ? 'left' : 'right']: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD,
+                [side === 'in' ? 'left' : 'right']: FLOW_PORT_DOT_SIZE / 2 + 6,
                 top: cy - 7,
             }}
         >
@@ -250,8 +258,8 @@ function InlinePortFader({
         <div
             style={{
                 position: 'absolute',
-                left: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD + 4,
-                right: FLOW_PORT_SIZE + FLOW_PORT_HIT_PAD + 4,
+                left: FLOW_PORT_DOT_SIZE / 2 + 10,
+                right: FLOW_PORT_DOT_SIZE / 2 + 10,
                 top: cy - 10,
                 height: 20,
                 display: 'flex',

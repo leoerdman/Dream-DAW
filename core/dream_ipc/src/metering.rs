@@ -535,9 +535,9 @@ mod tests {
 
         // All tracks should start at floor
         for i in 0..32 {
-            let (l, r) = bank.track(i).unwrap();
-            assert!((l.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
-            assert!((r.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
+            let t = bank.track(i).unwrap();
+            assert!((t.left.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
+            assert!((t.right.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
         }
 
         assert!(bank.track(32).is_none()); // Out of bounds
@@ -546,12 +546,12 @@ mod tests {
     #[test]
     fn meter_bank_reset() {
         let bank = MeterBank::new(4);
-        bank.track(0).unwrap().0.store_rms(-6.0);
+        bank.track(0).unwrap().left.store_rms(-6.0);
         bank.master_left().store_peak(-3.0);
 
         bank.reset_all();
 
-        assert!((bank.track(0).unwrap().0.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
+        assert!((bank.track(0).unwrap().left.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
         assert!((bank.master_left().load_peak() - METER_FLOOR_DB).abs() < f32::EPSILON);
     }
 
@@ -622,9 +622,9 @@ mod tests {
     fn pack_meters_binary_roundtrip() {
         let bank = MeterBank::new(4);
         // Set some non-default values
-        bank.track(0).unwrap().0.store_rms(-12.0);
-        bank.track(0).unwrap().0.store_peak(-6.0);
-        bank.track(0).unwrap().1.store_rms(-18.0);
+        bank.track(0).unwrap().left.store_rms(-12.0);
+        bank.track(0).unwrap().left.store_peak(-6.0);
+        bank.track(0).unwrap().right.store_rms(-18.0);
         bank.master_left().store_rms(-3.0);
         bank.master_right().store_peak(-1.0);
 
@@ -634,8 +634,9 @@ mod tests {
         let track_count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         assert_eq!(track_count, 4);
 
-        // Verify total size: 4 (header) + (4 tracks × 2 channels + 2 master) × 3 triplets × 4 bytes
-        let expected_size = 4 + (4 * 2 + 2) * 3 * 4;
+        // Verify total size: 4 (header) + (4 tracks + 1 master) × 22 f32s × 4 bytes
+        // Each track/master emits 22 f32s: L_rms, L_peak, L_clip, R_rms, R_peak, R_clip, + 16 plugin_metrics
+        let expected_size = 4 + (4 + 1) * 22 * 4;
         assert_eq!(bytes.len(), expected_size, "packet size mismatch");
 
         // Verify track 0 left RMS (first f32 after header)

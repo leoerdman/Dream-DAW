@@ -1353,6 +1353,15 @@ export const createRackFromDevices = (
     safeInvoke<string>('create_rack_from_devices_cmd', {
         payload: { trackId, deviceIds, rackName: rackName ?? null, rackType: rackType ?? null },
     });
+export const createRackFromDevicesWithDeltas = (
+    trackId: string,
+    deviceIds: string[],
+    rackName?: string,
+    rackType?: 'audio_effect' | 'instrument' | 'drum' | 'midi_effect',
+) =>
+    safeInvoke<DeltaMutationResponse>('create_rack_from_devices_with_deltas_cmd', {
+        payload: { trackId, deviceIds, rackName: rackName ?? null, rackType: rackType ?? null },
+    });
 export const addChainToRack = (
     trackId: string,
     rackId: string,

@@ -49,6 +49,7 @@ fn test_instance(
         last_known_state_blob: None,
         ticks_since_last_save: 0,
         pending_events: Vec::new(),
+        has_reached_running: false,
     }
 }
 

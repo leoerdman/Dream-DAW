@@ -162,7 +162,12 @@ impl ClipPoolState {
         };
         let mut current = Vec::new();
         snapshot.load_all(&mut current);
-        let mut prev = self.prev_internal_latencies.lock().unwrap();
+        let Ok(mut prev) = self.prev_internal_latencies.lock() else {
+            // Poisoned mutex: return false to avoid crash. The next cycle
+            // will retry. This is enterprise-safe — no panic propagation.
+            log::warn!("[PDC] prev_internal_latencies mutex poisoned, skipping check");
+            return false;
+        };
         if *prev != current {
             *prev = current;
             true

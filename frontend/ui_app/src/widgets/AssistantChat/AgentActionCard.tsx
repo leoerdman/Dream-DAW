@@ -6,6 +6,9 @@ import { DEFAULT_META, TOOL_META } from './agentActionMeta';
 import { formatToolResult } from './agentResultFormatter';
 import { AgentActionLogContent } from './AgentActionLogContent';
 
+/** Duration to show "Copied" confirmation (ms). */
+const COPY_FEEDBACK_MS = 2000;
+
 interface AgentActionCardProps {
     group: ActionGroup;
 }
@@ -82,7 +85,7 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
                             event.stopPropagation();
                             navigator.clipboard.writeText(fullLogText);
                             setCopiedAll(true);
-                            setTimeout(() => setCopiedAll(false), 2000);
+                            setTimeout(() => setCopiedAll(false), COPY_FEEDBACK_MS);
                         }}
                         style={{ padding: 'var(--space-0-5) var(--space-1-5)', marginRight: 4 }}
                     >

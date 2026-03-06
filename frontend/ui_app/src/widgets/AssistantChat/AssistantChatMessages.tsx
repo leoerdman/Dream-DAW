@@ -4,6 +4,9 @@ import { isActionGroup, type ActionGroup } from './AgentActionGrouping';
 import type { ChatMessage } from '@/shared/api/assistantService';
 import { useState } from 'react';
 
+/** Duration to show "Copied" confirmation (ms). */
+const COPY_FEEDBACK_MS = 2000;
+
 interface LiveAction {
     toolName: string;
     args: Record<string, unknown>;
@@ -26,7 +29,7 @@ const CopyButton = ({ text }: { text: string }) => {
             onClick={() => {
                 navigator.clipboard.writeText(text);
                 setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
+                setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
             }}
         >
             {copied ? <Check size={12} className="success" /> : <Copy size={12} />}

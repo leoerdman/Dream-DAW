@@ -162,8 +162,15 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                     deviceName={deviceContextMenu.device.name}
                     isEnabled={deviceContextMenu.device.isEnabled}
                     onGroup={() => {
-                        // TODO: Implement wrap-in-rack via backend API when available
-                        console.log('[Dream] Group device into rack:', deviceContextMenu.device.id);
+                        if (!selectedTrack) { setDeviceContextMenu(null); return; }
+                        const deviceId = deviceContextMenu.device.id;
+                        const deviceName = deviceContextMenu.device.name;
+                        void engineApi
+                            .createRackFromDevicesWithDeltas(selectedTrack.id, [deviceId], `${deviceName} Rack`, 'audio_effect')
+                            .then((response) => {
+                                logic.applyProjectDeltas(response.deltas, 'device-rack:wrap-in-rack');
+                            })
+                            .catch((err) => console.error('[Dream] Wrap-in-rack failed:', err));
                         setDeviceContextMenu(null);
                     }}
                     onBypass={() => {

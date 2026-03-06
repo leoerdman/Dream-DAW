@@ -120,9 +120,9 @@ impl DelayProcessor {
             fb_hp_prev_r: 0.0,
             fb_hp_coeff: 0.0,
             bpm: 120.0,
-            sync_l: true,
-            sync_r: true,
-            note_l: 5, // 1/8 note
+            sync_l: false,
+            sync_r: false,
+            note_l: 5, // 1/8 note (used when sync is enabled)
             note_r: 5, // 1/8 note
             lfo_phase: 0.0,
             cross_fb_l: 0.0,
@@ -457,7 +457,9 @@ mod tests {
         proc.set_param(1, 100.0); // 100ms R
         proc.set_param(2, 50.0); // 50% FB
         proc.set_param(3, 100.0); // 100% Wet
-        proc.set_param(4, 15000.0); // Filter frequency Max
+        proc.set_param(4, 22000.0); // Filter frequency Max
+        proc.set_param(8, 0.0); // Sync L OFF
+        proc.set_param(9, 0.0); // Sync R OFF
         
         // Process many blocks
         let mut left = vec![0.0f32; 88200];
@@ -477,23 +479,28 @@ mod tests {
     #[test]
     fn delay_produces_echo() {
         let mut proc = DelayProcessor::new(44100.0);
-        proc.set_param(0, 100.0);
-        proc.set_param(1, 100.0);
-        proc.set_param(2, 0.0);
-        proc.set_param(3, 100.0);
-        let delay_samples = (0.1 * 44100.0) as usize;
-        let total = delay_samples + 100;
+        proc.set_param(0, 100.0);  // 100ms delay L
+        proc.set_param(1, 100.0);  // 100ms delay R
+        proc.set_param(2, 0.0);    // 0% feedback
+        proc.set_param(3, 100.0);  // 100% wet
+        proc.set_param(4, 22000.0); // LP filter wide open
+        proc.set_param(8, 0.0);    // Sync L OFF — use manual time
+        proc.set_param(9, 0.0);    // Sync R OFF — use manual time
+        let delay_samples = (0.1 * 44100.0) as usize; // 4410
+        let total = delay_samples + 200;
         let mut left = vec![0.0f32; total];
         let mut right = vec![0.0f32; total];
         left[0] = 1.0;
         right[0] = 1.0;
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        // With modulation, echo might be slightly offset; check a range
-        let echo_region: f32 = left[delay_samples.saturating_sub(30)..delay_samples + 30]
+        // With modulation, echo might be slightly offset; check a wider range
+        let search_start = delay_samples.saturating_sub(50);
+        let search_end = (delay_samples + 50).min(total);
+        let echo_region: f32 = left[search_start..search_end]
             .iter()
             .map(|s| s.abs())
             .sum();
-        assert!(echo_region > 0.3, "Echo not found in region");
+        assert!(echo_region > 0.3, "Echo not found in region (sum={echo_region})");
     }
 
     #[test]

@@ -339,6 +339,7 @@ pub(crate) fn invoke_handler()
         set_device_params_runtime_cmd,
         // Device Rack
         create_rack_from_devices_cmd,
+        create_rack_from_devices_with_deltas_cmd,
         add_chain_to_rack_cmd,
         add_device_to_rack_chain_cmd,
         remove_device_from_rack_cmd,

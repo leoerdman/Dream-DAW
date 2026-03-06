@@ -3,6 +3,7 @@ import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import { autoDeleteEmptyGroup } from '@/widgets/TrackInspector/model/trackGroupCleanup';
+import { DEFAULT_TRACK_COLOR } from '@/shared/lib/trackAdapter';
 interface UseTrackInspectorContextActionsParams {
     tracks: TrackData[];
     liveTracks: TrackData[];
@@ -197,7 +198,7 @@ export function useTrackInspectorContextActions({
         const sourceTrack = tracks.find((t) => t.id === trackId);
         const rawColor = sourceTrack?.color ?? '';
         // ENTERPRISE: Accept hex colors (both uppercase and lowercase), fallback for CSS vars or empty
-        const sourceColor = rawColor.match(/^#[0-9a-fA-F]{6}$/i) ? rawColor : '#808080';
+        const sourceColor = rawColor.match(/^#[0-9a-fA-F]{6}$/i) ? rawColor : DEFAULT_TRACK_COLOR;
         console.info('[Dream] groupTrack: trackId=%s rawColor=%s sourceColor=%s', trackId, rawColor, sourceColor);
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');

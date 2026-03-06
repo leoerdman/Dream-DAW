@@ -487,20 +487,20 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
 
             // Sync tab name from snapshot (project open / switch / create)
+            // P2 FIX: Reuse snapshotDelta from L530 to avoid duplicate O(N) scan.
             const snapshotDelta = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
-            if (snapshotDelta?.data && typeof snapshotDelta.data === 'object') {
-                const project = (snapshotDelta.data as { project?: { name?: string } }).project;
-                if (project?.name) {
-                    const activeId = get().activeProjectId;
-                    if (activeId) {
-                        set((s) => ({
-                            openProjects: s.openProjects.map(t =>
-                                t.id === activeId
-                                    ? { ...t, name: project.name!, isDirty: !isSnapshotReason }
-                                    : t
-                            ),
-                        }));
-                    }
+            const snapshotDataObj = snapshotDelta?.data as Record<string, unknown> | undefined;
+            const projectObj = snapshotDataObj?.project as { name?: string } | undefined;
+            if (projectObj?.name) {
+                const activeId = get().activeProjectId;
+                if (activeId) {
+                    set((s) => ({
+                        openProjects: s.openProjects.map(t =>
+                            t.id === activeId
+                                ? { ...t, name: projectObj!.name!, isDirty: !isSnapshotReason }
+                                : t
+                        ),
+                    }));
                 }
             }
             if (unhandledDeltaKinds.length > 0) {
@@ -527,8 +527,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // ── ENTERPRISE: Restore automation store lanes from project snapshot ──
             // When a project loads (snapshot replace), automation_lanes from each track
             // need to be synced to useAutomationStore so the UI overlay shows them.
-            const snapshotDeltaForAuto = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
-            if (snapshotDeltaForAuto) {
+            // P2 FIX: Reuse `snapshotDelta` instead of duplicate O(N) .find() scan.
+            if (snapshotDelta) {
                 import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
                     const currentTracks = get().tracks;
                     const newLanes: Record<string, {

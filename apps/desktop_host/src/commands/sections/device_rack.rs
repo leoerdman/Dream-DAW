@@ -61,6 +61,53 @@ fn create_rack_from_devices_cmd(
     Ok(rack_id)
 }
 
+// ── 1b. Create Rack from Devices (WithDeltas) ─────────────────────────
+
+/// Groups selected devices into a new DeviceRack and returns
+/// `DeltaMutationResponse` with `ProjectSnapshotReplaced` so the
+/// frontend delta pipeline can sync state.
+#[tauri::command]
+fn create_rack_from_devices_with_deltas_cmd(
+    payload: CreateRackPayload,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let active_project_arc = active_project!(project_registry);
+    let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    push_undo(&project_state)?;
+    let cmd = dream_orchestrator::commands::CreateRackFromDevicesCommand {
+        track_id: payload.track_id.clone(),
+        device_ids: payload.device_ids.clone(),
+        rack_name: payload.rack_name.clone(),
+        rack_type: payload.rack_type.clone(),
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let rack_id = result.rack_id.to_string();
+
+    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    let plugin_host_state: tauri::State<'_, PluginHostState> = app.state();
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    let snapshot_clone = project.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    log::info!(
+        "[IPC] create_rack_from_devices_with_deltas_cmd(track={}, devices={}, rack={})",
+        payload.track_id,
+        payload.device_ids.len(),
+        rack_id
+    );
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(snapshot_clone),
+        }],
+    })
+}
+
 // ── 2. Add Chain to Rack ───────────────────────────────────────────────
 
 /// Adds a new empty parallel chain to an existing rack.

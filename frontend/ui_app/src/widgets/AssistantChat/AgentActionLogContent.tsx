@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { AgentActionStep } from './AgentActionStep';
 
+/** Duration to show "Copied" confirmation (ms). */
+const COPY_FEEDBACK_MS = 2000;
+
 interface ActionLogContentProps {
     thinking: string;
     actions: { toolName: string; args: Record<string, unknown>; result: string | null }[];
@@ -30,7 +33,7 @@ export function AgentActionLogContent({ thinking, actions, isLive }: ActionLogCo
                             onClick={() => {
                                 navigator.clipboard.writeText(thinking);
                                 setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
+                                setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
                             }}
                             style={{ padding: 'var(--space-0-5) var(--space-1)', marginLeft: 4 }}
                         >

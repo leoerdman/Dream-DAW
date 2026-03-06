@@ -2,6 +2,7 @@ import type { ProjectDelta } from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { clamp01 } from '@/shared/lib/audioMath';
+import { DEFAULT_TRACK_HEIGHT_PX } from '@/shared/lib/TimelineEngine.types';
 import { colorForTrackIndex, normalizeTrackType } from './trackDeltaUtils';
 import {
     findTrackIndexById,
@@ -208,7 +209,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             is_disabled: false,
             is_solo: false,
             is_armed: false,
-            height: 80,
+            height: DEFAULT_TRACK_HEIGHT_PX,
             output: 'master',
             input: 'none',
             parent_track_id: null,

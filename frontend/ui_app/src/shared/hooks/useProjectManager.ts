@@ -10,6 +10,13 @@ import { withProjectLoad } from '../../shared/lib/projectLoadGuard';
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 
+/**
+ * Dirty-state polling interval (ms).
+ * Backend marks projects dirty when VST3 plugins change params
+ * via their native UI — poll to sync that to the frontend.
+ */
+const DIRTY_POLL_INTERVAL_MS = 2_000;
+
 /** Extract a human-readable project name from a Save As result path. */
 function extractProjectNameFromPath(filePath: string): string | null {
     // BUG-046 FIX: Universal path splitting — handles both / and \\ separators for cross-platform compat.
@@ -375,7 +382,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     useEffect(() => {
         const dirtyPollId = setInterval(() => {
             refreshStatus();
-        }, 2000);
+        }, DIRTY_POLL_INTERVAL_MS);
         return () => clearInterval(dirtyPollId);
     }, [refreshStatus]);
     return {

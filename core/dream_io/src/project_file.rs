@@ -695,6 +695,7 @@ mod tests {
             external_preset_blob: None,
             external_preset_blob_kind: None,
             params: None,
+            sidechain_send_mode: Default::default(),
         }));
         midi_track.effects.push(DeviceNode::Single(PluginSlot {
             id: uuid::Uuid::new_v4(),
@@ -717,6 +718,7 @@ mod tests {
             external_preset_blob: None,
             external_preset_blob_kind: None,
             params: None,
+            sidechain_send_mode: Default::default(),
         }));
         project.add_track(midi_track);
 

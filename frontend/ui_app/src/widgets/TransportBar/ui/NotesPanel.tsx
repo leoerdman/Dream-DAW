@@ -5,6 +5,23 @@ import type { CSSProperties, MouseEvent, MutableRefObject } from 'react';
 
 const NOTES_PIN_KEY = 'dream-daw-notes-pinned';
 
+// P3 FIX: Named constants for timeouts and dimensions.
+/** Debounce interval for auto-save after typing (ms). */
+const AUTOSAVE_DEBOUNCE_MS = 500;
+/** Duration to show "Saved" indicator before fading (ms). */
+const SAVED_INDICATOR_MS = 1500;
+/** Notes panel dimensions (px). */
+const PANEL_WIDTH = 320;
+const PANEL_HEIGHT = 300;
+/** Header padding. */
+const HEADER_PADDING = '6px 10px';
+/** Textarea padding. */
+const TEXTAREA_PADDING = '10px 12px';
+/** Saved indicator font size. */
+const SAVED_FONT_SIZE = 10;
+/** Pin/close button size. */
+const ICON_BTN_SIZE = 20;
+
 interface NotesPanelProps {
     panelRef: MutableRefObject<HTMLDivElement | null>;
     panelPos: { right: number; top: number };
@@ -54,7 +71,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
                     console.warn('[Dream] Failed to save notes:', err);
                     setSaveStatus('idle');
                 });
-        }, 500);
+        }, AUTOSAVE_DEBOUNCE_MS);
     }, []);
 
     // Flush pending save on unmount using ref (never stale)
@@ -73,7 +90,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
     // Reset "saved" indicator after 1.5s
     useEffect(() => {
         if (saveStatus !== 'saved') return;
-        const t = setTimeout(() => setSaveStatus('idle'), 1500);
+        const t = setTimeout(() => setSaveStatus('idle'), SAVED_INDICATOR_MS);
         return () => clearTimeout(t);
     }, [saveStatus]);
 
@@ -137,8 +154,8 @@ const panelStyle = (pos: { right: number; top: number }): CSSProperties => ({
     position: 'fixed',
     right: pos.right,
     top: pos.top,
-    width: 320,
-    height: 300,
+    width: PANEL_WIDTH,
+    height: PANEL_HEIGHT,
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--color-bg-panel)',
@@ -153,7 +170,7 @@ const headerStyle: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '6px 10px',
+    padding: HEADER_PADDING,
     borderBottom: 'var(--space-px) solid var(--color-divider)',
     cursor: 'move',
     userSelect: 'none',
@@ -168,14 +185,14 @@ const titleStyle: CSSProperties = {
 };
 
 const savedIndicatorStyle: CSSProperties = {
-    fontSize: 10,
+    fontSize: SAVED_FONT_SIZE,
     color: 'var(--color-status-success)',
     opacity: 0.7,
 };
 
 const pinBtnStyle = (active: boolean): CSSProperties => ({
-    width: 20,
-    height: 20,
+    width: ICON_BTN_SIZE,
+    height: ICON_BTN_SIZE,
     border: 'none',
     borderRadius: 'var(--radius-sm)',
     display: 'flex',
@@ -191,8 +208,8 @@ const pinBtnStyle = (active: boolean): CSSProperties => ({
 });
 
 const closeBtnStyle: CSSProperties = {
-    width: 20,
-    height: 20,
+    width: ICON_BTN_SIZE,
+    height: ICON_BTN_SIZE,
     border: 'none',
     borderRadius: 'var(--radius-sm)',
     display: 'flex',
@@ -209,7 +226,7 @@ const textareaStyle: CSSProperties = {
     resize: 'none',
     border: 'none',
     outline: 'none',
-    padding: '10px 12px',
+    padding: TEXTAREA_PADDING,
     fontFamily: 'var(--font-role-body)',
     fontSize: 'var(--font-size-sm)',
     lineHeight: 1.6,

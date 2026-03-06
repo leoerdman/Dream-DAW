@@ -56,7 +56,11 @@ export function useViewport() {
         const isZoom = e.ctrlKey || e.metaKey;
 
         if (isZoom) {
-            const zoomFactor = Math.exp(-e.deltaY * 0.0018);
+            // ENTERPRISE: Additive zoom delta (UDS proven pattern).
+            // Exponential was causing jerky jumps at high deltaY (trackpad inertia).
+            const zoomSensitivity = 0.0025;
+            const delta = -e.deltaY * zoomSensitivity;
+            const zoomFactor = 1 + delta;
             const element = viewportRef.current;
             if (!element) return;
 

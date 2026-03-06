@@ -66,6 +66,9 @@ interface FlowSynthState {
     connectionPulseById: Record<string, number>;
     pendingConnection: PendingConnection | null;
 
+    // Per-device viewport cache — each Flow Synth instance remembers its own pan/zoom
+    viewportByDeviceId: Record<string, { x: number; y: number; zoom: number }>;
+
     // ── Preset state ───────────────────────────────────────────────────
     presetName: string;
     presetIndex: number;
@@ -399,6 +402,9 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     connectionPulseById: {},
     pendingConnection: null,
 
+    // Per-device viewport cache
+    viewportByDeviceId: {},
+
     // ── Preset initial state ───────────────────────────────────────────
     presetName: FACTORY_PRESETS[0].name,
     presetIndex: 0,
@@ -407,9 +413,20 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // Automatically save previous track state synchronously before switching context!
         if (state.activeTrackId && state.activeTrackId !== trackId) {
             _forceSaveConfig(state);
+            // Save viewport for the previous device before switching
+            if (state.activeDeviceId) {
+                const currentVp = viewportProxy.getViewport();
+                state.viewportByDeviceId[state.activeDeviceId] = { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom };
+            }
         }
 
-        let graph: FlowGraph | null = null;
+        // ENTERPRISE: If already open for the SAME device+track, keep current state.
+        // Only re-hydrate from project model on FIRST open or when switching tracks.
+        // BUG FIX: Previous code always set graph=null, causing preset reset on every re-open.
+        const isSameContext = state.activeDeviceId === deviceId && state.activeTrackId === trackId && state.nodes.length > 0;
+        let graph: FlowGraph | null = isSameContext
+            ? { nodes: state.nodes, connections: state.connections, viewport: viewportProxy.getViewport() }
+            : null;
         if (!graph) {
             // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
             const track = useEngineStore.getState().tracks.byId[trackId];
@@ -463,13 +480,17 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             }
         }
 
-        viewportProxy.setViewport(graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport);
+        // ENTERPRISE: Restore saved viewport for this device, or use graph/project viewport
+        const savedViewport = state.viewportByDeviceId[deviceId];
+        const vpToRestore = savedViewport ?? graph.viewport ?? DEFAULT_FLOW_GRAPH.viewport;
+        viewportProxy.setViewport(vpToRestore);
 
-        // ENTERPRISE: Only sync to engine on FIRST open — when there's no cached graph.
-        // Re-syncing on every editor open resets the engine state, causing sound artifacts.
-        // The engine already has the graph from the initial load or previous save.
-        // ENTERPRISE: Always sync on open since we rely on SSOT hydration from project.
-        _scheduleSyncFlowGraph(get);
+        // ENTERPRISE: Only sync to engine on FIRST open or track switch.
+        // Re-syncing on every editor re-open resets the engine audio state,
+        // losing the current preset/sound. Skip if same device+track.
+        if (!isSameContext) {
+            _scheduleSyncFlowGraph(get);
+        }
 
         return {
             isOpen: true,
@@ -499,6 +520,13 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // ENTERPRISE FIX: Synchronously save upon closing editor so we don't lose data
         _forceSaveConfig(state);
 
+        // Save the current viewport for this device before resetting
+        const currentVp = viewportProxy.getViewport();
+        const updatedViewports = {
+            ...state.viewportByDeviceId,
+            [state.activeDeviceId]: { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom },
+        };
+
         viewportProxy.reset();
         return {
             isOpen: false,
@@ -507,6 +535,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             selectedNodeIds: [],
             selectedConnectionId: null,
             pendingConnection: null,
+            viewportByDeviceId: updatedViewports,
         };
     }),
 

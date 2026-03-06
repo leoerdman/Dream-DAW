@@ -8,14 +8,13 @@ interface CanvasGridProps {
 const SNAP_GRID = 20;
 
 /**
- * CanvasGrid — ENTERPRISE: Viewport-transformed dot pattern.
+ * CanvasGrid — ENTERPRISE: CSS radial-gradient dot pattern.
  *
- * Uses the SAME `translate + scale` transform as nodes and connections.
- * This ensures the grid is perfectly in sync — no jitter, no drift.
+ * Uses CSS radial-gradient for infinite tiling with minimal GPU memory.
+ * Background position/size are updated directly via DOM manipulation
+ * (bypassing React) in sync with the viewport proxy.
  *
- * The div covers a large world-space area (-50000 to +50000 in each axis)
- * with a fixed 20px CSS background tile. The browser only rasterizes
- * the visible portion, so this is GPU-efficient.
+ * Reference: Ultra Deep Service CanvasGrid (proven pattern).
  */
 export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
     const gridRef = useRef<HTMLDivElement>(null);
@@ -23,23 +22,29 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
 
     useEffect(() => {
         return viewportProxy.subscribe((vp) => {
-            if (gridRef.current) {
-                // ENTERPRISE: Identical transform to NodesLayer / ConnectionsLayer.
-                // A single GPU-composited transform is jitter-free — no manual
-                // backgroundPosition / backgroundSize recomputation needed.
-                gridRef.current.style.transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
+            if (!gridRef.current) return;
 
-                // Fade out at very low zoom to reduce visual noise
-                const baseOpacity = 0.22;
-                const fadeStart = 0.6;
-                const fadeEnd = 0.1;
-                let opacity = baseOpacity;
-                if (vp.zoom < fadeStart) {
-                    const fadeProgress = Math.min(1, (fadeStart - vp.zoom) / (fadeStart - fadeEnd));
-                    opacity = baseOpacity * (1 - fadeProgress);
-                }
-                gridRef.current.style.opacity = String(opacity);
+            // Calculate tiled grid offset.
+            // radial-gradient places dot at CENTER of tile, so we offset by half tile size
+            // to align a dot exactly at world origin (0,0).
+            const scaledSize = SNAP_GRID * vp.zoom;
+            const halfSize = scaledSize / 2;
+            const offsetX = (((vp.x - halfSize) % scaledSize) + scaledSize) % scaledSize;
+            const offsetY = (((vp.y - halfSize) % scaledSize) + scaledSize) % scaledSize;
+
+            gridRef.current.style.backgroundPosition = `${offsetX}px ${offsetY}px`;
+            gridRef.current.style.backgroundSize = `${scaledSize}px ${scaledSize}px`;
+
+            // Fade out at low zoom
+            const baseOpacity = 0.2;
+            const fadeStart = 0.6;
+            const fadeEnd = 0.1;
+            let opacity = baseOpacity;
+            if (vp.zoom < fadeStart) {
+                const fadeProgress = Math.min(1, (fadeStart - vp.zoom) / (fadeStart - fadeEnd));
+                opacity = baseOpacity * (1 - fadeProgress);
             }
+            gridRef.current.style.opacity = String(opacity);
 
             if (originRef.current) {
                 originRef.current.style.transform =
@@ -48,26 +53,31 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
         });
     }, []);
 
+    const initial = viewportProxy.getViewport();
+    const initialScaledSize = SNAP_GRID * initial.zoom;
+    const initialHalfSize = initialScaledSize / 2;
+    const initialOffsetX = (((initial.x - initialHalfSize) % initialScaledSize) + initialScaledSize) % initialScaledSize;
+    const initialOffsetY = (((initial.y - initialHalfSize) % initialScaledSize) + initialScaledSize) % initialScaledSize;
+
     return (
         <>
             <div
                 ref={gridRef}
                 style={{
                     position: 'absolute',
-                    // Cover a large world-space area. The browser only renders
-                    // the visible portion, so the large size is free.
-                    left: -50000,
-                    top: -50000,
-                    width: 100000,
-                    height: 100000,
-                    transformOrigin: '0 0',
+                    inset: 0,
                     pointerEvents: 'none',
                     zIndex: 0,
-                    willChange: 'transform',
-                    // Fixed-size pattern — zoom is handled entirely by the transform.
+                    // GPU compositing layer promotion — synchronizes background
+                    // updates with transform-based node/connection layers.
+                    // Without this, background pos/size updates on the main thread
+                    // desync from GPU-composited transforms by 1 frame.
+                    willChange: 'background-position, background-size, opacity',
+                    transform: 'translateZ(0)',
                     backgroundImage: `radial-gradient(circle, var(--color-text-secondary) 1px, transparent 1px)`,
-                    backgroundSize: `${SNAP_GRID}px ${SNAP_GRID}px`,
-                    opacity: 0.22,
+                    backgroundSize: `${initialScaledSize}px ${initialScaledSize}px`,
+                    backgroundPosition: `${initialOffsetX}px ${initialOffsetY}px`,
+                    opacity: 0.2,
                 }}
             />
 
@@ -83,6 +93,7 @@ export const CanvasGrid = memo(({ showOrigin = true }: CanvasGridProps) => {
                         pointerEvents: 'none',
                         zIndex: 0,
                         transformOrigin: '0 0',
+                        transform: `translate(${initial.x}px, ${initial.y}px) scale(${initial.zoom})`,
                     }}
                 >
                     <div style={{

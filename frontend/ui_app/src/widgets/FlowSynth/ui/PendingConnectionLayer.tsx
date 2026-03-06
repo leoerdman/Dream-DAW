@@ -65,7 +65,7 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
             const occupiedInputs = new Set(
                 connections.map((conn) => `${conn.toNode}:${conn.toPort}`)
             );
-            let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
+            let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
             let bestDist = Infinity;
             for (const node of nodes) {
                 if (node.id === pendingConnection.fromNode) continue;
@@ -74,7 +74,13 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
                 if (!config || config.inputs.length === 0) continue;
                 for (let pi = 0; pi < config.inputs.length; pi++) {
                     const portDef = config.inputs[pi];
-                    const signalType: 'audio' | 'midi' | 'control' = portDef.type === 'midi' ? 'midi' : portDef.type === 'control' ? 'control' : 'audio';
+                    // ENTERPRISE BUG-14 FIX: Map ALL signal types including gate and phase
+                    const signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase' =
+                        portDef.type === 'midi' ? 'midi'
+                            : portDef.type === 'control' ? 'control'
+                                : portDef.type === 'gate' ? 'gate'
+                                    : portDef.type === 'phase' ? 'phase'
+                                        : 'audio';
                     if (signalType !== pendingConnection.signalType) continue;
                     const toPort = portDef.id;
                     const x = node.position.x;

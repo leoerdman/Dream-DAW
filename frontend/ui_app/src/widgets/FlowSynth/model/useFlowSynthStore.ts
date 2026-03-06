@@ -192,9 +192,9 @@ const NodeSchemas: Record<SynthNodeType, z.ZodObject<any>> = {
     oscillator: z.object({ label: flowString, waveform: flowString, frequency: flowNumber, pulseWidth: flowNumber }),
     filter: z.object({ label: flowString, filterType: flowString, cutoff: flowNumber, resonance: flowNumber }),
     envelope: z.object({ label: flowString, attack: flowNumber, decay: flowNumber, sustain: flowNumber, release: flowNumber }),
-    eq: z.object({ label: flowString, lowFreq: flowNumber, highFreq: flowNumber, lowGain: flowNumber, midGain: flowNumber, highGain: flowNumber }),
+    eq: z.object({ label: flowString, lowFreq: flowNumber, highFreq: flowNumber, lowGain: flowNumber, midGain: flowNumber, highGain: flowNumber, eqLow: flowNumber, eqMid: flowNumber, eqHigh: flowNumber }),
     autofilter: z.object({ label: flowString, filterType: flowString, cutoff: flowNumber, resonance: flowNumber, rate: flowNumber, depth: flowNumber, envDepth: flowNumber }),
-    reverse: z.object({ label: flowString, windowMs: flowNumber, feedback: flowNumber }),
+    reverse: z.object({ label: flowString, windowMs: flowNumber, feedback: flowNumber, mix: flowNumber }),
     audioIn: z.object({ label: flowString }),
     midiIn: z.object({ label: flowString, channel: flowString, transpose: flowNumber }),
     output: z.object({ label: flowString, gain: flowNumber, muted: flowBoolean }),
@@ -230,8 +230,20 @@ function _rehydrateData(type: SynthNodeType, data: Record<string, unknown> | und
         if (parsed.success) {
             return parsed.data as Record<string, unknown>;
         }
-        console.warn(`[FlowSynth] Zod Schema mismatch for ${type}:`, parsed.error);
-        return {}; // Zero-trust policy: Drop corrupt data payloads entirely
+        // ENTERPRISE BUG-16 FIX: On schema mismatch, do a partial parse
+        // instead of dropping ALL data. Keep valid fields, filter only corrupt ones.
+        console.warn(`[FlowSynth] Zod partial mismatch for ${type}:`, parsed.error.issues.length, 'issues');
+        const partialResult: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(cleanData)) {
+            const fieldSchema = (schema.shape as Record<string, z.ZodTypeAny>)[k];
+            if (fieldSchema) {
+                const fieldParsed = fieldSchema.safeParse(v);
+                if (fieldParsed.success) {
+                    partialResult[k] = fieldParsed.data;
+                }
+            }
+        }
+        return partialResult;
     }
 
     // Fallback security zero-trust
@@ -398,7 +410,6 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         }
 
         let graph: FlowGraph | null = null;
-        const isFirstOpen = true; // Always true now since we rely on SSOT
         if (!graph) {
             // Enterprise Fix: Hydrate from SSOT project model first, fallback to default
             const track = useEngineStore.getState().tracks.byId[trackId];
@@ -457,9 +468,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // ENTERPRISE: Only sync to engine on FIRST open — when there's no cached graph.
         // Re-syncing on every editor open resets the engine state, causing sound artifacts.
         // The engine already has the graph from the initial load or previous save.
-        if (isFirstOpen) {
-            _scheduleSyncFlowGraph(get);
-        }
+        // ENTERPRISE: Always sync on open since we rely on SSOT hydration from project.
+        _scheduleSyncFlowGraph(get);
 
         return {
             isOpen: true,

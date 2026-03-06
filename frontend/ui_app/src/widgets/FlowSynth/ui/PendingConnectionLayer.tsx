@@ -38,7 +38,6 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
     useEffect(() => {
         if (!pendingConnection) return;
 
-        // Initialize position on mount
         currentPos.current = { x: pendingConnection.startX, y: pendingConnection.startY };
 
         const updatePath = (endX: number, endY: number) => {

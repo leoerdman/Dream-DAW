@@ -32,11 +32,8 @@ import { MidiInControls } from './nodes/MidiInControls';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import { LfoControls } from './nodes/LfoControls';
 import { NoiseControls } from './nodes/NoiseControls';
-import { DelayControls } from './nodes/DelayControls';
-import { MixerControls } from './nodes/MixerControls';
-import { MultiplyControls } from './nodes/MultiplyControls';
-import { VcaControls } from './nodes/VcaControls';
 import { UtilityControls } from './nodes/UtilityControls';
+import { DelayControls } from './nodes/DelayControls';
 import { DistortionControls } from './nodes/DistortionControls';
 import { Vst3Controls } from './nodes/Vst3Controls';
 
@@ -75,15 +72,12 @@ function NodeControlsBody({ node }: { node: SynthNode }) {
             return <LfoControls node={node} />;
         case 'noise':
             return <NoiseControls node={node} />;
-        // Nodes whose controls are fully handled by inline port faders:
         case 'delay':
             return <DelayControls node={node} />;
         case 'mixer':
-            return <MixerControls node={node} />;
         case 'vca':
-            return <VcaControls node={node} />;
         case 'multiply':
-            return <MultiplyControls node={node} />;
+            return null;
         case 'utility':
             return <UtilityControls node={node} />;
         case 'distortion':
@@ -168,7 +162,7 @@ function PortDot({
 
     // ENTERPRISE: Filled circle = output (produces signal), outlined = input (receives signal)
     // Matches Bitwig Grid convention for intuitive I/O distinction.
-    const isFilled = side === 'out';
+    const isFilled = true;
 
     return (
         <div

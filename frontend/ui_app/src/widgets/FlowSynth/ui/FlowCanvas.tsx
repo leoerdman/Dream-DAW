@@ -3,7 +3,6 @@ import { Hand, MousePointer2 } from 'lucide-react';
 import { CanvasGrid } from './CanvasGrid';
 import { NodesLayer } from './NodesLayer';
 import { ConnectionsLayer } from './ConnectionsLayer';
-import { PendingConnectionLayer } from './PendingConnectionLayer';
 import {
     FLOW_MENU_WIDTH,
     FLOW_MENU_HEIGHT,
@@ -357,8 +356,7 @@ export function FlowCanvas() {
             }}
         >
             <CanvasGrid showOrigin={true} />
-            <ConnectionsLayer />
-            <PendingConnectionLayer viewportRef={viewportRef} />
+            <ConnectionsLayer viewportRef={viewportRef} />
             <NodesLayer interactionDisabled={ctrlPressed || tool === 'hand'} />
             {selectionBox && (
                 <div

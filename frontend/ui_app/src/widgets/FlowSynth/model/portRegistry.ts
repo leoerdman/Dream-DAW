@@ -336,10 +336,10 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     midiIn: 1,
     lfo: 2,          // shape + mode selects
     noise: 2,
-    delay: 3,        // time + feedback + mix
-    mixer: 4,        // ch1-4 gain sliders
-    vca: 1,          // bias
-    multiply: 1,     // scale
+    delay: 1,        // mix only (time + feedback via port faders)
+    mixer: 0,
+    vca: 0,
+    multiply: 0,
     distortion: 1,   // mode selector
     vst3: 2,         // plugin selector
 };

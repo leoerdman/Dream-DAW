@@ -16,15 +16,29 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 // BUG-AUDIT-003 FIX: Cache selectAllTracks result to prevent .map() from
 // creating a new array reference on every call, which defeats Zustand shallow equality.
+// BUG-012 FIX: Content-hash comparison — if allIds has the same elements as
+// the previous key, reuse the previous WeakMap key to avoid cache misses.
 const _allTracksCache = new WeakMap<string[], (ProjectTrack | undefined)[]>();
+let _prevAllIdsRef: string[] | null = null;
 /** Select all tracks as an ordered array (cached by allIds reference). */
 export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => {
-    const key = s.tracks.allIds;
+    let key = s.tracks.allIds;
+    // BUG-012 FIX: If the new allIds has the same content as the previous one
+    // (e.g., [...state.allIds] spread in delta handler), reuse the old reference
+    // so the WeakMap cache hits and we don't create a new mapped array.
+    if (_prevAllIdsRef && key !== _prevAllIdsRef && key.length === _prevAllIdsRef.length) {
+        let same = true;
+        for (let i = 0; i < key.length; i++) {
+            if (key[i] !== _prevAllIdsRef[i]) { same = false; break; }
+        }
+        if (same) key = _prevAllIdsRef;
+    }
     let cached = _allTracksCache.get(key);
     if (!cached) {
         cached = key.map(id => s.tracks.byId[id]);
         _allTracksCache.set(key, cached);
     }
+    _prevAllIdsRef = key;
     return cached;
 };
 

@@ -1035,9 +1035,20 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 delete updatedGraphs[state.activeDeviceId];
             }
 
+            // BUG-018 FIX: Validate preset connections — strip any that reference
+            // non-existent nodes or ports to prevent undefined behavior in audio engine.
+            const nodeIds = new Set(preset.nodes.map((n: SynthNode) => n.id));
+            const validConnections = preset.connections.filter((conn: SynthConnection) => {
+                if (!nodeIds.has(conn.fromNode) || !nodeIds.has(conn.toNode)) {
+                    console.warn(`[FlowSynth] Preset "${preset.name}": stripped invalid connection from node "${conn.fromNode}" to "${conn.toNode}" — one or both nodes missing.`);
+                    return false;
+                }
+                return true;
+            });
+
             return {
                 nodes: preset.nodes,
-                connections: preset.connections,
+                connections: validConnections,
                 presetName: preset.name,
                 presetIndex: safeIndex,
                 selectedNodeIds: [],

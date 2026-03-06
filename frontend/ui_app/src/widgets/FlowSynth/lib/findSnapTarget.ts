@@ -23,6 +23,11 @@ export interface SnapTarget {
     occupied: boolean;
 }
 
+// BUG-008 FIX: Module-level cache for occupiedInputs set.
+// Rebuilt only when connections reference changes, not on every 60Hz call.
+let _cachedConnectionsRef: unknown = null;
+let _cachedOccupiedInputs = new Set<string>();
+
 /**
  * Find the best snap target for a pending connection at the given world coordinates.
  *
@@ -39,9 +44,15 @@ export function findSnapTarget(
     requiredSignalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase',
 ): SnapTarget | null {
     const { nodes, connections } = useFlowSynthStore.getState();
-    const occupiedInputs = new Set(
-        connections.map((c) => `${c.toNode}:${c.toPort}`),
-    );
+    // BUG-008 FIX: Cache occupiedInputs — only rebuild when connections reference changes.
+    // During drag (~60Hz pointermove), this avoids 1200+ string allocations/second.
+    if (_cachedConnectionsRef !== connections) {
+        _cachedConnectionsRef = connections;
+        _cachedOccupiedInputs = new Set(
+            connections.map((c) => `${c.toNode}:${c.toPort}`),
+        );
+    }
+    const occupiedInputs = _cachedOccupiedInputs;
 
     let best: SnapTarget | null = null;
     let bestDist = Infinity;

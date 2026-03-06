@@ -92,6 +92,28 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
         };
     }, [pendingConnection, commitConnection, cancelConnectionDrag, viewportRef]);
 
+    // BUG-007 FIX: Pre-compute port index maps for O(1) lookups instead of O(N) findIndex.
+    const portIndexMaps = useMemo(() => {
+        const maps = new Map<string, { inputs: Map<string, number>; outputs: Map<string, number> }>();
+        for (const n of nodes) {
+            const config = PORT_REGISTRY[n.type as SynthNodeType];
+            if (!config) continue;
+            const inputs = new Map<string, number>();
+            const outputs = new Map<string, number>();
+            config.inputs.forEach((p, i) => inputs.set(p.id, i));
+            config.outputs.forEach((p, i) => outputs.set(p.id, i));
+            maps.set(n.id, { inputs, outputs });
+        }
+        return maps;
+    }, [nodes]);
+
+    // BUG-008 FIX: Cache occupiedInputs set — rebuilt only when connections change,
+    // not on every pointermove (~60Hz). Eliminates 1200+ string allocs/sec during drag.
+    const occupiedInputsRef = useRef(new Set<string>());
+    useMemo(() => {
+        occupiedInputsRef.current = new Set(connections.map((c) => `${c.toNode}:${c.toPort}`));
+    }, [connections]);
+
     // O(1) node lookup
     const nodePositionData = useMemo(
         () => nodes.map(n => ({ id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),
@@ -104,28 +126,26 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
         // BUG-A FIX: Return null instead of (0,0) when node is missing.
         // This prevents connections from visually snapping to top-left corner.
         if (!node) return null;
-        const config = PORT_REGISTRY[node.type as SynthNodeType];
         const px = node.x;
         const py = node.y;
-        if (!config) return { x: px, y: py + FLOW_NODE_HEADER_HEIGHT };
-        const portList = side === 'in' ? config.inputs : config.outputs;
-        const portIndex = portList.findIndex((p) => p.id === portId);
-        const idx = portIndex >= 0 ? portIndex : 0;
-        const cy = FLOW_NODE_HEADER_HEIGHT + portCenterY(idx);
+        // BUG-007 FIX: O(1) port index lookup via pre-computed map.
+        const portMaps = portIndexMaps.get(nodeId);
+        const portIndex = side === 'in'
+            ? portMaps?.inputs.get(portId) ?? 0
+            : portMaps?.outputs.get(portId) ?? 0;
+        const cy = FLOW_NODE_HEADER_HEIGHT + portCenterY(portIndex);
         const x = side === 'in' ? px : px + FLOW_NODE_WIDTH;
         return { x, y: py + cy };
     };
 
     // Deterministic port offset from PORT_REGISTRY — no proxy timing dependency.
     const getPortOffsetY = (nodeId: string, portId: string, side: 'in' | 'out') => {
-        const node = nodeMap.get(nodeId);
-        if (!node) return FLOW_NODE_HEADER_HEIGHT;
-        const config = PORT_REGISTRY[node.type as SynthNodeType];
-        if (!config) return FLOW_NODE_HEADER_HEIGHT;
-        const portList = side === 'in' ? config.inputs : config.outputs;
-        const portIndex = portList.findIndex((p) => p.id === portId);
-        const idx = portIndex >= 0 ? portIndex : 0;
-        return FLOW_NODE_HEADER_HEIGHT + portCenterY(idx);
+        // BUG-007 FIX: O(1) port index lookup via pre-computed map.
+        const portMaps = portIndexMaps.get(nodeId);
+        const portIndex = side === 'in'
+            ? portMaps?.inputs.get(portId) ?? 0
+            : portMaps?.outputs.get(portId) ?? 0;
+        return FLOW_NODE_HEADER_HEIGHT + portCenterY(portIndex);
     };
 
     return (

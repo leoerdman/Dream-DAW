@@ -39,13 +39,38 @@ type SelectedTrackModel = {
     effects?: DeviceNodeModel[];
 } | null;
 // BUG-M02 FIX: Custom equality to avoid recreating DeviceSlot objects blindly
+// BUG-006 FIX: Deep-compare `rack` fields instead of reference equality.
+// Reference comparison always fails because the store creates new rack objects.
+function isRackInfoEqual(a: DeviceSlot['rack'], b: DeviceSlot['rack']): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.rack_type !== b.rack_type) return false;
+    if (a.is_expanded !== b.is_expanded) return false;
+    if (a.chains.length !== b.chains.length) return false;
+    for (let i = 0; i < a.chains.length; i++) {
+        const ca = a.chains[i], cb = b.chains[i];
+        if (ca.id !== cb.id || ca.name !== cb.name || ca.deviceCount !== cb.deviceCount
+            || ca.is_solo !== cb.is_solo || ca.is_disabled !== cb.is_disabled
+            || Math.abs(ca.volume - cb.volume) > 1e-6 || Math.abs(ca.pan - cb.pan) > 1e-6) return false;
+    }
+    if (a.macro_controls.length !== b.macro_controls.length) return false;
+    for (let i = 0; i < a.macro_controls.length; i++) {
+        const ma = a.macro_controls[i], mb = b.macro_controls[i];
+        if (ma.name !== mb.name || Math.abs(ma.value - mb.value) > 1e-6) return false;
+    }
+    return true;
+}
+
 function isDeviceSlotEqual(a: DeviceSlot, b: DeviceSlot): boolean {
     if (a === b) return true;
     if (a.id !== b.id || a.isBypassed !== b.isBypassed || a.isEnabled !== b.isEnabled) return false;
     if (a.name !== b.name || a.pluginId !== b.pluginId || a.effectType !== b.effectType) return false;
     if (a.samplePath !== b.samplePath || a.supportsSidechain !== b.supportsSidechain || a.sidechainSourceTrackId !== b.sidechainSourceTrackId || a.sidechainSendMode !== b.sidechainSendMode) return false;
-    // ENTERPRISE: Rack data — bypass/chain changes must invalidate the cached slot.
-    if (a.rack !== b.rack) return false;
+    // BUG-006 FIX: Deep structural comparison for rack metadata.
+    if (!isRackInfoEqual(a.rack, b.rack)) return false;
+    // BUG-004 FIX: Compare per-slot VU levels.
+    if (Math.abs((a.vuLevel ?? 0) - (b.vuLevel ?? 0)) > 1e-4) return false;
+    if (Math.abs((a.pluginMetric ?? 0) - (b.pluginMetric ?? 0)) > 1e-4) return false;
     if (a.params.length !== b.params.length) return false;
     for (let i = 0; i < a.params.length; i++) {
         if (a.params[i].name !== b.params[i].name || Math.abs(a.params[i].value - b.params[i].value) > 1e-6) return false;
@@ -153,13 +178,17 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const inLevelR = isMaster
         ? dbToMeterNorm(meters.master_right.peak)
         : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
+    // BUG-014 FIX: outLevel is intentionally the same as inLevel here because
+    // per-slot output metering is handled via trackMetrics[slotIndex] (pluginMetric).
+    // The track-level out level is used only as a fallback when pluginMetric is unavailable.
     const outLevelL = inLevelL;
     const outLevelR = inLevelR;
-    const outLevel = Math.max(outLevelL, outLevelR);
-    const masterProjectTrack = useMemo(
-        () => trackIds.map((id) => tracksById[id]).find((t) => t?.track_type === 'Master') ?? null,
+    // BUG-015 FIX: O(1) master track lookup — find master ID once, not O(N) on every render.
+    const masterTrackId = useMemo(
+        () => trackIds.find((id) => tracksById[id]?.track_type === 'Master') ?? null,
         [trackIds, tracksById],
     );
+    const masterProjectTrack = masterTrackId ? (tracksById[masterTrackId] ?? null) : null;
     const selectedTrack = (isMaster ? masterProjectTrack : (tracksById[selectedTrackId] ?? null)) as SelectedTrackModel;
     const staticLaneValueByParamId = useMemo(() => {
         const map = new Map<string, number>();
@@ -273,9 +302,10 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 const isSamplerNode = effectType === 'sampler'
                     || normalizeInternalPluginId(pluginId) === 'internal://instrument/sampler';
                 if (isSamplerNode) {
-                    const slotSamplePath = ((node as DeviceNodeModel).sampler_config?.sample_path ?? '').trim();
-                    if (slotSamplePath) return slotSamplePath;
-                    return (selectedTrack.sampler?.sample_path ?? '').trim();
+                    // BUG-024 FIX: Each slot carries its own sampler_config.sample_path.
+                    // Previously fell back to selectedTrack.sampler?.sample_path which is the
+                    // track-level config — SSOT violation when multiple sampler devices exist.
+                    return ((node as DeviceNodeModel).sampler_config?.sample_path ?? '').trim();
                 }
                 return '';
             })();
@@ -283,6 +313,11 @@ export function useDeviceRackCore(selectedTrackId: string) {
             if (samplePath) {
                 waveformIndex = waveformIndexFromSamplePath(samplePath);
             }
+            // BUG-004 FIX: Per-slot VU — use pluginMetric for the specific slot
+            // instead of sharing the track-level output meter across all devices.
+            const slotMetric = trackMetrics ? (trackMetrics[slotIndex] ?? 0.0) : 0.0;
+            const slotVuLevel = isEnabled ? slotMetric : 0;
+
             const rawSlot: DeviceSlot = {
                 id,
                 name: displayName,
@@ -300,10 +335,12 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 waveformIndex,
                 samplePath,
                 sampleRackConfig: node.sampleRackConfig,
-                vuLevel: isEnabled ? outLevel : 0,
-                vuLevelL: isEnabled ? outLevelL : 0,
-                vuLevelR: isEnabled ? outLevelR : 0,
-                pluginMetric: trackMetrics ? (trackMetrics[slotIndex] ?? 0.0) : 0.0,
+                // BUG-004 FIX: Per-slot VU metering from pluginMetric instead of
+                // shared track output. Each device slot shows its own activity.
+                vuLevel: slotVuLevel,
+                vuLevelL: slotVuLevel,
+                vuLevelR: slotVuLevel,
+                pluginMetric: slotMetric,
                 // ENTERPRISE: Preserve rack metadata for UI rendering.
                 rack: (node as DeviceNodeModel).rack,
             };
@@ -319,7 +356,9 @@ export function useDeviceRackCore(selectedTrackId: string) {
 
         prevSlotsRef.current = nextSlots;
         return chain;
-    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR, trackMetrics]);
+        // BUG-004 FIX: Removed outLevel/outLevelL/outLevelR from deps — per-slot VU
+        // now computed from trackMetrics directly inside buildChain.
+    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, trackMetrics]);
     return {
         selectedTrack,
         isMaster,

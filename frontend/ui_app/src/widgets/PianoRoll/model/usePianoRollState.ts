@@ -34,11 +34,15 @@ export function usePianoRollState({
     const clipTransposeStateKeyRef = useRef(clipResetKey);
     const [clipTransposeStateValue, setClipTransposeStateValue] = useState(0);
 
-    // Auto-reset when clip changes
-    if (clipTransposeStateKeyRef.current !== clipResetKey) {
-        clipTransposeStateKeyRef.current = clipResetKey;
-        setClipTransposeStateValue(0);
-    }
+    // BUG-009 FIX: Moved from render-time setState to useEffect to avoid
+    // double renders in React 18 Strict Mode. Render-time setState triggers
+    // synchronous re-render which is wasteful and causes React warnings.
+    useEffect(() => {
+        if (clipTransposeStateKeyRef.current !== clipResetKey) {
+            clipTransposeStateKeyRef.current = clipResetKey;
+            setClipTransposeStateValue(0);
+        }
+    }, [clipResetKey]);
     const [quantizeAmount, setQuantizeAmount] = useState(100);
     const [foldToUsedNotes, setFoldToUsedNotes] = useState(false);
     const [stepInputOctave, setStepInputOctave] = useState(4);

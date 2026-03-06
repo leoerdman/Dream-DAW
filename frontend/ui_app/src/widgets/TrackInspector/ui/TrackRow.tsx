@@ -229,6 +229,9 @@ export const TrackRow = memo(({
                     heightLevel={heightLevel}
                     onOutputChange={onOutputChange}
                     onInputChange={onInputChange}
+                    automationVisible={automationVisible}
+                    automationLanes={lanes}
+                    onAutomationParamClick={onParamSelectorClick}
                 />
 
                 <TrackRowMixer

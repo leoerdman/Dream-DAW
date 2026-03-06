@@ -11,11 +11,11 @@ interface SessionWorkspaceState {
     sessionClips: Record<string, SessionClip>;
     selectedSessionClipId: string | null;
     playingSessionClipByTrack: Record<string, string | null>;
-    setSessionClips: React.Dispatch<React.SetStateAction<Record<string, SessionClip>>>;
+    // BUG-022 FIX: Zustand-idiomatic types instead of React.Dispatch
+    // (which implies reconciliation guarantees that Zustand doesn't provide).
+    setSessionClips: (updater: Record<string, SessionClip> | ((prev: Record<string, SessionClip>) => Record<string, SessionClip>)) => void;
     setSelectedSessionClipId: (clipId: string | null) => void;
-    setPlayingSessionClipByTrack: React.Dispatch<
-        React.SetStateAction<Record<string, string | null>>
-    >;
+    setPlayingSessionClipByTrack: (updater: Record<string, string | null> | ((prev: Record<string, string | null>) => Record<string, string | null>)) => void;
 }
 
 export const useSessionWorkspaceStore = create<SessionWorkspaceState>((set) => ({

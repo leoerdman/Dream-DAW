@@ -209,8 +209,9 @@ function applyZoom(
     const oldSpp = state.samplesPerPixel;
     if (newSpp === oldSpp) return;
 
-    // Anchor point in pixels (relative to viewport)
-    const anchor = anchorX ?? state.viewportWidth / 2;
+    // BUG-010 FIX: Guard against NaN/Infinity anchorX from broken
+    // getBoundingClientRect() or edge-case touch events.
+    const anchor = (anchorX != null && Number.isFinite(anchorX)) ? anchorX : state.viewportWidth / 2;
 
     // Sample frame at the anchor point
     const sampleAtAnchor = (state.scrollX + anchor) * oldSpp;

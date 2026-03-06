@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
+import type { AutomationLane } from '@/shared/stores/useAutomationStore';
 
 type RoutingTarget = {
     id: string;
@@ -14,6 +15,12 @@ interface TrackRowRoutingProps {
     heightLevel: number;
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
+    /** When true, switch to automation parameter display instead of routing. */
+    automationVisible?: boolean;
+    /** Visible automation lanes for this track (from the store). */
+    automationLanes?: AutomationLane[];
+    /** Called when the user clicks the automation parameter dropdown trigger. */
+    onAutomationParamClick?: (x: number, y: number, laneId: string) => void;
 }
 
 export const TrackRowRouting = memo(({
@@ -24,7 +31,95 @@ export const TrackRowRouting = memo(({
     heightLevel,
     onOutputChange,
     onInputChange,
+    automationVisible,
+    automationLanes,
+    onAutomationParamClick,
 }: TrackRowRoutingProps) => {
+    // ── Automation Mode ───────────────────────────────────────────
+    // When automation is visible, replace Input/Output selects with
+    // the automation parameter label + dropdown trigger (Ableton-style).
+    if (automationVisible && automationLanes && automationLanes.length > 0) {
+        const firstLane = automationLanes[0];
+        return (
+            <div
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: 3,
+                    padding: 4,
+                    borderRight: 'var(--space-px) solid var(--color-border-subtle)',
+                    width: layout.routingColWidth,
+                    minWidth: layout.routingColWidth,
+                    maxWidth: layout.routingColWidth,
+                    boxSizing: 'border-box',
+                    background: 'color-mix(in srgb, var(--color-accent-primary) 6%, var(--surface-2) 94%)',
+                }}
+            >
+                {/* Label */}
+                <div
+                    style={{
+                        fontSize: 'var(--font-size-micro)',
+                        fontWeight: 'var(--font-weight-semibold)',
+                        color: 'var(--color-accent-primary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        lineHeight: 1,
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                    }}
+                >
+                    Automation
+                </div>
+                {/* Parameter Dropdown Trigger */}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        onAutomationParamClick?.(rect.left, rect.bottom + 4, firstLane.id);
+                    }}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 4,
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 'var(--font-weight-medium)',
+                        color: firstLane.color || 'var(--color-text-primary)',
+                        background: 'var(--color-control-bg)',
+                        border: 'var(--space-px) solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 var(--space-1-5) 0 var(--space-1-5)',
+                        lineHeight: 'var(--token-size-px-15)',
+                        height: 15,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        textAlign: 'left',
+                        minWidth: 0,
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        transition: 'background var(--transition-fast)',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-control-bg)'; }}
+                    title={`Automation: ${firstLane.paramName}`}
+                >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                        {firstLane.paramName}
+                    </span>
+                    <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor" style={{ flexShrink: 0, opacity: 0.5 }}>
+                        <path d="M0.5 0.5L4 4L7.5 0.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    </svg>
+                </button>
+            </div>
+        );
+    }
+
+    // ── Normal Routing Mode ───────────────────────────────────────
     const availableRoutingTargets = routingTargets.filter((t) => t.id !== track.id);
     const outputValue =
         track.output &&

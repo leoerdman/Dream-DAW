@@ -41,6 +41,7 @@ interface AutomationState {
     setTrackAutomationVisible: (trackId: string, visible: boolean) => void;
     hideAllAutomation: () => void;
     setLaneVisibility: (laneId: string, visible: boolean) => void;
+    setLaneParameter: (laneId: string, paramName: string, paramKey: string) => void;
 
     addBreakpoint: (laneId: string, beat: number, value: number, curve?: CurveType) => void;
     moveBreakpoint: (laneId: string, bpId: string, beat: number, value: number) => void;
@@ -160,6 +161,14 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             const lane = s.lanes[laneId];
             if (!lane) return s;
             return { lanes: { ...s.lanes, [laneId]: { ...lane, visible } } };
+        });
+    },
+
+    setLaneParameter: (laneId, paramName, paramKey) => {
+        set((s) => {
+            const lane = s.lanes[laneId];
+            if (!lane) return s;
+            return { lanes: { ...s.lanes, [laneId]: { ...lane, paramName, paramKey } } };
         });
     },
 

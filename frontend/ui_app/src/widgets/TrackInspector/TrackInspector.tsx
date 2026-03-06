@@ -4,6 +4,7 @@ import { TrackInspectorMasterRow } from '@/widgets/TrackInspector/ui/TrackInspec
 import { TrackInspectorOverlays } from '@/widgets/TrackInspector/ui/TrackInspectorOverlays';
 import { TrackInspectorTrackList } from '@/widgets/TrackInspector/ui/TrackInspectorTrackList';
 import { TrackParameterAutomationMenu } from '@/widgets/TrackInspector/ui/TrackParameterAutomationMenu';
+import { TrackAutomationParameterDropdown } from '@/widgets/TrackInspector/ui/TrackAutomationParameterDropdown';
 
 interface TrackInspectorProps {
     selectedTrackId: string;
@@ -67,6 +68,7 @@ export const TrackInspector = ({
             />
             <TrackInspectorOverlays logic={logic} />
             <TrackParameterAutomationMenu logic={logic} />
+            <TrackAutomationParameterDropdown logic={logic} />
         </div>
     );
 };

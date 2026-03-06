@@ -177,6 +177,14 @@ export function useDeviceRackCore(selectedTrackId: string) {
     }, [selectedTrack]);
     const buildChain = useCallback((externalParamsBySlotId: Record<string, PluginParam[]>) => {
         if (!selectedTrack) return [];
+        const rawEffects = selectedTrack.effects ?? [];
+        const instrumentNodes = rawEffects.filter((node) => {
+            const pluginId = normalizeInternalPluginId(node.plugin_id ?? '') ?? node.plugin_id ?? '';
+            const effectType = getEffectTypeByPluginId(pluginId) ?? INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[pluginId];
+            return effectType === 'instrument' || effectType === 'sampler' || effectType === 'waveSynth' || effectType === 'sample_rack';
+        });
+        const effectNodes = rawEffects.filter((node) => !instrumentNodes.includes(node));
+
         const nodes = [
             ...(selectedTrack.sample_rack ? [{
                 id: `sample-rack-${selectedTrack.id}`,
@@ -190,7 +198,8 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 supports_sidechain_input: false,
             }] : []),
             ...(!selectedTrack.sample_rack && selectedTrack.instrument ? [selectedTrack.instrument] : []),
-            ...(selectedTrack.effects ?? []),
+            ...instrumentNodes,
+            ...effectNodes,
         ];
         const nextSlots: Record<string, DeviceSlot> = {};
         const chain = nodes.map((node, slotIndex): DeviceSlot | null => {

@@ -8,6 +8,38 @@ fn get_plugin_sandbox_runtime(
     plugin_host_state.sandbox_snapshot()
 }
 
+/// Get the runtime status of a single plugin slot.
+/// This is used by the frontend to determine if a plugin is crashed/ghosted
+/// and needs to be restarted before toggling its UI editor.
+#[tauri::command]
+fn get_plugin_runtime_status_cmd(
+    _track_id: String, // Kept for API signature match with frontend
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<String, String> {
+    let instance_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot_id: {}", e))?;
+    let snapshot = plugin_host_state.sandbox_snapshot()?;
+    
+    // In legacy mode (not sandboxed), plugins are always "Active" from the supervisor's perspective
+    if !snapshot.enabled {
+        return Ok("Active".to_string());
+    }
+
+    let status_str = if let Some(instance) = snapshot.instances.iter().find(|inst| inst.plugin_instance_id == instance_uuid) {
+        match instance.status {
+            PluginSandboxStatus::Running => "Active",
+            PluginSandboxStatus::Spawning => "Active",
+            PluginSandboxStatus::Crashed => "Crashed",
+            PluginSandboxStatus::TimedOut => "Terminated",
+            PluginSandboxStatus::Stopped => "Inactive",
+        }
+    } else {
+        "Inactive"
+    };
+
+    Ok(status_str.to_string())
+}
+
 /// Enable/disable out-of-process plugin sandbox mode.
 ///
 /// When disabled, plugin windows are loaded in-process (legacy path).

@@ -27,9 +27,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
     scaleName,
     setScaleName,
     clipDurationLabel,
-    duplicateSelection,
     quantizeAllNotesToGrid,
-    selectSamePitch,
     quantizeAmount,
     setQuantizeAmount,
     applyLegato,
@@ -51,7 +49,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
 }: Pick<PianoRollToolbarProps,
     'tool' | 'setTool' | 'color' | 'gridDivision' | 'setGridDivision' | 'highlightScale' | 'setHighlightScale' |
     'rootNote' | 'setRootNote' | 'scaleName' | 'setScaleName' | 'clipDurationLabel' |
-    'duplicateSelection' | 'quantizeAllNotesToGrid' | 'selectSamePitch' |
+    'quantizeAllNotesToGrid' |
     'quantizeAmount' | 'setQuantizeAmount' | 'applyLegato' | 'humanizeSelection' |
     'ratchetCount' | 'setRatchetCount' | 'applyRatchet' |
     'foldToUsedNotes' | 'setFoldToUsedNotes' | 'drumMode' | 'setDrumMode' |
@@ -96,27 +94,18 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
 
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-wide)', fontWeight: 'var(--font-weight-semibold)', marginRight: 2 }}>Grid</span>
-            {MIDI_GRID_PRESETS.map((preset) => (
-                <button
-                    key={preset.division}
-                    type="button"
-                    aria-label={`Grid ${preset.label}`}
-                    onClick={() => setGridDivision(preset.division)}
-                    style={{
-                        padding: 'var(--space-0-5) var(--space-2)',
-                        background: gridDivision === preset.division ? color : 'var(--color-bg-secondary)',
-                        color: gridDivision === preset.division ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                        border: gridDivision === preset.division ? 'none' : 'var(--space-px) solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 'var(--font-size-2xs)',
-                        fontFamily: 'var(--font-role-data)',
-                        cursor: 'pointer',
-                        fontWeight: 'var(--font-weight-semibold)',
-                    }}
-                >
-                    {preset.label}
-                </button>
-            ))}
+            <select
+                value={gridDivision}
+                onChange={(e) => setGridDivision(e.target.value as typeof gridDivision)}
+                style={{ ...selectStyle, width: 62, padding: 'var(--space-0-5) var(--token-size-px-3)' }}
+                aria-label="Grid Division"
+            >
+                {MIDI_GRID_PRESETS.map((preset) => (
+                    <option key={preset.division} value={preset.division}>
+                        {preset.label}
+                    </option>
+                ))}
+            </select>
 
             <div style={dividerStyle} />
             <button
@@ -162,10 +151,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                 letterSpacing: 'var(--letter-spacing-normal)',
             }}>{clipDurationLabel}</div>
 
-            <div style={dividerStyle} />
-            <button type="button" onClick={duplicateSelection} style={actionBtnStyle}>Duplicate</button>
             <button type="button" onClick={quantizeAllNotesToGrid} style={actionBtnStyle}>Quantize</button>
-            <button type="button" onClick={selectSamePitch} style={actionBtnStyle}>Same Pitch</button>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                 <span>Amt</span>
                 <select

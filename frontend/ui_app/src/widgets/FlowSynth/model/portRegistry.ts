@@ -69,8 +69,8 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
         inputs: [
             { id: 'freq', label: 'Freq', type: 'control', fader: { min: 20, max: 20000, step: 1, dataKey: 'frequency', unit: 'Hz' } },
             { id: 'pw', label: 'PW', type: 'control', fader: { min: 0, max: 1, step: 0.01, dataKey: 'pulseWidth' } },
-            { id: 'fm', label: 'FM', type: 'control' },
-            { id: 'pm', label: 'PM', type: 'control' },
+            { id: 'fm', label: 'FM', type: 'audio' },
+            { id: 'pm', label: 'PM', type: 'audio' },
         ],
         outputs: [
             { id: 'audio', label: 'Out', type: 'audio' },

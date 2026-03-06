@@ -4,6 +4,8 @@ import { FlowCanvas } from './FlowCanvas';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 import { FACTORY_PRESETS } from '../model/flowPresets';
+import { save, open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 
 // ── Floating Preset Bar (sits above the canvas, top-right) ────────────
 function FloatingPresetBar() {
@@ -31,20 +33,20 @@ function FloatingPresetBar() {
 
     const handleSavePreset = useCallback(async () => {
         try {
-            const { save } = await import('@tauri-apps/plugin-dialog');
-            const { invoke } = await import('@tauri-apps/api/core');
-
-            // Get default presets directory path from Rust
-            let defaultPath: string | undefined;
+            let defaultDir: string | undefined;
             try {
-                defaultPath = await invoke<string>('get_flow_presets_dir_cmd');
-            } catch { /* fallback: no defaultPath */ }
+                defaultDir = await invoke<string>('get_flow_presets_dir_cmd');
+            } catch { /* ignore */ }
+
+            // Ensure the default path ends with a valid filename separator
+            const defaultPath = defaultDir ? `${defaultDir}/${presetName || 'FlowPreset'}.json` : undefined;
 
             const filePath = await save({
                 title: 'Save Flow Preset',
-                defaultPath: defaultPath ? `${defaultPath}/${presetName || 'My Preset'}.json` : undefined,
+                defaultPath,
                 filters: [{ name: 'Flow Preset', extensions: ['json'] }],
             });
+
             if (!filePath) return;
 
             // Extract name from selected path (without .json extension)
@@ -58,25 +60,25 @@ function FloatingPresetBar() {
                 connections: connections.map(c => ({ id: c.id, fromNode: c.fromNode, fromPort: c.fromPort, toNode: c.toNode, toPort: c.toPort, signalType: c.signalType })),
             }, null, 2);
             await invoke('save_flow_user_preset', { name, presetJson });
+
+            // Immediately load it back to update the store's current preset name
+            useFlowSynthStore.setState({ presetName: name });
         } catch (err) {
             console.error('[FlowSynth] savePreset failed:', err);
+            // Optionally could add a toast here
         }
     }, [presetName, nodes, connections]);
 
     const handleLoadPreset = useCallback(async () => {
         try {
-            const { open } = await import('@tauri-apps/plugin-dialog');
-            const { invoke } = await import('@tauri-apps/api/core');
-
-            // Get default presets directory path from Rust
-            let defaultPath: string | undefined;
+            let defaultDir: string | undefined;
             try {
-                defaultPath = await invoke<string>('get_flow_presets_dir_cmd');
-            } catch { /* fallback: no defaultPath */ }
+                defaultDir = await invoke<string>('get_flow_presets_dir_cmd');
+            } catch { /* ignore */ }
 
             const filePath = await open({
                 title: 'Open Flow Preset',
-                defaultPath: defaultPath || undefined,
+                defaultPath: defaultDir || undefined,
                 multiple: false,
                 directory: false,
                 filters: [{ name: 'Flow Preset', extensions: ['json'] }],
@@ -84,7 +86,7 @@ function FloatingPresetBar() {
             if (!filePath) return;
 
             // Extract name from selected path
-            const pathStr = typeof filePath === 'string' ? filePath : filePath;
+            const pathStr = typeof filePath === 'string' ? filePath : filePath[0];
             const parts = pathStr.replace(/\\/g, '/').split('/');
             const fileName = parts[parts.length - 1] || '';
             const name = fileName.replace(/\.json$/i, '');
@@ -93,14 +95,11 @@ function FloatingPresetBar() {
             const text = await invoke<string>('load_flow_user_preset', { name });
             const preset = JSON.parse(text);
             if (Array.isArray(preset.nodes) && Array.isArray(preset.connections)) {
-                // Clear stale motion proxy positions before replacing graph
                 const { nodeMotionProxy } = await import('../lib/NodeMotionProxy');
                 nodeMotionProxy.clearAll();
-                // Use proper store actions (they trigger sync + graphsByDeviceId update)
                 useFlowSynthStore.getState().setNodes(preset.nodes);
                 useFlowSynthStore.getState().setConnections(preset.connections);
                 useFlowSynthStore.setState({ presetName: preset.name || name });
-                // Sync restored graph to engine
                 void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
             }
         } catch (err) {

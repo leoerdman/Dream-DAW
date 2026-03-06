@@ -7,6 +7,9 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { MeteringSnapshot } from '@/shared/api/engine';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 import { mapProjectTrack } from '@/widgets/TrackInspector/model/trackModels';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+
+const LANE_HEIGHT = 48; // Must match AutomationOverlay
 
 interface UseTrackInspectorDerivedStateArgs {
     trackIds: string[];
@@ -37,6 +40,9 @@ export function useTrackInspectorDerivedState({
     collapsedGroupsProp,
     onToggleGroupCollapseProp,
 }: UseTrackInspectorDerivedStateArgs) {
+    const automationVisible = useAutomationStore((s) => s.globalVisible);
+    const lanes = useAutomationStore((s) => s.lanes);
+
     const orderedTracks = useMemo(
         () => trackIds
             .map((id) => tracksByIdState[id])
@@ -155,17 +161,25 @@ export function useTrackInspectorDerivedState({
     const rowHeightsByTrackId = useMemo(() => {
         const next: Record<string, number> = {};
         for (const track of liveTracks) {
+            let additionalHeight = 0;
+            if (automationVisible) {
+                const trackLanes = Object.values(lanes).filter(l => l.trackId === track.id && l.visible);
+                if (trackLanes.length > 0) {
+                    additionalHeight = Math.max(0, trackLanes.length - 1) * LANE_HEIGHT;
+                }
+            }
+
             if (track.type === 'master') {
-                next[track.id] = rowHeightOverrides[track.id] ?? trackHeight;
+                next[track.id] = (rowHeightOverrides[track.id] ?? trackHeight) + additionalHeight;
                 continue;
             }
             const persisted = Number.isFinite(track.height) ? track.height : trackHeight;
             const resolved = clampTrackHeightPx(persisted);
-            next[track.id] = rowHeightOverrides[track.id] ?? resolved;
+            next[track.id] = (rowHeightOverrides[track.id] ?? resolved) + additionalHeight;
         }
-        next.master = rowHeightOverrides.master ?? trackHeight;
+        next.master = next.master ?? trackHeight; // Fallback
         return next;
-    }, [liveTracks, rowHeightOverrides, trackHeight]);
+    }, [liveTracks, rowHeightOverrides, trackHeight, automationVisible, lanes]);
 
     const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
         let groupId = track.groupId;

@@ -1,0 +1,201 @@
+import { useEffect, useRef, useState } from 'react';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { getExternalPluginParamsForSlot } from '@/shared/api/engine';
+import type { TrackInspectorLogicState } from '@/widgets/TrackInspector/model/useTrackInspectorLogic';
+import type { ExternalPluginParamInfo } from '@/shared/api/engine';
+
+interface TrackAutomationParameterDropdownProps {
+    logic: TrackInspectorLogicState;
+}
+
+interface GroupedParams {
+    slotName: string;
+    params: { name: string; key: string }[];
+}
+
+export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParameterDropdownProps) {
+    const { paramSelectorCtxMenu, setParamSelectorCtxMenu } = logic;
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [coords, setCoords] = useState<{ x: number; y: number; opacity: number; pointerEvents: 'none' | 'auto' }>({
+        x: -9999,
+        y: -9999,
+        opacity: 0,
+        pointerEvents: 'none',
+    });
+
+    const [groupedParams, setGroupedParams] = useState<GroupedParams[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (!paramSelectorCtxMenu) {
+            setCoords({ x: -9999, y: -9999, opacity: 0, pointerEvents: 'none' });
+            return;
+        }
+
+        const fetchParams = async () => {
+            setLoading(true);
+            try {
+                const track = useEngineStore.getState().tracks.byId[paramSelectorCtxMenu.trackId];
+                if (!track) return;
+
+                const groups: GroupedParams[] = [];
+                // Add fixed track parameters
+                groups.push({
+                    slotName: 'Track',
+                    params: [
+                        { name: 'Volume', key: 'Track:Volume' },
+                        { name: 'Pan', key: 'Track:Pan' },
+                    ],
+                });
+
+                // Collect all slots (instrument + effects)
+                const allSlots = [
+                    ...(track.instrument ? [track.instrument] : []),
+                    ...track.effects,
+                ];
+
+                // Add plugin parameters
+                for (const slot of allSlots) {
+                    try {
+                        const params: ExternalPluginParamInfo[] = await getExternalPluginParamsForSlot(track.id, slot.id);
+                        if (params && params.length > 0) {
+                            groups.push({
+                                slotName: slot.name || 'Plugin',
+                                params: params.map((p) => ({
+                                    name: p.name,
+                                    key: `${slot.id}:${p.index}`,
+                                })),
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch params for slot ${slot.id}`, e);
+                    }
+                }
+                setGroupedParams(groups);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        void fetchParams();
+
+        const measureId = requestAnimationFrame(() => {
+            if (!menuRef.current) return;
+            const rect = menuRef.current.getBoundingClientRect();
+            const margin = 8;
+            const finalX = Math.max(margin, Math.min(paramSelectorCtxMenu.x, window.innerWidth - rect.width - margin));
+            const finalY = Math.max(margin, Math.min(paramSelectorCtxMenu.y, window.innerHeight - rect.height - margin));
+            setCoords({ x: finalX, y: finalY, opacity: 1, pointerEvents: 'auto' });
+        });
+
+        const handleClick = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setParamSelectorCtxMenu(null);
+            }
+        };
+
+        const timerId = setTimeout(() => {
+            document.addEventListener('mousedown', handleClick);
+        }, 10);
+
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setParamSelectorCtxMenu(null);
+        };
+        document.addEventListener('keydown', handleKey);
+
+        return () => {
+            cancelAnimationFrame(measureId);
+            clearTimeout(timerId);
+            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('keydown', handleKey);
+        };
+    }, [paramSelectorCtxMenu, setParamSelectorCtxMenu]);
+
+    if (!paramSelectorCtxMenu) return null;
+
+    return (
+        <div
+            ref={menuRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{
+                position: 'fixed',
+                left: coords.x,
+                top: coords.y,
+                opacity: coords.opacity,
+                pointerEvents: coords.pointerEvents,
+                zIndex: 'var(--z-menu)',
+                background: 'color-mix(in srgb, var(--color-bg-elevated) 98%, transparent)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: 'var(--space-px) solid color-mix(in srgb, var(--token-color-rgba-255-255-255-0d2) 100%, transparent)',
+                borderRadius: 'var(--radius-lg)',
+                padding: 'var(--space-1-5)',
+                minWidth: 260,
+                maxHeight: 400,
+                overflowY: 'auto',
+                boxShadow: '0 var(--space-4) var(--space-8) var(--color-overlay-dark), 0 0 0 var(--space-px) var(--token-color-rgba-0-0-0-0d5)',
+                transition: 'opacity 0.1s ease',
+            }}
+            className="scrollbar-hide"
+        >
+            {loading ? (
+                <div style={{ padding: 12, color: 'var(--color-text-tertiary)', fontSize: 13, textAlign: 'center' }}>
+                    Loading parameters...
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {groupedParams.map((group) => (
+                        <div key={group.slotName} style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div
+                                style={{
+                                    fontSize: 'var(--font-size-xs)',
+                                    color: 'var(--color-text-secondary)',
+                                    padding: '4px 8px',
+                                    fontWeight: 'var(--font-weight-semibold)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
+                                    borderBottom: '1px solid var(--color-divider)',
+                                    marginBottom: 4,
+                                }}
+                            >
+                                {group.slotName}
+                            </div>
+                            {group.params.map((param) => (
+                                <button
+                                    key={param.key}
+                                    onClick={() => {
+                                        // Update the lane
+                                        useAutomationStore.getState().setLaneParameter(paramSelectorCtxMenu.laneId, param.name, param.key);
+                                        setParamSelectorCtxMenu(null);
+                                    }}
+                                    style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        padding: '6px 16px',
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 'var(--font-size-sm)',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        borderRadius: 'var(--radius-sm)',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'var(--color-bg-hover)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'transparent';
+                                    }}
+                                >
+                                    {param.name}
+                                </button>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}

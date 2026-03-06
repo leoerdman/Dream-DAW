@@ -164,6 +164,7 @@ export function TrackInspectorTrackList({
                                 routingTargets={routingTargets}
                                 anySoloed={anySoloed}
                                 trackHeight={resolvedRowHeight}
+                                baseHeight={defaultRowHeight}
                                 displayNum={displayNum}
                                 isSelected={logic.selectedTrackIdSet.has(track.id)}
                                 isHeaderSelected={logic.headerSelectedTrackIdSet.has(track.id)}
@@ -291,6 +292,9 @@ export function TrackInspectorTrackList({
                                     e.preventDefault();
                                     e.stopPropagation();
                                     logic.setAutoCtxMenu({ x: e.clientX, y: e.clientY, trackId: track.id, paramName: 'Pan' });
+                                }}
+                                onParamSelectorClick={(x, y, laneId) => {
+                                    logic.setParamSelectorCtxMenu({ x, y, trackId: track.id, laneId });
                                 }}
                                 onHeaderPointerDown={(e) => logic.beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={logic.groupDropTargetId === track.id}

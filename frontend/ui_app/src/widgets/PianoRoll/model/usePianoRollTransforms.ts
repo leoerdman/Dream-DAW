@@ -123,9 +123,15 @@ export function usePianoRollTransforms({
             ...n,
             id: genNoteId(),
             startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + shift)),
-            selected: false,
+            selected: true,
         }));
-        onNotesChange(enforceNoOverlap([...notes, ...clones], new Set(clones.map((n) => n.id))));
+
+        // Deselect original targets
+        const newNotesList = notes.map((n) =>
+            selectedNotes.has(n.id) ? { ...n, selected: false } : n
+        );
+
+        onNotesChange(enforceNoOverlap([...newNotesList, ...clones], new Set(clones.map((n) => n.id))));
         setSelectedNotes(new Set(clones.map((n) => n.id)));
     }, [selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap, setSelectedNotes]);
 

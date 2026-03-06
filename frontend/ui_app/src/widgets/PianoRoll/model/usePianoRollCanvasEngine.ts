@@ -56,7 +56,6 @@ export function usePianoRollCanvasEngine({
         if (!ctx) return;
         const noteFillColor = resolveCanvasColor(color, 'var(--token-color-hex-4a9eff)');
         const noteStrokeSelectedColor = resolveCanvasColor('var(--color-text-on-accent)', 'var(--color-text-primary)');
-        const noteStrokeDefaultColor = resolveCanvasColor('var(--color-text-secondary)', 'var(--color-text-tertiary)');
         const ghostFillColor = resolveCanvasColor('var(--color-text-secondary)', 'var(--color-text-tertiary)');
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -103,8 +102,8 @@ export function usePianoRollCanvasEngine({
             // BUG-PR05 FIX: Single stroke pass — no double-render for selected notes.
             const isSelected = selectedNotes.has(note.id);
             ctx.globalAlpha = isSelected ? 1 : 0.72;
-            ctx.strokeStyle = isSelected ? noteStrokeSelectedColor : noteStrokeDefaultColor;
-            ctx.lineWidth = isSelected ? 1.6 : 1.0;
+            ctx.strokeStyle = isSelected ? noteStrokeSelectedColor : noteFillColor;
+            ctx.lineWidth = 1.6;
             ctx.beginPath();
             ctx.roundRect(x, y, Math.max(1, w - 1), Math.max(1, h - 1), r);
             ctx.stroke();

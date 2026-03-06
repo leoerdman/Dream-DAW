@@ -37,6 +37,7 @@ export function OutputControls({ node }: Props) {
             <button
                 onClick={(e) => { e.stopPropagation(); updateData({ muted: !muted }); }}
                 onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 style={{
                     width: 32,
                     height: 20,

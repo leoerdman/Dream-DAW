@@ -7,6 +7,8 @@ import { TrackRowMixer } from '@/widgets/TrackInspector/ui/TrackRowMixer';
 import { TrackRowResizeHandle } from '@/widgets/TrackInspector/ui/TrackRowResizeHandle';
 import { TrackRowRouting } from '@/widgets/TrackInspector/ui/TrackRowRouting';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { TrackAutomationLaneHeader } from './TrackAutomationLaneHeader';
 
 interface TrackRowProps {
     trackId: string;
@@ -14,6 +16,7 @@ interface TrackRowProps {
     routingTargets: Array<{ id: string; name: string }>;
     anySoloed: boolean;
     trackHeight: number;
+    baseHeight?: number;
     displayNum?: number;
     isSelected: boolean;
     isHeaderSelected?: boolean;
@@ -38,6 +41,7 @@ interface TrackRowProps {
     onContextMenu?: (e: React.MouseEvent) => void;
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onParamSelectorClick?: (x: number, y: number, laneId: string) => void;
     isGroupDropTarget?: boolean;
     groupAncestorColors?: string[];
     layout: TrackRowLayoutMetrics;
@@ -54,6 +58,7 @@ export const TrackRow = memo(({
     routingTargets,
     anySoloed,
     trackHeight,
+    baseHeight,
     displayNum,
     isSelected,
     isHeaderSelected = false,
@@ -78,6 +83,7 @@ export const TrackRow = memo(({
     onContextMenu,
     onHeaderPointerDown,
     onHeaderClick,
+    onParamSelectorClick,
     isGroupDropTarget = false,
     groupAncestorColors,
     layout,
@@ -139,6 +145,12 @@ export const TrackRow = memo(({
 
     const heightLevel = getTrackHeightLevel(trackHeight);
 
+    // Enterprice Automation 100% Fixes
+    const automationVisible = useAutomationStore(useShallow((s) => s.globalVisible));
+    const lanes = useAutomationStore(useShallow((s) => Object.values(s.lanes).filter(l => l.trackId === track.id && l.visible)));
+    const hasAutomation = automationVisible && lanes.length > 0;
+    const bodyHeight = baseHeight ?? trackHeight;
+
     return (
         <div
             data-track-row="true"
@@ -147,7 +159,7 @@ export const TrackRow = memo(({
             onContextMenu={onContextMenu}
             style={{
                 display: 'flex',
-                alignItems: 'stretch',
+                flexDirection: 'column',
                 height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : 'var(--space-px) solid var(--color-divider)',
                 borderTop: 'none',
@@ -169,76 +181,106 @@ export const TrackRow = memo(({
                 boxShadow: isGroupDropTarget
                     ? 'inset 0 0 0 var(--space-px) color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 0 var(--space-2-5) color-mix(in srgb, var(--color-accent-primary) 32%, transparent)'
                     : 'none',
+                zIndex: isHeaderSelected || isSelected ? 'var(--z-local-raised)' : 'auto',
             }}
         >
-            <TrackRowHeader
-                track={track}
-                trackHeight={trackHeight}
-                heightLevel={heightLevel}
-                isMaster={isMaster}
-                isGroup={isGroup}
-                isHeaderSelected={isHeaderSelected}
-                isCollapsed={isCollapsed}
-                isRenaming={isRenaming}
-                renameValue={renameValue}
-                depth={depth}
-                groupRailColor={groupRailColor}
-                groupAncestorColors={groupAncestorColors ?? []}
-                layout={layout}
-                mixerFocusMode={mixerFocusMode}
-                isActive={isActive}
-                onRenameChange={onRenameChange}
-                onRenameCommit={onRenameCommit}
-                onRenameCancel={onRenameCancel}
-                onToggleCollapse={onToggleCollapse}
-                onHeaderPointerDown={onHeaderPointerDown}
-                onHeaderClick={onHeaderClick}
-            />
-
-            <TrackRowRouting
-                track={track}
-                routingTargets={routingTargets}
-                isMasterFixed={isMasterFixed}
-                layout={layout}
-                heightLevel={heightLevel}
-                onOutputChange={onOutputChange}
-                onInputChange={onInputChange}
-            />
-
-            <TrackRowMixer
-                track={track}
-                trackHeight={trackHeight}
-                heightLevel={heightLevel}
-                displayNum={displayNum}
-                anySoloed={anySoloed}
-                isMaster={isMaster}
-                isGroup={isGroup}
-                isActive={isActive}
-                mixerFocusMode={mixerFocusMode}
-                layout={layout}
-                onToggleDisabled={onToggleDisabled}
-                onToggleSolo={onToggleSolo}
-                onToggleArm={onToggleArm}
-                onVolumeChange={onVolumeChange}
-                onPanChange={onPanChange}
-                onVolumeContextMenu={onVolumeContextMenu}
-                onPanContextMenu={onPanContextMenu}
-            />
-
-            {isGroupDropTarget && isGroup && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        inset: 0,
-                        pointerEvents: 'none',
-                        zIndex: 'var(--z-local-raised)',
-                        boxShadow:
-                            'inset 0 0 0 var(--space-0-5) color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 var(--space-4) color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
-                    }}
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    height: bodyHeight, // Prevents body from stretching to full height
+                    boxSizing: 'border-box',
+                    width: '100%',
+                }}
+            >
+                <TrackRowHeader
+                    track={track}
+                    trackHeight={trackHeight}
+                    heightLevel={heightLevel}
+                    isMaster={isMaster}
+                    isGroup={isGroup}
+                    isHeaderSelected={isHeaderSelected}
+                    isCollapsed={isCollapsed}
+                    isRenaming={isRenaming}
+                    renameValue={renameValue}
+                    depth={depth}
+                    groupRailColor={groupRailColor}
+                    groupAncestorColors={groupAncestorColors ?? []}
+                    layout={layout}
+                    mixerFocusMode={mixerFocusMode}
+                    isActive={isActive}
+                    onRenameChange={onRenameChange}
+                    onRenameCommit={onRenameCommit}
+                    onRenameCancel={onRenameCancel}
+                    onToggleCollapse={onToggleCollapse}
+                    onHeaderPointerDown={onHeaderPointerDown}
+                    onHeaderClick={onHeaderClick}
                 />
-            )}
 
-            <TrackRowResizeHandle isResizing={isResizing} onResizeStart={onResizeStart} />
+                <TrackRowRouting
+                    track={track}
+                    routingTargets={routingTargets}
+                    isMasterFixed={isMasterFixed}
+                    layout={layout}
+                    heightLevel={heightLevel}
+                    onOutputChange={onOutputChange}
+                    onInputChange={onInputChange}
+                />
+
+                <TrackRowMixer
+                    track={track}
+                    trackHeight={trackHeight}
+                    heightLevel={heightLevel}
+                    displayNum={displayNum}
+                    anySoloed={anySoloed}
+                    isMaster={isMaster}
+                    isGroup={isGroup}
+                    isActive={isActive}
+                    mixerFocusMode={mixerFocusMode}
+                    layout={layout}
+                    onToggleDisabled={onToggleDisabled}
+                    onToggleSolo={onToggleSolo}
+                    onToggleArm={onToggleArm}
+                    onVolumeChange={onVolumeChange}
+                    onPanChange={onPanChange}
+                    onVolumeContextMenu={onVolumeContextMenu}
+                    onPanContextMenu={onPanContextMenu}
+                />
+
+                {isGroupDropTarget && isGroup && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            pointerEvents: 'none',
+                            zIndex: 'var(--z-local-raised)',
+                            boxShadow:
+                                'inset 0 0 0 var(--space-0-5) color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 var(--space-4) color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
+                        }}
+                    />
+                )}
+
+                <TrackRowResizeHandle isResizing={isResizing} onResizeStart={onResizeStart} />
+            </div>
+
+            {hasAutomation && (
+                <div style={{ display: 'flex', flexDirection: 'column', width: layout.headerColWidth }}>
+                    {lanes.slice(1).map((lane) => (
+                        <TrackAutomationLaneHeader
+                            key={lane.id}
+                            lane={lane}
+                            trackColor={track.color}
+                            isFirstLane={false}
+                            onParamContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                onParamSelectorClick?.(rect.left, rect.bottom + 4, lane.id);
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 });

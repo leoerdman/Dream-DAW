@@ -72,7 +72,7 @@ export const OCTAVE_LABEL_OFFSET = -2;
 export const DEFAULT_FOCUS_PITCH = 60;
 
 export const MIDI_GRID_PRESETS: Array<{ label: string; division: GridDivision }> = [
-    { label: '1 Bar', division: '1/1' },
+    { label: '1/1', division: '1/1' },
     { label: '1/4', division: '1/4' },
     { label: '1/8', division: '1/8' },
     { label: '1/16', division: '1/16' },

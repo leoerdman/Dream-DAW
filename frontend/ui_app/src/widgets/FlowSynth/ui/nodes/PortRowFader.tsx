@@ -128,6 +128,7 @@ export const PortRowFader = React.memo(function PortRowFader({ value, config, on
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onMouseDown={(e) => e.stopPropagation()}
                 style={{
                     position: 'relative',
                     flex: 1,

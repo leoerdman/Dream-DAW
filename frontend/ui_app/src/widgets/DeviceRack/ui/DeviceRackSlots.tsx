@@ -91,11 +91,6 @@ export function DeviceSlot({
                     logic.rackRef.current?.focus();
                     logic.statusClear();
                 }}
-                onOpenSettings={() => {
-                    logic.selectDevice(device.id, false);
-                    logic.setInlineSettingsOpen((prev) => ({ ...prev, [device.id]: !prev[device.id] }));
-                    logic.statusClear();
-                }}
                 onParamChange={(name, value) => {
                     const canonicalName = device.params.find((p) => p.name.toLowerCase() === name.toLowerCase())?.name ?? name;
                     logic.setPluginParam(device.id, canonicalName, value);
@@ -121,7 +116,6 @@ export function DeviceSlot({
                 snapshotState={logic.paramSnapshotsByDevice[device.id]}
                 onApplyUtilityScene={(scene) => logic.applyQuickUtilityScene(device, scene)}
                 onParamContextMenu={(e, paramName) => logic.handleParamContextMenu(e, paramName, device.id)}
-                showSettings={!!logic.inlineSettingsOpen[device.id]}
                 sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
                 sidechainSendMode={device.sidechainSendMode ?? 'pre_fx'}
                 sidechainOptions={logic.sidechainOptions}

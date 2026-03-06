@@ -277,9 +277,9 @@ export function FlowCanvas() {
                 for (let pi = 0; pi < config.inputs.length; pi++) {
                     const portDef = config.inputs[pi];
                     const signalType: 'audio' | 'midi' | 'control' = portDef.type === 'midi' ? 'midi' : portDef.type === 'control' ? 'control' : 'audio';
-                    // Only snap if types are compatible. Control inputs accept all signal types. Control outputs can connect to any control input. 
-                    // To keep things simple, we'll allow audio -> control and control -> control, but reject audio -> midi.
-                    if (signalType !== pendingConnection.signalType && portDef.type !== 'control') continue;
+                    // ENTERPRISE FIX: Strict port matching. No exceptions allowed per user mandate.
+                    // Yellow port ONLY to yellow port, blue port ONLY to blue port.
+                    if (signalType !== pendingConnection.signalType) continue;
                     const toPort = portDef.id;
                     const x = node.position.x;
                     const y = node.position.y + FLOW_NODE_HEADER_HEIGHT + portCenterY(pi);

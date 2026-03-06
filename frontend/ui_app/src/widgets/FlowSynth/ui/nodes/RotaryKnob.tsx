@@ -137,6 +137,7 @@ export function RotaryKnob({
 
     return (
         <div
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -159,6 +160,7 @@ export function RotaryKnob({
                 width={KNOB_SIZE}
                 height={KNOB_SIZE}
                 onPointerDown={handlePointerDown}
+                onMouseDown={(e) => e.stopPropagation()}
                 onDoubleClick={handleDoubleClick}
                 style={{
                     cursor: isDragging ? 'ns-resize' : 'pointer',

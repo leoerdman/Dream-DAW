@@ -207,7 +207,7 @@ function _scheduleSyncFlowGraph(get: () => FlowSynthState): void {
  * ENTERPRISE SSOT: Single function to serialize FlowSynth config JSON.
  * Eliminates duplicate serialization in syncFlowGraphToEngine and _scheduleSaveConfig.
  */
-function buildFlowConfigJson(state: FlowSynthState): string {
+function buildFlowConfigJson(state: FlowSynthState, viewportX: number, viewportY: number, viewportZoom: number): string {
     return JSON.stringify({
         nodes: state.nodes
             .filter(n => n && n.id && n.type) // ENTERPRISE GUARD: Skip corrupt nodes
@@ -241,7 +241,7 @@ function buildFlowConfigJson(state: FlowSynthState): string {
                 // ENTERPRISE FIX: Rust struct uses #[serde(rename = "signalType")] — must match
                 signalType: c.signalType ?? 'audio'
             })),
-        viewport: viewportProxy.getViewport()
+        viewport: { x: viewportX, y: viewportY, zoom: viewportZoom }
     });
 }
 
@@ -249,24 +249,40 @@ function buildFlowConfigJson(state: FlowSynthState): string {
 // Separates the fast RT-safe parameter modulation from disk I/O serialization.
 let _saveTimeout: number | null = null;
 function _scheduleSaveConfig(get: () => FlowSynthState): void {
-    // ENTERPRISE FIX (#11): Capture activeTrackId NOW to prevent writing
-    // track A's data to track B if the user switches within the 1.5s debounce.
     const capturedTrackId = get().activeTrackId;
+    const capturedDeviceId = get().activeDeviceId;
+    if (!capturedTrackId || !capturedDeviceId) return;
+
     if (_saveTimeout !== null) {
         window.clearTimeout(_saveTimeout);
     }
+
     _saveTimeout = window.setTimeout(async () => {
         _saveTimeout = null;
-        if (!capturedTrackId) return;
-        const state = get();
-        // Double-check: if user switched tracks, abort this stale save.
-        if (state.activeTrackId !== capturedTrackId) return;
+        let state = get();
+        let jsonStr = "";
+
+        // ENTERPRISE FIX: If the user closed the editor or switched tracks BEFORE the debounce fired,
+        // activeTrackId no longer matches capturedTrackId.
+        // In that case, we MUST NOT abort the save, otherwise their work is permanently lost from the disk file!
+        // Instead, pull the latest nodes/connections from the authoritative graphsByDeviceId cache.
+        if (state.activeTrackId === capturedTrackId) {
+            const vp = viewportProxy.getViewport();
+            jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
+        } else {
+            const cachedGraph = state.graphsByDeviceId[capturedDeviceId];
+            if (!cachedGraph) return; // Edge case: graph somehow deleted completely
+
+            // Reconstruct a temporary state-like struct for the json builder
+            const tempState = { ...state, nodes: cachedGraph.nodes, connections: cachedGraph.connections };
+            jsonStr = buildFlowConfigJson(tempState, cachedGraph.viewport.x, cachedGraph.viewport.y, cachedGraph.viewport.zoom);
+        }
+
         const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
         if (trackIndex < 0) return;
-        const response = await engine.saveFlowSynthConfig(trackIndex, buildFlowConfigJson(state));
+        const response = await engine.saveFlowSynthConfig(trackIndex, jsonStr);
         // ENTERPRISE FIX: Apply returned delta so useEngineStore.tracks.byId[trackId].flow_synth
-        // is populated. Without this, the frontend store never learns about the saved config,
-        // and on project reopen the graph is lost.
+        // is populated. Without this, the frontend store never learns about the saved config.
         if (response?.deltas?.length) {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig');
         }
@@ -856,7 +872,8 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
         // Phase 7.3: Project Persistence (SSOT)
         // ENTERPRISE: Use shared buildFlowConfigJson to avoid divergent serialization.
-        const configJson = buildFlowConfigJson(state);
+        const vp = viewportProxy.getViewport();
+        const configJson = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
 
         // ENTERPRISE FIX: Sequential awaits — setFlowEnabled MUST complete before
         // syncFlowGraph. The engine must be enabled before it processes graph data,
@@ -968,15 +985,28 @@ export async function initFlowEnginesFromProject(): Promise<void> {
                     // BUG-15 FIX: Rust data is HashMap<String,String> — re-parse
                     data: _rehydrateData(n.data),
                 })),
-                connections: track.flow_synth.connections.map((c: any) => ({
-                    id: c.id,
-                    fromNode: c.from_node,
-                    fromPort: c.from_port,
-                    toNode: c.to_node,
-                    toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
-                    // BUG-11 FIX: same as Bug 10 — Rust sends "signalType" not "signal_type"
-                    signalType: c.signalType ?? c.signal_type ?? 'audio',
-                })),
+                connections: track.flow_synth.connections.map((c: any) => {
+                    let signalType = c.signalType ?? c.signal_type ?? null;
+                    if (!signalType) {
+                        const fromNode = track.flow_synth!.nodes.find((n: any) => n.id === c.from_node);
+                        if (fromNode) {
+                            const reg = PORT_REGISTRY[fromNode.type as SynthNodeType];
+                            if (reg) {
+                                const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
+                                signalType = port?.type ?? 'audio';
+                            }
+                        }
+                        if (!signalType) signalType = 'audio';
+                    }
+                    return {
+                        id: c.id,
+                        fromNode: c.from_node,
+                        fromPort: c.from_port,
+                        toNode: c.to_node,
+                        toPort: (c.to_port === 'audioL' || c.to_port === 'audioR') ? 'audio' : c.to_port,
+                        signalType,
+                    };
+                }),
                 viewport: {
                     x: track.flow_synth.viewport?.x ?? 0,
                     y: track.flow_synth.viewport?.y ?? 0,

@@ -197,11 +197,10 @@ export function usePianoRollNoteInteractions({
                 const rawStart = original.startBeat + beatDelta;
                 const newBeat = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeatRef.current) : rawStart));
                 let newPitch: number;
-                if (drumMode && pitchDelta !== 0) {
-                    const currentRow = visiblePitches.indexOf(original.pitch);
-                    newPitch = currentRow < 0
-                        ? original.pitch
-                        : visiblePitches[Math.max(0, Math.min(visiblePitches.length - 1, currentRow - pitchDelta))];
+                const currentRow = visiblePitches.indexOf(original.pitch);
+                if (currentRow >= 0 && pitchDelta !== 0) {
+                    const nextRow = Math.max(0, Math.min(visiblePitches.length - 1, currentRow - pitchDelta));
+                    newPitch = visiblePitches[nextRow];
                 } else {
                     newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                 }

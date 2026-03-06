@@ -169,7 +169,8 @@ function PortDot({
     // ENTERPRISE: Port hover state for scale + glow effect (UDS FlowPort pattern)
     const [isHovered, setIsHovered] = React.useState(false);
 
-    const isCompatibleTarget = isDragging && side === 'in' && (dragType === signalType || port.type === 'control');
+    // ENTERPRISE FIX: Strict port matching. No exceptions.
+    const isCompatibleTarget = isDragging && side === 'in' && dragType === signalType;
     const showTargetGlow = isCompatibleTarget && !isHovered;
 
 

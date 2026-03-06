@@ -35,7 +35,7 @@ impl DelayNode {
     }
 
     pub fn set_feedback(&mut self, fb: f32) {
-        self.feedback = fb.clamp(0.0, 0.95);
+        self.feedback = fb.clamp(-0.999, 0.999);
     }
 
     pub fn set_mix(&mut self, mix: f32) {
@@ -67,11 +67,11 @@ impl FlowNode for DelayNode {
         let dry = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
         // Input 1: time modulation (ms offset)
         let time_mod = inputs.get(1).and_then(|s| s.as_float()).unwrap_or(0.0);
-        // Input 2: feedback modulation
+        // Input 2: feedback modulation (bipolar)
         let fb_mod = inputs.get(2).and_then(|s| s.as_float()).unwrap_or(0.0);
 
         let effective_time = (self.time_ms + time_mod * 100.0).clamp(1.0, 2000.0);
-        let effective_fb = (self.feedback + fb_mod * 0.3).clamp(0.0, 0.95);
+        let effective_fb = (self.feedback + fb_mod).clamp(-0.999, 0.999);
 
         let delay_samples = (effective_time * sample_rate as f32 / 1000.0)
             .clamp(1.0, (self.buffer.len() - 1) as f32);

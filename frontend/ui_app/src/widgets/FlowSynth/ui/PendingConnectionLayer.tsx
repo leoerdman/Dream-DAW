@@ -21,10 +21,11 @@ function toWorld(clientX: number, clientY: number, canvas: HTMLElement) {
 
 export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElement | null> }) {
     const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
-    const updatePendingConnection = useFlowSynthStore((state) => state.updatePendingConnection);
     const commitConnection = useFlowSynthStore((state) => state.commitConnection);
     const cancelConnectionDrag = useFlowSynthStore((state) => state.cancelConnectionDrag);
     const layerRef = useRef<SVGSVGElement>(null);
+    const pathRef = useRef<SVGPathElement>(null);
+    const currentPos = useRef({ x: 0, y: 0 });
 
     useEffect(() => {
         return viewportProxy.subscribe((vp) => {
@@ -36,11 +37,33 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
 
     useEffect(() => {
         if (!pendingConnection) return;
+
+        // Initialize position on mount
+        currentPos.current = { x: pendingConnection.startX, y: pendingConnection.startY };
+
+        const updatePath = (endX: number, endY: number) => {
+            if (!pathRef.current) return;
+            const startX = pendingConnection.startX;
+            const startY = pendingConnection.startY;
+            const dx = Math.abs(endX - startX);
+            const distance = Math.sqrt(dx * dx + (endY - startY) ** 2);
+            const cpOffset = Math.min(200, Math.max(30, distance / 3));
+            const c1x = startX + cpOffset;
+            const c1y = startY;
+            const c2x = endX - cpOffset;
+            const c2y = endY;
+            const d = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
+            pathRef.current.setAttribute('d', d);
+        };
+
+        // Initial render
+        updatePath(currentPos.current.x, currentPos.current.y);
+
         const findSnapTarget = (worldX: number, worldY: number) => {
             // Need the latest nodes and connections directly to avoid subscribing and causing re-renders manually
             const { nodes, connections } = useFlowSynthStore.getState();
             const occupiedInputs = new Set(
-                connections.map((conn) => `${conn.toNode}:${conn.toPort} `)
+                connections.map((conn) => `${conn.toNode}:${conn.toPort}`)
             );
             let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
             let bestDist = Infinity;
@@ -60,7 +83,7 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
                     const dy = worldY - y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist >= FLOW_CONNECTION_SNAP_DIST) continue;
-                    const occupied = occupiedInputs.has(`${node.id}:${toPort} `);
+                    const occupied = occupiedInputs.has(`${node.id}:${toPort}`);
                     if (!best || (best.occupied && !occupied) || (best.occupied === occupied && dist < bestDist)) {
                         bestDist = dist;
                         best = { nodeId: node.id, signalType, toPort, x, y, occupied };
@@ -75,8 +98,17 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
             if (!canvas) return;
             const world = toWorld(e.clientX, e.clientY, canvas);
             const snapTarget = findSnapTarget(world.x, world.y);
-            if (snapTarget) updatePendingConnection(snapTarget.x, snapTarget.y);
-            else updatePendingConnection(world.x, world.y);
+
+            if (snapTarget) {
+                currentPos.current = { x: snapTarget.x, y: snapTarget.y };
+            } else {
+                currentPos.current = { x: world.x, y: world.y };
+            }
+
+            // ENTERPRISE: Lock-free DOM update bypassing React reconciliation
+            requestAnimationFrame(() => {
+                updatePath(currentPos.current.x, currentPos.current.y);
+            });
         };
 
         const onPointerUp = (e: PointerEvent) => {
@@ -97,20 +129,10 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
         };
-    }, [pendingConnection, updatePendingConnection, cancelConnectionDrag, commitConnection, viewportRef]);
+    }, [pendingConnection, cancelConnectionDrag, commitConnection, viewportRef]);
 
     if (!pendingConnection) return null;
 
-    const start = { x: pendingConnection.startX, y: pendingConnection.startY };
-    const end = { x: pendingConnection.currentX, y: pendingConnection.currentY };
-    const dx = Math.abs(end.x - start.x);
-    const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
-    const cpOffset = Math.min(200, Math.max(30, distance / 3));
-    const c1x = start.x + cpOffset;
-    const c1y = start.y;
-    const c2x = end.x - cpOffset;
-    const c2y = end.y;
-    const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y} `;
     const baseColor = signalColor(pendingConnection.signalType);
 
     return (
@@ -130,7 +152,7 @@ export function PendingConnectionLayer({ viewportRef }: { viewportRef: React.Ref
             }}
         >
             <path
-                d={pathData}
+                ref={pathRef}
                 fill="none"
                 stroke={baseColor}
                 strokeWidth={2.5}

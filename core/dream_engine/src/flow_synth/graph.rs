@@ -22,11 +22,25 @@ pub enum FlowSignal {
 }
 
 impl FlowSignal {
+    #[inline(always)]
     pub fn as_float(&self) -> Option<f32> {
         match self {
-            Self::Audio(v) | Self::Control(v) => Some(*v),
+            Self::Audio(v) | Self::Control(v) => {
+                // ENTERPRISE P0.1 & P0.2 FIX: Subatomic FPU Safety
+                // 1. Flush-to-Zero for subnormals to prevent 100% CPU microcode traps
+                // 2. NaN/Infinity stripping to prevent IIR filter bricking
+                let mut val = *v;
+                if val.abs() < 1e-15 { val = 0.0; }
+                if !val.is_finite() { val = 0.0; }
+                Some(val)
+            },
             Self::Gate(on) => Some(if *on { 1.0 } else { 0.0 }),
-            Self::Phase(p) => Some(*p),
+            Self::Phase(p) => {
+                let mut val = *p;
+                if val.abs() < 1e-15 { val = 0.0; }
+                if !val.is_finite() { val = 0.0; }
+                Some(val)
+            },
             _ => None,
         }
     }

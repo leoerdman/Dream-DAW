@@ -67,7 +67,6 @@ function toWorld(clientX: number, clientY: number, canvas: HTMLElement) {
 
 export function FlowCanvas() {
     const { viewportRef, handleWheel } = useViewport();
-    const nodes = useFlowSynthStore((state) => state.nodes);
     const selectedNodeIds = useFlowSynthStore((state) => state.selectedNodeIds);
     const selectedConnectionId = useFlowSynthStore((state) => state.selectedConnectionId);
 
@@ -89,7 +88,8 @@ export function FlowCanvas() {
     const setSelectionBox = useFlowSynthStore((state) => state.setSelectionBox);
     const deleteSelectedNodes = useFlowSynthStore((state) => state.deleteSelectedNodes);
     const deleteConnection = useFlowSynthStore((state) => state.deleteConnection);
-    const hasOutputNode = nodes.some((node) => node.type === 'output');
+    // ENTERPRISE FIX: Selector prevents FlowCanvas from re-rendering when node data/faders change
+    const hasOutputNode = useFlowSynthStore((state) => state.nodes.some((node) => node.type === 'output'));
     const menuInputRef = useRef<HTMLInputElement>(null);
     const spacePressedRef = useRef(false);
     const ctrlPressedRef = useRef(false);

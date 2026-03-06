@@ -46,8 +46,6 @@ export interface PendingConnection {
     signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase';
     startX: number;
     startY: number;
-    currentX: number;
-    currentY: number;
 }
 
 interface FlowGraph {
@@ -87,8 +85,7 @@ interface FlowSynthState {
     updateNodePosition: (id: string, x: number, y: number) => void;
     setNodes: (nodes: SynthNode[]) => void;
     setConnections: (connections: SynthConnection[]) => void;
-    startConnectionDrag: (connection: Omit<PendingConnection, 'currentX' | 'currentY'>) => void;
-    updatePendingConnection: (x: number, y: number) => void;
+    startConnectionDrag: (connection: PendingConnection) => void;
     commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase') => void;
     cancelConnectionDrag: () => void;
     pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi' | 'control' | 'gate' | 'phase') => void;
@@ -699,22 +696,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
 
     startConnectionDrag: (connection) => set({
         selectedConnectionId: null,
-        pendingConnection: {
-            ...connection,
-            currentX: connection.startX,
-            currentY: connection.startY,
-        },
-    }),
-
-    updatePendingConnection: (x, y) => set((state) => {
-        if (!state.pendingConnection) return {};
-        return {
-            pendingConnection: {
-                ...state.pendingConnection,
-                currentX: Number.isFinite(x) ? x : state.pendingConnection.currentX,
-                currentY: Number.isFinite(y) ? y : state.pendingConnection.currentY,
-            },
-        };
+        pendingConnection: connection,
     }),
 
     commitConnection: (toNode: string, toPort: string, signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase') => set((state: FlowSynthState) => {

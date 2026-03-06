@@ -384,7 +384,12 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
             });
         };
 
+        // BUG-021 FIX: Guard against multiple cleanup calls from parallel
+        // pointerup/pointercancel/lostpointercapture events.
+        let cleaned = false;
         const onUp = () => {
+            if (cleaned) return;
+            cleaned = true;
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
             document.removeEventListener('pointercancel', onUp);

@@ -104,13 +104,20 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipResized') {
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return false;
-        // BUG-F009 FIX: Also update sourceOffset when the backend provides it
-        // (left-edge resize changes both position and source_offset).
+        // BUG-TRIM-03 FIX: For warped clips, `durationSamples` represents the source
+        // material window (which DIFFERS from timeline duration). `delta.data.new_duration`
+        // is timeline duration in frames. Writing it as `durationSamples` would break the
+        // waveform window size for warped clips. The subsequent `ClipWarpChanged` delta
+        // or `ProjectSnapshotReplaced` will provide the correct `warpSourceDurationFrames`.
+        // For non-warped clips, `durationSamples` === timeline duration, so direct copy is safe.
+        const nextDurationSamples = clip.isWarped
+            ? clip.durationSamples  // Keep — will be corrected by ClipWarpChanged/Snapshot
+            : delta.data.new_duration;
         const next = {
             ...clip,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
             durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
-            durationSamples: delta.data.new_duration,
+            durationSamples: nextDurationSamples,
             ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
         };
         upsertClip(state, next);

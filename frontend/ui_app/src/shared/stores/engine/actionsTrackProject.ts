@@ -10,6 +10,7 @@ import {
     clearTrackControlCaches as clearTrackControlCachesLocal,
     getPendingMasterVolume,
     pendingPanValues,
+    pendingSendLevelValues,
     pendingVolumeValues,
     setPendingMasterVolume,
     throttledMasterVolumeSend,
@@ -161,6 +162,8 @@ export function createTrackProjectActions(
                     return patchTrackByIndex(s, trackIndex, send === 'A' ? { send_a: clamped } : { send_b: clamped });
                 });
                 const throttleKey = `${trackIndex}-${send}`;
+                // BUG-040 FIX: Track pending send level values for proper flush.
+                pendingSendLevelValues.set(throttleKey, { trackIndex, send, value: clamped });
                 let fn = throttledSendLevelSends.get(throttleKey);
                 if (!fn) {
                     fn = throttle(async (v: number) => {
@@ -211,6 +214,9 @@ export function createTrackProjectActions(
                 const pendingMasterVolume = getPendingMasterVolume();
                 pendingVolumeValues.clear();
                 pendingPanValues.clear();
+                // BUG-040 FIX: Snapshot and clear pending send levels.
+                const sendEntries = Array.from(pendingSendLevelValues.values());
+                pendingSendLevelValues.clear();
                 setPendingMasterVolume(null);
 
                 // BUG-012 FIX: Collect ALL deltas first, then apply in a single batch.
@@ -222,6 +228,10 @@ export function createTrackProjectActions(
                     ),
                     ...panEntries.map(async ([trackIndex, pan]) =>
                         engine.setTrackPanWithDeltas(trackIndex, pan),
+                    ),
+                    // BUG-040 FIX: Include send levels in the flush batch.
+                    ...sendEntries.map(async ({ trackIndex, send, value }) =>
+                        engine.setTrackSendLevelWithDeltas(trackIndex, send, value),
                     ),
                 ]);
                 const allDeltas = ipcResults.flatMap((r) => r.deltas);

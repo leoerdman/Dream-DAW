@@ -222,15 +222,21 @@ export function useTimelineClipHandlers({
 
         // ENTERPRISE FIX: Apply optimistic Zustand update BEFORE async IPC logic.
         // This bridges the 100-200ms gap, preventing the TimelineEngine from 
-        // collapsing to stare store values (causing micro-movements) on mouseUp.
+        // collapsing to stale store values (causing micro-movements) on mouseUp.
         useEngineStore.setState((state) => {
             const nextClips = state.timelineClips.map((c) => {
                 if (c.id === clipId) {
+                    // BUG-TRIM-01 FIX: Use camelCase `sourceOffset` (matches TimelineClip type).
+                    // Previously used snake_case `source_offset` which had ZERO effect on
+                    // waveform rendering since `useTimelineClipSync` reads `c.sourceOffset`.
+                    // BUG-TRIM-02 FIX: Also update `startBeat`, `durationBeats`, and
+                    // `durationSamples` so the waveform window size is correct during the IPC gap.
                     return {
                         ...c,
-                        position: newPositionFrames,
-                        duration: newDurationFrames,
-                        ...(typeof optSourceOffset === 'number' ? { source_offset: Math.round(optSourceOffset) } : {})
+                        startBeat: newStartBeat,
+                        durationBeats: newDurationBeats,
+                        durationSamples: newDurationFrames,
+                        ...(typeof optSourceOffset === 'number' ? { sourceOffset: Math.round(optSourceOffset) } : {}),
                     };
                 }
                 return c;

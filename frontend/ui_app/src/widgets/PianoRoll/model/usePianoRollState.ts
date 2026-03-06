@@ -94,6 +94,14 @@ export function usePianoRollState({
             const candidate = typeof next === 'function'
                 ? (next as (value: Set<string>) => Set<string>)(prev)
                 : next;
+            // BUG-045 FIX: Only create a new Set if we actually need to filter out
+            // invalid IDs. When all IDs are valid, return the candidate directly
+            // to preserve reference equality for React.memo downstream.
+            let allValid = true;
+            for (const id of candidate) {
+                if (!noteIdSet.has(id)) { allValid = false; break; }
+            }
+            if (allValid) return candidate;
             const normalized = new Set<string>();
             for (const id of candidate) if (noteIdSet.has(id)) normalized.add(id);
             return normalized;

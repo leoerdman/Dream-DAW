@@ -7,6 +7,7 @@ import { RUNTIME_PARAM_INDEX_BY_EFFECT, internalParamIdForControl } from '../mod
 import type { AdaptiveSender, PendingGestureCommit } from './useDeviceParamGestureTypes';
 import { createAdaptiveParamSenderFactory, createAdaptiveRuntimeBatchSenderFactory } from './useDeviceParamSenders';
 import { useDeviceParamPruning } from './useDeviceParamPruning';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
 type DeviceParamTrack = { id: string; effects: Array<{ id: string }> } | null;
 export function useDeviceParamGestures(
@@ -184,6 +185,36 @@ export function useDeviceParamGestures(
         if (gestureGroupId) {
             gestureGroupByParamKeyRef.current.set(gestureKey, gestureGroupId);
             pushedUndoForGestureRef.current.delete(gestureGroupId);
+        }
+
+        // ── ENTERPRISE: Touch-Knob → Auto-Show Automation Lane ──────────
+        // When automation mode is active, touching any knob/fader automatically
+        // creates the automation lane for that parameter (if not already present)
+        // and makes it visible + expands the track. This gives Ableton-style UX
+        // where interacting with a control instantly shows its automation curve.
+        const autoStore = useAutomationStore.getState();
+        if (autoStore.globalVisible) {
+            const paramKey = `${deviceId}:${paramName}`;
+            const existingLane = Object.values(autoStore.lanes).find(
+                (lane) => lane.trackId === selectedTrack.id && lane.paramKey === paramKey,
+            );
+            if (existingLane) {
+                // Lane exists — just ensure it's visible
+                if (!existingLane.visible) {
+                    useAutomationStore.getState().setLaneVisibility(existingLane.id, true);
+                }
+            } else {
+                // Lane doesn't exist — create it with the track's color
+                const track = useEngineStore.getState().tracks.byId[selectedTrack.id];
+                const color = track?.color || 'var(--token-color-hex-58a6ff)';
+                useAutomationStore.getState().addLane(selectedTrack.id, paramName, paramKey, color);
+            }
+            // Ensure the track is expanded in the automation view
+            useAutomationStore.setState((s) => {
+                const nextExpanded = new Set(s.expandedTracks);
+                nextExpanded.add(selectedTrack.id);
+                return { expandedTracks: nextExpanded };
+            });
         }
     }, [selectedTrack]);
     const endParamGesture = useCallback((deviceId: string, paramName: string) => {

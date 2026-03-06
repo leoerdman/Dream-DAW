@@ -96,7 +96,16 @@ export function getClipById(id: string): TimelineClip | undefined {
     return useEngineStore.getState().clips.byId[id];
 }
 
+// BUG-065 FIX: Cached reverse-lookup Map for O(1) track index by ID.
+// Rebuilt only when allIds reference changes, not on every call.
+let _trackIndexCacheRef: string[] | null = null;
+let _trackIndexMap = new Map<string, number>();
 /** Get track index by track ID. Returns -1 if not found. */
 export function getTrackIndexById(id: string): number {
-    return useEngineStore.getState().tracks.allIds.indexOf(id);
+    const allIds = useEngineStore.getState().tracks.allIds;
+    if (_trackIndexCacheRef !== allIds) {
+        _trackIndexCacheRef = allIds;
+        _trackIndexMap = new Map(allIds.map((trackId, idx) => [trackId, idx]));
+    }
+    return _trackIndexMap.get(id) ?? -1;
 }

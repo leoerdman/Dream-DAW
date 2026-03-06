@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { flowModuleClipboard } from '../model/flowSynthClipboard';
 import { Hand, MousePointer2 } from 'lucide-react';
 import { CanvasGrid } from './CanvasGrid';
 import { NodesLayer } from './NodesLayer';
@@ -9,6 +10,7 @@ import {
     FLOW_MENU_MARGIN,
 } from '../model/portRegistry';
 import { useViewport } from '../model/useViewport';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import {
     useFlowSynthStore,
     type SynthNodeType,
@@ -89,6 +91,12 @@ export function FlowCanvas() {
     const deleteConnection = useFlowSynthStore((state) => state.deleteConnection);
     const pendingConnection = useFlowSynthStore((state) => state.pendingConnection);
     const cancelConnectionDrag = useFlowSynthStore((state) => state.cancelConnectionDrag);
+
+    // ENTERPRISE: Clipboard actions
+    const copySelectedNodes = useFlowSynthStore((state) => state.copySelectedNodes);
+    const pasteNodes = useFlowSynthStore((state) => state.pasteNodes);
+    const cutSelectedNodes = useFlowSynthStore((state) => state.cutSelectedNodes);
+    const duplicateSelectedNodes = useFlowSynthStore((state) => state.duplicateSelectedNodes);
     // ENTERPRISE FIX: Selector prevents FlowCanvas from re-rendering when node data/faders change
     const hasOutputNode = useFlowSynthStore((state) => state.nodes.some((node) => node.type === 'output'));
     const menuInputRef = useRef<HTMLInputElement>(null);
@@ -183,6 +191,12 @@ export function FlowCanvas() {
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
+            // ENTERPRISE FOCUS ROUTING: Only process if Flow Synth is the active panel.
+            if (useFocusPanelStore.getState().activePanel !== 'flow-synth') return;
+
+            const active = document.activeElement as HTMLElement | null;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+
             // ENTERPRISE: Do NOT capture Space key — it must propagate to DAW transport play/stop.
             // Canvas panning is handled via mouse middle button or Ctrl+drag.
             if (e.key === 'Control') {
@@ -208,13 +222,14 @@ export function FlowCanvas() {
             }
 
             if (e.key === 'Delete' || e.key === 'Backspace') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (selectedConnectionId) {
-                    e.preventDefault();
                     deleteConnection(selectedConnectionId);
                     return;
                 }
                 if (selectedNodeIds.length > 0) {
-                    e.preventDefault();
                     deleteSelectedNodes();
                 }
                 return;
@@ -222,6 +237,8 @@ export function FlowCanvas() {
 
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
                 e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 const box = {
                     x: -100000,
                     y: -100000,
@@ -229,6 +246,40 @@ export function FlowCanvas() {
                     height: 200000,
                 };
                 setSelectionBox(box);
+                return;
+            }
+
+            // ENTERPRISE CLIPBOARD (Bitwig Grid Pattern)
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyD') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                duplicateSelectedNodes(e.shiftKey); // Shift = deep duplicate with incoming connections
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyC') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                copySelectedNodes();
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyV') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                pasteNodes(e.shiftKey); // Shift = deep paste with incoming connections
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyX') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                cutSelectedNodes();
+                return;
             }
 
             if (menuState && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
@@ -263,7 +314,12 @@ export function FlowCanvas() {
             document.removeEventListener('keyup', onKeyUp, true);
             window.removeEventListener('blur', onBlur);
         };
-    }, [menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId, deleteSelectedNodes, deleteConnection, clearSelection, cancelConnectionDrag, setSelectionBox, menuIndex, filteredCatalog]);
+    }, [
+        menuState, pendingConnection, selectedNodeIds.length, selectedConnectionId,
+        deleteSelectedNodes, deleteConnection, clearSelection, cancelConnectionDrag,
+        setSelectionBox, menuIndex, filteredCatalog,
+        copySelectedNodes, pasteNodes, cutSelectedNodes, duplicateSelectedNodes
+    ]);
 
     useEffect(() => {
         setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));
@@ -279,6 +335,9 @@ export function FlowCanvas() {
                 openMenuAtPointer(e.clientX, e.clientY);
             }}
             onPointerDown={(e) => {
+                // ENTERPRISE FOCUS: Register interaction
+                useFocusPanelStore.getState().setActivePanel('flow-synth');
+
                 const target = e.target as HTMLElement;
                 if (target.closest('[data-flow-connection-hit="true"]')) return;
                 if (target.closest('.flow-context-menu') || target.closest('[data-flow-node-root]')) return;
@@ -460,8 +519,114 @@ export function FlowCanvas() {
                     onClick={e => e.stopPropagation()}
                 >
                     <div style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', fontWeight: 'var(--font-weight-bold)', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-wide)' }}>
-                        Add Node
+                        {selectedNodeIds.length > 0 ? 'Actions' : 'Add Node'}
                     </div>
+
+                    {/* ENTERPRISE: Clipboard context menu items when nodes are selected */}
+                    {selectedNodeIds.length > 0 && (
+                        <>
+                            <button
+                                onClick={() => { copySelectedNodes(); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Copy</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘C</span>
+                            </button>
+                            <button
+                                onClick={() => { cutSelectedNodes(); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Cut</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘X</span>
+                            </button>
+                            <button
+                                onClick={() => { duplicateSelectedNodes(false); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Duplicate</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘D</span>
+                            </button>
+                            <button
+                                onClick={() => { duplicateSelectedNodes(true); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Deep Duplicate</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⇧⌘D</span>
+                            </button>
+                            <button
+                                onClick={() => { deleteSelectedNodes(); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-danger, #ff4444)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Delete</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌫</span>
+                            </button>
+                            <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-1) var(--space-2)' }} />
+                        </>
+                    )}
+
+                    {/* ENTERPRISE: Paste option always visible when clipboard has content */}
+                    {flowModuleClipboard && flowModuleClipboard.nodes.length > 0 && (
+                        <>
+                            <button
+                                onClick={() => { pasteNodes(false); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Paste</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⌘V</span>
+                            </button>
+                            <button
+                                onClick={() => { pasteNodes(true); setMenuState(null); }}
+                                style={{
+                                    textAlign: 'left', padding: 'var(--space-2) var(--space-3)',
+                                    background: 'transparent', border: 'none', color: 'var(--color-text-secondary)',
+                                    cursor: 'pointer', borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-md)', fontWeight: 'var(--font-weight-medium)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                            >
+                                <span>Deep Paste</span>
+                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>⇧⌘V</span>
+                            </button>
+                            <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-1) var(--space-2)' }} />
+                        </>
+                    )}
+
                     <input
                         ref={menuInputRef}
                         value={menuSearch}
@@ -541,7 +706,8 @@ export function FlowCanvas() {
                         )}
                     </div>
                 </div>
-            )}
+            )
+            }
         </div>
     );
 }

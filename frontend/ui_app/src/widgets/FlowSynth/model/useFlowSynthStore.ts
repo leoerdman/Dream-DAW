@@ -10,11 +10,13 @@ import {
     FLOW_NODE_HEADER_HEIGHT,
     FLOW_PULSE_GC_MS,
     FLOW_SELECTION_PADDING_Y,
+    FLOW_GRID_SNAP,
     type SynthNodeType,
     type PortDefinition
 } from './portRegistry';
 import { FLOW_NODE_WIDTH } from '../ui/SynthNodeComponent';
 import { FACTORY_PRESETS, clonePreset, type FlowPreset } from './flowPresets';
+import { flowModuleClipboard, setFlowModuleClipboard } from './flowSynthClipboard';
 
 export type { SynthNodeType };
 export type { FlowPreset };
@@ -110,6 +112,12 @@ interface FlowSynthState {
 
     // BUG-034 FIX: Remove stale cache entries when a device/track is deleted.
     cleanupDeviceCache: (deviceId: string) => void;
+
+    // ── Clipboard actions ──────────────────────────────────────────────
+    copySelectedNodes: () => void;
+    cutSelectedNodes: () => void;
+    duplicateSelectedNodes: (deep?: boolean) => void;
+    pasteNodes: (deep?: boolean) => void;
 
     // ── Preset actions ─────────────────────────────────────────────────
     loadPreset: (index: number) => void;
@@ -773,6 +781,155 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             nodes: nextNodes,
             connections: nextConnections,
             selectedNodeIds: [],
+            selectedConnectionId: null,
+        };
+    }),
+
+    // ── Clipboard Operations (Bitwig Grid Pattern) ─────────────────────
+    copySelectedNodes: () => set((state) => {
+        if (state.selectedNodeIds.length === 0) return {};
+        const selected = new Set(state.selectedNodeIds);
+        const copiedNodes = state.nodes.filter((n) => selected.has(n.id)).map((n) => JSON.parse(JSON.stringify(n)) as SynthNode);
+
+        let minX = Infinity;
+        let minY = Infinity;
+        for (const node of copiedNodes) {
+            if (node.position.x < minX) minX = node.position.x;
+            if (node.position.y < minY) minY = node.position.y;
+        }
+
+        const internalConnections = state.connections.filter((c) => selected.has(c.fromNode) && selected.has(c.toNode)).map((c) => ({ ...c }));
+        // Deep copy payload: Connections from outside the selection INTO the selection
+        const incomingConnections = state.connections.filter((c) => !selected.has(c.fromNode) && selected.has(c.toNode)).map((c) => ({ ...c }));
+
+        setFlowModuleClipboard({
+            nodes: copiedNodes,
+            internalConnections,
+            incomingConnections,
+            anchorX: minX,
+            anchorY: minY,
+        });
+        return {};
+    }),
+
+    cutSelectedNodes: () => {
+        get().copySelectedNodes();
+        get().deleteSelectedNodes();
+    },
+
+    duplicateSelectedNodes: (deep = false) => {
+        get().copySelectedNodes();
+        get().pasteNodes(deep);
+    },
+
+    pasteNodes: (deep = false) => set((state) => {
+        if (!flowModuleClipboard || flowModuleClipboard.nodes.length === 0) return {};
+        const cb = flowModuleClipboard;
+
+        // ENTERPRISE GUARD: Only one 'output' node is allowed per graph.
+        // Filter out output nodes from paste if one already exists.
+        const hasOutputNode = state.nodes.some((n) => n.type === 'output');
+        const candidateNodes = hasOutputNode
+            ? cb.nodes.filter((n) => n.type !== 'output')
+            : cb.nodes;
+        if (candidateNodes.length === 0) return {};
+
+        // Build set of surviving candidate IDs (for connection filtering)
+        const candidateIdSet = new Set(candidateNodes.map((n) => n.id));
+
+        const idMap = new Map<string, string>();
+        const newNodes: SynthNode[] = [];
+        const baseOffset = FLOW_GRID_SNAP * 2;
+
+        let totalOffsetX = 0;
+        let totalOffsetY = 0;
+
+        // Group-level collision detection to maintain relative spacing
+        if (candidateNodes.length > 0) {
+            const firstNode = candidateNodes[0];
+            let testX = firstNode.position.x + baseOffset;
+            let testY = firstNode.position.y + baseOffset;
+            let iterations = 0;
+
+            while (
+                state.nodes.some((n) => Math.abs(n.position.x - testX) < 5 && Math.abs(n.position.y - testY) < 5) &&
+                iterations < 20
+            ) {
+                testX += baseOffset;
+                testY += baseOffset;
+                iterations++;
+            }
+            totalOffsetX = testX - firstNode.position.x;
+            totalOffsetY = testY - firstNode.position.y;
+        }
+
+        for (const node of candidateNodes) {
+            const newId = `node-copy-${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 8))}`;
+            idMap.set(node.id, newId);
+
+            newNodes.push({
+                ...node,
+                id: newId,
+                position: { x: node.position.x + totalOffsetX, y: node.position.y + totalOffsetY },
+                // ENTERPRISE: Deep clone data to prevent shared references between original and pasted nodes
+                data: JSON.parse(JSON.stringify(node.data)),
+            });
+        }
+
+        const newConnections: SynthConnection[] = [];
+
+        // Internal connections remap both ends
+        // ENTERPRISE: Only include connections where BOTH nodes survived the output filter
+        for (const conn of cb.internalConnections) {
+            if (!candidateIdSet.has(conn.fromNode) || !candidateIdSet.has(conn.toNode)) continue;
+            const mappedFrom = idMap.get(conn.fromNode);
+            const mappedTo = idMap.get(conn.toNode);
+            if (mappedFrom && mappedTo) {
+                newConnections.push({
+                    ...conn,
+                    id: `conn-copy-${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 8))}`,
+                    fromNode: mappedFrom,
+                    toNode: mappedTo,
+                });
+            }
+        }
+
+        // Deep paste: remap only the sink (toNode), keeping the source identical
+        if (deep) {
+            // ENTERPRISE: To prevent conflicting multiple sources to the same sink, 
+            // if we deep duplicate while existing source cables are intact, the backend engine
+            // replaces the connection if ports overlap. It works cleanly due to the last-writer-wins pattern.
+            for (const conn of cb.incomingConnections) {
+                if (!candidateIdSet.has(conn.toNode)) continue;
+                // ENTERPRISE: Verify source node still exists in the graph before creating the deep connection
+                const sourceExists = state.nodes.some((n) => n.id === conn.fromNode);
+                const mappedTo = idMap.get(conn.toNode);
+                if (mappedTo && sourceExists) {
+                    newConnections.push({
+                        ...conn,
+                        id: `conn-deep-${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 8))}`,
+                        fromNode: conn.fromNode,
+                        toNode: mappedTo,
+                    });
+                }
+            }
+        }
+
+        const nextNodes = [...state.nodes, ...newNodes];
+        const nextConnections = [...state.connections, ...newConnections];
+        const newSelection = newNodes.map((n) => n.id);
+
+        // Seed the proxy immediately for instantaneous zero-latency render of cables
+        for (const nn of newNodes) {
+            nodeMotionProxy.syncInitial(nn.id, nn.position.x, nn.position.y);
+        }
+
+        _scheduleSyncFlowGraph(get);
+
+        return {
+            nodes: nextNodes,
+            connections: nextConnections,
+            selectedNodeIds: newSelection,
             selectedConnectionId: null,
         };
     }),

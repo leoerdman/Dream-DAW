@@ -18,6 +18,7 @@ export type FocusPanel =
     | 'sample-editor'
     | 'mixer'
     | 'browser'
+    | 'flow-synth'
     | 'none';
 
 interface FocusPanelState {

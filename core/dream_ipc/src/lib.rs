@@ -58,6 +58,36 @@ impl FlowNodeType {
     }
 }
 
+/// BUG-003 FIX: Returns (input_port_count, output_port_count) for a given FlowNodeType.
+/// SSOT mirror of frontend PORT_REGISTRY — used for server-side validation of port indices
+/// before dispatching connections to the audio thread.
+pub fn flow_port_counts(node_type: FlowNodeType) -> (usize, usize) {
+    match node_type {
+        FlowNodeType::MidiIn      => (0, 3), // → freq, velocity, gate
+        FlowNodeType::Oscillator  => (4, 1), // freq, pw, fm, pm → audio
+        FlowNodeType::Filter      => (3, 1), // audio, cutoff, resonance → audio
+        FlowNodeType::Envelope    => (5, 1), // gate, attack, decay, sustain, release → cv
+        FlowNodeType::Eq          => (4, 1), // audio, low, mid, high → audio
+        FlowNodeType::AutoFilter  => (6, 1), // audio, cutoff, resonance, rate, depth, env → audio
+        FlowNodeType::Reverse     => (1, 1), // audio → audio
+        FlowNodeType::AudioIn     => (0, 1), // → audio
+        FlowNodeType::Output      => (1, 0), // audio →
+        FlowNodeType::Lfo         => (2, 2), // rate_mod, reset → signal, phase
+        FlowNodeType::Noise       => (0, 1), // → audio
+        FlowNodeType::Add         => (2, 1), // a, b → sum
+        FlowNodeType::Multiply    => (2, 1), // a, b → product
+        FlowNodeType::SampleHold  => (2, 1), // signal, trigger → held
+        FlowNodeType::Delay       => (3, 1), // audio, time, feedback → audio
+        FlowNodeType::Mixer       => (4, 1), // ch1..ch4 → audio
+        FlowNodeType::Vca         => (2, 1), // audio, cv → audio
+        FlowNodeType::Pitch       => (2, 1), // freq, octave → freq_out
+        FlowNodeType::Utility     => (3, 1), // audio, gain, pan → audio
+        FlowNodeType::Distortion  => (3, 1), // audio, drive, mix → audio
+        FlowNodeType::Vst3        => (2, 1), // audio, midi → audio
+        FlowNodeType::Unknown     => (8, 8), // generous fallback — never blocks valid data
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlowParamKey {
     Waveform, Frequency, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,

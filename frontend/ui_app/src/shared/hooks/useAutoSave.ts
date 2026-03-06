@@ -22,12 +22,15 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     // BUG-C003 FIX: Use a ref for inFlight state so it persists across effect re-runs (when intervalMs changes).
     const inFlightRef = useRef(false);
+    // BUG-024 FIX: Track last-synced viewport to skip IPC when unchanged.
+    const lastViewportRef = useRef({ ppb: -1, sl: -1, st: -1 });
 
     useEffect(() => {
         const tick = async () => {
             // Skip auto-save when tab is hidden (no point saving while user
             // is in another app — also avoids plugin state capture overhead).
-            if (document.hidden) return;
+            // BUG-048 FIX: Use nullish coalescing for environments where Page Visibility API is unavailable.
+            if (document.hidden ?? false) return;
             if (inFlightRef.current) return; // Prevent overlapping saves
 
             inFlightRef.current = true;
@@ -35,7 +38,12 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
                 // Sync current viewport to backend so auto-save persists scroll/zoom.
                 try {
                     const tl = useTimelineStore.getState();
-                    await setArrangementViewport(tl.pixelsPerBeat, tl.scrollLeft, tl.scrollTop);
+                    const { ppb, sl, st } = lastViewportRef.current;
+                    // BUG-024 FIX: Only sync viewport if it actually changed since last save.
+                    if (tl.pixelsPerBeat !== ppb || tl.scrollLeft !== sl || tl.scrollTop !== st) {
+                        await setArrangementViewport(tl.pixelsPerBeat, tl.scrollLeft, tl.scrollTop);
+                        lastViewportRef.current = { ppb: tl.pixelsPerBeat, sl: tl.scrollLeft, st: tl.scrollTop };
+                    }
                 } catch (viewportErr) {
                     // BUG-H08 FIX: Log instead of silently swallowing.
                     // Persistent viewport sync failures were invisible.

@@ -46,6 +46,8 @@ interface DragState {
 /** Internal cleanup handle for the global mousemove listener. */
 let _cleanupMouseMove: (() => void) | null = null;
 let _cleanupSafetyMouseUp: (() => void) | null = null;
+// BUG-011 FIX: Cleanup handle for window blur listener.
+let _cleanupBlur: (() => void) | null = null;
 
 export const useDragStore = create<DragState>((set, get) => ({
     draggingItem: null,
@@ -89,6 +91,18 @@ export const useDragStore = create<DragState>((set, get) => ({
         _cleanupSafetyMouseUp = () => {
             window.removeEventListener('mouseup', onSafetyUp);
         };
+
+        // BUG-011 FIX: Reset drag if user Alt+Tabs away — prevents stuck drag state.
+        _cleanupBlur?.();
+        const onBlur = () => {
+            if (get().draggingItem) {
+                get().endDrag();
+            }
+        };
+        window.addEventListener('blur', onBlur);
+        _cleanupBlur = () => {
+            window.removeEventListener('blur', onBlur);
+        };
     },
 
     endDrag: () => {
@@ -99,6 +113,9 @@ export const useDragStore = create<DragState>((set, get) => ({
         _cleanupMouseMove = null;
         _cleanupSafetyMouseUp?.();
         _cleanupSafetyMouseUp = null;
+        // BUG-011 FIX: Clean up blur listener too.
+        _cleanupBlur?.();
+        _cleanupBlur = null;
         dreamGlobals.setInAppDrag(false);
     },
 

@@ -83,9 +83,48 @@ fn sync_flow_graph_cmd(
         indegree.insert(*id, 0);
         outgoing.insert(*id, Vec::new());
     }
-    for (from_id, _, to_id, _) in &connections {
+    // BUG-003/009 FIX: Validate connections — check bounds and dedup input ports.
+    // Step 1: Build a map of node_id → (input_port_count, output_port_count) from node types.
+    let mut node_port_counts: std::collections::HashMap<u64, (usize, usize)> =
+        std::collections::HashMap::with_capacity(mapped_nodes.len());
+    for (id, node_type, _) in &mapped_nodes {
+        let (in_count, out_count) = dream_ipc::flow_port_counts(*node_type);
+        node_port_counts.insert(*id, (in_count, out_count));
+    }
+
+    // Step 2: Filter invalid connections, validate port indices, dedup input ports (last wins).
+    let mut seen_inputs: std::collections::HashMap<(u64, usize), usize> =
+        std::collections::HashMap::with_capacity(connections.len());
+    let mut valid_connections: Vec<(u64, usize, u64, usize)> = Vec::with_capacity(connections.len());
+
+    for (idx, (from_id, from_port, to_id, to_port)) in connections.iter().enumerate() {
+        // Skip self-loops
         if from_id == to_id { continue; }
+        // Skip if either node doesn't exist
         if !index_by_id.contains_key(from_id) || !index_by_id.contains_key(to_id) { continue; }
+        // BUG-003: Validate port index bounds
+        if let Some(&(_, out_count)) = node_port_counts.get(from_id) {
+            if *from_port >= out_count { continue; }
+        }
+        if let Some(&(in_count, _)) = node_port_counts.get(to_id) {
+            if *to_port >= in_count { continue; }
+        }
+        // BUG-009: Track last connection to each input port — last wins
+        seen_inputs.insert((*to_id, *to_port), idx);
+        valid_connections.push((*from_id, *from_port, *to_id, *to_port));
+    }
+    // Remove earlier duplicates — only keep the last connection to each input
+    if seen_inputs.len() < valid_connections.len() {
+        valid_connections.retain(|conn| {
+            // Check if this is the latest connection to its input port
+            seen_inputs.get(&(conn.2, conn.3)).copied()
+                .map(|last_idx| connections.iter().position(|c| c == conn).map(|pos| pos == last_idx).unwrap_or(true))
+                .unwrap_or(true)
+        });
+    }
+    let connections = valid_connections;
+
+    for (from_id, _, to_id, _) in &connections {
         if let Some(v) = outgoing.get_mut(from_id) { v.push(*to_id); }
         if let Some(d) = indegree.get_mut(to_id) { *d += 1; }
     }

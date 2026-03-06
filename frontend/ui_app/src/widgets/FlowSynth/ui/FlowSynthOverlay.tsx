@@ -7,6 +7,41 @@ import { FACTORY_PRESETS } from '../model/flowPresets';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
+// ── ENTERPRISE: Named constants ────────────────────────────────────────────
+/** Floating preset bar positioning. */
+const FLOATING_BAR_TOP = 8;
+const FLOATING_BAR_RIGHT = 12;
+const FLOATING_BAR_Z = 15;
+const FLOATING_BAR_GAP = 6;
+const FLOATING_BAR_PADDING = '4px 10px';
+const FLOATING_BAR_RADIUS = 8;
+const FLOATING_BAR_BG = 'color-mix(in srgb, var(--color-bg-panel) 90%, transparent)';
+const FLOATING_BAR_SHADOW = '0 2px 8px rgba(0,0,0,0.15)';
+const FLOATING_BAR_BORDER = '1px solid color-mix(in srgb, var(--color-divider) 70%, transparent)';
+/** Preset dropdown dimensions. */
+const DROPDOWN_MARGIN_TOP = 4;
+const DROPDOWN_MIN_WIDTH = 180;
+const DROPDOWN_MAX_HEIGHT = 300;
+const DROPDOWN_RADIUS = 6;
+const DROPDOWN_SHADOW = '0 4px 12px rgba(0,0,0,0.25)';
+const DROPDOWN_Z = 20;
+const DROPDOWN_ITEM_PADDING = '6px 12px';
+/** Preset divider dimension. */
+const DIVIDER_WIDTH = 1;
+const DIVIDER_HEIGHT = 14;
+/** Preset nav button size. */
+const PRESET_BTN_SIZE = 18;
+const PRESET_BTN_RADIUS = 4;
+/** MIDI pulse polling interval (ms). */
+const MIDI_PULSE_INTERVAL_MS = 40;
+/** Engine sync delay after Flow editor open (ms). */
+const ENGINE_SYNC_DELAY_MS = 60;
+/** PluginWindow default dimensions for floating Flow. */
+const FLOW_FLOAT_WIDTH = 1120;
+const FLOW_FLOAT_HEIGHT = 700;
+const FLOW_FLOAT_X = 140;
+const FLOW_FLOAT_Y = 84;
+
 // ── Floating Preset Bar (sits above the canvas, top-right) ────────────
 function FloatingPresetBar() {
     const presetName = useFlowSynthStore((s) => s.presetName);
@@ -100,6 +135,15 @@ function FloatingPresetBar() {
                 useFlowSynthStore.getState().setNodes(preset.nodes);
                 useFlowSynthStore.getState().setConnections(preset.connections);
                 useFlowSynthStore.setState({ presetName: preset.name || name });
+
+                // BUG-C FIX: Seed proxy with new node positions immediately
+                // so connections render at correct positions after preset load.
+                for (const n of preset.nodes) {
+                    if (n.position) {
+                        nodeMotionProxy.syncInitial(n.id, n.position.x, n.position.y);
+                    }
+                }
+
                 // Invalidate graph cache for current device
                 const { activeDeviceId, graphsByDeviceId } = useFlowSynthStore.getState();
                 if (activeDeviceId) {
@@ -119,19 +163,19 @@ function FloatingPresetBar() {
             ref={dropdownRef}
             style={{
                 position: 'absolute',
-                top: 8,
-                right: 12,
-                zIndex: 15,
+                top: FLOATING_BAR_TOP,
+                right: FLOATING_BAR_RIGHT,
+                zIndex: FLOATING_BAR_Z,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '4px 10px',
-                borderRadius: 8,
-                background: 'color-mix(in srgb, var(--color-bg-panel) 90%, transparent)',
+                gap: FLOATING_BAR_GAP,
+                padding: FLOATING_BAR_PADDING,
+                borderRadius: FLOATING_BAR_RADIUS,
+                background: FLOATING_BAR_BG,
                 backdropFilter: 'blur(var(--blur-md))',
                 WebkitBackdropFilter: 'blur(var(--blur-md))',
-                border: '1px solid color-mix(in srgb, var(--color-divider) 70%, transparent)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                border: FLOATING_BAR_BORDER,
+                boxShadow: FLOATING_BAR_SHADOW,
                 fontFamily: 'var(--font-role-data)',
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -153,7 +197,7 @@ function FloatingPresetBar() {
                 {presetName || 'Init'}
             </span>
             <button onClick={nextPreset} style={presetNavBtn} title="Next">▶</button>
-            <div style={{ width: 1, height: 14, background: 'var(--color-divider)', opacity: 0.5 }} />
+            <div style={{ width: DIVIDER_WIDTH, height: DIVIDER_HEIGHT, background: 'var(--color-divider)', opacity: 0.5 }} />
             <button onClick={handleSavePreset} style={presetNavBtn} title="Save Preset">💾</button>
             <button onClick={handleLoadPreset} style={presetNavBtn} title="Open Preset">📂</button>
 
@@ -164,15 +208,15 @@ function FloatingPresetBar() {
                         position: 'absolute',
                         top: '100%',
                         right: 0,
-                        marginTop: 4,
-                        minWidth: 180,
-                        maxHeight: 300,
+                        marginTop: DROPDOWN_MARGIN_TOP,
+                        minWidth: DROPDOWN_MIN_WIDTH,
+                        maxHeight: DROPDOWN_MAX_HEIGHT,
                         overflowY: 'auto',
                         background: 'var(--color-bg-panel)',
                         border: '1px solid var(--color-divider)',
-                        borderRadius: 6,
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-                        zIndex: 20,
+                        borderRadius: DROPDOWN_RADIUS,
+                        boxShadow: DROPDOWN_SHADOW,
+                        zIndex: DROPDOWN_Z,
                         padding: '4px 0',
                     }}
                 >
@@ -181,7 +225,7 @@ function FloatingPresetBar() {
                             key={p.name}
                             onClick={() => { loadPreset(i); setDropdownOpen(false); }}
                             style={{
-                                padding: '6px 12px',
+                                padding: DROPDOWN_ITEM_PADDING,
                                 fontSize: 'var(--font-size-sm)',
                                 color: i === presetIndex ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
                                 fontWeight: i === presetIndex ? 600 : 400,
@@ -202,8 +246,8 @@ function FloatingPresetBar() {
 }
 
 const presetNavBtn: React.CSSProperties = {
-    width: 18,
-    height: 18,
+    width: PRESET_BTN_SIZE,
+    height: PRESET_BTN_SIZE,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -212,13 +256,15 @@ const presetNavBtn: React.CSSProperties = {
     border: 'none',
     fontSize: 'var(--font-size-2xs)',
     cursor: 'pointer',
-    borderRadius: 4,
+    borderRadius: PRESET_BTN_RADIUS,
     transition: 'color var(--transition-fast)',
 };
 
 export function FlowSynthOverlay() {
     const isOpen = useFlowSynthStore((state) => state.isOpen);
+    const displayMode = useFlowSynthStore((state) => state.displayMode);
     const closeFlowEditor = useFlowSynthStore((state) => state.closeFlowEditor);
+    const setDisplayMode = useFlowSynthStore((state) => state.setDisplayMode);
     const activeDeviceId = useFlowSynthStore((state) => state.activeDeviceId);
     const activeTrackId = useFlowSynthStore((state) => state.activeTrackId);
 
@@ -296,7 +342,7 @@ export function FlowSynthOverlay() {
             }
         };
 
-        intervalId = window.setInterval(tick, 40);
+        intervalId = window.setInterval(tick, MIDI_PULSE_INTERVAL_MS);
         return () => {
             if (intervalId !== null) window.clearInterval(intervalId);
         };
@@ -308,14 +354,16 @@ export function FlowSynthOverlay() {
             void useFlowSynthStore.getState().syncFlowGraphToEngine().catch((err) => {
                 console.warn('[FlowSynth] syncFlowGraphToEngine failed:', err);
             });
-        }, 60);
+        }, ENGINE_SYNC_DELAY_MS);
         return () => window.clearTimeout(timer);
         // BUG-3 FIX: Only sync on editor open / track change. Do NOT include
         // `nodes` or `connections` — the undo/redo subscription also schedules
         // sync, creating an infinite loop if both fire.
     }, [isOpen, activeTrackId]);
 
-    if (!isOpen) return null;
+    // ENTERPRISE: Only render floating window when in floating mode.
+    // Inline mode is rendered by DawShellMainView via FlowSynthInlineView.
+    if (!isOpen || displayMode !== 'floating') return null;
 
     return (
         <PluginWindow
@@ -325,10 +373,11 @@ export function FlowSynthOverlay() {
             isBypassed={false}
             onToggleBypass={() => { }}
             onClose={closeFlowEditor}
-            width={1120}
-            height={700}
-            initialX={140}
-            initialY={84}
+            onMaximize={() => setDisplayMode('inline')}
+            width={FLOW_FLOAT_WIDTH}
+            height={FLOW_FLOAT_HEIGHT}
+            initialX={FLOW_FLOAT_X}
+            initialY={FLOW_FLOAT_Y}
             showPresetControls={false}
             showBypassControl={false}
             leftDotColor="var(--color-accent-primary)"

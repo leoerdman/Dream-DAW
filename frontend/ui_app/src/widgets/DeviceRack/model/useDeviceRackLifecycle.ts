@@ -73,7 +73,9 @@ export function useDeviceRackLifecycle({
                             deviceId: flowState.activeDeviceId ?? '',
                             trackId: prevId,
                         };
-                        flowState.closeFlowEditor();
+                        // AUDIT FIX: Use hideFlowEditor (not closeFlowEditor) to preserve
+                        // openEditorsByTrack — keeps eye button green while on another track.
+                        flowState.hideFlowEditor();
                     }
                 } catch {
                     // FlowSynth module not loaded — nothing to hide

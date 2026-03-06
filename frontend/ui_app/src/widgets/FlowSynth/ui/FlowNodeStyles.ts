@@ -57,7 +57,8 @@ export const selectionOverlayStyle: CSSProperties = {
     position: 'absolute',
     inset: -2,
     borderRadius: 'calc(var(--radius-xl) + 1px)',
-    border: '2px solid rgba(255, 255, 255, 0.85)',
+    // BUG-038 FIX: Use accent token instead of hardcoded white.
+    border: '2px solid var(--color-accent-primary)',
     pointerEvents: 'none',
     zIndex: 100,
     boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',

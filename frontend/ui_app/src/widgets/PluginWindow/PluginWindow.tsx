@@ -36,14 +36,45 @@ interface PluginWindowProps {
     /** Callback for preset navigation. */
     onNextPreset?: () => void;
     onPrevPreset?: () => void;
+    /** Callback for green traffic light button (e.g. snap to inline). */
+    onMaximize?: () => void;
     /** Optional custom plugin UI content. */
     children?: ReactNode;
 }
 
-
+// ── ENTERPRISE: Named constants ────────────────────────────────────────────
 const TITLE_BAR_HEIGHT = 32;
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
+/** Traffic light button diameter. */
+const TL_SIZE = 12;
+/** Traffic light close icon font size. */
+const TL_ICON_CLOSE_SIZE = 8;
+/** Traffic light minimize icon font size. */
+const TL_ICON_MIN_SIZE = 10;
+/** Traffic light maximize icon font size. */
+const TL_ICON_MAX_SIZE = 8;
+/** Traffic light hover overlay color. */
+const TL_HOVER_COLOR = 'rgba(0,0,0,0.5)';
+/** Traffic light color constants (macOS standard). */
+const TL_RED = 'var(--color-status-error)';
+const TL_YELLOW = '#FFBD2E';
+const TL_GREEN = '#28C840';
+/** Resize handle widths. */
+const RESIZE_EDGE_WIDTH = 5;
+const RESIZE_EDGE_INSET = 6;
+const RESIZE_CORNER_SIZE = 14;
+const RESIZE_Z = 10;
+const RESIZE_CORNER_Z = 11;
+/** Window clamp margins. */
+const WINDOW_CLAMP_MARGIN = 40;
+/** Default fallback knob dimensions. */
+const KNOB_OUTER_SIZE = 48;
+const KNOB_INNER_SIZE = 40;
+/** Bypass button size. */
+const BYPASS_BTN_SIZE = 20;
+/** Preset nav button size. */
+const PRESET_NAV_SIZE = 16;
 
 
 export const PluginWindow = memo(function PluginWindow({
@@ -66,6 +97,7 @@ export const PluginWindow = memo(function PluginWindow({
     contentPadding = 'var(--space-3)',
     onNextPreset,
     onPrevPreset,
+    onMaximize,
     children,
 }: PluginWindowProps) {
     const [position, setPosition] = useState({ x: initialX, y: initialY });
@@ -111,8 +143,8 @@ export const PluginWindow = memo(function PluginWindow({
         const { startX, startY, origW, origH, edge } = resizeRef.current;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        const maxW = window.innerWidth - 40;
-        const maxH = window.innerHeight - 40;
+        const maxW = window.innerWidth - WINDOW_CLAMP_MARGIN;
+        const maxH = window.innerHeight - WINDOW_CLAMP_MARGIN;
         setSize({
             w: edge.includes('e') ? Math.min(maxW, Math.max(MIN_WIDTH, origW + dx)) : origW,
             h: edge.includes('s') ? Math.min(maxH, Math.max(MIN_HEIGHT, origH + dy)) : origH,
@@ -178,20 +210,20 @@ export const PluginWindow = memo(function PluginWindow({
                         onClick={(e) => { e.stopPropagation(); onClose(); }}
                         title="Close"
                         style={{
-                            width: 12,
-                            height: 12,
+                            width: TL_SIZE,
+                            height: TL_SIZE,
                             borderRadius: '50%',
-                            background: 'var(--color-status-error)',
+                            background: TL_RED,
                             cursor: 'pointer',
                             transition: 'filter var(--transition-fast)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 8,
+                            fontSize: TL_ICON_CLOSE_SIZE,
                             color: 'transparent',
                             lineHeight: 1,
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.color = TL_HOVER_COLOR; }}
                         onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
                     >
                         ✕
@@ -200,40 +232,42 @@ export const PluginWindow = memo(function PluginWindow({
                     <div
                         title="Minimize"
                         style={{
-                            width: 12,
-                            height: 12,
+                            width: TL_SIZE,
+                            height: TL_SIZE,
                             borderRadius: '50%',
-                            background: '#FFBD2E',
+                            background: TL_YELLOW,
                             cursor: 'default',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 10,
+                            fontSize: TL_ICON_MIN_SIZE,
                             color: 'transparent',
                             lineHeight: 1,
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.color = TL_HOVER_COLOR; }}
                         onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
                     >
                         −
                     </div>
-                    {/* Maximize (decorative) */}
+                    {/* Maximize / Snap inline */}
                     <div
-                        title="Maximize"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); onMaximize?.(); }}
+                        title={onMaximize ? 'Snap to inline' : 'Maximize'}
                         style={{
-                            width: 12,
-                            height: 12,
+                            width: TL_SIZE,
+                            height: TL_SIZE,
                             borderRadius: '50%',
-                            background: '#28C840',
-                            cursor: 'default',
+                            background: TL_GREEN,
+                            cursor: onMaximize ? 'pointer' : 'default',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 8,
+                            fontSize: TL_ICON_MAX_SIZE,
                             color: 'transparent',
                             lineHeight: 1,
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.color = 'rgba(0,0,0,0.5)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.color = TL_HOVER_COLOR; }}
                         onMouseLeave={e => { e.currentTarget.style.color = 'transparent'; }}
                     >
                         ⤢
@@ -288,8 +322,8 @@ export const PluginWindow = memo(function PluginWindow({
                         onClick={(e) => { e.stopPropagation(); onToggleBypass(); }}
                         title={isBypassed ? 'Enable Plugin' : 'Bypass Plugin'}
                         style={{
-                            width: 20,
-                            height: 20,
+                            width: BYPASS_BTN_SIZE,
+                            height: BYPASS_BTN_SIZE,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -332,8 +366,8 @@ export const PluginWindow = memo(function PluginWindow({
                                 gap: 'var(--space-1)',
                             }}>
                                 <div style={{
-                                    width: 48,
-                                    height: 48,
+                                    width: KNOB_OUTER_SIZE,
+                                    height: KNOB_OUTER_SIZE,
                                     borderRadius: '50%',
                                     background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, var(--color-bg-tertiary) 200deg, var(--color-bg-tertiary) 360deg)`,
                                     border: 'var(--border-width-2) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
@@ -342,8 +376,8 @@ export const PluginWindow = memo(function PluginWindow({
                                     justifyContent: 'center',
                                 }}>
                                     <div style={{
-                                        width: 40,
-                                        height: 40,
+                                        width: KNOB_INNER_SIZE,
+                                        height: KNOB_INNER_SIZE,
                                         borderRadius: '50%',
                                         background: 'var(--color-bg-panel)',
                                         display: 'flex',
@@ -374,29 +408,29 @@ export const PluginWindow = memo(function PluginWindow({
                 onPointerDown={(e) => handleResizeStart(e, 'e')}
                 onPointerMove={handleResizeMove}
                 onPointerUp={handleResizeEnd}
-                style={{ position: 'absolute', right: 0, top: TITLE_BAR_HEIGHT, bottom: 6, width: 5, cursor: 'ew-resize', zIndex: 10 }}
+                style={{ position: 'absolute', right: 0, top: TITLE_BAR_HEIGHT, bottom: RESIZE_EDGE_INSET, width: RESIZE_EDGE_WIDTH, cursor: 'ew-resize', zIndex: RESIZE_Z }}
             />
             {/* Bottom edge */}
             <div
                 onPointerDown={(e) => handleResizeStart(e, 's')}
                 onPointerMove={handleResizeMove}
                 onPointerUp={handleResizeEnd}
-                style={{ position: 'absolute', bottom: 0, left: 6, right: 6, height: 5, cursor: 'ns-resize', zIndex: 10 }}
+                style={{ position: 'absolute', bottom: 0, left: RESIZE_EDGE_INSET, right: RESIZE_EDGE_INSET, height: RESIZE_EDGE_WIDTH, cursor: 'ns-resize', zIndex: RESIZE_Z }}
             />
             {/* Bottom-right corner */}
             <div
                 onPointerDown={(e) => handleResizeStart(e, 'se')}
                 onPointerMove={handleResizeMove}
                 onPointerUp={handleResizeEnd}
-                style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize', zIndex: 11 }}
+                style={{ position: 'absolute', right: 0, bottom: 0, width: RESIZE_CORNER_SIZE, height: RESIZE_CORNER_SIZE, cursor: 'nwse-resize', zIndex: RESIZE_CORNER_Z }}
             />
         </div>
     );
 });
 
 const presetBtnStyle: React.CSSProperties = {
-    width: 16,
-    height: 16,
+    width: PRESET_NAV_SIZE,
+    height: PRESET_NAV_SIZE,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

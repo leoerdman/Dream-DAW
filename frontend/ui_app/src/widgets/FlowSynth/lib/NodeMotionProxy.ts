@@ -97,6 +97,23 @@ class MotionProxy {
         // DO NOT clear subscribers — they are managed by React useEffect cleanup.
         // Clearing them here destroys active FlowConnectionComponent subscriptions.
     }
+
+    /**
+     * BUG-058 FIX: Full cleanup for HMR / module reload.
+     * Unlike clearAll(), this IS safe to call during hot reload since all
+     * React components will re-mount and re-subscribe.
+     */
+    dispose() {
+        this.positions.clear();
+        this.subscribers.clear();
+    }
 }
 
 export const nodeMotionProxy = new MotionProxy();
+
+// BUG-058 FIX: Clean up on HMR to prevent subscriber accumulation in dev mode.
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        nodeMotionProxy.dispose();
+    });
+}

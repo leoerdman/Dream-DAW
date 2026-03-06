@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::render_callback::soft_clip;
 use dream_dsp::device_slot::ProcessContext;
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
@@ -239,18 +240,15 @@ pub(super) fn process_master_bus(
         );
     }
     // ENTERPRISE FIX: Apply master gain BEFORE soft_clip so the gain
-    // reduction happens before saturation — not after. Previously,
-    // gain was applied post-soft_clip which could push an already-saturated
-    // signal above 0dBFS.
+    // reduction happens before saturation — not after.
     for i in 0..n {
         let gain = master_gain_smoother.next();
         graph_out_left[i] *= gain;
         graph_out_right[i] *= gain;
     }
 
-    // AUD-503 FIX: Removed redundant pre-soft-clip master metering.
-    // The authoritative master meters are computed in finalize_output_and_publish()
-    // AFTER soft_clip, which gives the user the true final output levels.
+    // Master metering is computed in finalize_output_and_publish() AFTER
+    // soft_clip, giving the user the true final output levels.
 
     // Export master bus plugin metrics (e.g. Master Gain Reduction)
     let num_slots = master_device_chain.slots().len().min(16);
@@ -276,10 +274,10 @@ pub(super) fn interleave_graph_output(
             break;
         }
         if channels == 1 {
-            // ENTERPRISE FIX: Standard -6dB mono fold-down.
-            // Summing L+R without attenuation produces +6dBFS with correlated stereo,
-            // causing hard clipping. 0.5 (-6dB) is the industry standard.
-            data[base] = (graph_out_left[i] + graph_out_right[i]) * 0.5;
+            // ENTERPRISE FIX: Standard -3dB mono fold-down (FRAC_1_SQRT_2).
+            // Matches render_callback.rs standalone path for SSOT compliance.
+            // -3dB preserves perceived loudness for uncorrelated stereo content.
+            data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
             continue;
         }
         data[base] = graph_out_left[i];
@@ -365,10 +363,8 @@ pub(super) fn mix_preview_audio(
                         if p_idx + 1 < total && d_idx < data.len() {
                             let p_left = preview_data[p_idx];
                             let p_right = preview_data[p_idx + 1];
-                            // ENTERPRISE FIX: Removed per-sample soft_clip here.
-                            // Preview audio is already soft-clipped in
-                            // finalize_output_and_publish(). Double soft-clip
-                            // attenuated preview volume and changed timbre.
+                            // Preview audio is also soft-clipped via
+                            // finalize_output_and_publish(), so no double-clip here.
                             if channels == 1 {
                                 data[d_idx] +=
                                     (p_left + p_right) * 0.5;
@@ -407,8 +403,7 @@ pub(super) fn mix_preview_audio(
 
                     let d_idx = f * channels;
                     if d_idx < data.len() {
-                        // ENTERPRISE FIX: Removed per-sample soft_clip.
-                        // Preview audio is soft-clipped once in finalize_output_and_publish().
+                        // Preview audio is soft-clipped in finalize_output_and_publish().
                         if channels == 1 {
                             // ENTERPRISE FIX: -6dB mono fold-down for preview audio.
                             data[d_idx] +=
@@ -438,6 +433,11 @@ pub(super) fn finalize_output_and_publish(
     render_ctx: &mut RenderContext,
     sample_rate_f64: f64,
 ) {
+    // DAC protection: soft_clip all output samples before publishing.
+    // This prevents harsh digital hard-clipping when mixes exceed 0 dBFS.
+    for sample in data[..n * channels].iter_mut() {
+        *sample = soft_clip(*sample);
+    }
     let valid_data = &data[..n * channels];
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {

@@ -1,10 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
-import { FLOW_NODE_WIDTH } from './SynthNodeComponent';
+// BUG-032 FIX: Import from SSOT portRegistry instead of SynthNodeComponent (circular dep risk).
+import { FLOW_NODE_WIDTH } from '../model/portRegistry';
 import { signalColor, signalGlowColor } from './FlowNodeStyles';
 import type { SynthConnection } from '../model/useFlowSynthStore';
 
+// ── BUG-039 through BUG-044: Enterprise Constants ──────────────────────────────
 const PULSE_DURATION_MS = 520;
+/** BUG-039: Cable stroke widths (selected vs default). */
+const FLOW_CABLE_SELECTED_WIDTH = 3;
+const FLOW_CABLE_DEFAULT_WIDTH = 2.5;
+/** BUG-040: Bezier control point offset bounds and factor. */
+const FLOW_BEZIER_CP_MIN = 30;
+const FLOW_BEZIER_CP_MAX = 200;
+const FLOW_BEZIER_CP_FACTOR = 1 / 3;
+/** BUG-041: Pulse circle radii per signal type. */
+const FLOW_PULSE_RADIUS_MIDI = 4;
+const FLOW_PULSE_RADIUS_DEFAULT = 3.5;
+/** BUG-042: Delete button circle radii (visible + hit area). */
+const FLOW_DELETE_BTN_R = 12;
+const FLOW_DELETE_HIT_R = 18;
+/** BUG-043: Hover debounce delay in milliseconds. */
+const FLOW_HOVER_DEBOUNCE_MS = 120;
+/** Hit-test transparent stroke width. */
+const FLOW_HIT_STROKE_WIDTH = 24;
 
 function cubicBezierAt(t: number, p0: number, p1: number, p2: number, p3: number): number {
     const mt = 1 - t;
@@ -125,7 +144,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const dx = Math.abs(end.x - start.x);
     const distance = Math.sqrt(dx * dx + (end.y - start.y) ** 2);
     // ENTERPRISE: Less aggressive curves for short connections
-    const cpOffset = Math.min(200, Math.max(30, distance / 3));
+    const cpOffset = Math.min(FLOW_BEZIER_CP_MAX, Math.max(FLOW_BEZIER_CP_MIN, distance * FLOW_BEZIER_CP_FACTOR));
     const c1x = start.x + cpOffset;
     const c1y = start.y;
     const c2x = end.x - cpOffset;
@@ -133,7 +152,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
     const pathData = `M ${start.x} ${start.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${end.x} ${end.y}`;
 
     // ENTERPRISE: All cables solid, uniform width. Color differentiates signal types.
-    const coreStrokeWidth = isSelected ? 3 : 2.5;
+    const coreStrokeWidth = isSelected ? FLOW_CABLE_SELECTED_WIDTH : FLOW_CABLE_DEFAULT_WIDTH;
 
     const pulseX = cubicBezierAt(pulseT, start.x, c1x, c2x, end.x);
     const pulseY = cubicBezierAt(pulseT, start.y, c1y, c2y, end.y);
@@ -146,7 +165,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 d={pathData}
                 fill="none"
                 stroke="transparent"
-                strokeWidth={24}
+                strokeWidth={FLOW_HIT_STROKE_WIDTH}
                 pointerEvents="stroke"
                 style={{ cursor: 'pointer' }}
                 onPointerEnter={() => {
@@ -155,7 +174,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 }}
                 onPointerLeave={() => {
                     // Delay unhover so mouse can transit to delete button
-                    hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 120);
+                    hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), FLOW_HOVER_DEBOUNCE_MS);
                 }}
                 onPointerDown={(e) => {
                     e.stopPropagation();
@@ -200,7 +219,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 <circle
                     cx={pulseX}
                     cy={pulseY}
-                    r={signalType === 'midi' ? 4 : 3.5}
+                    r={signalType === 'midi' ? FLOW_PULSE_RADIUS_MIDI : FLOW_PULSE_RADIUS_DEFAULT}
                     fill={`color-mix(in srgb, ${baseColor} 80%, white)`}
                     opacity={1 - pulseT * 0.35}
                     pointerEvents="none"
@@ -219,14 +238,14 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                             setIsHovered(true);
                         }}
                         onPointerLeave={() => {
-                            hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 120);
+                            hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), FLOW_HOVER_DEBOUNCE_MS);
                         }}
                         onPointerDown={(e) => {
                             e.stopPropagation();
                             deleteConnection(conn.id);
                         }}
                     >
-                        <circle cx="0" cy="0" r="12" fill="var(--color-bg-elevated)" stroke={baseColor} strokeWidth="1.5" />
+                        <circle cx="0" cy="0" r={FLOW_DELETE_BTN_R} fill="var(--color-bg-elevated)" stroke={baseColor} strokeWidth="1.5" />
                         <path
                             d="M-3.5 -3.5 L3.5 3.5 M3.5 -3.5 L-3.5 3.5"
                             stroke="var(--color-text-primary)"
@@ -234,7 +253,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                             strokeLinecap="round"
                         />
                         {/* Expanded hit area */}
-                        <circle cx="0" cy="0" r="18" fill="transparent" />
+                        <circle cx="0" cy="0" r={FLOW_DELETE_HIT_R} fill="transparent" />
                     </g>
                 );
             })()}

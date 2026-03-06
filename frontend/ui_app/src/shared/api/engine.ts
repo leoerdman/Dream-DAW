@@ -51,11 +51,12 @@ export type {
 } from './projectDelta';
 
 /** IPC Resilience: Wraps a promise with a timeout to prevent UI hangs. */
-export async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+// BUG-060 FIX: Accept optional command label for better error diagnostics.
+export async function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeout = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-            reject(new Error(`IPC Timeout: Command failed to respond within ${ms}ms`));
+            reject(new Error(`IPC Timeout: ${label ?? 'Command'} failed to respond within ${ms}ms`));
         }, ms);
     });
     try {
@@ -133,8 +134,11 @@ export const setTrackPan = (trackIndex: number, pan: number) =>
     safeInvoke<void>('set_track_pan', { trackIndex, pan });
 export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>
     safeInvoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
-export const setMasterVolume = (volume: number) =>
-    safeInvoke<void>('set_master_volume', { volume });
+// BUG-013 FIX: Clamp master volume at API boundary — prevents NaN/Infinity/negative from reaching backend.
+export const setMasterVolume = (volume: number) => {
+    const safe = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 1.0;
+    return safeInvoke<void>('set_master_volume', { volume: safe });
+};
 export const setTrackDisabled = (trackIndex: number, disabled: boolean) =>
     safeInvoke<void>('set_track_disabled', { trackIndex, disabled });
 export const setTrackDisabledWithDeltas = (trackIndex: number, disabled: boolean) =>
@@ -143,10 +147,15 @@ export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
     safeInvoke<void>('set_track_solo', { trackIndex, soloed });
 export const setTrackSoloWithDeltas = (trackIndex: number, soloed: boolean) =>
     safeInvoke<DeltaMutationResponse>('set_track_solo_with_deltas', { trackIndex, soloed });
-export const setTrackSendLevel = (trackIndex: number, send: 'A' | 'B', value: number) =>
-    safeInvoke<void>('set_track_send_level', { trackIndex, send, value });
-export const setTrackSendLevelWithDeltas = (trackIndex: number, send: 'A' | 'B', value: number) =>
-    safeInvoke<DeltaMutationResponse>('set_track_send_level_with_deltas', { trackIndex, send, value });
+// BUG-012 FIX: Clamp send level at API boundary.
+export const setTrackSendLevel = (trackIndex: number, send: 'A' | 'B', value: number) => {
+    const safe = Number.isFinite(value) ? clamp01(value) : 0;
+    return safeInvoke<void>('set_track_send_level', { trackIndex, send, value: safe });
+};
+export const setTrackSendLevelWithDeltas = (trackIndex: number, send: 'A' | 'B', value: number) => {
+    const safe = Number.isFinite(value) ? clamp01(value) : 0;
+    return safeInvoke<DeltaMutationResponse>('set_track_send_level_with_deltas', { trackIndex, send, value: safe });
+};
 export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
     safeInvoke<void>('preview_sampler_note_on_cmd', {
         trackIndex: Math.max(0, Math.round(trackIndex)),
@@ -158,45 +167,9 @@ export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
         trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: clampMidiPitch(pitch),
     });
-export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34;
-export const BuiltinEffectType: {
-    Eq: BuiltinEffectType;
-    Compressor: BuiltinEffectType;
-    Delay: BuiltinEffectType;
-    Reverb: BuiltinEffectType;
-    Chorus: BuiltinEffectType;
-    Utility: BuiltinEffectType;
-    Saturator: BuiltinEffectType;
-    Limiter: BuiltinEffectType;
-    Gate: BuiltinEffectType;
-    AutoFilter: BuiltinEffectType;
-    Phaser: BuiltinEffectType;
-    Flanger: BuiltinEffectType;
-    Distortion: BuiltinEffectType;
-    Bitcrusher: BuiltinEffectType;
-    NoiseMachine: BuiltinEffectType;
-    AutoPan: BuiltinEffectType;
-    Analyzer: BuiltinEffectType;
-    // Wave 3 — Unique Processors
-    ChannelEq: BuiltinEffectType;
-    Overdrive: BuiltinEffectType;
-    TransientShaper: BuiltinEffectType;
-    DrumBuss: BuiltinEffectType;
-    DynamicTube: BuiltinEffectType;
-    PhaserFlanger: BuiltinEffectType;
-    Amp: BuiltinEffectType;
-    Cabinet: BuiltinEffectType;
-    HybridReverb: BuiltinEffectType;
-    Erosion: BuiltinEffectType;
-    Pedal: BuiltinEffectType;
-    Roar: BuiltinEffectType;
-    MultibandDynamics: BuiltinEffectType;
-    GrainDelay: BuiltinEffectType;
-    Corpus: BuiltinEffectType;
-    SpectralTime: BuiltinEffectType;
-    GlueCompressor: BuiltinEffectType;
-    FilterDelay: BuiltinEffectType;
-} = {
+// BUG-051 FIX: Use `as const` intermediate to derive BuiltinEffectType from values.
+// Adding a new effect only requires adding to _BUILTIN_EFFECTS — the type updates automatically.
+const _BUILTIN_EFFECTS = {
     Eq: 0,
     Compressor: 1,
     Delay: 2,
@@ -233,7 +206,9 @@ export const BuiltinEffectType: {
     SpectralTime: 32,
     GlueCompressor: 33,
     FilterDelay: 34,
-};
+} as const;
+export type BuiltinEffectType = typeof _BUILTIN_EFFECTS[keyof typeof _BUILTIN_EFFECTS];
+export const BuiltinEffectType = _BUILTIN_EFFECTS;
 export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
     safeInvoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });
 export const removeDevice = (trackIndex: number, slotIndex: number) =>
@@ -565,8 +540,11 @@ export const connectMidiInput = (portName: string) =>
     safeInvoke<void>('connect_midi_input', { portName });
 export const generateDemoSamples = () =>
     safeInvoke<number>('generate_demo_samples_cmd');
-export const previewAudioFile = (path: string) =>
-    safeInvoke<void>('preview_audio_file_cmd', { path });
+// BUG-015 FIX: Auto-stop previous preview before starting new one to prevent overlap.
+export const previewAudioFile = async (path: string) => {
+    await safeInvoke<void>('stop_preview_cmd').catch(() => { });
+    return safeInvoke<void>('preview_audio_file_cmd', { path });
+};
 export const stopPreview = () =>
     safeInvoke<void>('stop_preview_cmd');
 export const getAudioFileDuration = (path: string) =>

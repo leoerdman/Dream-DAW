@@ -6,10 +6,15 @@ import {
     FLOW_PORT_ROW_HEIGHT,
     FLOW_NODE_HEADER_HEIGHT,
     FLOW_NODE_BODY_PADDING,
+    // BUG-032/054 FIX: Import layout constants from SSOT instead of defining locally.
+    FLOW_NODE_WIDTH,
+    FLOW_GRID_SNAP,
     portCenterY,
     type PortDefinition,
     type SynthNodeType,
 } from '../model/portRegistry';
+// BUG-032 FIX: Re-export for backward compatibility with existing consumers.
+export { FLOW_NODE_WIDTH } from '../model/portRegistry';
 import { viewportProxy } from '../lib/ViewportProxy';
 import {
     FLOW_PORT_DOT_SIZE,
@@ -39,13 +44,28 @@ import { Vst3Controls } from './nodes/Vst3Controls';
 
 import { PortRowFader } from './nodes/PortRowFader';
 
-export const FLOW_NODE_WIDTH = 260;
-const FLOW_GRID_SNAP = 20;
-
 interface Props {
     node: SynthNode;
     interactionDisabled?: boolean;
 }
+
+// ── ENTERPRISE: Named constants ────────────────────────────────────────────
+/** Port dot hover scale factors. */
+const PORT_DOT_HOVER_SCALE = 'scale(1.35)';
+const PORT_DOT_TARGET_SCALE = 'scale(1.15)';
+/** Port dot box-shadow radii. */
+const PORT_DOT_HOVER_SHADOW_PX = 14;
+const PORT_DOT_TARGET_SHADOW_PX = 10;
+const PORT_DOT_DEFAULT_SHADOW_PX = 5;
+const PORT_DOT_BORDER_WIDTH = 2;
+/** Port label offset from dot edge. */
+const PORT_LABEL_OFFSET = 6;
+const PORT_LABEL_VERTICAL_OFFSET = 7;
+/** Inline fader inset from dot edges. */
+const PORT_FADER_INSET = 10;
+const PORT_FADER_HEIGHT = 20;
+const PORT_FADER_LABEL_GAP = 4;
+const PORT_FADER_LABEL_MIN_WIDTH = 22;
 
 // ── Per-type controls renderer ─────────────────────────────────
 // Only renders non-port controls (dropdowns, visualizers).
@@ -108,11 +128,14 @@ function PortDot({
     nodeId: string;
     interactionDisabled: boolean;
 }) {
-    const startConnectionDrag = useFlowSynthStore((s) => s.startConnectionDrag);
-    const commitConnection = useFlowSynthStore((s) => s.commitConnection);
-    // Optimized subscription: only re-render when drag state or type changes, not on every X/Y move
-    const isDragging = useFlowSynthStore((s) => s.pendingConnection !== null);
-    const dragType = useFlowSynthStore((s) => s.pendingConnection?.signalType);
+    // BUG-022 FIX: Single merged selector instead of 4 separate subscriptions.
+    // Reduces subscription overhead from 4 per PortDot × M ports × N nodes to 1 per PortDot.
+    const { startConnectionDrag, commitConnection, isDragging, dragType } = useFlowSynthStore((s) => ({
+        startConnectionDrag: s.startConnectionDrag,
+        commitConnection: s.commitConnection,
+        isDragging: s.pendingConnection !== null,
+        dragType: s.pendingConnection?.signalType,
+    }));
 
 
     const cy = portCenterY(index);
@@ -178,18 +201,18 @@ function PortDot({
                 height: dotSize,
                 borderRadius: '50%',
                 transform: isHovered
-                    ? 'scale(1.35)'
+                    ? PORT_DOT_HOVER_SCALE
                     : showTargetGlow
-                        ? 'scale(1.15)'
+                        ? PORT_DOT_TARGET_SCALE
                         : 'none',
                 backgroundColor: isFilled ? dotColor : 'transparent',
-                border: `2px solid ${dotColor}`,
+                border: `${PORT_DOT_BORDER_WIDTH}px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
                 boxShadow: isHovered
-                    ? `0 0 14px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
+                    ? `0 0 ${PORT_DOT_HOVER_SHADOW_PX}px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
                     : showTargetGlow
-                        ? `0 0 10px ${dotColor}`
-                        : `0 0 5px ${dotColor}`,
+                        ? `0 0 ${PORT_DOT_TARGET_SHADOW_PX}px ${dotColor}`
+                        : `0 0 ${PORT_DOT_DEFAULT_SHADOW_PX}px ${dotColor}`,
                 transition: 'transform var(--transition-fast) cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow var(--transition-fast)',
                 zIndex: isHovered ? 10 : 5,
             }}
@@ -214,8 +237,8 @@ function PortLabel({
         <span
             style={{
                 ...portLabelStyle,
-                [side === 'in' ? 'left' : 'right']: FLOW_PORT_DOT_SIZE / 2 + 6,
-                top: cy - 7,
+                [side === 'in' ? 'left' : 'right']: FLOW_PORT_DOT_SIZE / 2 + PORT_LABEL_OFFSET,
+                top: cy - PORT_LABEL_VERTICAL_OFFSET,
             }}
         >
             {port.label}
@@ -244,10 +267,10 @@ function InlinePortFader({
         <div
             style={{
                 position: 'absolute',
-                left: FLOW_PORT_DOT_SIZE / 2 + 10,
-                right: FLOW_PORT_DOT_SIZE / 2 + 10,
-                top: cy - 10,
-                height: 20,
+                left: FLOW_PORT_DOT_SIZE / 2 + PORT_FADER_INSET,
+                right: FLOW_PORT_DOT_SIZE / 2 + PORT_FADER_INSET,
+                top: cy - PORT_FADER_HEIGHT / 2,
+                height: PORT_FADER_HEIGHT,
                 display: 'flex',
                 alignItems: 'center',
             }}
@@ -256,9 +279,9 @@ function InlinePortFader({
                 ...portLabelStyle,
                 position: 'static',
                 fontSize: 'var(--font-size-2xs)',
-                marginRight: 4,
+                marginRight: PORT_FADER_LABEL_GAP,
                 flexShrink: 0,
-                minWidth: 22,
+                minWidth: PORT_FADER_LABEL_MIN_WIDTH,
             }}>
                 {port.label}
             </span>
@@ -312,19 +335,51 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
         let pendingX = startNodeX;
         let pendingY = startNodeY;
 
+        // BUG-B FIX: Capture ALL selected nodes at drag start for multi-node drag.
+        // If this node is selected, move ALL selected nodes together.
+        const { selectedNodeIds: _selIds, nodes: allNodes } = useFlowSynthStore.getState();
+        const isMultiDrag = _selIds.includes(node.id) && _selIds.length > 1;
+        // Snapshot starting positions of ALL co-dragged nodes (excluding the primary dragged node)
+        const coNodes = isMultiDrag
+            ? _selIds
+                .filter(id => id !== node.id)
+                .map(id => {
+                    const n = allNodes.find(nd => nd.id === id);
+                    return n ? { id: n.id, startX: n.position?.x ?? 0, startY: n.position?.y ?? 0 } : null;
+                })
+                .filter(Boolean) as Array<{ id: string; startX: number; startY: number }>
+            : [];
+
         const onMove = (me: PointerEvent) => {
             const dx = (me.clientX - startX) / zoom;
             const dy = (me.clientY - startY) / zoom;
             pendingX = startNodeX + dx;
             pendingY = startNodeY + dy;
 
-            // 11.2: Zero-React Updates
+            // Publish primary dragged node
             nodeMotionProxy.publish(node.id, pendingX, pendingY);
+
+            // BUG-B FIX: Publish ALL co-selected nodes with same delta
+            for (const co of coNodes) {
+                nodeMotionProxy.publish(co.id, co.startX + dx, co.startY + dy);
+            }
+
             if (raf !== 0) return;
             raf = requestAnimationFrame(() => {
                 raf = 0;
+                // Move primary node
                 if (nodeRef.current) {
                     nodeRef.current.style.transform = `translate(${pendingX}px, ${pendingY}px)`;
+                }
+                // BUG-B FIX: Move all co-selected node DOM elements
+                for (const co of coNodes) {
+                    const coX = co.startX + (pendingX - startNodeX);
+                    const coY = co.startY + (pendingY - startNodeY);
+                    // Find co-node's DOM element via data attribute
+                    const el = document.querySelector(`[data-flow-node-id="${co.id}"]`) as HTMLElement | null;
+                    if (el) {
+                        el.style.transform = `translate(${coX}px, ${coY}px)`;
+                    }
                 }
             });
         };
@@ -339,9 +394,19 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
                 cancelAnimationFrame(raf);
                 raf = 0;
             }
+            // Commit primary node with grid snap
             const snapX = Math.round(pendingX / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
             const snapY = Math.round(pendingY / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
             updateNodePosition(node.id, snapX, snapY);
+
+            // BUG-B FIX: Commit ALL co-selected nodes with grid snap
+            const dx = pendingX - startNodeX;
+            const dy = pendingY - startNodeY;
+            for (const co of coNodes) {
+                const coSnapX = Math.round((co.startX + dx) / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
+                const coSnapY = Math.round((co.startY + dy) / FLOW_GRID_SNAP) * FLOW_GRID_SNAP;
+                updateNodePosition(co.id, coSnapX, coSnapY);
+            }
         };
 
         document.addEventListener('pointermove', onMove);
@@ -354,6 +419,7 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
         <div
             ref={nodeRef}
             data-flow-node-root="true"
+            data-flow-node-id={node.id}
             onMouseDown={(e) => {
                 if (interactionDisabled) return;
                 e.stopPropagation();

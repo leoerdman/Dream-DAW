@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFlowSynthStore } from '../model/useFlowSynthStore';
 import { viewportProxy } from '../lib/ViewportProxy';
+import { findSnapTarget } from '../lib/findSnapTarget';
 import {
     PORT_REGISTRY,
     FLOW_NODE_HEADER_HEIGHT,
-    FLOW_CONNECTION_SNAP_DIST,
     portCenterY,
     type SynthNodeType,
 } from '../model/portRegistry';
@@ -62,45 +62,13 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
             };
         }
 
-        const findSnapTarget = (worldX: number, worldY: number) => {
-            const { nodes: liveNodes, connections: liveConns } = useFlowSynthStore.getState();
-            const occupiedInputs = new Set(liveConns.map((c) => `${c.toNode}:${c.toPort}`));
-            let best: { nodeId: string; signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase'; toPort: string; x: number; y: number; occupied: boolean } | null = null;
-            let bestDist = Infinity;
-            for (const node of liveNodes) {
-                if (node.id === pendingConnection.fromNode) continue;
-                if (!node.position) continue;
-                const config = PORT_REGISTRY[node.type as SynthNodeType];
-                if (!config || config.inputs.length === 0) continue;
-                for (let pi = 0; pi < config.inputs.length; pi++) {
-                    const portDef = config.inputs[pi];
-                    const signalType: 'audio' | 'midi' | 'control' | 'gate' | 'phase' =
-                        portDef.type === 'midi' ? 'midi'
-                            : portDef.type === 'control' ? 'control'
-                                : portDef.type === 'gate' ? 'gate'
-                                    : portDef.type === 'phase' ? 'phase'
-                                        : 'audio';
-                    if (signalType !== pendingConnection.signalType) continue;
-                    const toPort = portDef.id;
-                    const x = node.position.x;
-                    const y = node.position.y + FLOW_NODE_HEADER_HEIGHT + portCenterY(pi);
-                    const ddx = worldX - x;
-                    const ddy = worldY - y;
-                    const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-                    if (dist >= FLOW_CONNECTION_SNAP_DIST) continue;
-                    const occupied = occupiedInputs.has(`${node.id}:${toPort}`);
-                    if (!best || (best.occupied && !occupied) || (best.occupied === occupied && dist < bestDist)) {
-                        bestDist = dist;
-                        best = { nodeId: node.id, signalType, toPort, x, y, occupied };
-                    }
-                }
-            }
-            return best;
-        };
+        // ENTERPRISE: Use shared findSnapTarget utility (Single Source of Truth)
+        const findSnap = (worldX: number, worldY: number) =>
+            findSnapTarget(worldX, worldY, pendingConnection.fromNode, pendingConnection.signalType);
 
         const onPointerMove = (e: PointerEvent) => {
             const world = toWorld(e.clientX, e.clientY);
-            const snap = findSnapTarget(world.x, world.y);
+            const snap = findSnap(world.x, world.y);
             const endX = snap ? snap.x : world.x;
             const endY = snap ? snap.y : world.y;
             requestAnimationFrame(() => updatePath(endX, endY));
@@ -108,7 +76,7 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
 
         const onPointerUp = (e: PointerEvent) => {
             const world = toWorld(e.clientX, e.clientY);
-            const snap = findSnapTarget(world.x, world.y);
+            const snap = findSnap(world.x, world.y);
             if (snap) {
                 commitConnection(snap.nodeId, snap.toPort, snap.signalType);
             } else {
@@ -131,9 +99,11 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
     );
     const nodeMap = useMemo(() => new Map(nodePositionData.map(n => [n.id, n])), [nodePositionData]);
 
-    const getPortPosition = (nodeId: string, portId: string, side: 'in' | 'out') => {
+    const getPortPosition = (nodeId: string, portId: string, side: 'in' | 'out'): { x: number; y: number } | null => {
         const node = nodeMap.get(nodeId);
-        if (!node) return { x: 0, y: 0 };
+        // BUG-A FIX: Return null instead of (0,0) when node is missing.
+        // This prevents connections from visually snapping to top-left corner.
+        if (!node) return null;
         const config = PORT_REGISTRY[node.type as SynthNodeType];
         const px = node.x;
         const py = node.y;
@@ -177,6 +147,9 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
             {connections.map((conn) => {
                 const initialStart = getPortPosition(conn.fromNode, conn.fromPort, 'out');
                 const initialEnd = getPortPosition(conn.toNode, conn.toPort, 'in');
+                // BUG-A FIX: Skip connections where either endpoint node is missing.
+                // This prevents connections from rendering at (0,0) during transitions.
+                if (!initialStart || !initialEnd) return null;
                 const fromPortOffsetY = getPortOffsetY(conn.fromNode, conn.fromPort, 'out');
                 const toPortOffsetY = getPortOffsetY(conn.toNode, conn.toPort, 'in');
                 const isSelected = selectedConnectionId === conn.id;

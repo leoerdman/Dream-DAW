@@ -11,7 +11,9 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore'
 import { useEngineStore } from '@/shared/stores/useEngineStore'
 import { applyUiDisplayPrefs } from '@/shared/lib/uiDisplayPrefs'
 
+// BUG-050 FIX: Handle preload failure silently — icon is non-critical.
 const img = new Image()
+img.onerror = () => { /* non-critical preload failure */ }
 img.src = '/appicon.png'
 
 // ── Error Boundary: catch runtime crashes and show them visually ──
@@ -33,8 +35,10 @@ class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <div style={{
-          background: 'var(--token-color-hex-1a0000)', color: 'var(--token-color-hex-ff6b6b)', padding: 40,
-          fontFamily: 'var(--font-role-data)', fontSize: 14, overflow: 'auto',
+          background: 'var(--token-color-hex-1a0000)', color: 'var(--token-color-hex-ff6b6b)',
+          // BUG-036 FIX: Use design-system tokens instead of hardcoded px values.
+          padding: 'var(--space-10, 40px)',
+          fontFamily: 'var(--font-role-data)', fontSize: 'var(--font-size-sm, 14px)', overflow: 'auto',
           width: '100vw', height: '100vh',
         }}>
           <h1 style={{ color: 'var(--token-color-hex-ff4444)', fontSize: 24, marginBottom: 16 }}>
@@ -284,11 +288,28 @@ function App() {
             Dream DAW Runtime Crash
           </h1>
           <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{fatalError}</pre>
+          {/* BUG-037 FIX: Copy Error button for support/debugging */}
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(fatalError ?? '').catch(() => { });
+            }}
+            style={{
+              marginTop: 24, marginRight: 12, padding: '10px 24px', fontSize: 14, fontWeight: 600,
+              background: 'var(--color-bg-elevated, #333)', color: 'var(--color-text-primary, #eee)', border: '1px solid var(--color-border, #555)', borderRadius: 6,
+              cursor: 'pointer', fontFamily: 'var(--font-role-body)',
+            }}
+          >
+            📋 Copy Error
+          </button>
+          {/* BUG-002 FIX: Check filePath before saving to prevent crash on unsaved projects */}
           <button
             onClick={async () => {
               try {
                 const engineApi = await import('@/shared/api/engine');
-                await engineApi.saveProject();
+                const status = await engineApi.getProjectStatus();
+                if (status.filePath) {
+                  await engineApi.saveProject();
+                }
               } catch (saveErr) { console.warn('[Dream] Best-effort save before reload failed:', saveErr); }
               window.location.reload();
             }}

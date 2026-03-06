@@ -50,6 +50,8 @@ interface AutomationState {
     removeBreakpoint: (laneId: string, bpId: string) => void;
     selectBreakpoint: (bpId: string, additive?: boolean) => void;
     clearSelection: () => void;
+    /** BUG-008 FIX: Remove all automation lanes belonging to a deleted track. */
+    cleanupTrackLanes: (trackId: string) => void;
     createAutomationItem: (laneId: string, startBeat: number, lengthBeats: number) => string | null;
     deleteNearestAutomationItem: (laneId: string, anchorBeat: number) => boolean;
     moveAutomationItem: (laneId: string, itemId: string, newStartBeat: number) => boolean;
@@ -58,12 +60,17 @@ interface AutomationState {
     getLanesForTrack: (trackId: string) => AutomationLane[];
 }
 
-// BUG-099 FIX: Use 16 chars (64 bits) instead of 8 chars (32 bits) to reduce collision risk at scale.
-// BUG-AUDIT-002 FIX: Extended from 8 to 12 hex chars to reduce collision probability.
-// 8 chars = 4 bytes (16M space) — birthday-paradox risk at ~4K items.
-// 12 chars = 6 bytes (281T space) — enterprise-safe for any practical session.
-const genId = () => `auto_${crypto.randomUUID().slice(0, 12)}`;
-const genBpId = () => `bp_${crypto.randomUUID().slice(0, 12)}`;
+// BUG-047 FIX: Enterprise-safe UUID generation with fallback for non-secure WebView contexts.
+const _uuid = (): string =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        });
+
+const genId = () => `auto_${_uuid().slice(0, 12)}`;
+const genBpId = () => `bp_${_uuid().slice(0, 12)}`;
 
 export const useAutomationStore = create<AutomationState>((set, get) => ({
     lanes: {},
@@ -255,6 +262,33 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     },
 
     clearSelection: () => set({ selectedBreakpoints: new Set() }),
+
+    // BUG-008 FIX: Remove all automation lanes for a deleted track to prevent
+    // memory leaks and stale breakpoint accumulation.
+    cleanupTrackLanes: (trackId) => {
+        set((s) => {
+            const laneIdsToRemove = Object.keys(s.lanes).filter(
+                (id) => s.lanes[id].trackId === trackId,
+            );
+            if (laneIdsToRemove.length === 0) return s;
+            const nextLanes = { ...s.lanes };
+            const nextSelected = new Set(s.selectedBreakpoints);
+            for (const laneId of laneIdsToRemove) {
+                // Remove any selected breakpoints from this lane
+                for (const bp of nextLanes[laneId].breakpoints) {
+                    nextSelected.delete(bp.id);
+                }
+                delete nextLanes[laneId];
+            }
+            const nextExpanded = new Set(s.expandedTracks);
+            nextExpanded.delete(trackId);
+            return {
+                lanes: nextLanes,
+                selectedBreakpoints: nextSelected,
+                expandedTracks: nextExpanded,
+            };
+        });
+    },
 
     createAutomationItem: (laneId, startBeat, lengthBeats) => {
         const lane = get().lanes[laneId];

@@ -305,6 +305,27 @@ export function createTrackProjectActions(
         deleteTrack: async (index: number) => {
             // BUG-029 FIX: Validate index bounds before IPC.
             if (index < 0 || index >= get().tracks.allIds.length) return;
+
+            // BUG-004 FIX: Auto-close FlowEditor + clean up automation lanes for the deleted track.
+            const trackId = get().tracks.allIds[index];
+            if (trackId) {
+                try {
+                    const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
+                    const flowState = useFlowSynthStore.getState();
+                    if (flowState.activeTrackId === trackId) {
+                        flowState.closeFlowEditor();
+                    }
+                    // BUG-034 FIX: Clean up all device caches for this track.
+                    // Each track can have one Flow device — its deviceId IS the trackId in our model.
+                    flowState.cleanupDeviceCache(trackId);
+                } catch { /* FlowSynth not loaded — safe to skip */ }
+
+                try {
+                    const { useAutomationStore } = await import('@/shared/stores/useAutomationStore');
+                    useAutomationStore.getState().cleanupTrackLanes(trackId);
+                } catch { /* Automation module not loaded — safe to skip */ }
+            }
+
             try {
                 const response = await engine.deleteTrackWithDeltas(index);
                 clearTrackControlCachesLocal();

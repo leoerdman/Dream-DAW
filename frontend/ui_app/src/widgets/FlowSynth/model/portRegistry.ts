@@ -313,6 +313,10 @@ export const FLOW_MENU_MARGIN = 16;
 export const FLOW_CONNECTION_SNAP_DIST = 24;
 export const FLOW_PULSE_GC_MS = 1000;
 export const FLOW_SELECTION_PADDING_Y = 100;
+/** BUG-032 FIX: FLOW_NODE_WIDTH lives here, not in UI component. */
+export const FLOW_NODE_WIDTH = 260;
+/** BUG-054 FIX: Grid snap increment for node positioning. */
+export const FLOW_GRID_SNAP = 20;
 
 /**
  * Calculate Y center of a port given its index within the port list.

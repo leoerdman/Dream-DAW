@@ -20,6 +20,13 @@ export type { SynthNodeType };
 export type { FlowPreset };
 
 export const FLOW_SYNTH_PLUGIN_ID = 'internal://instrument/flow';
+/**
+ * BUG-059 FIX: Debounce interval for persisting FlowSynth config to disk.
+ * 1500ms chosen as a balance between:
+ * - Too low (e.g. 300ms): excess disk I/O during rapid node editing / fader sweeps
+ * - Too high (e.g. 5000ms): risk of data loss on unexpected crash
+ * This aligns with typical DAW auto-save intervals (1-3s for config, 3-5min for project).
+ */
 export const FLOW_AUTO_SAVE_DEBOUNCE_MS = 1500;
 export const FLOW_ENGINE_SETTLE_MS = 500;
 
@@ -58,6 +65,8 @@ interface FlowSynthState {
     isOpen: boolean;
     activeDeviceId: string | null;
     activeTrackId: string | null;
+    /** ENTERPRISE: Display mode — 'inline' replaces timeline, 'floating' is a draggable window. */
+    displayMode: 'inline' | 'floating';
 
     nodes: SynthNode[];
     connections: SynthConnection[];
@@ -76,6 +85,9 @@ interface FlowSynthState {
 
     openFlowEditor: (deviceId: string, trackId: string) => void;
     closeFlowEditor: () => void;
+    /** ENTERPRISE: Hide Flow without removing from openEditorsByTrack (for track switches). */
+    hideFlowEditor: () => void;
+    setDisplayMode: (mode: 'inline' | 'floating') => void;
 
     addNode: (node: SynthNode) => void;
     selectNode: (id: string, multi?: boolean) => void;
@@ -95,6 +107,9 @@ interface FlowSynthState {
     pulseFromNode: (nodeId: string, signalType?: 'audio' | 'midi' | 'control' | 'gate' | 'phase') => void;
     pulseConnection: (connectionId: string) => void;
     syncFlowGraphToEngine: () => Promise<void>;
+
+    // BUG-034 FIX: Remove stale cache entries when a device/track is deleted.
+    cleanupDeviceCache: (deviceId: string) => void;
 
     // ── Preset actions ─────────────────────────────────────────────────
     loadPreset: (index: number) => void;
@@ -322,22 +337,28 @@ function buildFlowConfigJson(state: FlowSynthState, viewportX: number, viewportY
     });
 }
 
-function _forceSaveConfig(state: FlowSynthState) {
+// BUG-007 FIX: Track in-flight save to prevent concurrent saves racing.
+let _saveInFlight = false;
+
+function _forceSaveConfig(state: FlowSynthState): Promise<void> {
     if (_saveTimeout !== null) {
         window.clearTimeout(_saveTimeout);
         _saveTimeout = null;
     }
     const capturedTrackId = state.activeTrackId;
-    if (!capturedTrackId) return;
+    if (!capturedTrackId) return Promise.resolve();
+    // BUG-007 FIX: Prevent concurrent saves — skip if one is already in-flight.
+    if (_saveInFlight) return Promise.resolve();
+    _saveInFlight = true;
     const vp = viewportProxy.getViewport();
     const jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
     const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
-    if (trackIndex < 0) return;
-    engine.saveFlowSynthConfig(trackIndex, jsonStr).then(response => {
+    if (trackIndex < 0) { _saveInFlight = false; return Promise.resolve(); }
+    return engine.saveFlowSynthConfig(trackIndex, jsonStr).then(response => {
         if (response?.deltas?.length) {
-            useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig').catch(console.error);
+            return useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig').catch(console.error);
         }
-    }).catch(console.error);
+    }).catch(console.error).finally(() => { _saveInFlight = false; });
 }
 
 // ENTERPRISE: Aggressively debounced disk-save.
@@ -392,6 +413,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     isOpen: false,
     activeDeviceId: null,
     activeTrackId: null,
+    displayMode: 'inline' as const,
 
     // AUDIT FIX: Single cloneDefaultGraph() call instead of two separate calls.
     ...(() => {
@@ -477,13 +499,15 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                 })),
                 connections: track.flow_synth.connections.map((c: any) => {
                     const toPort = migrateLegacyPortName(c.to_port ?? '');
+                    // BUG-010 FIX: Also migrate fromPort — legacy 'audioL'/'audioR' can exist on output side too.
+                    const fromPort = migrateLegacyPortName(c.from_port ?? '');
                     let signalType = c.signalType ?? c.signal_type ?? null;
                     if (!signalType) {
                         const fromNodeType = nodeTypeMap.get(c.from_node);
                         if (fromNodeType) {
                             const reg = PORT_REGISTRY[fromNodeType as SynthNodeType];
                             if (reg) {
-                                const port = reg.outputs.find((p: PortDefinition) => p.id === c.from_port);
+                                const port = reg.outputs.find((p: PortDefinition) => p.id === fromPort);
                                 signalType = port?.type ?? 'audio';
                             }
                         }
@@ -492,7 +516,7 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
                     return {
                         id: c.id,
                         fromNode: c.from_node,
-                        fromPort: c.from_port,
+                        fromPort,
                         toNode: c.to_node,
                         toPort,
                         signalType
@@ -529,6 +553,17 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
     }),
 
     closeFlowEditor: () => set((state: FlowSynthState) => {
+        // ENTERPRISE: Sync openEditorsByTrack — remove Flow device from eye button tracking
+        if (state.activeDeviceId && state.activeTrackId) {
+            const trackId = state.activeTrackId;
+            const deviceId = state.activeDeviceId;
+            useEngineStore.setState((s) => {
+                const trackSet = new Set(s.openEditorsByTrack[trackId] ?? []);
+                trackSet.delete(deviceId);
+                return { openEditorsByTrack: { ...s.openEditorsByTrack, [trackId]: trackSet } };
+            });
+        }
+
         if (!state.activeDeviceId) {
             viewportProxy.reset();
             return {
@@ -567,6 +602,53 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             graphsByDeviceId: updatedGraphs,
         };
     }),
+
+    /**
+     * ENTERPRISE: Hide Flow editor (for track switches).
+     * Caches viewport + graph like closeFlowEditor but does NOT modify openEditorsByTrack.
+     * This keeps the eye button green while the user is on another track.
+     */
+    hideFlowEditor: () => set((state: FlowSynthState) => {
+        if (!state.activeDeviceId) {
+            viewportProxy.reset();
+            return {
+                isOpen: false,
+                activeDeviceId: null,
+                activeTrackId: null,
+                selectedNodeIds: [],
+                selectedConnectionId: null,
+                pendingConnection: null,
+            };
+        }
+
+        // Save config to project model
+        _forceSaveConfig(state);
+
+        // Cache graph + viewport (same as closeFlowEditor)
+        const currentVp = viewportProxy.getViewport();
+        const updatedViewports = {
+            ...state.viewportByDeviceId,
+            [state.activeDeviceId]: { x: currentVp.x, y: currentVp.y, zoom: currentVp.zoom },
+        };
+        const updatedGraphs = {
+            ...state.graphsByDeviceId,
+            [state.activeDeviceId]: { nodes: state.nodes, connections: state.connections },
+        };
+
+        viewportProxy.reset();
+        return {
+            isOpen: false,
+            activeDeviceId: null,
+            activeTrackId: null,
+            selectedNodeIds: [],
+            selectedConnectionId: null,
+            pendingConnection: null,
+            viewportByDeviceId: updatedViewports,
+            graphsByDeviceId: updatedGraphs,
+        };
+    }),
+
+    setDisplayMode: (mode) => set({ displayMode: mode }),
 
     addNode: (node: SynthNode) => set((state: FlowSynthState) => {
         if (node.type === 'output' && state.nodes.some((n: SynthNode) => n.type === 'output')) {
@@ -965,10 +1047,34 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             };
         });
 
+        // BUG-C FIX: Immediately seed the proxy with all new node positions.
+        // After clearPositions() + set(), ConnectionsLayer will re-render and
+        // FlowConnectionComponent will subscribe to the proxy. Without seeding,
+        // the proxy has no positions → subscriptions never fire → connections
+        // render at stale initialStart/initialEnd (or get skipped by BUG-A fix).
+        for (const n of preset.nodes) {
+            if (n.position) {
+                nodeMotionProxy.syncInitial(n.id, n.position.x, n.position.y);
+            }
+        }
+
         // Sync new graph to engine + save to disk
         _scheduleSyncFlowGraph(get);
         _scheduleSaveConfig(get);
     },
+
+    /**
+     * BUG-034 FIX: Remove cached graph + viewport for a deleted device.
+     * Called from deleteTrack to prevent unbounded cache growth.
+     */
+    cleanupDeviceCache: (deviceId: string) => set((state: FlowSynthState) => {
+        const { [deviceId]: _g, ...remainingGraphs } = state.graphsByDeviceId;
+        const { [deviceId]: _v, ...remainingViewports } = state.viewportByDeviceId;
+        return {
+            graphsByDeviceId: remainingGraphs,
+            viewportByDeviceId: remainingViewports,
+        };
+    }),
 
     nextPreset: () => {
         const { presetIndex, loadPreset } = get();

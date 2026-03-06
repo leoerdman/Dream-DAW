@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { DeviceNode } from '@/widgets/DeviceRack/ui/DeviceNode';
 import { normalizePickedPath, errorMessage } from '@/widgets/DeviceRack/model/deviceRackCatalog';
@@ -177,7 +178,25 @@ export function DeviceSlot({
                     try {
                         if (device.pluginId === 'internal://instrument/flow') {
                             const { useFlowSynthStore } = await import('@/widgets/FlowSynth/model/useFlowSynthStore');
-                            useFlowSynthStore.getState().openFlowEditor(device.id, selectedTrack.id);
+                            const flowState = useFlowSynthStore.getState();
+                            const isFlowOpen = flowState.isOpen && flowState.activeDeviceId === device.id;
+                            if (isFlowOpen) {
+                                // Close Flow + remove from openEditorsByTrack → eye turns off
+                                flowState.closeFlowEditor();
+                                useEngineStore.setState((s) => {
+                                    const trackSet = new Set(s.openEditorsByTrack[selectedTrack.id] ?? []);
+                                    trackSet.delete(device.id);
+                                    return { openEditorsByTrack: { ...s.openEditorsByTrack, [selectedTrack.id]: trackSet } };
+                                });
+                            } else {
+                                // Open Flow + add to openEditorsByTrack → eye turns green
+                                flowState.openFlowEditor(device.id, selectedTrack.id);
+                                useEngineStore.setState((s) => {
+                                    const trackSet = new Set(s.openEditorsByTrack[selectedTrack.id] ?? []);
+                                    trackSet.add(device.id);
+                                    return { openEditorsByTrack: { ...s.openEditorsByTrack, [selectedTrack.id]: trackSet } };
+                                });
+                            }
                         } else if (device.source !== 'internal') {
                             await logic.ensureSlotRuntimeActive(device.id);
                             await logic.togglePluginEditor(selectedTrack.id, device.id);

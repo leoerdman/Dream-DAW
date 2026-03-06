@@ -12,7 +12,8 @@ const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Extract a human-readable project name from a Save As result path. */
 function extractProjectNameFromPath(filePath: string): string | null {
-    const segments = filePath.replace(/\\/g, '/').split('/');
+    // BUG-046 FIX: Universal path splitting — handles both / and \\ separators for cross-platform compat.
+    const segments = filePath.split(/[\\/]/);
     const basename = segments.pop();
     if (!basename) return null;
     // Strip .ddpj extension and any legacy .dream.json suffix

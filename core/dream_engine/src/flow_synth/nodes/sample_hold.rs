@@ -34,7 +34,9 @@ impl FlowNode for SampleHoldNode {
 
         // Rising edge detection
         if trigger >= 0.5 && self.prev_trigger < 0.5 {
-            self.held_value = signal;
+            // ENTERPRISE BUG-21 FIX: Guard against capturing NaN — once held,
+            // this value is output indefinitely until next trigger.
+            self.held_value = if signal.is_finite() { signal } else { 0.0 };
         }
         self.prev_trigger = trigger;
 

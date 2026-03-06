@@ -65,6 +65,11 @@ impl FlowNode for ReverseNode {
         let window_samples = ((self.window_ms * 0.001 * sample_rate as f32) as usize)
             .clamp(64, self.buffer_size.saturating_sub(1));
 
+        // ENTERPRISE BUG-20 FIX: Guard feedback path against NaN/denormal corruption.
+        // Once last_output becomes NaN, it poisons all future samples via feedback.
+        if !self.last_output.is_finite() { self.last_output = 0.0; }
+        if self.last_output.abs() < 1e-15 { self.last_output = 0.0; }
+
         // Write dry + feedback tail.
         self.buffer[self.write_pos] = input + self.last_output * self.feedback;
 

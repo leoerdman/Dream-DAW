@@ -139,6 +139,7 @@ impl FlowGraph {
             Vca => Box::new(VcaNode::new()),
             Pitch => Box::new(PitchNode::new()),
             Utility => Box::new(UtilityNode::new()),
+            Distortion => Box::new(DistortionNode::new()),
             _ => return,
         };
 
@@ -370,6 +371,18 @@ impl FlowGraph {
                     Gain => util.set_gain(*v),
                     Pan => util.set_pan(*v),
                     PhaseInvert => util.set_phase_invert(*v > 0.5),
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(dist) = node.as_any_mut().downcast_mut::<DistortionNode>() {
+            for (k, v) in params {
+                match *k {
+                    Mode => dist.set_mode_by_float(*v),
+                    Drive => dist.set_drive(*v),
+                    Mix => dist.set_mix(*v),
                     _ => {}
                 }
             }

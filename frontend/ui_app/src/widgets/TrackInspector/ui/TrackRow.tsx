@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getTrackHeightLevel } from '@/shared/config/trackHeightLevels';
@@ -145,9 +145,13 @@ export const TrackRow = memo(({
 
     const heightLevel = getTrackHeightLevel(trackHeight);
 
-    // Enterprice Automation 100% Fixes
-    const automationVisible = useAutomationStore(useShallow((s) => s.globalVisible));
-    const lanes = useAutomationStore(useShallow((s) => Object.values(s.lanes).filter(l => l.trackId === track.id && l.visible)));
+    // ENTERPRISE: Automation lane integration
+    const automationVisible = useAutomationStore((s) => s.globalVisible);
+    const allLanes = useAutomationStore((s) => s.lanes);
+    const lanes = useMemo(
+        () => Object.values(allLanes).filter(l => l.trackId === track.id && l.visible),
+        [allLanes, track.id],
+    );
     const hasAutomation = automationVisible && lanes.length > 0;
     const bodyHeight = baseHeight ?? trackHeight;
 

@@ -198,7 +198,7 @@ const NodeSchemas: Record<SynthNodeType, z.ZodObject<any>> = {
     audioIn: z.object({ label: flowString }),
     midiIn: z.object({ label: flowString, channel: flowString, transpose: flowNumber }),
     output: z.object({ label: flowString, gain: flowNumber, muted: flowBoolean }),
-    lfo: z.object({ label: flowString, shape: flowString, bipolar: flowBoolean, rate: flowNumber }),
+    lfo: z.object({ label: flowString, shape: flowString, bipolar: flowBoolean, rate: flowNumber, phaseOffset: flowNumber }),
     noise: z.object({ label: flowString, color: flowString, level: flowNumber }),
     delay: z.object({ label: flowString, time: flowNumber, feedback: flowNumber, mix: flowNumber }),
     mixer: z.object({ label: flowString, gain1: flowNumber, gain2: flowNumber, gain3: flowNumber, gain4: flowNumber }),

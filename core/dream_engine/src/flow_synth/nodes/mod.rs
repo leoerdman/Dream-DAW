@@ -17,6 +17,7 @@ pub mod mixer;
 pub mod vca;
 pub mod pitch;
 pub mod utility;
+pub mod distortion;
 
 pub use oscillator::OscillatorNode;
 pub use filter::FilterNode;
@@ -37,3 +38,5 @@ pub use mixer::MixerNode;
 pub use vca::VcaNode;
 pub use pitch::PitchNode;
 pub use utility::UtilityNode;
+pub use distortion::DistortionNode;
+

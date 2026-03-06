@@ -62,8 +62,9 @@ impl FlowNode for OscillatorNode {
         let fm = control_or_default(2, 0.0) as f64;
         let pm = control_or_default(3, 0.0) as f64;
 
-        // Apply FM
-        let modulated_freq = freq_hz + fm;
+        // Apply FM — ENTERPRISE BUG-19 FIX: clamp to non-negative to prevent
+        // backwards/frozen phase from strong negative FM modulation.
+        let modulated_freq = (freq_hz + fm).max(0.0);
         let dt = (modulated_freq / sample_rate).clamp(0.0, 0.5);
 
         // Apply PM (additive to phase)
@@ -77,7 +78,9 @@ impl FlowNode for OscillatorNode {
             pw,
         );
 
-        outputs[0] = FlowSignal::Audio(sample);
+        // ENTERPRISE BUG-19 FIX: Guard against NaN from BLEP edge cases
+        let safe_sample = if sample.is_finite() { sample } else { 0.0 };
+        outputs[0] = FlowSignal::Audio(safe_sample);
 
         // Advance internal phase
         self.phase = (self.phase + dt).fract();

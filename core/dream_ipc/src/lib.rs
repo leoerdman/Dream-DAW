@@ -63,7 +63,7 @@ pub enum FlowParamKey {
     Waveform, Frequency, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,
     Rate, Depth, EnvDepth, WindowMs, Feedback, Mix, Attack, Decay, Sustain, Release,
     Gain, Muted, Shape, Bipolar, PhaseOffset, Color, Level, Scale, TimeMs,
-    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Pan, PhaseInvert, Custom(u32),
+    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Pan, PhaseInvert, Drive, Mode, Custom(u32),
 }
 
 impl FlowParamKey {
@@ -104,6 +104,8 @@ impl FlowParamKey {
             "octaveOffset" | "octave_offset" => Self::OctaveOffset,
             "pan" => Self::Pan,
             "phaseInvert" | "phase_invert" => Self::PhaseInvert,
+            "drive" => Self::Drive,
+            "mode" => Self::Mode,
             _ => {
                 let hash = key.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
                 Self::Custom(hash)
@@ -144,6 +146,16 @@ pub fn parse_flow_param_value(key: FlowParamKey, val_str: &str) -> f32 {
             match val_str {
                 "pink" => 1.0,
                 "brown" => 2.0,
+                _ => 0.0,
+            }
+        }
+        FlowParamKey::Mode => {
+            match val_str {
+                "softclip" | "soft" => 0.0,
+                "hardclip" | "hard" => 1.0,
+                "foldback" | "fold" => 2.0,
+                "bitcrush" | "crush" => 3.0,
+                "asymmetric" | "asym" | "tube" => 4.0,
                 _ => 0.0,
             }
         }

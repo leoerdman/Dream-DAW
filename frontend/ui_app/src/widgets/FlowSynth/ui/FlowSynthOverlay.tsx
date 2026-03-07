@@ -33,8 +33,7 @@ const DIVIDER_HEIGHT = 14;
 /** Preset nav button size. */
 const PRESET_BTN_SIZE = 18;
 const PRESET_BTN_RADIUS = 4;
-/** MIDI pulse polling interval (ms). */
-const MIDI_PULSE_INTERVAL_MS = 40;
+
 /** Engine sync delay after Flow editor open (ms). */
 const ENGINE_SYNC_DELAY_MS = 60;
 /** PluginWindow default dimensions for floating Flow. */
@@ -287,77 +286,37 @@ export function FlowSynthOverlay() {
     useEffect(() => {
         if (!isOpen) return;
 
-        let intervalId: number | null = null;
-        let lastFreeRunBucket = -1;
-        const activeNotes = new Set<string>();
+        let wasActive = false;
 
-        const tick = () => {
+        const unsubscribe = useEngineStore.subscribe((state) => {
             const flow = useFlowSynthStore.getState();
-            const engine = useEngineStore.getState();
-            if (!flow.activeTrackId || !engine.transport.is_playing) {
-                activeNotes.clear();
-                return;
-            }
+            if (!flow.activeTrackId) return;
 
-            const trackIndex = engine.tracks.allIds.indexOf(flow.activeTrackId);
-            if (trackIndex < 0) {
-                activeNotes.clear();
-                return;
-            }
+            const trackIndex = state.tracks.allIds.indexOf(flow.activeTrackId);
+            if (trackIndex < 0) return;
 
-            const playheadBeat = engine.transport.position_beats;
+            // ENTERPRISE FIX: Flow Synth active voices telemetry is piped into plugin_metrics[15]
+            // from the Rust audio thread (see audio_thread_runner.rs). This creates a single
+            // source of truth so visual pulses perfectly match actual audio output.
+            const metrics = state.meters?.track_plugin_metrics?.[trackIndex];
+            const isActive = metrics && metrics[15] > 0.5;
 
-            // PERF-OPT: Cache node lookups once per tick instead of calling
-            // .find() inside nested loops (O(N×M) → O(N+M)).
-            let midiNode: { id: string } | undefined;
-            let oscNode: { id: string } | undefined;
-            for (const node of flow.nodes) {
-                if (node.type === 'midiIn' && !midiNode) midiNode = node;
-                if (node.type === 'oscillator' && !oscNode) oscNode = node;
-                if (midiNode && oscNode) break;
-            }
-
-            let hasMidiAtPlayhead = false;
-            const nextNotes = new Set<string>();
-
-            // PERF-OPT: Inline loop instead of .filter() — avoids allocating
-            // a new array on every tick (25fps × array size).
-            for (const clip of engine.timelineClips) {
-                if (clip.type !== 'midi'
-                    || clip.trackIndex !== trackIndex
-                    || playheadBeat < clip.startBeat
-                    || playheadBeat >= (clip.startBeat + clip.durationBeats)) continue;
-
-                const localBeat = playheadBeat - clip.startBeat;
-                for (const note of clip.midiNotes ?? []) {
-                    if (localBeat < note.startBeat || localBeat >= (note.startBeat + note.durationBeats)) continue;
-                    hasMidiAtPlayhead = true;
-                    const noteKey = `${clip.id}:${note.id ?? `${note.pitch}:${note.startBeat}`}`;
-                    nextNotes.add(noteKey);
-                    if (!activeNotes.has(noteKey)) {
-                        if (midiNode) flow.pulseFromNode(midiNode.id, 'midi');
-                        if (oscNode) flow.pulseFromNode(oscNode.id, 'audio');
-                    }
+            // Trigger pulse animation only on the rising edge to match note-on attacks.
+            if (isActive && !wasActive) {
+                let midiNode: { id: string } | undefined;
+                let oscNode: { id: string } | undefined;
+                for (const node of flow.nodes) {
+                    if (node.type === 'midiIn' && !midiNode) midiNode = node;
+                    if (node.type === 'oscillator' && !oscNode) oscNode = node;
+                    if (midiNode && oscNode) break;
                 }
+                if (midiNode) flow.pulseFromNode(midiNode.id, 'midi');
+                if (oscNode) flow.pulseFromNode(oscNode.id, 'audio');
             }
+            wasActive = !!isActive;
+        });
 
-            activeNotes.clear();
-            for (const noteKey of nextNotes) activeNotes.add(noteKey);
-
-            // Free-run pulse path when there is no MIDI note at playhead.
-            if (!hasMidiAtPlayhead) {
-                const beatBucket = Math.floor(playheadBeat * 2);
-                if (beatBucket !== lastFreeRunBucket) {
-                    if (oscNode) flow.pulseFromNode(oscNode.id, 'audio');
-                    lastFreeRunBucket = beatBucket;
-                }
-            }
-        };
-
-        intervalId = window.setInterval(tick, MIDI_PULSE_INTERVAL_MS);
-        return () => {
-            if (intervalId !== null) window.clearInterval(intervalId);
-        };
+        return unsubscribe;
     }, [isOpen]);
 
     useEffect(() => {

@@ -669,15 +669,21 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         t_meters.right.store_peak_decay(peak_r, track_decay);
 
                                         let chain = &render_ctx.track_slots[track_idx].device_chain;
-                                        let num_slots = chain.slots().len().min(16);
+                                        let num_slots = chain.slots().len().min(15); // Leave index 15 for Flow Synth telemetry
                                         for i in 0..num_slots {
                                             t_meters.plugin_metrics[i].store_peak(
                                                 chain.slots()[i].get_metric_f32()
                                             );
                                         }
-                                        for i in num_slots..16 {
+                                        for i in num_slots..15 {
                                             t_meters.plugin_metrics[i].store_peak(0.0);
                                         }
+                                        
+                                        // FLOW SYNTH TELEMETRY: Route active state to plugin_metrics[15]
+                                        // This creates a single source of truth for visual pulsing in the frontend.
+                                        let flow_active = flow_engines.get(track_idx)
+                                            .is_some_and(|fl| fl.is_enabled() && fl.has_active_voices());
+                                        t_meters.plugin_metrics[15].store_peak(if flow_active { 1.0 } else { 0.0 });
                                     }
 
                                     // 5. Per-track spectrum feed (enterprise per-track EQ display)

@@ -300,13 +300,7 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
             }
         } else if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
             let file_type = classify_file_type(ext);
-            let duration_seconds = if file_type == "audio" {
-                AudioReader::read_metadata(&entry_path)
-                    .ok()
-                    .and_then(|(sr, _ch, frames)| frames.map(|f| (f as f64) / (sr as f64)))
-            } else {
-                None
-            };
+            let duration_seconds = None; // On-demand in frontend to prevent IPC timeout on large folders
             entries.push(BrowserFileEntry {
                 name: file_name,
                 path: entry_path.to_string_lossy().to_string(),

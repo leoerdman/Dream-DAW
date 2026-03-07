@@ -235,8 +235,7 @@ function PortLabel({
     side: 'in' | 'out';
     index: number;
 }) {
-    // Skip label for input ports that have inline faders (fader occupies that space)
-    if (side === 'in' && port.fader) return null;
+    // (Previously this skipped labels for ports with faders, but PortRowFader doesn't render labels itself).
     const cy = portCenterY(index);
     return (
         <span

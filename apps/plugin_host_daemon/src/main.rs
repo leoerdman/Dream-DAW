@@ -612,22 +612,22 @@ fn main() {
                     plugin.set_transport_context(ctx);
                 }
 
-                // ENTERPRISE: Sync GUI Parameter Edits to DSP & sent them Host
-                if dream_plugins::vst3_host::take_param_values_changed() {
-                    dream_plugins::vst3_host::drain_gui_param_edits(|param_id, value| {
-                        if let Err(e) = plugin.set_parameter(param_id, value) {
-                            log::warn!("[plugin_host_daemon] set_parameter failed: {}", e);
-                        }
-                        let evt = PluginHostEventMessage::ParameterChanged {
-                            instance_id: daemon_instance_id,
-                            index: param_id,
-                            value,
-                        };
-                        if let Ok(json) = serde_json::to_string(&evt) {
-                            println!("{json}");
-                        }
-                    });
-                }
+                // ENTERPRISE: Sync GUI Parameter Edits to DSP & send them to Host.
+                // UNCONDITIONAL FIX: Do not gate this behind `take_param_values_changed()`,
+                // because continuous UI movements use `performEdit` and do not trigger `restartComponent`.
+                dream_plugins::vst3_host::drain_gui_param_edits(|param_id, value| {
+                    if let Err(e) = plugin.set_parameter(param_id, value) {
+                        log::warn!("[plugin_host_daemon] set_parameter failed: {}", e);
+                    }
+                    let evt = PluginHostEventMessage::ParameterChanged {
+                        instance_id: daemon_instance_id,
+                        index: param_id,
+                        value,
+                    };
+                    if let Ok(json) = serde_json::to_string(&evt) {
+                        println!("{json}");
+                    }
+                });
 
                 // ENTERPRISE: Sync Asterisk dirty state
                 if dream_plugins::vst3_host::take_plugin_state_dirty() {

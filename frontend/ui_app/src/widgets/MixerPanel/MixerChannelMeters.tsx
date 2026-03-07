@@ -16,7 +16,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { clamp01, vuNorm } from '@/shared/lib/audioMath';
+import { clamp01 } from '@/shared/lib/audioMath';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { formatDb } from '@/widgets/TrackInspector/model/faderMath';
 
 type MixerChannelMetersProps = {
@@ -61,12 +62,12 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
             const meterPair = state.meters.tracks[trackIndex];
             const peakDbL = meterPair?.[0]?.peak ?? -96;
             const peakDbR = meterPair?.[1]?.peak ?? -96;
-            const mL = clamp01(vuNorm(peakDbL));
-            const mR = clamp01(vuNorm(peakDbR));
+            const mL = clamp01(dbToMeterNorm(peakDbL));
+            const mR = clamp01(dbToMeterNorm(peakDbR));
             const peakHoldDbL = meterPair?.[0]?.peak_hold ?? peakDbL;
             const peakHoldDbR = meterPair?.[1]?.peak_hold ?? peakDbR;
-            const hL = clamp01(vuNorm(peakHoldDbL));
-            const hR = clamp01(vuNorm(peakHoldDbR));
+            const hL = clamp01(dbToMeterNorm(peakHoldDbL));
+            const hR = clamp01(dbToMeterNorm(peakHoldDbR));
 
             // Skip if values haven't changed (avoid unnecessary RAF + render).
             const last = lastValuesRef.current;
@@ -96,14 +97,9 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
     }, [trackIndex]);
 
     return (
-        <>
-            <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterLRef.current} levelR={meterLRef.current} peakHoldL={holdLRef.current} peakHoldR={holdLRef.current} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
-            </div>
-            <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterRRef.current} levelR={meterRRef.current} peakHoldL={holdRRef.current} peakHoldR={holdRRef.current} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
-            </div>
-        </>
+        <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+            <MeterStrip levelL={meterLRef.current} levelR={meterRRef.current} peakHoldL={holdLRef.current} peakHoldR={holdRRef.current} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+        </div>
     );
 });
 

@@ -14,6 +14,7 @@ import { AppearanceTab } from './settingsPanelMainTabs';
 import { AudioTab } from './settingsPanelAudioTab';
 import { GeneralTab } from './settingsPanelGeneralTab';
 import { BrowserTab } from './settingsPanelBrowserTab';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 /**
  * SettingsPanel — 5-tab modal settings window.
@@ -76,7 +77,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         setSandboxLoading(true);
         engine.getPluginSandboxRuntime()
             .then((snap) => setSandboxSnapshot(snap))
-            .catch((err) => console.error('[Dream] Failed to read plugin sandbox runtime:', err))
+            .catch((err) => { console.error('[Dream] Failed to read plugin sandbox runtime:', err); useStatusStore.getState().setError(`Plugin sandbox info failed: ${err instanceof Error ? err.message : String(err)}`); })
             .finally(() => setSandboxLoading(false));
     }, [tab, refreshAudioDevices]);
 
@@ -95,6 +96,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             })
             .catch((err) => {
                 console.error('[Dream] Failed to auto-fallback output device:', err);
+                useStatusStore.getState().setError(`Audio device fallback failed: ${err instanceof Error ? err.message : String(err)}`);
             })
             .finally(() => {
                 setRestartingEngine(false);
@@ -123,7 +125,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         setMidiLoading(true);
         engine.getMidiInputs()
             .then((ports) => setMidiInputs(ports))
-            .catch((err) => console.error('[Dream] Failed to enumerate MIDI inputs:', err))
+            .catch((err) => { console.error('[Dream] Failed to enumerate MIDI inputs:', err); useStatusStore.getState().setError(`MIDI enumeration failed: ${err instanceof Error ? err.message : String(err)}`); })
             .finally(() => setMidiLoading(false));
     }, [tab]);
 

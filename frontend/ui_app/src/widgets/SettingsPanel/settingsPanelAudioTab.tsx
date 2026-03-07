@@ -2,6 +2,7 @@ import type { AppSettings, AudioDevices, PluginSandboxSnapshot } from '@/shared/
 import { Select, SettingRow, SettingsSection, Toggle } from './settingsPanelParts';
 import { actionBtnSmStyle, inputStyle, titleStyle, valueStyle } from './settingsPanelStyles';
 import * as engine from '@/shared/api/engine';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 interface AudioTabProps {
     settings: AppSettings;
@@ -63,6 +64,7 @@ export function AudioTab({
                                 updateSetting('outputDevice', resolvedDevice);
                             } catch (err) {
                                 console.error('[Dream] restartAudioEngine failed:', err);
+                                useStatusStore.getState().setError(`Audio engine restart failed: ${err instanceof Error ? err.message : String(err)}`);
                             } finally {
                                 setRestartingEngine(false);
                                 void refreshAudioDevices({ force: true });
@@ -145,6 +147,7 @@ export function AudioTab({
                                 setSandboxSnapshot(snap);
                             } catch (err) {
                                 console.error('[Dream] setPluginSandboxEnabled failed:', err);
+                                useStatusStore.getState().setError(`Plugin sandbox toggle failed: ${err instanceof Error ? err.message : String(err)}`);
                             } finally {
                                 setSandboxLoading(false);
                             }

@@ -247,6 +247,7 @@ export function useAudioFailoverRecovery(args: {
                     });
                 } catch (err) {
                     console.error('[Dream] Audio fallback recovery failed:', err);
+                    useStatusStore.getState().setError(`Audio recovery failed: ${err instanceof Error ? err.message : String(err)}. Please restart audio engine in Settings.`);
                 } finally {
                     recoveringAudioRef.current = false;
                 }

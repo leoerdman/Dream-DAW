@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { clamp01, vuNorm } from '@/shared/lib/audioMath';
+import { clamp01 } from '@/shared/lib/audioMath';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 export { TriColorVU, type TriColorVUProps } from './TriColorVU';
 
@@ -31,8 +32,8 @@ export const VerticalMixerStrip = ({
     const activePointerId = useRef<number | null>(null);
 
     const volNorm = clamp01(dbToFader(gainToDb(volumeLinear)));
-    const meterNormL = clamp01(vuNorm(peakDbL ?? peakDb));
-    const meterNormR = clamp01(vuNorm(peakDbR ?? peakDb));
+    const meterNormL = clamp01(dbToMeterNorm(peakDbL ?? peakDb));
+    const meterNormR = clamp01(dbToMeterNorm(peakDbR ?? peakDb));
     const panNorm = clamp01((pan + 1) / 2);
     const [peakHoldNorm, setPeakHoldNorm] = useState(0);
     const [clipLatched, setClipLatched] = useState(false);

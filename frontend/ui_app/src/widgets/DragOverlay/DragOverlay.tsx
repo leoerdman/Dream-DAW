@@ -9,6 +9,13 @@
 import { useEffect, useRef } from 'react';
 import { useDragStore } from '@/shared/stores/useDragStore';
 
+/** Pixel offset from cursor to the overlay label (prevents the label from blocking clicks). */
+const CURSOR_OFFSET_PX = 12;
+/** Border radius of the floating drag label. */
+const DRAG_LABEL_RADIUS_PX = 6;
+/** Font size of the floating drag label. */
+const DRAG_LABEL_FONT_SIZE_PX = 12;
+
 export const DragOverlay = () => {
     const draggingItem = useDragStore(s => s.draggingItem);
     const overlayRef = useRef<HTMLDivElement>(null);
@@ -18,7 +25,7 @@ export const DragOverlay = () => {
 
         const handleMouseMove = (e: MouseEvent) => {
             if (overlayRef.current) {
-                overlayRef.current.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
+                overlayRef.current.style.transform = `translate(${e.clientX + CURSOR_OFFSET_PX}px, ${e.clientY + CURSOR_OFFSET_PX}px)`;
             }
         };
 
@@ -46,8 +53,8 @@ export const DragOverlay = () => {
                 backdropFilter: 'blur(var(--space-2))',
                 color: 'var(--token-color-hex-ffffff)',
                 padding: 'var(--token-size-px-5) var(--space-2-5)',
-                borderRadius: 6,
-                fontSize: 12,
+                borderRadius: DRAG_LABEL_RADIUS_PX,
+                fontSize: DRAG_LABEL_FONT_SIZE_PX,
                 whiteSpace: 'nowrap',
                 boxShadow: '0 var(--space-1) var(--space-3) var(--token-color-rgba-0-0-0-0d4)',
                 willChange: 'transform',

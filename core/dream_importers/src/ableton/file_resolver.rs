@@ -266,27 +266,25 @@ pub fn resolve_als_file_path_cached(
     if let Some(abs) = absolute_path
         && abs.contains("/Applications/Ableton Live ")
         && abs.contains(".app/Contents/")
+        && let Some(app_suffix_pos) = abs.find(".app/")
+        && let Some(live_pos) = abs.find("Ableton Live ")
     {
-        // Extract the suffix after ".app/" (e.g. "Contents/App-Resources/Builtin/Devices/...")
-        if let Some(app_suffix_pos) = abs.find(".app/") {
-            let suffix = &abs[app_suffix_pos + 5..]; // skip ".app/"
-            // Try to extract the version number
-            let after_live = &abs[abs.find("Ableton Live ").unwrap() + 13..app_suffix_pos];
-            // Parse out the major version number (e.g. "12 Beta" → 12, "12" → 12)
-            let major_ver = after_live.split_whitespace().next()
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(12);
+        let suffix = &abs[app_suffix_pos + 5..]; // skip ".app/"
+        let after_live = &abs[live_pos + 13..app_suffix_pos];
+        // Parse out the major version number (e.g. "12 Beta" → 12, "12" → 12)
+        let major_ver = after_live.split_whitespace().next()
+            .and_then(|s: &str| s.parse::<u32>().ok())
+            .unwrap_or(12);
 
-            let variants = [
-                format!("/Applications/Ableton Live {}.app/{}", major_ver, suffix),
-                format!("/Applications/Ableton Live {} Suite.app/{}", major_ver, suffix),
-                format!("/Applications/Ableton Live {} Beta.app/{}", major_ver, suffix),
-                format!("/Applications/Ableton Live {} Suite Beta.app/{}", major_ver, suffix),
-            ];
-            for variant in &variants {
-                if let Some(found) = try_existing_variants(variant) {
-                    return Some(found);
-                }
+        let variants = [
+            format!("/Applications/Ableton Live {}.app/{}", major_ver, suffix),
+            format!("/Applications/Ableton Live {} Suite.app/{}", major_ver, suffix),
+            format!("/Applications/Ableton Live {} Beta.app/{}", major_ver, suffix),
+            format!("/Applications/Ableton Live {} Suite Beta.app/{}", major_ver, suffix),
+        ];
+        for variant in &variants {
+            if let Some(found) = try_existing_variants(variant) {
+                return Some(found);
             }
         }
     }

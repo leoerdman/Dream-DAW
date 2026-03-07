@@ -1171,8 +1171,16 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
             engine.saveFlowSynthConfig(trackIndex, configJson)
         ]);
         // ENTERPRISE FIX: Apply save response deltas to sync track.flow_synth in frontend store.
+        // BUG-LOOP-001 FIX: Guard against re-entrant subscription fire.
+        // applyProjectDeltas creates a new track.flow_synth object ref, which would
+        // trigger the Undo/Redo subscription to re-sync — causing an infinite loop.
         if (saveResponse?.deltas?.length) {
+            _undoRedoSyncInProgress = true;
             await useEngineStore.getState().applyProjectDeltas(saveResponse.deltas, 'syncFlowGraphSave');
+            // Update the reference so the subscription skips the change we just caused.
+            const t = useEngineStore.getState().tracks.byId[state.activeTrackId ?? ''];
+            if (t) _prevFlowSynthConfigObj = t.flow_synth;
+            _undoRedoSyncInProgress = false;
         }
     },
 
@@ -1405,7 +1413,17 @@ useEngineStore.subscribe((state) => {
 // When the Orchestrator pops an undo delta, it patches `track.flow_synth` in `useEngineStore`.
 // We need to reflect that in `useFlowSynthStore` if the track is active.
 let _prevFlowSynthConfigObj: unknown = null;
+// BUG-LOOP-001 FIX: Guard flag to prevent re-entrant sync.
+// When this subscription updates the store from backend data, it must NOT
+// re-sync back to the engine. That would cause: subscribe → setState →
+// syncToEngine → saveConfig → applyProjectDeltas → new flow_synth obj ref →
+// subscribe fires again → INFINITE LOOP ("Maximum update depth exceeded").
+let _undoRedoSyncInProgress = false;
 useEngineStore.subscribe((state) => {
+    // BUG-LOOP-001 FIX: If WE triggered this change via syncFlowGraphToEngine's
+    // applyProjectDeltas, skip to break the cycle.
+    if (_undoRedoSyncInProgress) return;
+
     const activeTrackId = useFlowSynthStore.getState().activeTrackId;
     if (!activeTrackId) return;
     const track = state.tracks.byId[activeTrackId];
@@ -1464,6 +1482,20 @@ useEngineStore.subscribe((state) => {
     }
     // BUG-2 FIX: Re-sync the DSP engine after undo/redo delta changes the graph.
     // Without this, the UI shows the undone graph but audio stays on the old one.
+    // BUG-LOOP-001 FIX: Set guard to prevent the sync response deltas from
+    // re-triggering this subscription and causing an infinite loop.
+    _undoRedoSyncInProgress = true;
     _scheduleSyncFlowGraph(() => useFlowSynthStore.getState());
+    // BUG-LOOP-001 FIX: Clear the guard asynchronously after the microtask
+    // that _scheduleSyncFlowGraph enqueues has had time to execute.
+    // Use setTimeout(0) to ensure it runs AFTER the queueMicrotask chain
+    // and any resulting applyProjectDeltas have completed.
+    setTimeout(() => {
+        _undoRedoSyncInProgress = false;
+        // Update the reference to the CURRENT config so that the subscribe
+        // doesn't fire again when the sync response delta updates the object.
+        const t = useEngineStore.getState().tracks.byId[useFlowSynthStore.getState().activeTrackId ?? ''];
+        if (t) _prevFlowSynthConfigObj = t.flow_synth;
+    }, 0);
 });
 

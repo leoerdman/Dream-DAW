@@ -128,14 +128,15 @@ function PortDot({
     nodeId: string;
     interactionDisabled: boolean;
 }) {
-    // BUG-022 FIX: Single merged selector instead of 4 separate subscriptions.
-    // Reduces subscription overhead from 4 per PortDot × M ports × N nodes to 1 per PortDot.
-    const { startConnectionDrag, commitConnection, isDragging, dragType } = useFlowSynthStore((s) => ({
-        startConnectionDrag: s.startConnectionDrag,
-        commitConnection: s.commitConnection,
-        isDragging: s.pendingConnection !== null,
-        dragType: s.pendingConnection?.signalType,
-    }));
+    // BUG-LOOP-002 FIX: Split into separate scalar selectors.
+    // The previous merged selector `(s) => ({ ... })` created a NEW object on every
+    // `getSnapshot()` call. React 18's `useSyncExternalStore` requires getSnapshot to
+    // return a referentially stable value — new objects cause infinite re-renders.
+    // Functions are stable references in Zustand stores, booleans/strings are primitives.
+    const startConnectionDrag = useFlowSynthStore((s) => s.startConnectionDrag);
+    const commitConnection = useFlowSynthStore((s) => s.commitConnection);
+    const isDragging = useFlowSynthStore((s) => s.pendingConnection !== null);
+    const dragType = useFlowSynthStore((s) => s.pendingConnection?.signalType);
 
 
     const cy = portCenterY(index);

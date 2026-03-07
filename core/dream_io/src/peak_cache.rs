@@ -220,6 +220,9 @@ impl PeakCache {
     /// This is the format expected by `WaveformPeakBuffer::push_peaks()`.
     /// Returns amplitudes (0.0–1.0) for the given mip level.
     pub fn extract_amplitudes(peaks: &WaveformPeaks, mip_level: usize) -> Vec<f32> {
+        if peaks.mip_levels.is_empty() {
+            return Vec::new();
+        }
         let level = &peaks.mip_levels[mip_level.min(peaks.mip_levels.len() - 1)];
         level.peaks.iter().map(|p| p.amplitude()).collect()
     }

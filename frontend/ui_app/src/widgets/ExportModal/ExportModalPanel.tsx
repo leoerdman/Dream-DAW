@@ -221,6 +221,14 @@ function ChipGroup<T extends string | number>({
     );
 }
 
+/** Toggle switch dimensions (all in px). */
+const TOGGLE_TRACK_W = 36;
+const TOGGLE_TRACK_H = 20;
+const TOGGLE_KNOB_SIZE = 14;
+const TOGGLE_PADDING = 3;
+/** Knob left position when ON = track width − knob size − padding */
+const TOGGLE_LEFT_ON = TOGGLE_TRACK_W - TOGGLE_KNOB_SIZE - TOGGLE_PADDING;
+
 const ToggleSwitch = ({
     checked,
     onChange,
@@ -231,8 +239,8 @@ const ToggleSwitch = ({
     <button
         onClick={() => onChange(!checked)}
         style={{
-            width: 36,
-            height: 20,
+            width: TOGGLE_TRACK_W,
+            height: TOGGLE_TRACK_H,
             borderRadius: 'var(--radius-xl)',
             border: 'none',
             background: checked ? 'var(--color-accent-primary)' : 'var(--color-control-bg)',
@@ -243,13 +251,13 @@ const ToggleSwitch = ({
     >
         <div
             style={{
-                width: 14,
-                height: 14,
+                width: TOGGLE_KNOB_SIZE,
+                height: TOGGLE_KNOB_SIZE,
                 borderRadius: '50%',
                 background: 'var(--color-text-on-accent)',
                 position: 'absolute',
-                top: 3,
-                left: checked ? 19 : 3,
+                top: TOGGLE_PADDING,
+                left: checked ? TOGGLE_LEFT_ON : TOGGLE_PADDING,
                 transition: 'left var(--transition-fast)',
                 boxShadow: '0 var(--space-px) var(--token-size-px-3) var(--color-overlay-dark)',
             }}

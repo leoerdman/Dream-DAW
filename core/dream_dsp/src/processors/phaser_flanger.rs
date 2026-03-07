@@ -188,6 +188,11 @@ impl DspProcessor for PhaserFlangerProcessor {
             let wet_r = phaser_r * (1.0 - blend) + flanger_r * blend;
             self.fb_l = wet_l;
             self.fb_r = wet_r;
+            // AUD-DENORM FIX: Flush denormals in feedback state to prevent
+            // CPU spikes on x86 during effect tail-off. The allpass states
+            // are already flushed inside allpass(), but feedback was missed.
+            crate::processors::flush_denormal!(self.fb_l);
+            crate::processors::flush_denormal!(self.fb_r);
 
             left[i] = dry_l * (1.0 - mix) + wet_l * mix;
             right[i] = dry_r * (1.0 - mix) + wet_r * mix;

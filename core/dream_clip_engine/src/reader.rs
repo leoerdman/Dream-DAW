@@ -389,4 +389,71 @@ mod tests {
         assert!(out_l[100] > 0.0);
         assert!(out_r[100] < 0.0);
     }
+
+    #[test]
+    fn read_stereo_rate_standard_cubic_upsample() {
+        let left = vec![0.0, 1.0, 0.0, -1.0, 0.0];
+        let right = vec![0.0, -1.0, 0.0, 1.0, 0.0];
+        let mut out_l = vec![0.0; 10];
+        let mut out_r = vec![0.0; 10];
+        
+        // Rate 0.5 (upsample 2x)
+        ClipReader::read_stereo_into_rate(
+            &left, &right, 0.0, 0.5,
+            &mut out_l, &mut out_r,
+            0, 10, 1.0, WarpResampleMode::Standard
+        );
+
+        // Standard mode uses Cubic. 
+        // Index 1.0 in output maps to 0.5 in source (halfway between 0.0 and 1.0).
+        // For Cubic, halfway between 0 and 1 with neighbors 0, 0, 1, 0 is approx 0.5.
+        assert!(out_l[1] > 0.3 && out_l[1] < 0.7);
+        assert!(out_r[1] < -0.3 && out_r[1] > -0.7);
+    }
+
+    #[test]
+    fn read_stereo_rate_pro_sinc_downsample() {
+        let left = vec![1.0; 100];
+        let right = vec![1.0; 100];
+        let mut out_l = vec![0.0; 10];
+        let mut out_r = vec![0.0; 10];
+        
+        // Rate 2.0 (downsample 2x)
+        ClipReader::read_stereo_into_rate(
+            &left, &right, 0.0, 2.0,
+            &mut out_l, &mut out_r,
+            0, 10, 0.5, WarpResampleMode::Pro
+        );
+
+        // Constant 1.0 source, gain 0.5 -> output should be 0.5
+        // Sinc on constant data should yield constant result.
+        for i in 0..10 {
+            assert!((out_l[i] - 0.5).abs() < 0.001, "Failed at index {}, got {}", i, out_l[i]);
+            assert!((out_r[i] - 0.5).abs() < 0.001, "Failed at index {}, got {}", i, out_r[i]);
+        }
+    }
+
+    #[test]
+    fn sinc_windowed_boundary_protection() {
+        let source = vec![1.0; 10];
+        // Test near-boundary positions
+        let v_start = ClipReader::sample_sinc_windowed(&source, 0.1, 32);
+        let v_end = ClipReader::sample_sinc_windowed(&source, 9.9, 32);
+        
+        assert!(v_start.is_finite());
+        assert!(v_end.is_finite());
+    }
+
+    #[test]
+    fn gain_nan_safety() {
+        let source = vec![1.0; 10];
+        let mut out = vec![0.0; 10];
+        
+        // Inject NaN gain
+        ClipReader::read_into(&source, 0, &mut out, 0, 10, f32::NAN);
+        
+        for &s in &out {
+            assert_eq!(s, 0.0, "NaN gain must result in zero output");
+        }
+    }
 }

@@ -57,6 +57,7 @@ const KNOWN_DELTA_KINDS = new Set<string>([
     'ProjectRenamed',
     'LoopRegionChanged',
     'ClipPitchChanged',
+    'TrackFlowSynthConfigChanged',
     'ProjectSnapshotReplaced',
 ]);
 

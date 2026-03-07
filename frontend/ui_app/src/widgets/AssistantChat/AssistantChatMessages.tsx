@@ -27,7 +27,7 @@ const CopyButton = ({ text }: { text: string }) => {
             className="assistant-copy-btn"
             title="Copy message"
             onClick={() => {
-                navigator.clipboard.writeText(text);
+                navigator.clipboard.writeText(text).catch(() => { /* clipboard unavailable */ });
                 setCopied(true);
                 setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
             }}

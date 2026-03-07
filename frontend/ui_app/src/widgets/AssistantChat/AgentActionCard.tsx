@@ -83,7 +83,7 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
                         title="Copy full log"
                         onClick={(event) => {
                             event.stopPropagation();
-                            navigator.clipboard.writeText(fullLogText);
+                            navigator.clipboard.writeText(fullLogText).catch(() => { /* clipboard unavailable */ });
                             setCopiedAll(true);
                             setTimeout(() => setCopiedAll(false), COPY_FEEDBACK_MS);
                         }}

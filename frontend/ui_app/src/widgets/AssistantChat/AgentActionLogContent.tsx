@@ -31,7 +31,7 @@ export function AgentActionLogContent({ thinking, actions, isLive }: ActionLogCo
                             className="assistant-copy-btn"
                             title="Copy reasoning"
                             onClick={() => {
-                                navigator.clipboard.writeText(thinking);
+                                navigator.clipboard.writeText(thinking).catch(() => { /* clipboard unavailable */ });
                                 setCopied(true);
                                 setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
                             }}

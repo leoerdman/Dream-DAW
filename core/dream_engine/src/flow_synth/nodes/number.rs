@@ -32,8 +32,11 @@ impl NumberNode {
 }
 
 impl FlowNode for NumberNode {
-    fn process(&mut self, _inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
-        outputs[0] = FlowSignal::Control(self.value);
+    fn process(&mut self, inputs: &[FlowSignal], outputs: &mut [FlowSignal], _sample_rate: f64) {
+        // If an input is wired, add it to the static value (CV offset behavior).
+        // Without a wire, input defaults to 0.0 → outputs just the fader value.
+        let input_offset = inputs.first().and_then(|s| s.as_float()).unwrap_or(0.0);
+        outputs[0] = FlowSignal::Control(self.value + input_offset);
     }
 
     fn reset(&mut self) {}

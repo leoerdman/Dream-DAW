@@ -200,7 +200,7 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     const groupedItems = groupMessagesIntoActions(messages);
 
     const copyHistory = useCallback(() => {
-        navigator.clipboard.writeText(buildHistoryText(messages));
+        navigator.clipboard.writeText(buildHistoryText(messages)).catch(() => { /* clipboard unavailable */ });
     }, [messages]);
 
     const clearHistoryClick = useCallback(() => {

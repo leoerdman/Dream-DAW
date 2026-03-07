@@ -8,7 +8,6 @@ use dream_importers::routing_helpers::{
 use dream_models::project::builtin_effect_type_from_plugin_id;
 mod plugins_routing_helpers;
 use plugins_routing_helpers::{
-    apply_imported_external_state_blob,
     apply_external_state_blob_with_sandbox,
     finalize_external_param_update,
     finalize_internal_param_update,

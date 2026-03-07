@@ -158,6 +158,8 @@ export interface AppSettings {
     arrangementGridSnapEnabled: boolean;
     browserExcludedFormats: string[];
     browserAutoPreview: boolean;
+    autoSaveEnabled: boolean;
+    autoSaveIntervalMinutes: number;
 }
 
 /** Recent project entry. */

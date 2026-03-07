@@ -119,10 +119,11 @@ impl ChannelStrip {
     /// Volume is smoothly ramped to prevent clicks.
     #[inline]
     pub fn set_volume(&mut self, volume: f32) {
-        // BUG-M5 FIX: Clamp upper bound to 12.0 (~+21.6 dB).
-        // Previously only floored at 0.0, allowing Infinity or absurdly
-        // large values that overflow smoothed gain multiplication → NaN.
-        self.target_volume = volume.clamp(0.0, 12.0);
+        // ENTERPRISE FIX: Clamp to 0..2 (= 0 to +6dB).
+        // Must match API boundary (engine.ts: 0..2), Rust SetMasterVolume (0..2),
+        // and offline bounce (track.volume.clamp(0.0, 2.0)).
+        // Fader math: position 1.0 = +6dB = linear gain 2.0.
+        self.target_volume = volume.clamp(0.0, 2.0);
     }
 
     /// Sets the target pan position (called from UI thread).
@@ -471,7 +472,7 @@ mod tests {
     #[test]
     fn clipping_detection() {
         let mut strip = ChannelStrip::new();
-        strip.set_volume(3.0); // Intentionally over-drive
+        strip.set_volume(2.0); // +6dB (max) — should cause clipping on unit signal
 
         for _ in 0..20 {
             let (mut left, mut right) = stereo_sine(1.0, 512);
@@ -479,6 +480,6 @@ mod tests {
         }
 
         // After converging at 3× gain, the signal should clip
-        assert!(strip.is_clipping(), "Should detect clipping at 3× gain");
+        assert!(strip.is_clipping(), "Should detect clipping at 2× gain (+6dB)");
     }
 }

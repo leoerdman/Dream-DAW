@@ -10,10 +10,11 @@ fn restore_slot_state_for_export(
 
     let mut host = plugin_host_state.host.lock();
 
-    if let Err(err) = crate::commands::plugins_routing_helpers::apply_imported_external_state_blob(
+    if let Err(err) = crate::commands::plugins_routing_helpers::apply_external_state_blob_with_sandbox(
         &mut host,
         instance_id,
         slot,
+        plugin_host_state,
     ) {
         log::warn!(
             "[Export] Failed to restore imported state for slot '{}' ({}): {}",

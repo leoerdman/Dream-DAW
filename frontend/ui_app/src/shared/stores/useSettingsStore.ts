@@ -88,6 +88,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     arrangementGridSnapEnabled: true,
     browserExcludedFormats: [],
     browserAutoPreview: true,
+    autoSaveEnabled: true,
+    autoSaveIntervalMinutes: 3,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

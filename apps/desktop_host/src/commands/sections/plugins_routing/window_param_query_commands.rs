@@ -167,7 +167,7 @@ fn get_external_plugin_params_for_slot(
             slot.external_state_blob_kind = slot_state.external_state_blob_kind.clone();
             slot.external_preset_blob = slot_state.external_preset_blob.clone();
             slot.external_preset_blob_kind = slot_state.external_preset_blob_kind.clone();
-            let _ = apply_imported_external_state_blob(&mut host, instance_id, &slot);
+            let _ = apply_external_state_blob_with_sandbox(&mut host, instance_id, &slot, &plugin_host_state);
         }
     }
 

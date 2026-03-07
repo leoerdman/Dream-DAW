@@ -80,6 +80,29 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
                     />
                 </SettingRow>
             </SettingsSection>
+
+            <SettingsSection title="Auto-Save" description="Automatically save your project at regular intervals to prevent data loss.">
+                <SettingRow label="Enable Auto-Save">
+                    <Toggle
+                        value={settings.autoSaveEnabled ?? true}
+                        onChange={(next) => updateSetting('autoSaveEnabled', next)}
+                    />
+                </SettingRow>
+                {(settings.autoSaveEnabled ?? true) && (
+                    <SettingRow label="Save Interval">
+                        <Select
+                            value={`${settings.autoSaveIntervalMinutes ?? 3} min`}
+                            options={['1 min', '2 min', '3 min', '5 min', '10 min', '15 min']}
+                            onChange={(v) => {
+                                const minutes = parseInt(v, 10);
+                                if (Number.isFinite(minutes) && minutes > 0) {
+                                    updateSetting('autoSaveIntervalMinutes', minutes);
+                                }
+                            }}
+                        />
+                    </SettingRow>
+                )}
+            </SettingsSection>
         </div>
     );
 }

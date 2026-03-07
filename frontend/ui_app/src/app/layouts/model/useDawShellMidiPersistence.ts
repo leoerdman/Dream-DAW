@@ -230,6 +230,7 @@ export function useDawShellMidiPersistence({
             await applyProjectDeltas(response.deltas, 'daw-shell:midi-variation');
         } catch (error) {
             console.error('[Dream] AI MIDI variation failed:', error);
+            useStatusStore.getState().setError(`AI MIDI variation failed: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
             setAiVariationBusy(false);
         }

@@ -111,7 +111,7 @@ export function useAssetBrowserLogic() {
         formatFilter,
         audioFilter,
         sourceFilter,
-        excludedFormats: settings.browserExcludedFormats ?? [],
+        excludedFormats: settings.browserExcludedFormats ?? ['asd'],
     });
 
     const persistBrowserPrefs = useCallback((patch: {

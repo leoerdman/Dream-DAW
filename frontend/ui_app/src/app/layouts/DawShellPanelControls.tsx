@@ -5,7 +5,9 @@ import { meterNormToDb } from '@/shared/lib/meterManifest';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { clamp01 } from '@/shared/lib/audioMath';
 
-const FADER_SCALE_VALS = [12, 6, 0, -6, -12, -24, -36, -48, -60];
+// ENTERPRISE FIX: Removed misleading +12 — fader max is +6dB (faderToDb(1.0) = 6).
+// Both dbToFader(12) and dbToFader(6) return 1.0, so +12 label overlapped +6 at 100%.
+const FADER_SCALE_VALS = [6, 0, -6, -12, -24, -36, -48, -60];
 const FADER_SCALE_NODES = FADER_SCALE_VALS.map(val => (
     <div key={val} style={{ position: 'absolute', bottom: `${clamp01(dbToFader(val)) * 100}%`, right: 2, transform: 'translateY(50%)', display: 'flex', alignItems: 'center', gap: 2, userSelect: 'none' }}>
         <span>{Math.abs(val)}</span>

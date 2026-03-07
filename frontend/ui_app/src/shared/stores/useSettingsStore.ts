@@ -86,7 +86,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     arrangementGridDivision: 'ADAPTIVE',
     arrangementGridTriplet: false,
     arrangementGridSnapEnabled: true,
-    browserExcludedFormats: [],
+    browserExcludedFormats: ['asd'],
     browserAutoPreview: true,
     autoSaveEnabled: true,
     autoSaveIntervalMinutes: 3,

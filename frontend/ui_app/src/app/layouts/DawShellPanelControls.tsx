@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
+import { meterNormToDb } from '@/shared/lib/meterManifest';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { clamp01 } from '@/shared/lib/audioMath';
 
@@ -179,7 +180,9 @@ function SessionStripFaderInner({
     const panAngle = pan * 135;
 
     // Meter max peak (for numeric display)
-    const maxDbLabel = Math.max(faderToDb(meterL), faderToDb(meterR));
+    // ENTERPRISE FIX: Use meterNormToDb (linear: norm×66−60) instead of faderToDb
+    // (cubic fader curve). faderToDb(0.909) = +3.3dB but the meter value means 0dB.
+    const maxDbLabel = Math.max(meterNormToDb(meterL), meterNormToDb(meterR));
     const peakText = isFinite(maxDbLabel) && maxDbLabel > -60 ? `${maxDbLabel > 0 ? '+' : ''}${maxDbLabel.toFixed(1)}` : '-inf';
     const hasClipped = maxDbLabel >= 0;
 

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 export function useTransportRecording(
     armedTrackIndex: number,
@@ -21,6 +22,7 @@ export function useTransportRecording(
             }
         } catch (err) {
             console.error('[Dream] Recording toggle failed:', err);
+            useStatusStore.getState().setError(`Recording failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, [armedTrackIndex, isRecording, onRecordingStateChange]);
 
@@ -30,6 +32,7 @@ export function useTransportRecording(
             await engineApi.stopRecording();
         } catch (err) {
             console.error('[Dream] stopRecording failed:', err);
+            useStatusStore.getState().setError(`Stop recording failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setIsRecording(false);
             onRecordingStateChange?.({

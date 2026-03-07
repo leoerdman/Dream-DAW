@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::{AudioEngineHandle, AutomationRuntime, ClipPoolState, PluginHostState, ProjectState};
 
+#[allow(dead_code)] // Preserved as backward-compatible API for non-sandbox callers.
 pub fn apply_imported_external_state_blob(
     host: &mut PluginHost,
     instance_id: Uuid,

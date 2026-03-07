@@ -77,7 +77,31 @@ export function AutomationLaneSvg({
             height={height}
             onClick={onSvgClick}
             onDoubleClick={onSvgDoubleClick}
-            style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair', pointerEvents: 'all' }}
+            style={{
+                position: 'absolute', top: 0, left: 0,
+                cursor: 'crosshair',
+                /* ENTERPRISE FIX: Only intercept pointer events for direct interactions
+                   (click/dblclick on breakpoints/lines). Wheel/scroll events pass through. */
+                pointerEvents: 'all',
+            }}
+            onWheel={(e) => {
+                // SCROLL PASSTHROUGH: Forward wheel events to the timeline scroll container
+                // so trackpad scroll/pinch/pan still works when automation is active.
+                const target = e.currentTarget.parentElement?.parentElement?.parentElement;
+                if (target) {
+                    target.dispatchEvent(new WheelEvent('wheel', {
+                        deltaX: e.deltaX,
+                        deltaY: e.deltaY,
+                        deltaMode: e.deltaMode,
+                        ctrlKey: e.ctrlKey,
+                        metaKey: e.metaKey,
+                        shiftKey: e.shiftKey,
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        bubbles: true,
+                    }));
+                }
+            }}
         >
             {/* ── Value Range Labels ──────────────────────────────────── */}
             <text
@@ -163,35 +187,47 @@ export function AutomationLaneSvg({
             {fillPath && <path d={fillPath} fill={lane.color} opacity={fillOpacity} />}
 
             {linePath && (
-                <path
-                    d={linePath}
-                    fill="none"
-                    stroke={lane.color}
-                    strokeWidth={lineWidth}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    onMouseDown={(e) => {
-                        const localX = e.nativeEvent.offsetX;
-                        const localY = e.nativeEvent.offsetY;
-                        let bestIdx = -1;
-                        let bestDist = Number.POSITIVE_INFINITY;
-                        for (let i = 0; i < bps.length - 1; i++) {
-                            const x1 = beatToX(bps[i].beat);
-                            const x2 = beatToX(bps[i + 1].beat);
-                            if (localX < Math.min(x1, x2) - 8 || localX > Math.max(x1, x2) + 8) continue;
-                            const t = Math.abs(x2 - x1) < 1e-6 ? 0 : (localX - x1) / (x2 - x1);
-                            const y1 = valueToPxY(bps[i].value);
-                            const y2 = valueToPxY(bps[i + 1].value);
-                            const y = y1 + (y2 - y1) * clamp01(t);
-                            const dist = Math.abs(localY - y);
-                            if (dist < bestDist) {
-                                bestDist = dist;
-                                bestIdx = i;
+                <>
+                    {/* Invisible wide hit area for line — easy to grab */}
+                    <path
+                        d={linePath}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth={14}
+                        strokeLinecap="round"
+                        onMouseDown={(e) => {
+                            const localX = e.nativeEvent.offsetX;
+                            const localY = e.nativeEvent.offsetY;
+                            let bestIdx = -1;
+                            let bestDist = Number.POSITIVE_INFINITY;
+                            for (let i = 0; i < bps.length - 1; i++) {
+                                const x1 = beatToX(bps[i].beat);
+                                const x2 = beatToX(bps[i + 1].beat);
+                                if (localX < Math.min(x1, x2) - 8 || localX > Math.max(x1, x2) + 8) continue;
+                                const t = Math.abs(x2 - x1) < 1e-6 ? 0 : (localX - x1) / (x2 - x1);
+                                const y1 = valueToPxY(bps[i].value);
+                                const y2 = valueToPxY(bps[i + 1].value);
+                                const y = y1 + (y2 - y1) * clamp01(t);
+                                const dist = Math.abs(localY - y);
+                                if (dist < bestDist) {
+                                    bestDist = dist;
+                                    bestIdx = i;
+                                }
                             }
-                        }
-                        if (bestIdx >= 0) onLineMouseDown(e, bps[bestIdx].id);
-                    }}
-                />
+                            if (bestIdx >= 0) onLineMouseDown(e, bps[bestIdx].id);
+                        }}
+                    />
+                    {/* Visible thin line */}
+                    <path
+                        d={linePath}
+                        fill="none"
+                        stroke={lane.color}
+                        strokeWidth={lineWidth}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ pointerEvents: 'none' }}
+                    />
+                </>
             )}
 
             {bps.map((bp, idx) => {
@@ -243,6 +279,23 @@ export function AutomationLaneSvg({
 
                 return (
                     <g key={bp.id}>
+                        {/* ── INVISIBLE HIT TARGET — r=14 for easy clicking ── */}
+                        <circle
+                            cx={x}
+                            cy={y}
+                            r={14}
+                            fill="transparent"
+                            style={{ cursor: 'grab' }}
+                            onMouseDown={(e) => onBpMouseDown(e, bp.id)}
+                            onDoubleClick={(e) => onBpDblClick(e, bp.id)}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onBpCurveToggle(bp.id);
+                            }}
+                            onMouseEnter={() => onHoverChange(bp.id)}
+                            onMouseLeave={() => onHoverChange(null)}
+                        />
                         {/* ── ENTERPRISE: Step curve indicator (square) ── */}
                         {isStep ? (
                             <rect
@@ -256,19 +309,10 @@ export function AutomationLaneSvg({
                                 strokeWidth={isSelected ? 2 : 1}
                                 style={{
                                     cursor: 'grab',
-                                    transition: 'all 100ms ease',
                                     filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
                                     opacity: curveDragBp === bp.id ? 0.9 : 1,
+                                    pointerEvents: 'none',
                                 }}
-                                onMouseDown={(e) => onBpMouseDown(e, bp.id)}
-                                onDoubleClick={(e) => onBpDblClick(e, bp.id)}
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    onBpCurveToggle(bp.id);
-                                }}
-                                onMouseEnter={() => onHoverChange(bp.id)}
-                                onMouseLeave={() => onHoverChange(null)}
                             />
                         ) : (
                             <circle
@@ -280,19 +324,10 @@ export function AutomationLaneSvg({
                                 strokeWidth={isSelected ? 2 : 1}
                                 style={{
                                     cursor: 'grab',
-                                    transition: 'r var(--transition-micro)',
                                     filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
                                     opacity: curveDragBp === bp.id ? 0.9 : 1,
+                                    pointerEvents: 'none',
                                 }}
-                                onMouseDown={(e) => onBpMouseDown(e, bp.id)}
-                                onDoubleClick={(e) => onBpDblClick(e, bp.id)}
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    onBpCurveToggle(bp.id);
-                                }}
-                                onMouseEnter={() => onHoverChange(bp.id)}
-                                onMouseLeave={() => onHoverChange(null)}
                             />
                         )}
                         {/* ── ENTERPRISE: Hover value tooltip ── */}

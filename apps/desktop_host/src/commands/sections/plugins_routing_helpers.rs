@@ -219,7 +219,7 @@ pub fn load_external_slots_best_effort(
                 if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
                     {
                         let mut host = plugin_host_state.host.lock();
-                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
+                        if let Err(err) = apply_external_state_blob_with_sandbox(&mut host, instance_id, slot, plugin_host_state) {
                             log::warn!(
                                 "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
                                 slot.name,
@@ -278,7 +278,7 @@ pub fn load_external_slot_best_effort(
             {
                 {
                     let mut host = plugin_host_state.host.lock();
-                    if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
+                    if let Err(err) = apply_external_state_blob_with_sandbox(&mut host, instance_id, slot, plugin_host_state) {
                         log::warn!(
                             "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
                             slot.name,

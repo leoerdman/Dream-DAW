@@ -136,10 +136,15 @@ export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) => 
     const safe = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 1.0;
     return safeInvoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume: safe });
 };
-export const setTrackPan = (trackIndex: number, pan: number) =>
-    safeInvoke<void>('set_track_pan', { trackIndex, pan });
-export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>
-    safeInvoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
+// ENTERPRISE FIX: Clamp track pan at API boundary — range -1..1 (hard left to hard right).
+export const setTrackPan = (trackIndex: number, pan: number) => {
+    const safe = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
+    return safeInvoke<void>('set_track_pan', { trackIndex, pan: safe });
+};
+export const setTrackPanWithDeltas = (trackIndex: number, pan: number) => {
+    const safe = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
+    return safeInvoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan: safe });
+};
 // BUG-013 FIX: Clamp master volume at API boundary — prevents NaN/Infinity/negative from reaching backend.
 export const setMasterVolume = (volume: number) => {
     const safe = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 1.0;

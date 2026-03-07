@@ -152,7 +152,7 @@ fn eager_activate_external_plugins(
                     slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
 
                     if let Err(err) =
-                        apply_imported_external_state_blob(&mut host, instance_id, &slot_restore)
+                        apply_external_state_blob_with_sandbox(&mut host, instance_id, &slot_restore, &plugin_host_state)
                     {
                         log::warn!(
                             "[EagerActivate] State restore failed for '{}' (slot {}): {}",

@@ -116,19 +116,49 @@ fn close_plugin_window_for_slot(
         }
 
         // State comparison: detect silent preset changes.
+        // ENTERPRISE SANDBOX FIX: When a plugin runs in a sandbox daemon,
+        // `save_instance_state()` returns `None` because `SandboxedPluginInstance`
+        // uses the default `save_state()` trait implementation (returns empty Vec).
+        // Fall back to synchronous IPC state fetch from the sandbox daemon.
         {
             let host = plugin_host_state.host.lock();
-            if let Some(live_bytes) = host.save_instance_state(instance_id) {
+            let live_b64: Option<String> = if let Some(live_bytes) = host.save_instance_state(instance_id) {
                 use base64::Engine;
-                let live_b64 = base64::engine::general_purpose::STANDARD.encode(&live_bytes);
+                Some(base64::engine::general_purpose::STANDARD.encode(&live_bytes))
+            } else {
+                // In-process path returned None — try sandbox IPC fallback.
+                drop(host); // Release PluginHost lock before taking supervisor lock.
+                let sandbox_result = {
+                    let mut supervisor = plugin_host_state.sandbox_supervisor.lock();
+                    supervisor.request_state_and_wait(instance_id)
+                };
+                match sandbox_result {
+                    Ok(b64) => {
+                        log::info!(
+                            "[IPC] close_plugin_window_for_slot: captured sandbox state for instance {} ({} bytes b64)",
+                            instance_id,
+                            b64.len()
+                        );
+                        Some(b64)
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[IPC] close_plugin_window_for_slot: sandbox state fetch failed for {}: {}",
+                            instance_id,
+                            e
+                        );
+                        None
+                    }
+                }
+            };
+
+            if let Some(live_b64) = live_b64 {
                 let state_changed = stored_blob.as_deref() != Some(&live_b64);
                 if state_changed {
                     log::info!(
                         "[IPC] close_plugin_window_for_slot: plugin state changed (slot={}), marking dirty",
                         slot_id
                     );
-                    // Release PluginHost lock before project lock.
-                    drop(host);
                     let cmd = dream_orchestrator::commands::UpdatePluginExternalStateBlobCommand {
                         track_id: track_uuid,
                         slot_id: slot_uuid,

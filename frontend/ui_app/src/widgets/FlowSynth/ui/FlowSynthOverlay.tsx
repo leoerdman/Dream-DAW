@@ -6,6 +6,7 @@ import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 import { FACTORY_PRESETS } from '../model/flowPresets';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 // ── ENTERPRISE: Named constants ────────────────────────────────────────────
 /** Floating preset bar positioning. */
@@ -151,7 +152,10 @@ function FloatingPresetBar() {
                     delete updated[activeDeviceId];
                     useFlowSynthStore.setState({ graphsByDeviceId: updated });
                 }
-                void useFlowSynthStore.getState().syncFlowGraphToEngine().catch(console.error);
+                void useFlowSynthStore.getState().syncFlowGraphToEngine().catch((err) => {
+                    console.error('[FlowSynth] syncFlowGraphToEngine failed:', err);
+                    useStatusStore.getState().setError(`Flow Synth sync failed: ${err instanceof Error ? err.message : String(err)}`);
+                });
             }
         } catch (err) {
             console.error('[FlowSynth] loadPreset failed:', err);

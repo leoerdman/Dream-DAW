@@ -948,6 +948,34 @@ impl PluginSandboxSupervisor {
         )
     }
 
+    /// ENTERPRISE: Restore a saved state blob to a sandboxed plugin instance.
+    ///
+    /// Sends the `RestoreState` IPC message to the sandbox daemon, which applies
+    /// the state to the VST3 plugin via its component/controller `setState` calls.
+    ///
+    /// This is the sandbox-aware counterpart of `PluginHost::load_state_blob()`.
+    /// Must be called instead of (or as fallback for) the in-process load path
+    /// when the plugin lives in a sandbox daemon.
+    pub fn send_restore_state(
+        &mut self,
+        instance_id: Uuid,
+        state_blob_b64: String,
+    ) -> Result<(), PluginError> {
+        let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+            PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+        })?;
+        let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
+            PluginError::InvalidState("Sandbox control pipe is not available".to_string())
+        })?;
+        Self::send_control_message(
+            stdin,
+            &PluginHostControlMessage::RestoreState {
+                instance_id,
+                state_blob_b64,
+            },
+        )
+    }
+
     /// ENTERPRISE: Synchronous state fetch for project saving.
     /// Sends SaveStateAndWait, then blocks the calling thread (up to 500ms) until StateSaved is received.
     /// Any other IPC events received during this block are queued into `pending_events`.

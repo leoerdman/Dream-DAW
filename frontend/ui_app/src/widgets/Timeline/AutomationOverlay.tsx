@@ -180,7 +180,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                         left: 0,
                                         width,
                                         height: laneH,
-                                        pointerEvents: 'all',
+                                        pointerEvents: 'none',
                                         background: isFirstLane
                                             ? 'transparent'
                                             : 'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',

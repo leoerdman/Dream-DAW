@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import * as engineApi from '@/shared/api/engine';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
@@ -8,6 +9,81 @@ import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots';
 import { DeviceContextMenuPopup } from '@/widgets/DeviceRack/ui/DeviceContextMenuPopup';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { clamp01 } from '@/shared/lib/audioMath';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
+
+const DeviceRackInputMeter = React.memo(function DeviceRackInputMeter({
+    trackId,
+    isMaster,
+    isMidi,
+}: {
+    trackId: string;
+    isMaster: boolean;
+    isMidi: boolean;
+}) {
+    const meterLRef = React.useRef(0);
+    const meterRRef = React.useRef(0);
+    const holdLRef = React.useRef(0);
+    const holdRRef = React.useRef(0);
+    const rafIdRef = React.useRef(0);
+    const mountedRef = React.useRef(true);
+    const lastValuesRef = React.useRef({ mL: 0, mR: 0, hL: 0, hR: 0 });
+
+    const [, setTick] = React.useState(0);
+    const forceUpdateRef = React.useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
+    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+
+    React.useEffect(() => {
+        mountedRef.current = true;
+        const unsub = useEngineStore.subscribe((state) => {
+            const trackIndex = state.tracks.allIds.indexOf(trackId);
+            const meterPair = isMaster ? null : (trackIndex >= 0 ? state.meters.tracks[trackIndex] ?? null : null);
+
+            const peakDbL = isMaster ? state.meters.master_left.peak : (meterPair?.[0]?.peak ?? -96);
+            const peakDbR = isMaster ? state.meters.master_right.peak : (meterPair?.[1]?.peak ?? -96);
+
+            const mL = clamp01(dbToMeterNorm(peakDbL));
+            const mR = clamp01(dbToMeterNorm(peakDbR));
+
+            const peakHoldDbL = isMaster ? (state.meters.master_left.peak_hold ?? peakDbL) : (meterPair?.[0]?.peak_hold ?? peakDbL);
+            const peakHoldDbR = isMaster ? (state.meters.master_right.peak_hold ?? peakDbR) : (meterPair?.[1]?.peak_hold ?? peakDbR);
+
+            const hL = clamp01(dbToMeterNorm(peakHoldDbL));
+            const hR = clamp01(dbToMeterNorm(peakHoldDbR));
+
+            const last = lastValuesRef.current;
+            if (mL === last.mL && mR === last.mR && hL === last.hL && hR === last.hR) return;
+
+            meterLRef.current = mL;
+            meterRRef.current = mR;
+            holdLRef.current = hL;
+            holdRRef.current = hR;
+            lastValuesRef.current = { mL, mR, hL, hR };
+
+            if (rafIdRef.current) return;
+            rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = 0;
+                if (mountedRef.current) forceUpdateRef.current();
+            });
+        });
+
+        return () => {
+            mountedRef.current = false;
+            unsub();
+            if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+        };
+    }, [trackId, isMaster]);
+
+    return (
+        <MeterStrip
+            levelL={meterLRef.current}
+            levelR={meterRRef.current}
+            peakHoldL={holdLRef.current}
+            peakHoldR={holdRRef.current}
+            isMidi={isMidi}
+        />
+    );
+});
 
 interface DeviceRackContentProps {
     logic: DeviceRackLogicOutput;
@@ -18,12 +94,12 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
     const {
         chain,
         selectedTrack,
+        selectedTrackId,
+        isMaster,
         rackRef,
         selectedDeviceIds,
         isDropActive,
         draggingItem,
-        inLevelL,
-        inLevelR,
         selectDevice,
         statusClear,
     } = logic;
@@ -81,7 +157,11 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                     ...(rackExpanded ? { '--rack-row-height': 'calc(50% - var(--space-1-5) / 2)' } as React.CSSProperties : {}),
                 }}
             >
-                <MeterStrip levelL={inLevelL} levelR={inLevelR} isMidi={selectedTrack?.track_type === 'Midi'} />
+                <DeviceRackInputMeter
+                    trackId={selectedTrackId}
+                    isMaster={isMaster}
+                    isMidi={selectedTrack?.track_type === 'Midi'}
+                />
                 {chain.length > 0 ? (
                     chain.map((device, deviceIndex) => (
                         <DeviceSlot

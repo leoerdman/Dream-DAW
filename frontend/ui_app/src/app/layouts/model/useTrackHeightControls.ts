@@ -15,6 +15,7 @@ import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
+import type { AutomationLane } from '@/shared/stores/useAutomationStore';
 
 type Args = {
     tracksEntitySnapshot: EntityState<ProjectTrack>;
@@ -22,6 +23,8 @@ type Args = {
     selectedTrackIdRef: React.MutableRefObject<string>;
     selectedTrackIdsRef: React.MutableRefObject<string[]>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
+    automationVisible: boolean;
+    lanes: Record<string, AutomationLane>;
 };
 
 type Result = {
@@ -38,6 +41,8 @@ export function useTrackHeightControls({
     selectedTrackIdRef,
     selectedTrackIdsRef,
     applyProjectDeltas,
+    automationVisible,
+    lanes,
 }: Args): Result {
     const trackIdsSnapshot = tracksEntitySnapshot.allIds;
     const tracksByIdSnapshot = tracksEntitySnapshot.byId;
@@ -196,9 +201,19 @@ export function useTrackHeightControls({
             if (hiddenTrackIndices.has(idx)) return 0;
             const track = tracksByIdSnapshot[trackId];
             const persisted = Number.isFinite(track.height) ? track.height : TRACK_HEIGHT_BASE;
-            return clampTrackHeightPx(persisted);
+
+            // ENTERPRISE FIX: Add automation lane heights so Timeline perfectly syncs with TrackInspector
+            let additionalHeight = 0;
+            if (automationVisible) {
+                const trackLanes = Object.values(lanes).filter(l => l.trackId === trackId && l.visible);
+                if (trackLanes.length > 0) {
+                    additionalHeight = Math.max(0, trackLanes.length - 1) * 48; // LANE_HEIGHT
+                }
+            }
+
+            return clampTrackHeightPx(persisted) + additionalHeight;
         });
-    }, [trackIdsSnapshot, tracksByIdSnapshot, hiddenTrackIndices]);
+    }, [trackIdsSnapshot, tracksByIdSnapshot, hiddenTrackIndices, automationVisible, lanes]);
 
     const resetTrackHeights = useCallback(() => {
         const trackIds = trackIdsSnapshot.filter((id) => id && id !== 'master');

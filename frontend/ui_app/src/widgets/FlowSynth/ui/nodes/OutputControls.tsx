@@ -4,6 +4,8 @@ import type { SynthNode } from '../../model/useFlowSynthStore';
 import { useFlowSynthStore } from '../../model/useFlowSynthStore';
 import { RotaryKnob } from './RotaryKnob';
 import { useEngineStore } from '../../../../shared/stores/useEngineStore';
+import { dbToMeterNorm } from '../../../../shared/lib/meterManifest';
+import { clamp01 } from '../../../../shared/lib/audioMath';
 
 interface Props {
     node: SynthNode;
@@ -62,11 +64,22 @@ export function OutputControls({ node }: Props) {
 
     useEffect(() => {
         const unsub = useEngineStore.subscribe((state) => {
-            const masterL = Number(state.meters?.master_left ?? 0);
-            const masterR = Number(state.meters?.master_right ?? 0);
-            // Scale to percentage (meters are 0..1 range)
-            const pctL = Math.min(100, Math.max(0, masterL * 100));
-            const pctR = Math.min(100, Math.max(0, masterR * 100));
+            const trackId = useFlowSynthStore.getState().activeTrackId;
+            let peakDbL = -96;
+            let peakDbR = -96;
+
+            if (trackId) {
+                const trackIdx = state.tracks.allIds.indexOf(trackId);
+                if (trackIdx >= 0) {
+                    const meterPair = state.meters.tracks[trackIdx];
+                    peakDbL = meterPair?.[0]?.peak ?? -96;
+                    peakDbR = meterPair?.[1]?.peak ?? -96;
+                }
+            }
+
+            const pctL = clamp01(dbToMeterNorm(peakDbL)) * 100;
+            const pctR = clamp01(dbToMeterNorm(peakDbR)) * 100;
+
             if (meterLRef.current) meterLRef.current.style.width = `${pctL}%`;
             if (meterRRef.current) meterRRef.current.style.width = `${pctR}%`;
         });

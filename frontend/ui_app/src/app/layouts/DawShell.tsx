@@ -105,6 +105,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
+    const lanes = useAutomationStore(s => s.lanes);
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const gridSnapEnabled = useGridStore((s) => s.snapEnabled);
@@ -410,6 +411,8 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         selectedTrackIdRef,
         selectedTrackIdsRef,
         applyProjectDeltas,
+        automationVisible,
+        lanes,
     });
     const { resolveAnchorBeat } = usePlaybackStartAnchor({
         transportIsPlaying,

@@ -79,28 +79,11 @@ export function AutomationLaneSvg({
             onDoubleClick={onSvgDoubleClick}
             style={{
                 position: 'absolute', top: 0, left: 0,
-                cursor: 'crosshair',
-                /* ENTERPRISE FIX: Only intercept pointer events for direct interactions
-                   (click/dblclick on breakpoints/lines). Wheel/scroll events pass through. */
-                pointerEvents: 'all',
-            }}
-            onWheel={(e) => {
-                // SCROLL PASSTHROUGH: Forward wheel events to the timeline scroll container
-                // so trackpad scroll/pinch/pan still works when automation is active.
-                const target = e.currentTarget.parentElement?.parentElement?.parentElement;
-                if (target) {
-                    target.dispatchEvent(new WheelEvent('wheel', {
-                        deltaX: e.deltaX,
-                        deltaY: e.deltaY,
-                        deltaMode: e.deltaMode,
-                        ctrlKey: e.ctrlKey,
-                        metaKey: e.metaKey,
-                        shiftKey: e.shiftKey,
-                        clientX: e.clientX,
-                        clientY: e.clientY,
-                        bubbles: true,
-                    }));
-                }
+                cursor: 'crosshair', // Still useful if they hover a line
+                /* ENTERPRISE FIX: Completely transparent to pointer events at the root.
+                   This enables perfect 120fps native trackpad pan/scroll bypassing JS entirely.
+                   Individual interactable lines and points opt back in with pointerEvents: 'all'. */
+                pointerEvents: 'none',
             }}
         >
             {/* ── Value Range Labels ──────────────────────────────────── */}
@@ -122,6 +105,18 @@ export function AutomationLaneSvg({
             {/* ── Default Line (when no breakpoints) ─────────────────── */}
             {!hasBreakpoints && (
                 <>
+                    {/* Invisible hit target for default line — allows double clicking to start automation */}
+                    <line
+                        x1={0} y1={defaultY}
+                        x2={width} y2={defaultY}
+                        stroke="transparent"
+                        strokeWidth={14}
+                        style={{ pointerEvents: 'all', cursor: 'crosshair' }}
+                        onDoubleClick={(e) => {
+                            // Synthesize an onLineMouseDown-style or onSvgDoubleClick event
+                            onSvgDoubleClick(e);
+                        }}
+                    />
                     <line
                         x1={0} y1={defaultY}
                         x2={width} y2={defaultY}
@@ -166,7 +161,7 @@ export function AutomationLaneSvg({
                             stroke={lane.color}
                             strokeOpacity={0.35}
                             strokeWidth={1}
-                            style={{ cursor: 'grab' }}
+                            style={{ cursor: 'grab', pointerEvents: 'all' }}
                             onMouseDown={(e) => onItemDragStart(e, item.itemId)}
                         />
                         <rect
@@ -177,7 +172,7 @@ export function AutomationLaneSvg({
                             rx={2}
                             fill={lane.color}
                             opacity={0.75}
-                            style={{ cursor: 'ew-resize' }}
+                            style={{ cursor: 'ew-resize', pointerEvents: 'all' }}
                             onMouseDown={(e) => onItemResizeStart(e, item.itemId)}
                         />
                     </g>
@@ -195,6 +190,8 @@ export function AutomationLaneSvg({
                         stroke="transparent"
                         strokeWidth={14}
                         strokeLinecap="round"
+                        style={{ pointerEvents: 'all', cursor: 'crosshair' }}
+                        onDoubleClick={(e) => onSvgDoubleClick(e)}
                         onMouseDown={(e) => {
                             const localX = e.nativeEvent.offsetX;
                             const localY = e.nativeEvent.offsetY;
@@ -262,7 +259,7 @@ export function AutomationLaneSvg({
                             fillOpacity={active ? 1 : 0.85}
                             stroke={lane.color}
                             strokeWidth={1}
-                            style={{ cursor: 'ns-resize' }}
+                            style={{ cursor: 'ns-resize', pointerEvents: 'all' }}
                             onMouseDown={(e) => onLineMouseDown(e, bp.id)}
                         />
                     </g>
@@ -285,7 +282,7 @@ export function AutomationLaneSvg({
                             cy={y}
                             r={14}
                             fill="transparent"
-                            style={{ cursor: 'grab' }}
+                            style={{ cursor: 'grab', pointerEvents: 'all' }}
                             onMouseDown={(e) => onBpMouseDown(e, bp.id)}
                             onDoubleClick={(e) => onBpDblClick(e, bp.id)}
                             onContextMenu={(e) => {

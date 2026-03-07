@@ -22,8 +22,8 @@ interface AutomationLaneProps {
     scrollOffsetBeats: number;
 }
 
-const BP_RADIUS = 5;
-const BP_RADIUS_HOVER = 7;
+const BP_RADIUS = 6;
+const BP_RADIUS_HOVER = 8;
 const LINE_WIDTH = 1.5;
 const FILL_OPACITY = 0.12;
 const CURVE_TENSION_DEFAULT = 0.35;

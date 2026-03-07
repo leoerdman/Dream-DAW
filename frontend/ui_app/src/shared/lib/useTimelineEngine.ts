@@ -93,9 +93,15 @@ export function useTimelineEngine(
         const engine = new TimelineEngine(engineConfig);
         engineRef.current = engine;
 
-        // Wire viewport flush
+        // Wire viewport flush with rAF throttling to prevent React/Zustand render thrashing
+        // during high-frequency native trackpad scrolling/zooming.
+        let flushRafId = 0;
         engine.onViewportFlush = (snap) => {
-            setViewportState(snap);
+            if (flushRafId) return;
+            flushRafId = requestAnimationFrame(() => {
+                flushRafId = 0;
+                setViewportState(snap);
+            });
         };
 
         // Attach to canvas when available
@@ -105,6 +111,7 @@ export function useTimelineEngine(
         }
 
         return () => {
+            if (flushRafId) cancelAnimationFrame(flushRafId);
             engine.destroy();
             engineRef.current = null;
         };

@@ -115,7 +115,8 @@ export const PluginFader = React.memo(({
         }, 300);
         const range = param.max - param.min;
         const step = param.step && param.step > 0 ? param.step : range / 100;
-        const mul = e.shiftKey ? 4 : e.altKey ? 0.2 : 1;
+        // ENTERPRISE: Shift = 10x finer, Alt = 4x coarser (industry-standard DAW convention).
+        const mul = e.shiftKey ? 0.1 : e.altKey ? 4 : 1;
         // Horizontal: left = decrease, right = increase; vertical wheel: up = increase
         const delta = (e.deltaY < 0 || e.deltaX > 0 ? 1 : -1) * step * mul;
         onChange(param.name, quantizeValue(safeValue + delta));

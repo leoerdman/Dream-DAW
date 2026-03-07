@@ -188,6 +188,8 @@ export function DeviceSlot({
                                     trackSet.delete(device.id);
                                     return { openEditorsByTrack: { ...s.openEditorsByTrack, [selectedTrack.id]: trackSet } };
                                 });
+                                // AUTO-SWITCH: Notify DawShell to leave flow view
+                                window.dispatchEvent(new CustomEvent('dream:flow-view-close'));
                             } else {
                                 // Open Flow + add to openEditorsByTrack → eye turns green
                                 flowState.openFlowEditor(device.id, selectedTrack.id);
@@ -196,6 +198,8 @@ export function DeviceSlot({
                                     trackSet.add(device.id);
                                     return { openEditorsByTrack: { ...s.openEditorsByTrack, [selectedTrack.id]: trackSet } };
                                 });
+                                // AUTO-SWITCH: Notify DawShell to enter flow view
+                                window.dispatchEvent(new CustomEvent('dream:flow-view-open'));
                             }
                         } else if (device.source !== 'internal') {
                             await logic.ensureSlotRuntimeActive(device.id);

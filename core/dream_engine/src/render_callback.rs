@@ -108,6 +108,12 @@ pub struct TrackSlot {
     pub midi_schedule_tmp: Vec<dream_clip_engine::midi_scheduler::ScheduledNote>,
     /// Thread-local scratch buffer for sorted MIDI events.
     pub midi_events_scratch: Vec<(usize, u8, u8, u8, u64)>,
+    /// HOLD-LAST-OUTPUT: Cached left channel from last successful VST processing.
+    /// NOT cleared in clear() — intentionally persists across audio callbacks
+    /// so lock-miss replay has valid audio data.
+    pub vst_hold_left: Vec<f32>,
+    /// HOLD-LAST-OUTPUT: Cached right channel from last successful VST processing.
+    pub vst_hold_right: Vec<f32>,
 }
 
 impl TrackSlot {
@@ -138,6 +144,8 @@ impl TrackSlot {
             midi_schedule_scratch: Vec::with_capacity(4096),
             midi_schedule_tmp: Vec::with_capacity(4096),
             midi_events_scratch: Vec::with_capacity(4096),
+            vst_hold_left: vec![0.0; max_frames],
+            vst_hold_right: vec![0.0; max_frames],
         }
     }
 

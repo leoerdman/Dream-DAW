@@ -279,6 +279,14 @@ const NodeSchemas: Record<SynthNodeType, z.ZodObject<any>> = {
     add: z.object({ label: flowString }),
     multiply: z.object({ label: flowString, scale: flowNumber }),
     sampleHold: z.object({ label: flowString }),
+    number: z.object({ label: flowString, value: flowNumber }),
+    quantize: z.object({ label: flowString, scaleMode: flowNumber, rootNote: flowNumber }),
+    midiToFreq: z.object({ label: flowString }),
+    freqToMidi: z.object({ label: flowString }),
+    abs: z.object({ label: flowString }),
+    negate: z.object({ label: flowString }),
+    map: z.object({ label: flowString, minIn: flowNumber, maxIn: flowNumber }),
+    clamp: z.object({ label: flowString, min: flowNumber, max: flowNumber }),
 };
 
 /**

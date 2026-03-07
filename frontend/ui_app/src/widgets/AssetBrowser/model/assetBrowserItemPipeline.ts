@@ -28,6 +28,7 @@ const FORMAT_GROUP_EXTENSIONS: Record<string, string[]> = {
     caf: ['caf'],
     wma: ['wma'],
     webm: ['webm'],
+    asd: ['asd'],
 };
 
 /** Build a Set of lowercased extensions that belong to any of the excluded format groups. */

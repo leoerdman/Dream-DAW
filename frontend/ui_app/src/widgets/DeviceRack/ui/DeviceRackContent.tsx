@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import * as engineApi from '@/shared/api/engine';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
@@ -32,10 +32,13 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
     const selectedDeviceId = selectedDeviceIds[0] ?? '';
     const pluginDragName = draggingItem?.type === 'plugin' ? draggingItem.name : '';
     const isPluginDropActive = isDropActive && draggingItem?.type === 'plugin';
-    const effectIds = (selectedTrack?.effects ?? [])
-        .map((effect) => effect?.id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const effectIdSet = new Set(effectIds);
+    const effectIds = useMemo(() =>
+        (selectedTrack?.effects ?? [])
+            .map((effect) => effect?.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+        [selectedTrack?.effects],
+    );
+    const effectIdSet = useMemo(() => new Set(effectIds), [effectIds]);
 
     return (
         <div

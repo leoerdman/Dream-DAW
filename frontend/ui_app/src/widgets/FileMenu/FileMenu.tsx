@@ -69,8 +69,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncProjectHistory();
             onProjectChange?.();
 
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] New project failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Create Project', kind: 'error' });
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -92,8 +94,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncProjectHistory();
             onProjectChange?.();
 
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Open failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Open Project', kind: 'error' });
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -113,8 +117,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await syncProjectHistory();
             onProjectChange?.();
 
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Open recent failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Open Recent Project', kind: 'error' });
         }
     }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
@@ -125,8 +131,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         if (typeof globalSaveAs === 'function') {
             try {
                 await globalSaveAs();
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('[Dream] Save As (via global bridge) failed:', err);
+                const { message } = await import('@tauri-apps/plugin-dialog');
+                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project As', kind: 'error' });
             }
             return;
         }
@@ -142,8 +150,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             await engineApi.saveProjectAs(path);
             await syncProjectHistory();
 
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Save As failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project As', kind: 'error' });
         }
     }, [syncProjectHistory, syncArrangementViewport]);
 
@@ -154,8 +164,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         if (typeof globalSave === 'function') {
             try {
                 await globalSave();
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('[Dream] Save (via global bridge) failed:', err);
+                const { message } = await import('@tauri-apps/plugin-dialog');
+                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project', kind: 'error' });
             }
             return;
         }

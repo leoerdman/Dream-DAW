@@ -80,7 +80,8 @@ export function RotaryKnob({
             if (!dragRef.current) return;
             const dy = dragRef.current.startY - me.clientY;
             const range = max - min;
-            const sensitivity = me.shiftKey ? 600 : 200;
+            // SHIFT FINE-TUNE: 10x finer control (2000 vs 200) — matches PortRowFader behavior.
+            const sensitivity = me.shiftKey ? 2000 : 200;
             let newValue = dragRef.current.startValue + (dy / sensitivity) * range;
             newValue = Math.round(newValue / step) * step;
             newValue = Math.max(min, Math.min(max, newValue));

@@ -130,7 +130,8 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                         key={tonic}
                                         onClick={() => {
                                             onSelectKeyTonic(idx);
-                                            setKeyMenuOpen(false);
+                                            // ENTERPRISE FIX: Keep menu open after tonic selection
+                                            // so user can also adjust mode without reopening.
                                         }}
                                         style={keyMenuItemStyle(idx === keyTonic)}
                                     >

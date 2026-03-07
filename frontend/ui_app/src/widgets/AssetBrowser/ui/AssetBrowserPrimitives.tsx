@@ -192,22 +192,45 @@ export const FilterPill = ({
     value: number;
     onChange: (v: number) => void;
 }) => (
-    <button
-        onClick={() => onChange((value + 1) % options.length)}
-        aria-label={options[value]}
-        title={options[value]}
-        style={{
-            background: value > 0 ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+    <div style={{ position: 'relative', display: 'inline-flex' }}>
+        <select
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            aria-label={options[value]}
+            title={options[value]}
+            style={{
+                background: value > 0 ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+                color: value > 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                border: '1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+                borderRadius: 'var(--radius-xs)',
+                padding: 'var(--token-size-px-3) var(--space-6) var(--token-size-px-3) var(--space-1-5)',
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                fontWeight: 'var(--font-weight-semibold)',
+                appearance: 'none',
+                outline: 'none',
+                minWidth: 0,
+            }}
+        >
+            {options.map((opt, idx) => (
+                <option key={idx} value={idx}>{opt}</option>
+            ))}
+        </select>
+        <div style={{
+            position: 'absolute',
+            right: 6,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
             color: value > 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderRadius: 'var(--radius-xs)',
-            padding: 'var(--token-size-px-3) var(--space-1-5)',
-            fontSize: 'var(--font-size-xs)',
-            cursor: 'pointer',
-            fontWeight: 'var(--font-weight-semibold)',
-            whiteSpace: 'nowrap',
-        }}
-    >
-        {options[value]}
-    </button>
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: 0.7,
+        }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+            </svg>
+        </div>
+    </div>
 );

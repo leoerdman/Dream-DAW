@@ -185,8 +185,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 }
             }
             await refreshStatus();
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Save failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project', kind: 'error' });
         } finally {
             isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
@@ -226,8 +228,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 }
                 await refreshStatus();
             }
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Save As failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project As', kind: 'error' });
         } finally {
             isSavingRef.current = false;
             setState((prev) => ({ ...prev, isSaving: false }));
@@ -250,8 +254,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] New project failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Create Project', kind: 'error' });
         }
     }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Open project — picks file, confirms if dirty. */
@@ -280,8 +286,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 await refreshStatus();
                 onProjectLoaded?.();
             }
-        } catch (err) {
+        } catch (err: unknown) {
             console.error('[Dream] Open failed:', err);
+            const { message } = await import('@tauri-apps/plugin-dialog');
+            await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Open Project', kind: 'error' });
         }
     }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Manually create a backup. */

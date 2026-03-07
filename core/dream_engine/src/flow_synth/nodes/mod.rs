@@ -18,6 +18,14 @@ pub mod vca;
 pub mod pitch;
 pub mod utility;
 pub mod distortion;
+pub mod number;
+pub mod quantize;
+pub mod midi_to_freq;
+pub mod freq_to_midi;
+pub mod math_abs;
+pub mod math_negate;
+pub mod math_map;
+pub mod math_clamp;
 
 pub use oscillator::OscillatorNode;
 pub use filter::FilterNode;
@@ -39,4 +47,12 @@ pub use vca::VcaNode;
 pub use pitch::PitchNode;
 pub use utility::UtilityNode;
 pub use distortion::DistortionNode;
+pub use number::NumberNode;
+pub use quantize::QuantizeNode;
+pub use midi_to_freq::MidiToFreqNode;
+pub use freq_to_midi::FreqToMidiNode;
+pub use math_abs::MathAbsNode;
+pub use math_negate::MathNegateNode;
+pub use math_map::MathMapNode;
+pub use math_clamp::MathClampNode;
 

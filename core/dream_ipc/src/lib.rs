@@ -26,7 +26,9 @@ pub mod prealloc_queue;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlowNodeType {
     Oscillator, Filter, Envelope, Eq, AutoFilter, Reverse, Output, MidiIn, Lfo, Noise, 
-    Delay, Mixer, Multiply, Vca, Utility, Add, SampleHold, AudioIn, Pitch, Distortion, Vst3, Unknown
+    Delay, Mixer, Multiply, Vca, Utility, Add, SampleHold, AudioIn, Pitch, Distortion, Vst3,
+    Number, Quantize, MidiToFreq, FreqToMidi, Abs, Negate, Map, Clamp,
+    Unknown
 }
 
 impl FlowNodeType {
@@ -53,6 +55,14 @@ impl FlowNodeType {
             "pitch" => Self::Pitch,
             "distortion" => Self::Distortion,
             "vst3" => Self::Vst3,
+            "number" => Self::Number,
+            "quantize" => Self::Quantize,
+            "midiToFreq" | "midi_to_freq" => Self::MidiToFreq,
+            "freqToMidi" | "freq_to_midi" => Self::FreqToMidi,
+            "abs" => Self::Abs,
+            "negate" => Self::Negate,
+            "map" => Self::Map,
+            "clamp" => Self::Clamp,
             _ => Self::Unknown,
         }
     }
@@ -84,6 +94,14 @@ pub fn flow_port_counts(node_type: FlowNodeType) -> (usize, usize) {
         FlowNodeType::Utility     => (3, 1), // audio, gain, pan → audio
         FlowNodeType::Distortion  => (3, 1), // audio, drive, mix → audio
         FlowNodeType::Vst3        => (2, 1), // audio, midi → audio
+        FlowNodeType::Number      => (1, 1), // value → out
+        FlowNodeType::Quantize    => (3, 1), // freq, scaleMode, rootNote → freq_out
+        FlowNodeType::MidiToFreq  => (1, 1), // midi_note → freq
+        FlowNodeType::FreqToMidi  => (1, 1), // freq → midi_note
+        FlowNodeType::Abs         => (1, 1), // in → out
+        FlowNodeType::Negate      => (1, 1), // in → out
+        FlowNodeType::Map         => (3, 1), // in, min_in, max_in → out
+        FlowNodeType::Clamp       => (3, 1), // in, min, max → out
         FlowNodeType::Unknown     => (8, 8), // generous fallback — never blocks valid data
     }
 }
@@ -93,7 +111,9 @@ pub enum FlowParamKey {
     Waveform, Frequency, PulseWidth, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,
     Rate, Depth, EnvDepth, WindowMs, Feedback, Mix, Attack, Decay, Sustain, Release,
     Gain, Muted, Shape, Bipolar, PhaseOffset, Color, Level, Scale, TimeMs,
-    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Transpose, Pan, PhaseInvert, Drive, Mode, Custom(u32),
+    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Transpose, Pan, PhaseInvert, Drive, Mode,
+    Value, ScaleMode, RootNote, MinIn, MaxIn, Min, Max,
+    Custom(u32),
 }
 
 impl FlowParamKey {
@@ -138,6 +158,13 @@ impl FlowParamKey {
             "phaseInvert" | "phase_invert" => Self::PhaseInvert,
             "drive" => Self::Drive,
             "mode" => Self::Mode,
+            "value" => Self::Value,
+            "scaleMode" | "scale_mode" => Self::ScaleMode,
+            "rootNote" | "root_note" => Self::RootNote,
+            "minIn" | "min_in" => Self::MinIn,
+            "maxIn" | "max_in" => Self::MaxIn,
+            "min" => Self::Min,
+            "max" => Self::Max,
             _ => {
                 let hash = key.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
                 Self::Custom(hash)

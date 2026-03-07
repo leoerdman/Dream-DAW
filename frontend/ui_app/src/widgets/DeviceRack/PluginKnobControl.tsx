@@ -110,7 +110,8 @@ export const PluginKnob = React.memo(({
         const valueRange = Math.max(1e-9, param.max - param.min);
         const linearStep = param.step && param.step > 0 ? param.step : valueRange / 160;
         const unitStep = 1 / 160;
-        const wheelMul = e.shiftKey ? 4.0 : e.altKey ? 0.2 : 1.0;
+        // ENTERPRISE: Shift = 10x finer, Alt = 4x coarser (industry-standard DAW convention).
+        const wheelMul = e.shiftKey ? 0.1 : e.altKey ? 4.0 : 1.0;
         if (useLogScale) {
             const unitDelta = (e.deltaY < 0 ? 1 : -1) * unitStep * wheelMul;
             const nextUnit = valueToUnit(safeValue) + unitDelta;

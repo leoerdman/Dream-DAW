@@ -6,6 +6,7 @@ import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useFlowSynthStore } from '@/widgets/FlowSynth/model/useFlowSynthStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
@@ -48,7 +49,7 @@ import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
 type BottomPanelMode = 'rack' | 'clip';
-type MainViewMode = 'arrangement' | 'session';
+type MainViewMode = 'arrangement' | 'session' | 'flow';
 
 export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -196,6 +197,31 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     useAlsImportSummaryStatus();
     useInitialLayoutSync();
     useProjectAutoRecovery();
+
+    // AUTO-FALLBACK: When Flow Synth closes while the user is in 'flow' view,
+    // automatically switch back to 'arrangement' to avoid showing a blank view.
+    const flowIsOpen = useFlowSynthStore((s) => s.isOpen);
+    useEffect(() => {
+        if (!flowIsOpen && mainViewMode === 'flow') {
+            setMainViewMode('arrangement');
+        }
+    }, [flowIsOpen, mainViewMode, setMainViewMode]);
+
+    // AUTO-SWITCH: Listen for eye icon open/close events from DeviceRackSlots.
+    // This bridges the gap between DeviceRack (no access to setMainViewMode)
+    // and DawShell (owns the view mode state).
+    useEffect(() => {
+        const onFlowOpen = () => setMainViewMode('flow');
+        const onFlowClose = () => {
+            setMainViewMode((prev) => prev === 'flow' ? 'arrangement' : prev);
+        };
+        window.addEventListener('dream:flow-view-open', onFlowOpen);
+        window.addEventListener('dream:flow-view-close', onFlowClose);
+        return () => {
+            window.removeEventListener('dream:flow-view-open', onFlowOpen);
+            window.removeEventListener('dream:flow-view-close', onFlowClose);
+        };
+    }, [setMainViewMode]);
     useEffect(() => {
         if (!settingsLoaded) return;
         const idleHandle = scheduleIdle(() => {
@@ -595,6 +621,8 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 browserWidth={browserWidth}
                 beginBrowserResize={beginBrowserResize}
                 mainViewMode={mainViewMode}
+                setMainViewMode={setMainViewMode}
+                isFlowAvailable={flowIsOpen}
                 tracksEntity={tracksEntity}
                 selectedTrackId={selectedTrackId}
                 selectedTrackIds={selectedTrackIds}

@@ -5,7 +5,9 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { useFlowSynthStore } from '@/widgets/FlowSynth/model/useFlowSynthStore';
 type BottomPanelMode = 'rack' | 'clip';
+type MainViewMode = 'arrangement' | 'session' | 'flow';
 type ImportFileFn = (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
 interface AlsImportSummaryPayload {
     project_name: string;
@@ -22,7 +24,7 @@ interface AlsImportSummaryPayload {
 export function useDawShellGlobalShortcuts(args: {
     setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setExportOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    setMainViewMode: React.Dispatch<React.SetStateAction<'arrangement' | 'session'>>;
+    setMainViewMode: React.Dispatch<React.SetStateAction<MainViewMode>>;
     setBottomPanelModeForActiveTrack: (updater: (prev: BottomPanelMode) => BottomPanelMode) => void;
 }): void {
     const { setSettingsOpen, setExportOpen, setMainViewMode, setBottomPanelModeForActiveTrack } = args;
@@ -72,7 +74,18 @@ export function useDawShellGlobalShortcuts(args: {
             }
             if (isTabPress(e) && !e.shiftKey && !isMod(e) && !e.altKey) {
                 e.preventDefault();
-                setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
+                // 3-MODE CYCLING: When Flow Synth is open, cycle through
+                // flow → arrangement → session → flow. Otherwise: arrangement ↔ session.
+                const flowAvailable = useFlowSynthStore.getState().isOpen;
+                setMainViewMode((prev) => {
+                    if (flowAvailable) {
+                        if (prev === 'flow') return 'arrangement';
+                        if (prev === 'arrangement') return 'session';
+                        return 'flow'; // session → flow
+                    }
+                    // No Flow available: 2-mode toggle
+                    return prev === 'arrangement' ? 'session' : 'arrangement';
+                });
                 return;
             }
             if (isMod(e) && !e.shiftKey && !e.altKey && e.code === 'Comma') {

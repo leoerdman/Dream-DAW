@@ -27,6 +27,7 @@ const FORMAT_GROUPS: FormatGroup[] = [
     { id: 'caf', label: 'CAF', extensions: ['caf'] },
     { id: 'wma', label: 'WMA', extensions: ['wma'] },
     { id: 'webm', label: 'WebM', extensions: ['webm'] },
+    { id: 'asd', label: 'ASD (Ableton Analysis)', extensions: ['asd'] },
 ];
 
 // ────────────────────────────────────────────────────────────────────────
@@ -84,10 +85,10 @@ interface BrowserTabProps {
     updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 }
 
-const EMPTY_ARRAY: string[] = [];
 
 export function BrowserTab({ settings, updateSetting }: BrowserTabProps) {
-    const excluded = settings.browserExcludedFormats ?? EMPTY_ARRAY;
+    // ENTERPRISE: ASD files are excluded by default (Ableton analysis metadata).
+    const excluded = settings.browserExcludedFormats ?? ['asd'];
 
     const isFormatEnabled = useCallback(
         (groupId: string) => !excluded.includes(groupId),

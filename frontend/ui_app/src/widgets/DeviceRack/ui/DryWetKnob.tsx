@@ -103,7 +103,8 @@ export const DryWetKnob = React.memo(function DryWetKnob({
         const step = resolvedParam.step && resolvedParam.step > 0
             ? resolvedParam.step
             : (resolvedParam.max - resolvedParam.min) / 160;
-        const mul = e.shiftKey ? 4 : e.altKey ? 0.2 : 1;
+        // ENTERPRISE: Shift = 10x finer, Alt = 4x coarser (industry-standard DAW convention).
+        const mul = e.shiftKey ? 0.1 : e.altKey ? 4 : 1;
         const delta = (e.deltaY < 0 ? 1 : -1) * step * mul;
         onChange(resolvedParam.name, quantize(safeValue + delta));
     }, [onChange, onGestureEnd, onGestureStart, resolvedParam.max, resolvedParam.min, resolvedParam.name, resolvedParam.step, safeValue, quantize]);

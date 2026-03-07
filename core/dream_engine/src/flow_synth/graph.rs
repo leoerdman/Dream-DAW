@@ -146,6 +146,14 @@ impl FlowGraph {
             Pitch => Box::new(PitchNode::new()),
             Utility => Box::new(UtilityNode::new()),
             Distortion => Box::new(DistortionNode::new()),
+            Number => Box::new(NumberNode::new()),
+            Quantize => Box::new(QuantizeNode::new()),
+            MidiToFreq => Box::new(MidiToFreqNode::new()),
+            FreqToMidi => Box::new(FreqToMidiNode::new()),
+            Abs => Box::new(MathAbsNode::new()),
+            Negate => Box::new(MathNegateNode::new()),
+            Map => Box::new(MathMapNode::new()),
+            Clamp => Box::new(MathClampNode::new()),
             _ => return,
         };
 
@@ -399,6 +407,49 @@ impl FlowGraph {
         if let Some(midi) = node.as_any_mut().downcast_mut::<MidiInNode>() {
             for (k, v) in params {
                 if *k == Transpose { midi.set_transpose(*v); }
+            }
+            return;
+        }
+
+        if let Some(num) = node.as_any_mut().downcast_mut::<NumberNode>() {
+            for (k, v) in params {
+                if *k == Value { num.set_value(*v); }
+            }
+            return;
+        }
+
+        if let Some(q) = node.as_any_mut().downcast_mut::<QuantizeNode>() {
+            for (k, v) in params {
+                match *k {
+                    ScaleMode => q.set_scale_mode(*v),
+                    RootNote => q.set_root_note(*v),
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        // MidiToFreqNode, FreqToMidiNode, MathAbsNode, MathNegateNode:
+        // Stateless nodes with no parameters — nothing to set.
+
+        if let Some(m) = node.as_any_mut().downcast_mut::<MathMapNode>() {
+            for (k, v) in params {
+                match *k {
+                    MinIn => m.set_min_in(*v),
+                    MaxIn => m.set_max_in(*v),
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        if let Some(c) = node.as_any_mut().downcast_mut::<MathClampNode>() {
+            for (k, v) in params {
+                match *k {
+                    Min => c.set_min(*v),
+                    Max => c.set_max(*v),
+                    _ => {}
+                }
             }
         }
     }

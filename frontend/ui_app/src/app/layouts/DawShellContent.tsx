@@ -24,7 +24,9 @@ interface DawShellContentProps {
     timelineRef: React.RefObject<HTMLDivElement | null>;
     browserWidth: number;
     beginBrowserResize: (event: React.MouseEvent<HTMLDivElement>) => void;
-    mainViewMode: 'arrangement' | 'session';
+    mainViewMode: 'arrangement' | 'session' | 'flow';
+    setMainViewMode: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
+    isFlowAvailable: boolean;
     tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
     selectedTrackIds: string[];
@@ -124,6 +126,8 @@ export const DawShellContent = memo(function DawShellContent(props: DawShellCont
                 onPanelModeChange={props.setBottomPanelModeForActiveTrack}
                 panelInfo={props.panelInfo}
                 mainViewMode={props.mainViewMode}
+                onMainViewModeChange={props.setMainViewMode}
+                isFlowAvailable={props.isFlowAvailable}
             />
         </div>
     );

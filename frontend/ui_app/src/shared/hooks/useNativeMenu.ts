@@ -61,8 +61,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 });
                 onProjectChange?.();
 
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('[Dream] New project failed:', err);
+                const { message } = await import('@tauri-apps/plugin-dialog');
+                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Create Project', kind: 'error' });
             }
         },
     });
@@ -86,8 +88,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 });
                 onProjectChange?.();
 
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('[Dream] Open failed:', err);
+                const { message } = await import('@tauri-apps/plugin-dialog');
+                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Open Project', kind: 'error' });
             }
         },
     });
@@ -105,8 +109,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             if (typeof globalSave === 'function') {
                 try {
                     await globalSave();
-                } catch (err) {
+                } catch (err: unknown) {
                     console.error('[Dream] Save (via global bridge) failed:', err);
+                    const { message } = await import('@tauri-apps/plugin-dialog');
+                    await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project', kind: 'error' });
                     useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
                 }
                 return;
@@ -127,8 +133,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 await syncProjectHistory();
                 useStatusStore.getState().setInfo('Project saved');
 
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('[Dream] Save failed:', err);
+                const { message } = await import('@tauri-apps/plugin-dialog');
+                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project', kind: 'error' });
                 useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         },
@@ -143,8 +151,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             if (typeof globalSaveAs === 'function') {
                 try {
                     await globalSaveAs();
-                } catch (err) {
+                } catch (err: unknown) {
                     console.error('[Dream] Save As (via global bridge) failed:', err);
+                    const { message } = await import('@tauri-apps/plugin-dialog');
+                    await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project As', kind: 'error' });
                     useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
                 }
                 return;
@@ -265,8 +275,10 @@ async function handleSaveAs() {
         }
         useStatusStore.getState().setInfo(`Project saved as: ${path.split('/').pop()}`);
 
-    } catch (err) {
+    } catch (err: unknown) {
         console.error('[Dream] Save As failed:', err);
+        const { message } = await import('@tauri-apps/plugin-dialog');
+        await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Save Project As', kind: 'error' });
         useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
@@ -303,8 +315,10 @@ async function buildRecentSubmenu(
                                 });
                                 onProjectChange?.();
 
-                            } catch (err) {
+                            } catch (err: unknown) {
                                 console.error('[Dream] Open recent failed:', err);
+                                const { message } = await import('@tauri-apps/plugin-dialog');
+                                await message(err instanceof Error ? err.message : String(err), { title: 'Failed to Open Recent Project', kind: 'error' });
                             }
                         },
                     }),

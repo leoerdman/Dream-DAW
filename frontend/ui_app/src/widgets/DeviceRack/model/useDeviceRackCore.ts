@@ -84,10 +84,14 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const [localParamsByTrack, setLocalParamsByTrack] = useState<Record<string, Record<string, number>>>({});
     const [selectedDeviceIdsByTrack, setSelectedDeviceIdsByTrack] = useState<Record<string, string[]>>({});
     const [inlineSettingsOpenByTrack, setInlineSettingsOpenByTrack] = useState<Record<string, Record<string, boolean>>>({});
-    const { tracksById, trackIds, meters } = useEngineStore(useShallow((s) => ({
+    // PERF-OPT: Read only tracksById and trackIds via selector. `meters` was
+    // previously included here, causing the entire DeviceRack chain to rebuild
+    // at ~30fps because `meters` reference changes on every telemetry tick.
+    // Now meters are read imperatively via `useEngineStore.getState()` inside
+    // the `buildChain` callback where they're actually needed.
+    const { tracksById, trackIds } = useEngineStore(useShallow((s) => ({
         tracksById: s.tracks.byId,
         trackIds: s.tracks.allIds,
-        meters: s.meters,
     })));
 
     // BUG-S02-S04 FIX: Prune state for deleted tracks to prevent dictionary memory leaks.
@@ -168,15 +172,23 @@ export function useDeviceRackCore(selectedTrackId: string) {
     }, [selectedTrackId]);
     const isMaster = selectedTrackId === 'master';
     const trackIndex = trackIds.indexOf(selectedTrackId);
-    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] ?? null : null);
+    // PERF-OPT: Meters are now read imperatively from getState() instead of
+    // being part of the selector (which caused ~30fps re-renders of the entire
+    // DeviceRack). The `buildChain` callback reads `trackMetrics` from getState()
+    // when it actually needs them. The `inLevel/outLevel` values returned below
+    // are computed from getState() at call time — consumers that need live
+    // metering should use subscription-based components (MixerChannelMeters pattern).
+    const getMeters = useCallback(() => useEngineStore.getState().meters, []);
+    const metersNow = getMeters();
+    const meterPair = isMaster ? null : (trackIndex >= 0 ? metersNow.tracks[trackIndex] ?? null : null);
     const trackMetrics = isMaster
-        ? meters.master_plugin_metrics
-        : (trackIndex >= 0 ? meters.track_plugin_metrics?.[trackIndex] ?? null : null);
+        ? metersNow.master_plugin_metrics
+        : (trackIndex >= 0 ? metersNow.track_plugin_metrics?.[trackIndex] ?? null : null);
     const inLevelL = isMaster
-        ? dbToMeterNorm(meters.master_left.peak)
+        ? dbToMeterNorm(metersNow.master_left.peak)
         : meterPair ? dbToMeterNorm(meterPair[0].peak) : 0;
     const inLevelR = isMaster
-        ? dbToMeterNorm(meters.master_right.peak)
+        ? dbToMeterNorm(metersNow.master_right.peak)
         : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
     // BUG-014 FIX: outLevel is intentionally the same as inLevel here because
     // per-slot output metering is handled via trackMetrics[slotIndex] (pluginMetric).

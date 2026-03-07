@@ -15,6 +15,7 @@
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
 import { panelModeBtnStyle } from './ui/statusBarStyles';
 import { HistorySection, InlineMessage } from './ui/statusBarSections';
@@ -29,7 +30,9 @@ interface StatusBarProps {
     panelMode?: 'rack' | 'clip';
     onPanelModeChange?: (mode: 'rack' | 'clip') => void;
     panelInfo?: string;
-    mainViewMode?: 'arrangement' | 'session';
+    mainViewMode?: 'arrangement' | 'session' | 'flow';
+    onMainViewModeChange?: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
+    isFlowAvailable?: boolean;
 }
 
 export const StatusBar = ({
@@ -40,6 +43,8 @@ export const StatusBar = ({
     onPanelModeChange,
     panelInfo,
     mainViewMode = 'arrangement',
+    onMainViewModeChange,
+    isFlowAvailable = false,
 }: StatusBarProps) => {
     const prefetchRackPanel = () => {
         void import('@/widgets/DeviceRack/DeviceRack');
@@ -49,7 +54,6 @@ export const StatusBar = ({
     };
     // Live engine data
     const {
-        positionBeats,
         bpm,
         timeSigNumerator,
         timelineClips,
@@ -66,13 +70,27 @@ export const StatusBar = ({
     const historyRef = useRef<HTMLDivElement | null>(null);
 
     const effectiveTimeSigNum = timeSigNum ?? timeSigNumerator ?? DEFAULT_TIME_SIG_NUMERATOR;
-    // BUG-32 FIX: Use store/project time signature instead of hardcoded 4.
-    const totalBeats = positionBeats;
-    const beatsPerBar = Math.max(1, effectiveTimeSigNum);
-    const bar = Math.floor(totalBeats / beatsPerBar) + 1;
-    const beat = Math.floor(totalBeats % beatsPerBar) + 1;
-    const sub = Math.floor((totalBeats % 1) * 96);
-    const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
+
+    // PERF-OPT: Ref-based position display — direct DOM mutation instead of
+    // React re-renders. position_beats changes every tick (~30fps) during playback.
+    const positionRef = useRef<HTMLSpanElement | null>(null);
+    const timeSigRef = useRef(effectiveTimeSigNum);
+    useEffect(() => { timeSigRef.current = effectiveTimeSigNum; }, [effectiveTimeSigNum]);
+
+    useEffect(() => {
+        const unsub = useEngineStore.subscribe((state) => {
+            const el = positionRef.current;
+            if (!el) return;
+            const posBeats = state.transport.position_beats ?? 0;
+            const bpb = Math.max(1, timeSigRef.current);
+            const bar = Math.floor(posBeats / bpb) + 1;
+            const beat = Math.floor(posBeats % bpb) + 1;
+            const sub = Math.floor((posBeats % 1) * 96);
+            const text = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
+            if (el.textContent !== text) el.textContent = text;
+        });
+        return unsub;
+    }, []);
     const computedRange = useMemo(() => {
         let endBeat = 0;
         for (const clip of timelineClips) {
@@ -159,16 +177,58 @@ export const StatusBar = ({
                             </button>
                         </div>
                     )}
+                    {/* ── View Mode Toggle: Arrange / Mix / Flow ── */}
+                    {onMainViewModeChange && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 2,
+                            border: 'var(--space-px) solid var(--color-control-border)',
+                            borderRadius: 'var(--radius-md)',
+                            padding: 2,
+                            height: 24,
+                            background: 'var(--color-control-bg)',
+                            boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
+                            marginRight: 2,
+                        }}>
+                            <button
+                                type="button"
+                                onClick={() => onMainViewModeChange('arrangement')}
+                                style={panelModeBtnStyle(mainViewMode === 'arrangement')}
+                                title="Arrangement View (Tab)"
+                            >
+                                Arrange
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onMainViewModeChange('session')}
+                                style={panelModeBtnStyle(mainViewMode === 'session')}
+                                title="Mixer View (Tab)"
+                            >
+                                Mix
+                            </button>
+                            {isFlowAvailable && (
+                                <button
+                                    type="button"
+                                    onClick={() => onMainViewModeChange('flow')}
+                                    style={panelModeBtnStyle(mainViewMode === 'flow')}
+                                    title="Flow Synth View (Tab)"
+                                >
+                                    Flow
+                                </button>
+                            )}
+                        </div>
+                    )}
                     {!statusMessage && panelInfo && (
                         <StatusText>{panelInfo}</StatusText>
                     )}
                     {!statusMessage && (
                         <>
-                            <StatusText>{mainViewMode === 'session' ? 'Session' : 'Arrangement'}</StatusText>
+                            <StatusText>{mainViewMode === 'flow' ? 'Flow' : mainViewMode === 'session' ? 'Session' : 'Arrangement'}</StatusText>
 
                             <StatusGroup>
                                 <StatusLabel>Position:</StatusLabel>
-                                <StatusValue>{position}</StatusValue>
+                                <StatusValue><span ref={positionRef}>1.1.00</span></StatusValue>
                             </StatusGroup>
 
                             <StatusGroup>

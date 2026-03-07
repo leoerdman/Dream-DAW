@@ -8,7 +8,9 @@ interface DawShellStatusAreaProps {
     panelMode: 'rack' | 'clip';
     onPanelModeChange: (mode: 'rack' | 'clip') => void;
     panelInfo: string;
-    mainViewMode: 'arrangement' | 'session';
+    mainViewMode: 'arrangement' | 'session' | 'flow';
+    onMainViewModeChange: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
+    isFlowAvailable: boolean;
 }
 
 export const DawShellStatusArea = memo(({
@@ -19,6 +21,8 @@ export const DawShellStatusArea = memo(({
     onPanelModeChange,
     panelInfo,
     mainViewMode,
+    onMainViewModeChange,
+    isFlowAvailable,
 }: DawShellStatusAreaProps) => {
     return (
         <>
@@ -60,7 +64,7 @@ export const DawShellStatusArea = memo(({
                 </div>
             )}
             <div className="z-50 theme-ornament-status">
-                <StatusBar panelMode={panelMode} onPanelModeChange={onPanelModeChange} panelInfo={panelInfo} mainViewMode={mainViewMode} />
+                <StatusBar panelMode={panelMode} onPanelModeChange={onPanelModeChange} panelInfo={panelInfo} mainViewMode={mainViewMode} onMainViewModeChange={onMainViewModeChange} isFlowAvailable={isFlowAvailable} />
             </div>
         </>
     );

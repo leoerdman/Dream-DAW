@@ -393,9 +393,15 @@ pub(crate) fn process_track_graph_node(
                         } else {
                             static LOCK_MISS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                             LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            // RT-SAFETY: Lock miss — skip this plugin entirely.
-                            // Do NOT fall through to the copy-back below, or we'd
-                            // overwrite the working signal with stale pre-plugin input.
+                            // HOLD-LAST-OUTPUT FIX: On lock miss, replay the last
+                            // successfully processed VST output from slot.ext_left/right
+                            // instead of outputting silence. This prevents audio dropouts
+                            // when the UI thread holds the plugin mutex during GUI redraws.
+                            // This is the standard technique used by Ableton Live, Logic
+                            // Pro, and Pro Tools for handling plugin lock contention.
+                            let hold_n = c.min(ctx.slot.vst_hold_left.len()).min(ctx.slot.vst_hold_right.len());
+                            left[..hold_n].copy_from_slice(&ctx.slot.vst_hold_left[..hold_n]);
+                            right[..hold_n].copy_from_slice(&ctx.slot.vst_hold_right[..hold_n]);
                             continue;
                         }
 
@@ -406,6 +412,14 @@ pub(crate) fn process_track_graph_node(
                             if !left[si].is_finite() { left[si] = 0.0; }
                             if !right[si].is_finite() { right[si] = 0.0; }
                         }
+
+                        // HOLD-LAST-OUTPUT FIX: Cache the post-VST output so that
+                        // on the next lock miss, we replay this valid output instead
+                        // of silence. This eliminates audio dropouts caused by
+                        // try_lock() contention when the plugin GUI is open.
+                        let hold_n = c.min(ctx.slot.vst_hold_left.len()).min(ctx.slot.vst_hold_right.len());
+                        ctx.slot.vst_hold_left[..hold_n].copy_from_slice(&left[..hold_n]);
+                        ctx.slot.vst_hold_right[..hold_n].copy_from_slice(&right[..hold_n]);
                     }
                 }
             }

@@ -50,7 +50,15 @@ export type SynthNodeType =
     | 'pitch'
     | 'utility'
     | 'distortion'
-    | 'vst3';
+    | 'vst3'
+    | 'number'
+    | 'quantize'
+    | 'midiToFreq'
+    | 'freqToMidi'
+    | 'abs'
+    | 'negate'
+    | 'map'
+    | 'clamp';
 
 export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
     midiIn: {
@@ -295,6 +303,92 @@ export const PORT_REGISTRY: Record<SynthNodeType, NodePortConfig> = {
             { id: 'audio', label: 'Out', type: 'audio' },
         ],
     },
+    number: {
+        title: 'Number',
+        color: 'var(--color-synth-math)',
+        inputs: [
+            { id: 'value', label: 'Value', type: 'control', fader: { min: -10000, max: 10000, step: 0.01, dataKey: 'value', default: 0 } },
+        ],
+        outputs: [
+            { id: 'value', label: 'Out', type: 'control' },
+        ],
+    },
+    quantize: {
+        title: 'Quantize',
+        color: 'var(--color-synth-ctrl)',
+        inputs: [
+            { id: 'freq', label: 'Freq', type: 'control' },
+            { id: 'scaleMode', label: 'Scale', type: 'control', fader: { min: 0, max: 6, step: 1, dataKey: 'scaleMode', default: 0 } },
+            { id: 'rootNote', label: 'Root', type: 'control', fader: { min: 0, max: 127, step: 1, dataKey: 'rootNote', default: 60 } },
+        ],
+        outputs: [
+            { id: 'freq_out', label: 'Out', type: 'control' },
+        ],
+    },
+    midiToFreq: {
+        title: 'MIDI→Freq',
+        color: 'var(--color-synth-ctrl)',
+        inputs: [
+            { id: 'midi_note', label: 'Note', type: 'control' },
+        ],
+        outputs: [
+            { id: 'freq', label: 'Hz', type: 'control' },
+        ],
+    },
+    freqToMidi: {
+        title: 'Freq→MIDI',
+        color: 'var(--color-synth-ctrl)',
+        inputs: [
+            { id: 'freq', label: 'Hz', type: 'control' },
+        ],
+        outputs: [
+            { id: 'midi_note', label: 'Note', type: 'control' },
+        ],
+    },
+    abs: {
+        title: 'Abs',
+        color: 'var(--color-synth-math)',
+        inputs: [
+            { id: 'in', label: 'In', type: 'audio' },
+        ],
+        outputs: [
+            { id: 'out', label: 'Out', type: 'audio' },
+        ],
+    },
+    negate: {
+        title: 'Negate',
+        color: 'var(--color-synth-math)',
+        inputs: [
+            { id: 'in', label: 'In', type: 'audio' },
+        ],
+        outputs: [
+            { id: 'out', label: 'Out', type: 'audio' },
+        ],
+    },
+    map: {
+        title: 'Map',
+        color: 'var(--color-synth-math)',
+        inputs: [
+            { id: 'in', label: 'In', type: 'audio' },
+            { id: 'min_in', label: 'Min', type: 'control', fader: { min: -10000, max: 10000, step: 0.1, dataKey: 'minIn', default: 0 } },
+            { id: 'max_in', label: 'Max', type: 'control', fader: { min: -10000, max: 10000, step: 0.1, dataKey: 'maxIn', default: 1 } },
+        ],
+        outputs: [
+            { id: 'out', label: 'Out', type: 'control' },
+        ],
+    },
+    clamp: {
+        title: 'Clamp',
+        color: 'var(--color-synth-math)',
+        inputs: [
+            { id: 'in', label: 'In', type: 'audio' },
+            { id: 'min', label: 'Min', type: 'control', fader: { min: -10, max: 10, step: 0.01, dataKey: 'min', default: -1 } },
+            { id: 'max', label: 'Max', type: 'control', fader: { min: -10, max: 10, step: 0.01, dataKey: 'max', default: 1 } },
+        ],
+        outputs: [
+            { id: 'out', label: 'Out', type: 'audio' },
+        ],
+    },
 };
 
 /**
@@ -346,6 +440,14 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     multiply: 0,
     distortion: 1,   // mode selector
     vst3: 2,         // plugin selector
+    number: 1,       // value knob
+    quantize: 1,     // scale selector
+    midiToFreq: 0,
+    freqToMidi: 0,
+    abs: 0,
+    negate: 0,
+    map: 0,
+    clamp: 0,
 };
 
 const CONTROL_ROW_HEIGHT = 28;

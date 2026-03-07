@@ -159,7 +159,7 @@ const mainPaneStyle: React.CSSProperties = {
 const filtersToolbarStyle: React.CSSProperties = {
     gridRow: 1,
     display: 'flex',
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 4,
     padding: 'var(--space-1) var(--space-1-5)',

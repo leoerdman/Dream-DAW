@@ -302,17 +302,28 @@ export function FlowSynthOverlay() {
             }
 
             const playheadBeat = engine.transport.position_beats;
-            const midiClips = engine.timelineClips.filter((clip) =>
-                clip.type === 'midi'
-                && clip.trackIndex === trackIndex
-                && playheadBeat >= clip.startBeat
-                && playheadBeat < (clip.startBeat + clip.durationBeats),
-            );
+
+            // PERF-OPT: Cache node lookups once per tick instead of calling
+            // .find() inside nested loops (O(N×M) → O(N+M)).
+            let midiNode: { id: string } | undefined;
+            let oscNode: { id: string } | undefined;
+            for (const node of flow.nodes) {
+                if (node.type === 'midiIn' && !midiNode) midiNode = node;
+                if (node.type === 'oscillator' && !oscNode) oscNode = node;
+                if (midiNode && oscNode) break;
+            }
 
             let hasMidiAtPlayhead = false;
             const nextNotes = new Set<string>();
 
-            for (const clip of midiClips) {
+            // PERF-OPT: Inline loop instead of .filter() — avoids allocating
+            // a new array on every tick (25fps × array size).
+            for (const clip of engine.timelineClips) {
+                if (clip.type !== 'midi'
+                    || clip.trackIndex !== trackIndex
+                    || playheadBeat < clip.startBeat
+                    || playheadBeat >= (clip.startBeat + clip.durationBeats)) continue;
+
                 const localBeat = playheadBeat - clip.startBeat;
                 for (const note of clip.midiNotes ?? []) {
                     if (localBeat < note.startBeat || localBeat >= (note.startBeat + note.durationBeats)) continue;
@@ -320,9 +331,7 @@ export function FlowSynthOverlay() {
                     const noteKey = `${clip.id}:${note.id ?? `${note.pitch}:${note.startBeat}`}`;
                     nextNotes.add(noteKey);
                     if (!activeNotes.has(noteKey)) {
-                        const midiNode = flow.nodes.find((node) => node.type === 'midiIn');
                         if (midiNode) flow.pulseFromNode(midiNode.id, 'midi');
-                        const oscNode = flow.nodes.find((node) => node.type === 'oscillator');
                         if (oscNode) flow.pulseFromNode(oscNode.id, 'audio');
                     }
                 }
@@ -335,7 +344,6 @@ export function FlowSynthOverlay() {
             if (!hasMidiAtPlayhead) {
                 const beatBucket = Math.floor(playheadBeat * 2);
                 if (beatBucket !== lastFreeRunBucket) {
-                    const oscNode = flow.nodes.find((node) => node.type === 'oscillator');
                     if (oscNode) flow.pulseFromNode(oscNode.id, 'audio');
                     lastFreeRunBucket = beatBucket;
                 }

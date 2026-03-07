@@ -5,7 +5,6 @@ import { Timeline } from '@/widgets/Timeline/Timeline';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import { SessionWorkspace } from './DawShellPanels';
-import { useFlowSynthStore } from '@/widgets/FlowSynth/model/useFlowSynthStore';
 
 const TrackInspector = lazy(async () => ({
     default: (await import('@/widgets/TrackInspector/TrackInspector')).TrackInspector,
@@ -20,7 +19,7 @@ interface DawShellMainViewProps {
     timelineRef: React.RefObject<HTMLDivElement | null>;
     browserWidth: number;
     beginBrowserResize: (event: React.MouseEvent<HTMLDivElement>) => void;
-    mainViewMode: 'arrangement' | 'session';
+    mainViewMode: 'arrangement' | 'session' | 'flow';
     tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
     selectedTrackIds: string[];
@@ -53,9 +52,6 @@ export const DawShellMainView = memo(({
         [tracksEntity],
     );
 
-    // ENTERPRISE: Check if FlowSynth is in inline mode (replaces timeline)
-    const flowInlineActive = useFlowSynthStore((s) => s.isOpen && s.displayMode === 'inline');
-
     return (
         <main ref={mainSplitRef} className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
             <aside
@@ -78,20 +74,21 @@ export const DawShellMainView = memo(({
                 />
             </div>
 
-            {mainViewMode === 'arrangement' ? (
+            {/* 3-MODE VIEW: Flow | Arrangement | Session (Mixer) */}
+            {mainViewMode === 'flow' ? (
+                <div ref={timelineRef} className="flex-1 overflow-hidden" style={{ background: 'var(--color-bg-canvas)' }}>
+                    <ErrorBoundary module="FlowSynth Inline">
+                        <Suspense fallback={null}>
+                            <FlowSynthInlineView />
+                        </Suspense>
+                    </ErrorBoundary>
+                </div>
+            ) : mainViewMode === 'arrangement' ? (
                 <>
                     <div ref={timelineRef} className="flex-1 overflow-hidden" style={{ background: 'var(--color-bg-canvas)' }}>
-                        {flowInlineActive ? (
-                            <ErrorBoundary module="FlowSynth Inline">
-                                <Suspense fallback={null}>
-                                    <FlowSynthInlineView />
-                                </Suspense>
-                            </ErrorBoundary>
-                        ) : (
-                            <ErrorBoundary module="Timeline">
-                                <Timeline {...timelineProps} />
-                            </ErrorBoundary>
-                        )}
+                        <ErrorBoundary module="Timeline">
+                            <Timeline {...timelineProps} />
+                        </ErrorBoundary>
                     </div>
 
                     <aside

@@ -35,6 +35,11 @@ const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string
     // ── Math ──
     { type: 'add', label: 'Add', keywords: ['add', 'sum', 'plus', 'combine', 'math'], category: 'Math' },
     { type: 'multiply', label: 'Multiply', keywords: ['mul', 'multiply', 'scale', 'ring', 'attenuvert', 'math', 'vca'], category: 'Math' },
+    { type: 'number', label: 'Number', keywords: ['number', 'constant', 'value', 'knob', 'static', 'fixed', 'param'], category: 'Math' },
+    { type: 'abs', label: 'Abs', keywords: ['abs', 'absolute', 'rectify', 'rectifier', 'fullwave', 'math'], category: 'Math' },
+    { type: 'negate', label: 'Negate', keywords: ['negate', 'invert', 'flip', 'minus', 'negative', 'math'], category: 'Math' },
+    { type: 'map', label: 'Map', keywords: ['map', 'remap', 'range', 'scale', 'normalize', 'transform', 'math'], category: 'Math' },
+    { type: 'clamp', label: 'Clamp', keywords: ['clamp', 'limit', 'constrain', 'clip', 'bound', 'math'], category: 'Math' },
     // ── Level ──
     { type: 'vca', label: 'VCA', keywords: ['vca', 'amplifier', 'amplitude', 'gain', 'cv', 'level'], category: 'Level' },
     { type: 'mixer', label: 'Mixer', keywords: ['mix', 'mixer', 'blend', 'combine', 'sum', 'bus'], category: 'Level' },
@@ -47,6 +52,9 @@ const NODE_CATALOG: Array<{ type: SynthNodeType; label: string; keywords: string
     { type: 'distortion', label: 'Distortion', keywords: ['distort', 'drive', 'clip', 'waveshaper', 'saturate', 'overdrive', 'crush'], category: 'Delay/FX' },
     // ── Pitch ──
     { type: 'pitch', label: 'Pitch', keywords: ['pitch', 'octave', 'transpose', 'tune', 'semitone'], category: 'Pitch' },
+    { type: 'quantize', label: 'Quantize', keywords: ['quantize', 'scale', 'snap', 'key', 'chromatic', 'major', 'minor', 'pentatonic'], category: 'Pitch' },
+    { type: 'midiToFreq', label: 'MIDI→Freq', keywords: ['midi', 'freq', 'frequency', 'hertz', 'convert', 'note', 'pitch'], category: 'Pitch' },
+    { type: 'freqToMidi', label: 'Freq→MIDI', keywords: ['freq', 'midi', 'frequency', 'hertz', 'convert', 'note', 'pitch'], category: 'Pitch' },
     // ── Utility ──
     { type: 'utility', label: 'Utility', keywords: ['utility', 'gain', 'pan', 'phase', 'invert', 'dc', 'trim', 'level', 'volume'], category: 'Utility' },
     // ── External ──
@@ -186,6 +194,14 @@ export function FlowCanvas() {
             utility: 'Utility',
             distortion: 'Distortion',
             vst3: 'VST3 Plugin',
+            number: 'Number',
+            quantize: 'Quantize',
+            midiToFreq: 'MIDI→Freq',
+            freqToMidi: 'Freq→MIDI',
+            abs: 'Abs',
+            negate: 'Negate',
+            map: 'Map',
+            clamp: 'Clamp',
         };
         addNode({
             id: nodeId,

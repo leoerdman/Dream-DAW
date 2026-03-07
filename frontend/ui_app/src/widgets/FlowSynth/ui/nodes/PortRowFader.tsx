@@ -87,11 +87,17 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
     const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (!isDragging) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const p = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
+        const rawP = (e.clientX - rect.left) / Math.max(1, rect.width);
+        // SHIFT FINE-TUNE: 10x finer control when Shift is held.
+        // Blend raw position toward current position to reduce sensitivity.
+        const currentPct = (safeValue - min) / (max - min);
+        const p = e.shiftKey
+            ? Math.min(1, Math.max(0, currentPct + (rawP - currentPct) * 0.1))
+            : Math.min(1, Math.max(0, rawP));
         const v = quantize(pctToValue(p));
         setLocalValue(v);
         onChange(v);
-    }, [isDragging, onChange, pctToValue, quantize]);
+    }, [isDragging, onChange, pctToValue, quantize, safeValue, min, max]);
 
     const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -110,7 +116,9 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
             e.stopPropagation();
-            const delta = -e.deltaY * (max - min) * 0.002;
+            // SHIFT FINE-TUNE: 10x finer wheel control when Shift is held.
+            const sensitivity = e.shiftKey ? 0.0002 : 0.002;
+            const delta = -e.deltaY * (max - min) * sensitivity;
             onChange(quantize(safeValueRef.current + delta));
         };
         node.addEventListener('wheel', handleWheel, { passive: false });

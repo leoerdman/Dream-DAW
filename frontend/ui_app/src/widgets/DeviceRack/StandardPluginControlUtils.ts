@@ -1,8 +1,10 @@
 import type { PluginParam } from './StandardPluginControlTypes';
 
 const DRAG_SCALE_NORMAL_PX = 220;
-const DRAG_SCALE_SHIFT_PX = 130;
-const DRAG_SCALE_ALT_PX = 760;
+/** ENTERPRISE: Shift = 10x finer control (industry-standard DAW convention). */
+const DRAG_SCALE_SHIFT_PX = 2000;
+/** Alt/Option = coarse/fast adjustment. */
+const DRAG_SCALE_ALT_PX = 60;
 
 const resolveParamPrecision = (param: PluginParam): number => {
     const step = param.step;

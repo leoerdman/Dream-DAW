@@ -395,7 +395,7 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                     )}
                 </VizColumn>
 
-                <ControlPanel params={rightKnobs} handlers={wrappedHandlers} minCols={2} maxCols={3}>
+                <ControlPanel params={rightKnobs} handlers={wrappedHandlers} minCols={2} maxCols={2}>
                     {/* Other Enum Dropdowns (Voicing, Modes) */}
                     {filteredEnumParams.filter(p => !p.name.toLowerCase().startsWith('note')).length > 0 && (
                         <div style={{ display: 'grid', gap: 4 }}>
@@ -421,26 +421,36 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                             })}
                         </div>
                     )}
-                    {/* Toggles and Buttons */}
-                    {toggleParams.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {toggleParams.map((p) => {
-                                const active = (p.value ?? 0) > 0.5;
-                                return (
-                                    <ToggleButton
-                                        key={p.name}
-                                        label={p.name}
-                                        active={active}
-                                        onClick={() => {
-                                            wrappedHandlers.onParamGestureStart?.(p.name);
-                                            wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
-                                            wrappedHandlers.onParamGestureEnd?.(p.name);
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
-                    )}
+                    {/* Toggles — exclude params already rendered by buttons or delay-specific dropdowns */}
+                    {(() => {
+                        const buttonParamSet = new Set((definition.buttons ?? []).map(b => b.paramName.toLowerCase()));
+                        const delayHandledSet = definition.delaySync
+                            ? new Set(['sync l', 'sync r', 'note l', 'note r'])
+                            : new Set<string>();
+                        const filtered = toggleParams.filter(p => {
+                            const n = p.name.toLowerCase();
+                            return !buttonParamSet.has(n) && !delayHandledSet.has(n) && !enumParamSet.has(n);
+                        });
+                        return filtered.length > 0 ? (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {filtered.map((p) => {
+                                    const active = (p.value ?? 0) > 0.5;
+                                    return (
+                                        <ToggleButton
+                                            key={p.name}
+                                            label={p.name}
+                                            active={active}
+                                            onClick={() => {
+                                                wrappedHandlers.onParamGestureStart?.(p.name);
+                                                wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
+                                                wrappedHandlers.onParamGestureEnd?.(p.name);
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        ) : null;
+                    })()}
                     {definition.buttons && definition.buttons.length > 0 && (
                         <ButtonStrip>
                             {definition.buttons.map((btn) => {
@@ -548,26 +558,36 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
                         })}
                     </div>
                 )}
-                {/* ── Inline toggle buttons ── */}
-                {toggleParams.length > 0 && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {toggleParams.map((p) => {
-                            const active = (p.value ?? 0) > 0.5;
-                            return (
-                                <ToggleButton
-                                    key={p.name}
-                                    label={p.name}
-                                    active={active}
-                                    onClick={() => {
-                                        wrappedHandlers.onParamGestureStart?.(p.name);
-                                        wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
-                                        wrappedHandlers.onParamGestureEnd?.(p.name);
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
-                )}
+                {/* ── Inline toggle buttons — exclude params already rendered by buttons/delay ── */}
+                {(() => {
+                    const buttonParamSet = new Set((definition.buttons ?? []).map(b => b.paramName.toLowerCase()));
+                    const delayHandledSet = definition.delaySync
+                        ? new Set(['sync l', 'sync r', 'note l', 'note r'])
+                        : new Set<string>();
+                    const filtered = toggleParams.filter(p => {
+                        const n = p.name.toLowerCase();
+                        return !buttonParamSet.has(n) && !delayHandledSet.has(n) && !enumParamSet.has(n);
+                    });
+                    return filtered.length > 0 ? (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {filtered.map((p) => {
+                                const active = (p.value ?? 0) > 0.5;
+                                return (
+                                    <ToggleButton
+                                        key={p.name}
+                                        label={p.name}
+                                        active={active}
+                                        onClick={() => {
+                                            wrappedHandlers.onParamGestureStart?.(p.name);
+                                            wrappedHandlers.onParamChange(p.name, active ? 0 : 1);
+                                            wrappedHandlers.onParamGestureEnd?.(p.name);
+                                        }}
+                                    />
+                                );
+                            })}
+                        </div>
+                    ) : null;
+                })()}
                 {/* ── Main-surface buttons (e.g. Ping Pong) ── */}
                 {definition.buttons && definition.buttons.length > 0 && (
                     <ButtonStrip>

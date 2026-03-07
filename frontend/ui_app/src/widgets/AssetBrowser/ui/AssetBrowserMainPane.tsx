@@ -111,7 +111,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
             <div style={previewRootStyle}>
                 <div style={previewControlsRowStyle}>
                     <div style={previewWaveContainerStyle}>
-                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={12} /> : <div style={previewPlaceholderStyle} />}
+                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={32} /> : <div style={previewPlaceholderStyle} />}
                     </div>
                     <button
                         onClick={() => {
@@ -138,7 +138,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                         }}
                         aria-pressed={logic.previewEnabled}
                     >
-                        <BrowserGlyph name="headphones" size={9} />
+                        <BrowserGlyph name="headphones" size={11} />
                     </button>
                 </div>
             </div>
@@ -164,8 +164,9 @@ const filtersToolbarStyle: React.CSSProperties = {
     gap: 4,
     padding: 'var(--space-1) var(--space-1-5)',
     background: 'var(--color-bg-header)',
-    overflowX: 'auto',
-    overflowY: 'hidden',
+    /* RESPONSIVE FIX: removed overflowX:'auto' — it prevented flexWrap:'wrap' from
+       taking effect.  Filters now wrap to 2+ rows when the panel is narrow. */
+    overflow: 'hidden',
     minHeight: 28,
 };
 
@@ -253,32 +254,33 @@ const previewControlsRowStyle: React.CSSProperties = {
 const previewWaveContainerStyle: React.CSSProperties = {
     flex: 1,
     minWidth: 0,
-    height: 16,
+    height: 36,
     borderRadius: 'var(--radius-md)',
     border: 'var(--space-px) solid var(--color-border-subtle)',
-    background: 'color-mix(in srgb, var(--color-bg-base) 18%, transparent)',
+    background: 'color-mix(in srgb, var(--color-bg-base) 30%, transparent)',
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 var(--space-1)',
+    padding: '2px var(--space-1)',
 };
 
 const previewPlaceholderStyle: React.CSSProperties = {
     width: '100%',
-    height: 8,
+    height: 16,
     borderRadius: 'var(--radius-xs)',
-    background: 'color-mix(in srgb, var(--color-text-primary) 4%, transparent)',
+    background: 'color-mix(in srgb, var(--color-text-primary) 6%, transparent)',
 };
 
 const previewToggleStyle: React.CSSProperties = {
-    width: 16,
-    height: 16,
-    minWidth: 16,
+    width: 22,
+    height: 22,
+    minWidth: 22,
     borderRadius: '50%',
     border: 'var(--space-px) solid var(--color-border-subtle)',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 'var(--font-size-2xs)',
+    fontSize: 'var(--font-size-xs)',
+    flexShrink: 0,
 };

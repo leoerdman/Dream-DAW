@@ -186,9 +186,12 @@ export function createTrackProjectActions(
             // BUG-036 FIX: Guard against NaN/Infinity — would corrupt master gain.
             if (!Number.isFinite(volume)) return;
             try {
-                // BUG-014 FIX: Clamp to 12.0 (SSOT with ChannelStrip max),
-                // was 2.0 which silently clipped master boost above +6dB.
-                const clamped = Math.max(0, Math.min(12, volume));
+                // ENTERPRISE FIX: Clamp to 2.0 (linear gain = +6dB).
+                // Must match engine API (engine.ts:139) and Rust backend
+                // (audio_thread_commands.rs:255) which both enforce 0..2.
+                // Previous value of 12 caused silent clipping: UI displayed
+                // up to +21.6dB but Rust capped output at +6dB.
+                const clamped = Math.max(0, Math.min(2, volume));
                 setPendingMasterVolume(clamped);
                 set({ masterVolume: clamped });
                 throttledMasterVolumeSend(clamped);

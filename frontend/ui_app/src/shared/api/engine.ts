@@ -126,10 +126,16 @@ export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFram
     const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
     return safeInvoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames: s, endFrames: e });
 };
-export const setTrackVolume = (trackIndex: number, volume: number) =>
-    safeInvoke<void>('set_track_volume', { trackIndex, volume });
-export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) =>
-    safeInvoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume });
+// ENTERPRISE FIX: Clamp track volume at API boundary — prevents NaN/Infinity/negative/excessive
+// gain from reaching the audio thread. Range 0..2 = 0 to +6dB (matches master volume and fader math).
+export const setTrackVolume = (trackIndex: number, volume: number) => {
+    const safe = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 1.0;
+    return safeInvoke<void>('set_track_volume', { trackIndex, volume: safe });
+};
+export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) => {
+    const safe = Number.isFinite(volume) ? Math.max(0, Math.min(2.0, volume)) : 1.0;
+    return safeInvoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume: safe });
+};
 export const setTrackPan = (trackIndex: number, pan: number) =>
     safeInvoke<void>('set_track_pan', { trackIndex, pan });
 export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>

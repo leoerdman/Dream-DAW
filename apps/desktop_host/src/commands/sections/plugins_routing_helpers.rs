@@ -61,6 +61,113 @@ pub fn apply_imported_external_state_blob(
     Ok(())
 }
 
+/// ENTERPRISE SANDBOX FIX: Sandbox-aware variant of `apply_imported_external_state_blob`.
+///
+/// First attempts the in-process `host.load_state_blob()` path. If that fails
+/// (sandbox instances return `UnsupportedFormat` from the default trait impl),
+/// falls back to sending `RestoreState` via the sandbox supervisor IPC channel.
+///
+/// This fixes plugin state restore for ALL sandboxed VST3 plugins, which previously
+/// had their state silently discarded on project load, editor re-open, and eager activation.
+pub fn apply_external_state_blob_with_sandbox(
+    host: &mut PluginHost,
+    instance_id: Uuid,
+    slot: &PluginSlot,
+    plugin_host_state: &PluginHostState,
+) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let attempts: Vec<(&str, Option<&String>, Option<&String>)> = vec![
+        (
+            "state",
+            slot.external_state_blob.as_ref(),
+            slot.external_state_blob_kind.as_ref(),
+        ),
+        (
+            "preset",
+            slot.external_preset_blob.as_ref(),
+            slot.external_preset_blob_kind.as_ref(),
+        ),
+    ];
+
+    for (label, maybe_blob, maybe_kind) in attempts {
+        let Some(blob) = maybe_blob else { continue };
+        let trimmed = blob.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let decoded = match STANDARD.decode(trimmed.as_bytes()) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                log::warn!(
+                    "[PluginState] {} blob decode failed for '{}': {}",
+                    label,
+                    slot.name,
+                    err
+                );
+                continue;
+            }
+        };
+        if decoded.is_empty() {
+            continue;
+        }
+
+        // Try in-process path first.
+        match host.load_state_blob(instance_id, maybe_kind.map(|s| s.as_str()), &decoded) {
+            Ok(()) => {
+                log::info!(
+                    "[PluginState] Applied {} blob for '{}' via in-process path ({} bytes, kind={})",
+                    label,
+                    slot.name,
+                    decoded.len(),
+                    maybe_kind.map(|s| s.as_str()).unwrap_or("unknown")
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                // Check if the error is UnsupportedFormat — that means it's a sandbox instance.
+                let is_unsupported = matches!(e, dream_plugins::instance::PluginError::UnsupportedFormat(_));
+                if !is_unsupported {
+                    return Err(format!("Failed to apply {} state blob: {e}", label));
+                }
+
+                // SANDBOX FALLBACK: Send RestoreState via IPC to the sandbox daemon.
+                log::info!(
+                    "[PluginState] In-process load unsupported for '{}', trying sandbox IPC...",
+                    slot.name
+                );
+
+                // The blob is already base64 — use the original trimmed string directly.
+                let mut supervisor = plugin_host_state.sandbox_supervisor.lock();
+                match supervisor.send_restore_state(instance_id, trimmed.to_string()) {
+                    Ok(()) => {
+                        log::info!(
+                            "[PluginState] Applied {} blob for '{}' via sandbox IPC ({} b64 chars)",
+                            label,
+                            slot.name,
+                            trimmed.len()
+                        );
+                        return Ok(());
+                    }
+                    Err(sandbox_err) => {
+                        log::warn!(
+                            "[PluginState] Sandbox restore also failed for '{}': {}",
+                            slot.name,
+                            sandbox_err
+                        );
+                        return Err(format!(
+                            "Failed to apply {} state blob for '{}': in-process={}, sandbox={}",
+                            label, slot.name, e, sandbox_err
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn sync_external_fx_snapshot(
     project: &Project,
     clip_pool_state: &State<'_, ClipPoolState>,

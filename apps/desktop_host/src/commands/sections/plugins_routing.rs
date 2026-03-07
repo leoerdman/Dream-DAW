@@ -9,6 +9,7 @@ use dream_models::project::builtin_effect_type_from_plugin_id;
 mod plugins_routing_helpers;
 use plugins_routing_helpers::{
     apply_imported_external_state_blob,
+    apply_external_state_blob_with_sandbox,
     finalize_external_param_update,
     finalize_internal_param_update,
     load_external_slot_best_effort,
@@ -228,7 +229,7 @@ fn ensure_plugin_slot_active_cmd(
             slot_restore.external_preset_blob = slot.external_preset_blob.clone();
             slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
             if let Err(err) =
-                apply_imported_external_state_blob(&mut host, instance_id, &slot_restore)
+                apply_external_state_blob_with_sandbox(&mut host, instance_id, &slot_restore, &plugin_host_state)
             {
                 log::warn!(
                     "[IPC] ensure_plugin_slot_active_cmd: state restore failed for '{}': {}",
@@ -383,7 +384,7 @@ fn replace_missing_plugin_slot_impl(
             slot_restore.external_state_blob_kind = slot_state.external_state_blob_kind.clone();
             slot_restore.external_preset_blob = slot_state.external_preset_blob.clone();
             slot_restore.external_preset_blob_kind = slot_state.external_preset_blob_kind.clone();
-            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot_restore) {
+            if let Err(err) = apply_external_state_blob_with_sandbox(&mut host, instance_id, &slot_restore, &plugin_host_state) {
                 log::warn!(
                     "[IPC] replace_missing_plugin_slot: state restore failed (slot={}, plugin={}): {}",
                     slot_uuid,

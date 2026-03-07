@@ -43,16 +43,20 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         const guideColor = style.getPropertyValue('--color-text-secondary').trim() || 'var(--color-text-secondary)';
 
         ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = bgColor;
-        ctx.globalAlpha = 0.3;
+
+        // ── Background ──
+        ctx.fillStyle = bgColor || '#1a1a2e';
+        ctx.globalAlpha = 0.25;
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, 4);
         ctx.fill();
         ctx.globalAlpha = 1;
 
         const mid = h / 2;
-        ctx.strokeStyle = guideColor;
-        ctx.globalAlpha = 0.25;
+
+        // ── Center line ──
+        ctx.strokeStyle = guideColor || '#888';
+        ctx.globalAlpha = 0.18;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(0, mid);
@@ -60,21 +64,61 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        const peakCount = peaks.length;
-        const barWidth = w / peakCount;
-        ctx.fillStyle = accentColor;
-        ctx.globalAlpha = 0.8;
+        // ── Waveform gradient ──
+        const baseColor = accentColor || '#58a6ff';
+        // Canvas gradients can't use color-mix(). Use a simple alpha-adjusted approach.
+        const gradient = ctx.createLinearGradient(0, 0, 0, h);
+        gradient.addColorStop(0, baseColor);
+        gradient.addColorStop(0.5, baseColor);
+        gradient.addColorStop(1, baseColor);
 
-        for (let i = 0; i < peakCount; i += 1) {
+        const peakCount = peaks.length;
+        const step = w / peakCount;
+
+        // ── Draw filled waveform path ──
+        ctx.fillStyle = gradient;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(0, mid);
+        for (let i = 0; i < peakCount; i++) {
             const p = peaks[i];
-            const min = Math.max(-1, Math.min(1, p.min));
-            const max = Math.max(-1, Math.min(1, p.max));
-            const y1 = mid - max * mid;
-            const y2 = mid - min * mid;
-            const x = i * barWidth;
-            const bh = Math.max(1, y2 - y1);
-            ctx.fillRect(x, y1, Math.max(0.8, barWidth - 0.3), bh);
+            const maxVal = Math.max(-1, Math.min(1, p.max));
+            const x = i * step + step * 0.5;
+            ctx.lineTo(x, mid - maxVal * mid);
         }
+        for (let i = peakCount - 1; i >= 0; i--) {
+            const p = peaks[i];
+            const minVal = Math.max(-1, Math.min(1, p.min));
+            const x = i * step + step * 0.5;
+            ctx.lineTo(x, mid - minVal * mid);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // ── Bright center stroke for crisp edges ──
+        ctx.strokeStyle = baseColor;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 0.8;
+        // Top edge
+        ctx.beginPath();
+        for (let i = 0; i < peakCount; i++) {
+            const p = peaks[i];
+            const maxVal = Math.max(-1, Math.min(1, p.max));
+            const x = i * step + step * 0.5;
+            if (i === 0) ctx.moveTo(x, mid - maxVal * mid);
+            else ctx.lineTo(x, mid - maxVal * mid);
+        }
+        ctx.stroke();
+        // Bottom edge
+        ctx.beginPath();
+        for (let i = 0; i < peakCount; i++) {
+            const p = peaks[i];
+            const minVal = Math.max(-1, Math.min(1, p.min));
+            const x = i * step + step * 0.5;
+            if (i === 0) ctx.moveTo(x, mid - minVal * mid);
+            else ctx.lineTo(x, mid - minVal * mid);
+        }
+        ctx.stroke();
         ctx.globalAlpha = 1;
     }, [peaks, height, containerWidth]);
 

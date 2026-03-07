@@ -72,7 +72,7 @@ export function DeviceSlot({
                 void engineApi
                     .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, targetIdx)
                     .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot'))
-                    .catch((err) => console.error('[Dream] moveEffectSlot failed:', err));
+                    .catch((err) => { console.error('[Dream] moveEffectSlot failed:', err); logic.statusError(`Move effect failed: ${err instanceof Error ? err.message : String(err)}`); });
             }}
             className="dream-device-drop-indicator"
             style={{ display: 'flex', flexShrink: 0, height: 'var(--rack-row-height, 100%)', transition: 'border 0.1s ease', position: 'relative' }}

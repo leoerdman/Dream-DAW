@@ -76,7 +76,7 @@ export function useDeviceRackSlotActions({
 
         void engineApi.setSlotBypassWithDeltas(targetTrackId, device.id, nextBypassed)
             .then((response) => applyProjectDeltas(response.deltas, 'device-rack:bypass'))
-            .catch((err) => console.error('[Dream] setSlotBypass failed:', err));
+            .catch((err) => { console.error('[Dream] setSlotBypass failed:', err); statusError(`Bypass toggle failed: ${err instanceof Error ? err.message : String(err)}`); });
 
         if (device.source === 'internal') {
             const trackIdx = trackIndexById.get(targetTrackId)
@@ -91,7 +91,7 @@ export function useDeviceRackSlotActions({
             const slotIdx = isInstrumentSlot ? INSTRUMENT_SLOT_INDEX : effectSlotIdx;
             if (slotIdx >= 0) {
                 void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed)
-                    .catch((err: unknown) => console.error('[Dream] bypassDevice failed:', err));
+                    .catch((err: unknown) => { console.error('[Dream] bypassDevice failed:', err); statusError(`Bypass device failed: ${err instanceof Error ? err.message : String(err)}`); });
             }
         }
     }, [

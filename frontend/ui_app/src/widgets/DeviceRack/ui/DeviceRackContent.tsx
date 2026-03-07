@@ -7,6 +7,7 @@ import type { DeviceSlot as DeviceSlotModel } from '@/widgets/DeviceRack/model/t
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots';
 import { DeviceContextMenuPopup } from '@/widgets/DeviceRack/ui/DeviceContextMenuPopup';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 interface DeviceRackContentProps {
     logic: DeviceRackLogicOutput;
@@ -121,7 +122,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                             void engineApi
                                 .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, effectIds.length - 1)
                                 .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot-end'))
-                                .catch((err) => console.error('[Dream] moveEffectSlot(end) failed:', err));
+                                .catch((err) => { console.error('[Dream] moveEffectSlot(end) failed:', err); useStatusStore.getState().setError(`Move effect failed: ${err instanceof Error ? err.message : String(err)}`); });
                         }}
                         style={{
                             width: 14,
@@ -173,7 +174,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                             .then((response) => {
                                 logic.applyProjectDeltas(response.deltas, 'device-rack:wrap-in-rack');
                             })
-                            .catch((err) => console.error('[Dream] Wrap-in-rack failed:', err));
+                            .catch((err) => { console.error('[Dream] Wrap-in-rack failed:', err); useStatusStore.getState().setError(`Wrap in rack failed: ${err instanceof Error ? err.message : String(err)}`); });
                         setDeviceContextMenu(null);
                     }}
                     onBypass={() => {
@@ -195,7 +196,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                                     void disableFlowEngine(selectedTrack.id);
                                 }
                             })
-                            .catch((err) => console.error('[Dream] removePlugin via context menu failed:', err));
+                            .catch((err) => { console.error('[Dream] removePlugin via context menu failed:', err); useStatusStore.getState().setError(`Remove plugin failed: ${err instanceof Error ? err.message : String(err)}`); });
                         setDeviceContextMenu(null);
                     }}
                     onDismiss={() => setDeviceContextMenu(null)}

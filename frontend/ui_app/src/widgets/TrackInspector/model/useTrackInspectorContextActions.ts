@@ -4,6 +4,13 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import { autoDeleteEmptyGroup } from '@/widgets/TrackInspector/model/trackGroupCleanup';
 import { DEFAULT_TRACK_COLOR } from '@/shared/lib/trackAdapter';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
+
+function notifyError(prefix: string, err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[Dream] ${prefix}:`, err);
+    useStatusStore.getState().setError(`${prefix}: ${msg}`);
+}
 interface UseTrackInspectorContextActionsParams {
     tracks: TrackData[];
     liveTracks: TrackData[];
@@ -53,9 +60,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, `track-inspector:add-${trackType}`);
             })
-            .catch((err) => {
-                console.error(`[Dream] add ${trackType} track failed:`, err);
-            });
+            .catch((err) => notifyError(`Add ${trackType} track failed`, err));
         setContextMenu(null);
     }, [contextMenu]);
 
@@ -109,7 +114,7 @@ export function useTrackInspectorContextActions({
             } else {
                 setLocalSelectedTrackIds(nextId ? new Set([nextId]) : new Set());
             }
-        })().catch(err => console.error('[Dream] deleteTrack failed:', err));
+        })().catch(err => notifyError('Delete track failed', err));
         setContextMenu(null);
     }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides]);
 
@@ -163,7 +168,7 @@ export function useTrackInspectorContextActions({
             }
             if (onSelectTrack) onSelectTrack(nextSelectedId ?? 'master');
         })().catch((err) => {
-            console.error('[Dream] delete selected tracks failed:', err);
+            notifyError('Delete selected tracks failed', err);
         }).finally(() => {
             deletionInFlightRef.current = false;
         });
@@ -188,9 +193,7 @@ export function useTrackInspectorContextActions({
                 }
                 if (onSelectTrack) onSelectTrack(newTrackIds[0], { preserveCursor: true });
             }
-        }).catch((err) => {
-            console.error('[Dream] duplicate selected tracks failed:', err);
-        });
+        }).catch((err) => notifyError('Duplicate tracks failed', err));
     }, [selectedTrackIdSet, onSelectTracks, onSelectTrack, setLocalSelectedTrackIds]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
@@ -215,9 +218,7 @@ export function useTrackInspectorContextActions({
             } else {
                 console.warn('[Dream] groupTrack: no group_id in response', response);
             }
-        }).catch((err) => {
-            console.error('[Dream] createGroup failed:', err);
-        });
+        }).catch((err) => notifyError('Create group failed', err));
         setContextMenu(null);
     }, [tracks]);
 
@@ -227,9 +228,7 @@ export function useTrackInspectorContextActions({
             // Dissolve the entire group
             void engineApi.ungroupTrackWithDeltas(trackId).then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
-            }).catch((err) => {
-                console.error('[Dream] ungroup failed:', err);
-            });
+            }).catch((err) => notifyError('Ungroup failed', err));
         } else {
             // Remove single track from its group
             const oldGroupId = target?.groupId ?? null;
@@ -237,9 +236,7 @@ export function useTrackInspectorContextActions({
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
                 // SSOT: Auto-delete empty group after removing last child.
                 await autoDeleteEmptyGroup(oldGroupId);
-            }).catch((err) => {
-                console.error('[Dream] ungroup failed:', err);
-            });
+            }).catch((err) => notifyError('Ungroup failed', err));
         }
         setContextMenu(null);
     }, [tracks]);
@@ -268,9 +265,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:track-color-change');
             })
-            .catch((err) => {
-                console.error('[Dream] setTrackColor failed:', err);
-            });
+            .catch((err) => notifyError('Set track color failed', err));
         setColorPickerState(null);
     }, [setLocalOverrides, tracks]);
 
@@ -279,9 +274,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-clips-with-track-color');
             })
-            .catch((err) => {
-                console.error('[Dream] paintTrackClipsWithTrackColor failed:', err);
-            });
+            .catch((err) => notifyError('Paint clips with track color failed', err));
         setContextMenu(null);
     }, []);
 
@@ -297,9 +290,7 @@ export function useTrackInspectorContextActions({
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-group-color');
                 }
             })
-            .catch((err) => {
-                console.error('[Dream] paintGroupColor failed:', err);
-            });
+            .catch((err) => notifyError('Paint group color failed', err));
         setContextMenu(null);
     }, [tracks]);
 
@@ -308,9 +299,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:bounce-track');
             })
-            .catch((err) => {
-                console.error('[Dream] bounceTrack failed:', err);
-            });
+            .catch((err) => notifyError('Bounce track failed', err));
         setContextMenu(null);
     }, []);
 
@@ -319,9 +308,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:bounce-group');
             })
-            .catch((err) => {
-                console.error('[Dream] bounceGroup failed:', err);
-            });
+            .catch((err) => notifyError('Bounce group failed', err));
         setContextMenu(null);
     }, []);
 
@@ -330,9 +317,7 @@ export function useTrackInspectorContextActions({
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:split-to-stems');
             })
-            .catch((err) => {
-                console.error('[Dream] splitTrackToStems failed:', err);
-            });
+            .catch((err) => notifyError('Split to stems failed', err));
         setContextMenu(null);
     }, []);
 

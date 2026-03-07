@@ -231,7 +231,7 @@ function FloatingPresetBar() {
                                 fontWeight: i === presetIndex ? 600 : 400,
                                 cursor: 'pointer',
                                 background: 'transparent',
-                                transition: 'background 0.1s',
+                                transition: 'background var(--transition-micro)',
                             }}
                             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'; }}
                             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}

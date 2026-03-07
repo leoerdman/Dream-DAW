@@ -5,6 +5,8 @@ pub struct MidiInNode {
     pub note: u8,
     pub velocity: u8,
     pub gate: bool,
+    /// Transpose offset in semitones. Applied to the note before frequency conversion.
+    transpose: i8,
 }
 
 impl MidiInNode {
@@ -13,6 +15,7 @@ impl MidiInNode {
             note: 69,
             velocity: 0,
             gate: false,
+            transpose: 0,
         }
     }
 }
@@ -29,7 +32,8 @@ impl FlowNode for MidiInNode {
         // Output 1: Velocity (0..1, Control)
         // Output 2: Gate (0 or 1, Control)
 
-        let freq_hz = 440.0 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0);
+        let effective_note = (self.note as i16 + self.transpose as i16).clamp(0, 127) as f32;
+        let freq_hz = 440.0 * 2.0_f32.powf((effective_note - 69.0) / 12.0);
         outputs[0] = FlowSignal::Control(freq_hz);
         outputs[1] = FlowSignal::Control(self.velocity as f32 / 127.0);
         outputs[2] = FlowSignal::Gate(self.gate);
@@ -40,4 +44,11 @@ impl FlowNode for MidiInNode {
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+impl MidiInNode {
+    /// Set transpose offset in semitones. Clamped to [-48, 48] (±4 octaves).
+    pub fn set_transpose(&mut self, semitones: f32) {
+        self.transpose = (semitones as i8).clamp(-48, 48);
+    }
 }

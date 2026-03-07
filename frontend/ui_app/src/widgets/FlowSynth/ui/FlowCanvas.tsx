@@ -478,6 +478,7 @@ export function FlowCanvas() {
                 }}
             >
                 <button
+                    id="flow-tool-cursor"
                     onClick={() => setTool('cursor')}
                     title="Cursor"
                     style={{
@@ -496,6 +497,7 @@ export function FlowCanvas() {
                     <MousePointer2 size={14} />
                 </button>
                 <button
+                    id="flow-tool-hand"
                     onClick={() => setTool('hand')}
                     title="Hand"
                     style={{

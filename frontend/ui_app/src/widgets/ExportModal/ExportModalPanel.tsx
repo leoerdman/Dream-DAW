@@ -1,4 +1,13 @@
 import type { ReactNode } from 'react';
+
+/** Panel layout dimensions (px). */
+const PANEL_PADDING = 24;
+const PANEL_GAP = 16;
+const ERROR_MAX_HEIGHT = 120;
+const ERROR_TITLE_MB = 4;
+const ACTIONS_GAP = 8;
+const ACTIONS_PT = 4;
+const CHIP_GAP = 4;
 import {
     BIT_DEPTHS,
     FORMATS,
@@ -64,7 +73,7 @@ export function ExportModalPanel({
     onBounce,
 }: ExportModalPanelProps) {
     return (
-        <div style={{ zIndex: 'var(--z-modal-content)', width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ zIndex: 'var(--z-modal-content)', width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: PANEL_PADDING, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: PANEL_GAP }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 id="export-audio-title" style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
                 <button
@@ -133,11 +142,11 @@ export function ExportModalPanel({
                         color: 'var(--color-status-error)',
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
-                        maxHeight: 120,
+                        maxHeight: ERROR_MAX_HEIGHT,
                         overflowY: 'auto',
                     }}
                 >
-                    <strong style={{ display: 'block', marginBottom: 4 }}>Export failed</strong>
+                    <strong style={{ display: 'block', marginBottom: ERROR_TITLE_MB }}>Export failed</strong>
                     {bounceError}
                 </div>
             )}
@@ -157,7 +166,7 @@ export function ExportModalPanel({
                 </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: ACTIONS_GAP, paddingTop: ACTIONS_PT }}>
                 <button
                     onClick={onClose}
                     disabled={isSubmitting}
@@ -194,7 +203,7 @@ function ChipGroup<T extends string | number>({
     onChange: (v: T) => void;
 }) {
     return (
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: CHIP_GAP }}>
             {options.map((opt) => {
                 const isActive = opt.value === value;
                 return (

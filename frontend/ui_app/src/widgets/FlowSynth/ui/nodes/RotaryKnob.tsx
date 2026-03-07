@@ -23,6 +23,13 @@ const CENTER = KNOB_SIZE / 2;
 const START_ANGLE = 135;  // degrees from top
 const END_ANGLE = 405;    // full sweep = 270°
 const SWEEP = END_ANGLE - START_ANGLE;
+/** Inline edit input dimensions. */
+const EDIT_INPUT_WIDTH = 40;
+const EDIT_INPUT_PADDING = '0 2px';
+const EDIT_INPUT_LINE_HEIGHT = 1.2;
+/** Indicator line offsets from knob edge. */
+const INDICATOR_OUTER_INSET = 6;
+const INDICATOR_INNER_INSET = 14;
 
 function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
     const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -58,8 +65,8 @@ export function RotaryKnob({
     const valueAngle = START_ANGLE + normalized * SWEEP;
 
     // Indicator line
-    const indicator = polarToCartesian(CENTER, CENTER, RADIUS - 6, valueAngle);
-    const indicatorInner = polarToCartesian(CENTER, CENTER, RADIUS - 14, valueAngle);
+    const indicator = polarToCartesian(CENTER, CENTER, RADIUS - INDICATOR_OUTER_INSET, valueAngle);
+    const indicatorInner = polarToCartesian(CENTER, CENTER, RADIUS - INDICATOR_INNER_INSET, valueAngle);
 
     const handlePointerDown = useCallback((e: React.PointerEvent) => {
         e.stopPropagation();
@@ -85,10 +92,12 @@ export function RotaryKnob({
             setIsDragging(false);
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
         };
 
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
     }, [value, min, max, step, onChange]);
 
     const handleDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -197,7 +206,7 @@ export function RotaryKnob({
                     cursor: isDragging ? 'ns-resize' : 'pointer',
                     touchAction: 'none',
                     filter: isDragging ? `drop-shadow(0 0 6px ${color})` : 'none',
-                    transition: 'filter 0.15s',
+                    transition: 'filter var(--transition-fast)',
                 }}
             >
                 {/* Background track */}
@@ -260,7 +269,7 @@ export function RotaryKnob({
                     onPointerDown={(e) => e.stopPropagation()}
                     autoFocus
                     style={{
-                        width: 40,
+                        width: EDIT_INPUT_WIDTH,
                         fontSize: 'var(--font-size-2xs)',
                         fontFamily: 'var(--font-role-data)',
                         color: 'var(--color-text-primary)',
@@ -269,8 +278,8 @@ export function RotaryKnob({
                         borderRadius: 'var(--radius-sm)',
                         textAlign: 'center',
                         outline: 'none',
-                        padding: '0 2px',
-                        lineHeight: 1.2,
+                        padding: EDIT_INPUT_PADDING,
+                        lineHeight: EDIT_INPUT_LINE_HEIGHT,
                     }}
                 />
             ) : (

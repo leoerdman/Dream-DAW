@@ -134,7 +134,7 @@ export function PluginGuiSurfaceEqControls({
                     style={{
                         width: 14,
                         height: 14,
-                        borderRadius: 3,
+                        borderRadius: 'var(--radius-sm)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',

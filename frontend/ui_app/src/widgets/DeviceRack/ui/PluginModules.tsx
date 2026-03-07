@@ -239,7 +239,7 @@ export const ToggleButton = React.memo(({
             borderRadius: 'var(--radius-md)',
             border: `var(--space-px) solid ${active ? 'var(--color-accent-primary)' : 'var(--color-divider)'}`,
             background: active ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-            color: '#fff',
+            color: 'var(--color-text-on-accent)',
             fontSize: 'var(--font-size-2xs)',
             fontWeight: 600,
             cursor: 'pointer',
@@ -981,7 +981,7 @@ export const GainReductionMeter = React.memo(function GainReductionMeter({
                         key={i}
                         style={{
                             flex: 1,
-                            borderRadius: 1.5,
+                            borderRadius: 'var(--radius-2xs)',
                             background: i < activeSegments
                                 ? segmentColor(i)
                                 : 'var(--color-bg-tertiary)',
@@ -1008,7 +1008,7 @@ export const GainReductionMeter = React.memo(function GainReductionMeter({
                     key={i}
                     style={{
                         flex: 1,
-                        borderRadius: 1.5,
+                        borderRadius: 'var(--radius-2xs)',
                         background: i < activeSegments
                             ? segmentColor(i)
                             : 'var(--color-bg-tertiary)',

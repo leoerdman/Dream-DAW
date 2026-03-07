@@ -8,6 +8,8 @@ pub struct OscillatorNode {
     phase: f64,
     tri_state: f64,
     base_frequency_hz: f32,
+    /// Base pulse width for square wave (0.01..0.99). Overridden by CV input 1 if connected.
+    base_pulse_width: f32,
 }
 
 impl Default for OscillatorNode {
@@ -25,6 +27,7 @@ impl OscillatorNode {
             phase: 0.0,
             tri_state: 0.0,
             base_frequency_hz: 440.0,
+            base_pulse_width: 0.5,
         }
     }
 
@@ -44,6 +47,12 @@ impl OscillatorNode {
     pub fn set_base_frequency(&mut self, freq_hz: f32) {
         self.base_frequency_hz = freq_hz.clamp(20.0, 20_000.0);
     }
+
+    /// Set the base pulse width for the square waveform.
+    /// Clamped to [0.01, 0.99] to prevent degenerate DC output at extremes.
+    pub fn set_pulse_width(&mut self, pw: f32) {
+        self.base_pulse_width = pw.clamp(0.01, 0.99);
+    }
 }
 
 impl FlowNode for OscillatorNode {
@@ -58,7 +67,7 @@ impl FlowNode for OscillatorNode {
         };
 
         let freq_hz = control_or_default(0, self.base_frequency_hz).max(0.0) as f64;
-        let pw = control_or_default(1, 0.5) as f64;
+        let pw = control_or_default(1, self.base_pulse_width) as f64;
         let fm = control_or_default(2, 0.0) as f64;
         let pm = control_or_default(3, 0.0) as f64;
 

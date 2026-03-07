@@ -20,6 +20,17 @@ const TRACK_H = 4;
 const THUMB_W = 6;
 const THUMB_H = 14;
 const FADER_HEIGHT = 20;
+/** Gap between fader track and value display. */
+const FADER_GAP = 4;
+/** Extra padding above/below the thumb for pointer target area. */
+const THUMB_PADDING = 4;
+/** Thumb corner radius. */
+const THUMB_RADIUS = 2;
+/** Inline edit input dimensions. */
+const FADER_EDIT_INPUT_W = 36;
+const FADER_EDIT_PADDING = '0 2px';
+/** Minimum width for the value display label. */
+const VALUE_DISPLAY_MIN_W = 28;
 
 interface Props {
     nodeId: string;
@@ -160,7 +171,7 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
             style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: FADER_GAP,
                 height: FADER_HEIGHT,
                 flex: 1,
                 minWidth: 0,
@@ -178,7 +189,7 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                 style={{
                     position: 'relative',
                     flex: 1,
-                    height: THUMB_H + 4,
+                    height: THUMB_H + THUMB_PADDING,
                     cursor: isDragging ? 'grabbing' : 'ew-resize',
                     touchAction: 'none',
                     display: 'flex',
@@ -217,11 +228,11 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                     width: THUMB_W,
                     height: THUMB_H,
                     transform: 'translateY(-50%)',
-                    borderRadius: 2,
+                    borderRadius: THUMB_RADIUS,
                     background: isDragging
                         ? 'color-mix(in srgb, var(--color-accent-primary) 85%, white 15%)'
                         : 'var(--color-text-secondary)',
-                    transition: isDragging ? 'none' : 'background 0.15s',
+                    transition: isDragging ? 'none' : 'background var(--transition-fast)',
                     boxShadow: isDragging ? '0 0 6px var(--color-accent-primary)' : 'none',
                 }} />
             </div>
@@ -237,7 +248,7 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                     onPointerDown={(e) => e.stopPropagation()}
                     autoFocus
                     style={{
-                        width: 36,
+                        width: FADER_EDIT_INPUT_W,
                         fontSize: 'var(--font-size-2xs)',
                         fontFamily: 'var(--font-role-data)',
                         color: 'var(--color-text-primary)',
@@ -246,7 +257,7 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                         borderRadius: 'var(--radius-sm)',
                         textAlign: 'right',
                         outline: 'none',
-                        padding: '0 2px',
+                        padding: FADER_EDIT_PADDING,
                         flexShrink: 0,
                     }}
                 />
@@ -259,7 +270,7 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                         color: 'var(--color-text-tertiary)',
                         fontVariantNumeric: 'tabular-nums',
                         flexShrink: 0,
-                        minWidth: 28,
+                        minWidth: VALUE_DISPLAY_MIN_W,
                         textAlign: 'right',
                         cursor: 'text',
                     }}

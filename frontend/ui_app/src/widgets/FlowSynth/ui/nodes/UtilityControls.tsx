@@ -26,7 +26,7 @@ const phaseInvertBtnBase: React.CSSProperties = {
     borderRadius: 'var(--radius-sm)',
     padding: 'var(--space-0-5) var(--space-2)',
     cursor: 'pointer',
-    transition: 'all 0.15s',
+    transition: 'all var(--transition-fast)',
     userSelect: 'none',
 };
 

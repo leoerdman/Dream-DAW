@@ -202,6 +202,10 @@ impl FlowSynthEngine {
                 idx
             } else {
                 // All voices are actively held — steal the oldest active one.
+                // SAFETY: `MAX_VOICES > 0` is a compile-time invariant, so the
+                // iterator always yields at least one element and `min_by_key`
+                // never returns `None`. The `unwrap_or(0)` is a defensive fallback.
+                debug_assert!(MAX_VOICES > 0, "MAX_VOICES must be > 0");
                 self.voices
                     .iter()
                     .enumerate()

@@ -14,6 +14,11 @@ interface ClipFadeHandlesProps {
 
 const HANDLE_SIZE = 8;
 const FADE_MIN_PX = 4;
+/** Slip handle layout constants. */
+const SLIP_BOTTOM_OFFSET = 2;
+const SLIP_HEIGHT = 4;
+const SLIP_MAX_WIDTH = 40;
+const SLIP_WIDTH_FRACTION = 0.4;
 
 
 export const ClipFadeHandles = memo(function ClipFadeHandles({
@@ -185,7 +190,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     cursor: 'ew-resize',
                     pointerEvents: 'all',
                     opacity: showHandles ? 1 : 0,
-                    transition: 'opacity 0.15s ease',
+                    transition: `opacity var(--transition-fast)`,
                 }}
             >
                 <svg width={HANDLE_SIZE} height={HANDLE_SIZE} viewBox="0 0 8 8">
@@ -206,10 +211,10 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     style={{
                         position: 'absolute',
                         left: '50%',
-                        bottom: 2,
+                        bottom: SLIP_BOTTOM_OFFSET,
                         transform: 'translateX(-50%)',
-                        width: Math.min(40, width * 0.4),
-                        height: 4,
+                        width: Math.min(SLIP_MAX_WIDTH, width * SLIP_WIDTH_FRACTION),
+                        height: SLIP_HEIGHT,
                         borderRadius: 'var(--radius-xs)',
                         background: hoveredHandle === 'slip'
                             ? 'color-mix(in srgb, var(--color-text-bright) 50%, transparent)'

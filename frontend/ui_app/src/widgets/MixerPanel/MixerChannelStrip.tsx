@@ -28,7 +28,7 @@ function humanizeOutput(raw: string | undefined | null): string {
 }
 
 const LABEL_STYLE: React.CSSProperties = {
-    fontSize: 8,
+    fontSize: 'var(--font-size-micro)',
     fontWeight: 600,
     color: 'var(--color-text-tertiary)',
     textTransform: 'uppercase',
@@ -42,7 +42,7 @@ const SELECT_STYLE: React.CSSProperties = {
     border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
     background: 'var(--surface-elevated)',
     color: 'var(--color-text-secondary)',
-    fontSize: 9,
+    fontSize: 'var(--font-size-2xs)',
     fontWeight: 600,
     fontFamily: 'var(--font-role-body)',
     padding: '0 4px',
@@ -58,7 +58,7 @@ const SELECT_STYLE: React.CSSProperties = {
 const TRACK_NAME_STYLE: React.CSSProperties = {
     height: 22,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)',
+    fontSize: 'var(--font-size-xs)', fontWeight: 700, fontFamily: 'var(--font-role-data)',
     textTransform: 'uppercase',
     overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
     padding: '0 4px',
@@ -68,12 +68,12 @@ const TRACK_NAME_STYLE: React.CSSProperties = {
 
 const ROUTING_CONTAINER_STYLE: React.CSSProperties = { padding: '3px 4px 2px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
 const PAN_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' };
-const PAN_SLIDER_BG_STYLE: React.CSSProperties = { position: 'relative', width: '100%', height: 14, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px var(--color-bg-overlay)' };
+const PAN_SLIDER_BG_STYLE: React.CSSProperties = { position: 'relative', width: '100%', height: 14, borderRadius: 'var(--radius-xs)', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)', boxShadow: 'inset 0 1px 2px var(--color-bg-overlay)' };
 const PAN_SLIDER_INPUT_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' };
 
 const FADER_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'row', padding: '4px 6px', gap: 4, flex: 1, minHeight: 60 };
 const FADER_TRACK_STYLE: React.CSSProperties = { flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' };
-const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' };
+const FADER_GROOVE_STYLE: React.CSSProperties = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' };
 
 export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
@@ -158,7 +158,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <div style={PAN_SLIDER_BG_STYLE}>
                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
-                        <div style={{ position: 'absolute', top: 1, left: `calc(${((panVal + 1) / 2) * 100}% - 4px)`, width: 8, height: 8, borderRadius: 1, background: 'var(--color-accent-primary)' }} />
+                        <div style={{ position: 'absolute', top: 1, left: `calc(${((panVal + 1) / 2) * 100}% - 4px)`, width: 8, height: 8, borderRadius: 'var(--radius-2xs)', background: 'var(--color-accent-primary)' }} />
                         <input
                             type="range" min={-1} max={1} step={0.01} value={panVal}
                             onChange={(e) => { e.stopPropagation(); onPanChange(trackIndex, Number(e.target.value)); }}
@@ -166,7 +166,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                             style={PAN_SLIDER_INPUT_STYLE}
                         />
                     </div>
-                    <span style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 1 }}>
+                    <span style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 1 }}>
                         {Math.abs(panVal) < 0.02 ? 'C' : (panVal < 0 ? `L${Math.round(Math.abs(panVal) * 100)}` : `R${Math.round(panVal * 100)}`)}
                     </span>
                 </div>
@@ -191,11 +191,11 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     {/* Fader Handle */}
                     <div style={{
                         position: 'absolute', left: 4, right: 4, bottom: `calc(${volNorm * 100}% - 6px)`, height: 12,
-                        background: trackColor, borderRadius: 2, border: '1px solid var(--color-bg-overlay)',
+                        background: trackColor, borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-bg-overlay)',
                         boxShadow: 'inset 0 1px 1px color-mix(in srgb, var(--surface-elevated) 40%, transparent), 0 2px 4px var(--color-bg-overlay)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
+                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 'var(--radius-2xs)' }} />
                     </div>
                 </div>
 
@@ -207,7 +207,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
 
             {/* ── dB Label + Peak Hold ── */}
             <div style={{ display: 'flex', gap: 4, justifyContent: 'center', padding: '2px 4px', flexShrink: 0, borderTop: '1px solid var(--color-divider)', borderBottom: '1px solid var(--color-divider)' }}>
-                <div style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', flex: 1, textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', flex: 1, textAlign: 'center' }}>
                     {formatDb(volumeDb)}
                 </div>
                 <div style={{ flex: 1 }}>
@@ -222,7 +222,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     title={isDisabled ? 'Track Off' : 'Track On'}
                     style={{
                         flex: 1, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                        fontSize: 'var(--font-size-xs)', fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0,
                         background: !isDisabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
                         color: !isDisabled ? 'var(--color-text-on-accent)' : 'var(--color-text-tertiary)',
                         boxShadow: !isDisabled ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 4px color-mix(in srgb, var(--color-success) 50%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
@@ -234,7 +234,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     title="Solo"
                     style={{
                         width: 24, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                        fontSize: 'var(--font-size-xs)', fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0,
                         background: isSoloed ? 'var(--color-status-solo)' : 'var(--surface-elevated)',
                         color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)',
                         boxShadow: isSoloed ? 'inset 0 -1px 0 color-mix(in srgb, var(--color-bg-overlay) 50%, transparent), 0 0 4px color-mix(in srgb, var(--color-primary) 40%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
@@ -247,7 +247,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                     style={{
                         width: 24, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         background: isArmed ? 'color-mix(in srgb, var(--color-status-record) 80%, black)' : 'var(--surface-elevated)',
-                        border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0,
+                        border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0,
                         boxShadow: isArmed ? 'inset 0 -1px 0 var(--color-bg-overlay), 0 0 6px color-mix(in srgb, var(--color-danger) 50%, transparent)' : 'inset 0 1px 2px var(--color-bg-overlay)',
                     }}
                 >

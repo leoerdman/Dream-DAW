@@ -618,6 +618,25 @@ fn extended80_to_u32(bytes: &[u8; 10]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static AIFF_TEST_NONCE: AtomicU64 = AtomicU64::new(0);
+
+    /// Enterprise: generate a unique temp path for each test to avoid
+    /// parallel-test file collisions that cause flaky failures.
+    fn aiff_test_path(tag: &str) -> std::path::PathBuf {
+        let seq = AIFF_TEST_NONCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "dream_aiff_test_{}_{}_{}_{}.aif",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            seq,
+        ))
+    }
 
     #[test]
     fn extended80_common_rates() {
@@ -764,7 +783,7 @@ mod tests {
         }
         let data = build_aiff_bytes(1, 10, 16, 0x0E, [0xAC, 0x44], &pcm);
 
-        let path = std::path::PathBuf::from("/tmp/dream_test_native_16mono.aif");
+        let path = aiff_test_path("16mono");
         std::fs::write(&path, &data).expect("write test file");
 
         // Test full decode
@@ -804,7 +823,7 @@ mod tests {
         }
         let data = build_aiff_bytes(2, 4, 24, 0x0E, [0xBB, 0x80], &pcm);
 
-        let path = std::path::PathBuf::from("/tmp/dream_test_native_24stereo.aif");
+        let path = aiff_test_path("24stereo");
         std::fs::write(&path, &data).expect("write test file");
 
         let buf = read_aiff(&path).expect("read_aiff 24bit stereo");
@@ -872,7 +891,7 @@ mod tests {
         file_data.extend_from_slice(&(body.len() as u32).to_be_bytes());
         file_data.extend_from_slice(&body);
 
-        let path = std::path::PathBuf::from("/tmp/dream_test_ableton_able.aif");
+        let path = aiff_test_path("able");
         std::fs::write(&path, &file_data).expect("write test file");
 
         // Delta decoding should reconstruct: [0, 100, 200, 200, 100, 0]

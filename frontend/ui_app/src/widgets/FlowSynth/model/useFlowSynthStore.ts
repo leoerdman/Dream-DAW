@@ -315,8 +315,10 @@ function _rehydrateData(type: SynthNodeType, data: Record<string, unknown> | und
         return partialResult;
     }
 
-    // Fallback security zero-trust
-    return {};
+    // Fallback: Preserve data for node types not yet in NodeSchemas.
+    // This makes the system forward-compatible — new node types added to
+    // the catalog don't lose their data until a schema is defined.
+    return cleanData;
 }
 
 function cloneDefaultGraph(): FlowGraph {
@@ -1174,13 +1176,18 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
         // BUG-LOOP-001 FIX: Guard against re-entrant subscription fire.
         // applyProjectDeltas creates a new track.flow_synth object ref, which would
         // trigger the Undo/Redo subscription to re-sync — causing an infinite loop.
+        // BUG-LOOP-001b FIX: Wrap in try/finally — if applyProjectDeltas throws,
+        // the guard MUST be cleared or undo/redo sync is permanently disabled.
         if (saveResponse?.deltas?.length) {
             _undoRedoSyncInProgress = true;
-            await useEngineStore.getState().applyProjectDeltas(saveResponse.deltas, 'syncFlowGraphSave');
-            // Update the reference so the subscription skips the change we just caused.
-            const t = useEngineStore.getState().tracks.byId[state.activeTrackId ?? ''];
-            if (t) _prevFlowSynthConfigObj = t.flow_synth;
-            _undoRedoSyncInProgress = false;
+            try {
+                await useEngineStore.getState().applyProjectDeltas(saveResponse.deltas, 'syncFlowGraphSave');
+                // Update the reference so the subscription skips the change we just caused.
+                const t = useEngineStore.getState().tracks.byId[state.activeTrackId ?? ''];
+                if (t) _prevFlowSynthConfigObj = t.flow_synth;
+            } finally {
+                _undoRedoSyncInProgress = false;
+            }
         }
     },
 
@@ -1484,18 +1491,25 @@ useEngineStore.subscribe((state) => {
     // Without this, the UI shows the undone graph but audio stays on the old one.
     // BUG-LOOP-001 FIX: Set guard to prevent the sync response deltas from
     // re-triggering this subscription and causing an infinite loop.
+    // BUG-LOOP-001b FIX: Replaced fragile setTimeout(0) with async IIFE + try/finally.
+    // The previous approach had two bugs:
+    //  1. setTimeout(0) fires AFTER the macrotask boundary — but syncFlowGraphToEngine
+    //     is async and may complete AFTER the timeout, leaving the guard cleared too early.
+    //  2. If syncFlowGraphToEngine rejects, the guard was never cleared.
+    // Now the guard is set synchronously, the sync is awaited, and finally always clears it.
     _undoRedoSyncInProgress = true;
-    _scheduleSyncFlowGraph(() => useFlowSynthStore.getState());
-    // BUG-LOOP-001 FIX: Clear the guard asynchronously after the microtask
-    // that _scheduleSyncFlowGraph enqueues has had time to execute.
-    // Use setTimeout(0) to ensure it runs AFTER the queueMicrotask chain
-    // and any resulting applyProjectDeltas have completed.
-    setTimeout(() => {
-        _undoRedoSyncInProgress = false;
-        // Update the reference to the CURRENT config so that the subscribe
-        // doesn't fire again when the sync response delta updates the object.
-        const t = useEngineStore.getState().tracks.byId[useFlowSynthStore.getState().activeTrackId ?? ''];
-        if (t) _prevFlowSynthConfigObj = t.flow_synth;
-    }, 0);
+    void (async () => {
+        try {
+            await useFlowSynthStore.getState().syncFlowGraphToEngine();
+        } catch (err) {
+            console.error('[FlowSynth] Undo/redo sync failed:', err);
+        } finally {
+            _undoRedoSyncInProgress = false;
+            // Update the reference to the CURRENT config so that the subscribe
+            // doesn't fire again when the sync response delta updates the object.
+            const t = useEngineStore.getState().tracks.byId[useFlowSynthStore.getState().activeTrackId ?? ''];
+            if (t) _prevFlowSynthConfigObj = t.flow_synth;
+        }
+    })();
 });
 

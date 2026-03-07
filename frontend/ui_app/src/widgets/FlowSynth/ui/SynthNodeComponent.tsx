@@ -58,6 +58,10 @@ const PORT_DOT_HOVER_SHADOW_PX = 14;
 const PORT_DOT_TARGET_SHADOW_PX = 10;
 const PORT_DOT_DEFAULT_SHADOW_PX = 5;
 const PORT_DOT_BORDER_WIDTH = 2;
+/** White inner glow radius on hover. */
+const PORT_DOT_HOVER_INNER_GLOW_PX = 4;
+/** Node header type dot glow radius. */
+const NODE_TYPE_DOT_GLOW_PX = 8;
 /** Port label offset from dot edge. */
 const PORT_LABEL_OFFSET = 6;
 const PORT_LABEL_VERTICAL_OFFSET = 7;
@@ -210,7 +214,7 @@ function PortDot({
                 border: `${PORT_DOT_BORDER_WIDTH}px solid ${dotColor}`,
                 cursor: interactionDisabled ? 'default' : 'crosshair',
                 boxShadow: isHovered
-                    ? `0 0 ${PORT_DOT_HOVER_SHADOW_PX}px ${dotColor}, 0 0 4px rgba(255,255,255,0.4)`
+                    ? `0 0 ${PORT_DOT_HOVER_SHADOW_PX}px ${dotColor}, 0 0 ${PORT_DOT_HOVER_INNER_GLOW_PX}px rgba(255,255,255,0.4)`
                     : showTargetGlow
                         ? `0 0 ${PORT_DOT_TARGET_SHADOW_PX}px ${dotColor}`
                         : `0 0 ${PORT_DOT_DEFAULT_SHADOW_PX}px ${dotColor}`,
@@ -453,7 +457,7 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
                 <div style={{
                     ...nodeTypeDotStyle,
                     backgroundColor: config.color,
-                    boxShadow: `0 0 8px ${config.color}`,
+                    boxShadow: `0 0 ${NODE_TYPE_DOT_GLOW_PX}px ${config.color}`,
                 }} />
                 <span style={nodeTitleStyle}>
                     {config.title}

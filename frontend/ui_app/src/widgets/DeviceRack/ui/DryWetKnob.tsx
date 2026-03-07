@@ -186,7 +186,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
             </div>
             {/* Label */}
             <span style={{
-                fontSize: '10px',
+                fontSize: 'var(--font-size-xs)',
                 color: 'var(--color-text-tertiary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',

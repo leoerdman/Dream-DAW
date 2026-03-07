@@ -28,12 +28,21 @@ function smoothDb(nextDb: number, prevDb: number, attackAlpha: number, releaseAl
     return Math.max(METER_FLOOR_DB, smoothed);
 }
 
-function smoothMeterReading(
-    prev: MeteringSnapshot['master_left'] | undefined,
-    next: MeteringSnapshot['master_left'],
+// ── PERF FIX: Meter reading type for in-place mutation ──────────────
+type MeterReading = MeteringSnapshot['master_left'];
+
+/**
+ * PERF FIX: Smooth a single meter reading **in-place** into the `target` object.
+ * Previously created a new object per call (~N×2 + 2 master objects per tick = O(N) alloc).
+ * Now mutates the target directly — zero allocation on the hot path.
+ */
+function smoothMeterReadingInto(
+    target: MeterReading,
+    prev: MeterReading | undefined,
+    next: MeterReading,
     dtSec: number,
     nowMs: number,
-): MeteringSnapshot['master_left'] {
+): void {
     const prevRms = prev?.rms ?? METER_FLOOR_DB;
     const prevPeak = prev?.peak ?? METER_FLOOR_DB;
     const peakAttack = alphaFromTau(dtSec, PEAK_ATTACK_TAU_SEC);
@@ -41,14 +50,11 @@ function smoothMeterReading(
     const rmsAttack = alphaFromTau(dtSec, RMS_ATTACK_TAU_SEC);
     const rmsRelease = alphaFromTau(dtSec, RMS_RELEASE_TAU_SEC);
 
-    const smoothedRms = smoothDb(next.rms, prevRms, rmsAttack, rmsRelease);
-    const smoothedPeak = smoothDb(next.peak, prevPeak, peakAttack, peakRelease);
+    target.rms = smoothDb(next.rms, prevRms, rmsAttack, rmsRelease);
+    target.peak = smoothDb(next.peak, prevPeak, peakAttack, peakRelease);
+    target.clipping = next.clipping;
 
     // ── Peak Hold ───────────────────────────────────────────────────────
-    // Use the RAW (unsmoothed) peak from the backend for hold comparisons.
-    // The smoothed peak inherently decays via the IIR filter, so comparing
-    // against it causes the hold value to drift down — defeating the
-    // entire purpose of a "sticky" peak hold display.
     const rawPeak = Number.isFinite(next.peak) ? next.peak : METER_FLOOR_DB;
 
     let peakHold = prev?.peak_hold ?? METER_FLOOR_DB;
@@ -70,15 +76,52 @@ function smoothMeterReading(
         peakHoldTs = nowMs;
     }
 
+    target.peak_hold = peakHold;
+    target.peak_hold_ts = peakHoldTs;
+}
+
+// ── PERF FIX: Pre-allocated reusable snapshot ───────────────────────
+// Instead of creating a new MeteringSnapshot + N×2 track arrays every tick,
+// we maintain a single persistent snapshot object and mutate it in-place.
+// Zustand detects changes via the object reference on the top-level `meters`
+// key — we swap between two snapshot buffers (double-buffering) so that
+// the store sees a new reference while we reuse the old buffer next tick.
+let _snapshotA: MeteringSnapshot | null = null;
+let _snapshotB: MeteringSnapshot | null = null;
+let _useA = true;
+
+function ensureSnapshotCapacity(snapshot: MeteringSnapshot, trackCount: number): void {
+    // Grow track arrays if needed (no shrink to avoid re-alloc churn)
+    while (snapshot.tracks.length < trackCount) {
+        snapshot.tracks.push([
+            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+        ]);
+    }
+}
+
+function createEmptySnapshot(): MeteringSnapshot {
     return {
-        rms: smoothedRms,
-        peak: smoothedPeak,
-        clipping: next.clipping,
-        peak_hold: peakHold,
-        peak_hold_ts: peakHoldTs,
+        tracks: [],
+        track_plugin_metrics: [],
+        master_left: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+        master_right: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+        master_plugin_metrics: new Array(16).fill(0),
     };
 }
 
+/**
+ * PERF FIX: Double-buffered in-place meter smoothing.
+ *
+ * Previous implementation used `next.tracks.map()` → new array + N×2 new objects
+ * per tick = O(N) GC pressure at 30fps. With 53 tracks that's 106 objects/tick × 30 = 3,180 objects/sec.
+ *
+ * This version:
+ * 1. Maintains two pre-allocated snapshot buffers (A/B double-buffering).
+ * 2. Writes smoothed values in-place into the "inactive" buffer.
+ * 3. Swaps active buffer — Zustand sees a new reference (triggers re-render).
+ * 4. Zero allocation on the hot path after initial warmup.
+ */
 export function smoothMeterSnapshot(
     prev: MeteringSnapshot | null,
     next: MeteringSnapshot,
@@ -88,21 +131,37 @@ export function smoothMeterSnapshot(
     const dtSec = lastMeterTickMs > 0
         ? Math.max(1 / 240, Math.min(0.25, (nowMs - lastMeterTickMs) / 1000))
         : DEFAULT_METER_DELTA_SEC;
-    const tracks: MeteringSnapshot['tracks'] = next.tracks.map((track, i) => {
+
+    // Lazy-init double buffers
+    if (!_snapshotA) _snapshotA = createEmptySnapshot();
+    if (!_snapshotB) _snapshotB = createEmptySnapshot();
+
+    // Pick the inactive buffer as the write target, swap after
+    const target = _useA ? _snapshotA : _snapshotB;
+    _useA = !_useA;
+
+    const trackCount = next.tracks.length;
+    ensureSnapshotCapacity(target, trackCount);
+
+    // Smooth each track in-place
+    for (let i = 0; i < trackCount; i++) {
         const prevTrack = prev?.tracks[i];
-        return [
-            smoothMeterReading(prevTrack?.[0], track[0], dtSec, nowMs),
-            smoothMeterReading(prevTrack?.[1], track[1], dtSec, nowMs),
-        ];
-    });
+        const nextTrack = next.tracks[i];
+        smoothMeterReadingInto(target.tracks[i][0], prevTrack?.[0], nextTrack[0], dtSec, nowMs);
+        smoothMeterReadingInto(target.tracks[i][1], prevTrack?.[1], nextTrack[1], dtSec, nowMs);
+    }
+
+    // Reuse plugin_metrics arrays directly from decoded data (no copy needed —
+    // the decoder already allocated fresh arrays, and we just swap references).
+    target.track_plugin_metrics = next.track_plugin_metrics;
+
+    // Smooth master channels in-place
+    smoothMeterReadingInto(target.master_left, prev?.master_left, next.master_left, dtSec, nowMs);
+    smoothMeterReadingInto(target.master_right, prev?.master_right, next.master_right, dtSec, nowMs);
+    target.master_plugin_metrics = next.master_plugin_metrics;
+
     return {
-        snapshot: {
-            tracks,
-            track_plugin_metrics: next.track_plugin_metrics,
-            master_left: smoothMeterReading(prev?.master_left, next.master_left, dtSec, nowMs),
-            master_right: smoothMeterReading(prev?.master_right, next.master_right, dtSec, nowMs),
-            master_plugin_metrics: next.master_plugin_metrics,
-        },
+        snapshot: target,
         nextTickMs: nowMs,
     };
 }

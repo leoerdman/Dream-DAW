@@ -71,8 +71,8 @@ export function renderStandardAnalyzerMidiSurface(
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: 'var(--space-1) var(--space-2)', height: 80, background: 'var(--token-color-rgba-8-10-14-0d7)', borderRadius: 'var(--radius-md)' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-role-data)', letterSpacing: '0.05em' }}>PEAK L</div>
-                            <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuL) / 60) * 100))}%`, background: safeVuL > -3 ? 'var(--color-error)' : safeVuL > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
+                            <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 'var(--radius-xs)', overflow: 'hidden', position: 'relative' }}>
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuL) / 60) * 100))}%`, background: safeVuL > -3 ? 'var(--color-error)' : safeVuL > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 'var(--radius-xs)', transition: 'height 60ms linear' }} />
                             </div>
                             <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>
                                 {safeVuL > -100 ? safeVuL.toFixed(1) : '-∞'}
@@ -80,8 +80,8 @@ export function renderStandardAnalyzerMidiSurface(
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-role-data)', letterSpacing: '0.05em' }}>PEAK R</div>
-                            <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuR) / 60) * 100))}%`, background: safeVuR > -3 ? 'var(--color-error)' : safeVuR > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
+                            <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 'var(--radius-xs)', overflow: 'hidden', position: 'relative' }}>
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuR) / 60) * 100))}%`, background: safeVuR > -3 ? 'var(--color-error)' : safeVuR > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 'var(--radius-xs)', transition: 'height 60ms linear' }} />
                             </div>
                             <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>
                                 {safeVuR > -100 ? safeVuR.toFixed(1) : '-∞'}

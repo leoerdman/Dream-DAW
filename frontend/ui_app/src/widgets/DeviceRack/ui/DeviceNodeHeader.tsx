@@ -223,7 +223,7 @@ export function DeviceNodeHeader({
             {device.rack && (
                 <span
                     style={{
-                        fontSize: 7,
+                        fontSize: 'var(--font-size-micro)',
                         fontWeight: 800,
                         color: device.rack.rack_type === 'Instrument' ? 'var(--rack-accent-instrument)'
                             : device.rack.rack_type === 'DrumRack' ? 'var(--rack-accent-drum)'

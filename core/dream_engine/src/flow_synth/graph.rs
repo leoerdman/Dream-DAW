@@ -217,6 +217,7 @@ impl FlowGraph {
                 match *k {
                     Waveform => osc.set_waveform_by_float(*v),
                     Frequency => osc.set_base_frequency(*v),
+                    PulseWidth => osc.set_pulse_width(*v),
                     _ => {}
                 }
             }
@@ -391,6 +392,13 @@ impl FlowGraph {
                     Mix => dist.set_mix(*v),
                     _ => {}
                 }
+            }
+            return;
+        }
+
+        if let Some(midi) = node.as_any_mut().downcast_mut::<MidiInNode>() {
+            for (k, v) in params {
+                if *k == Transpose { midi.set_transpose(*v); }
             }
         }
     }
@@ -906,6 +914,67 @@ mod tests {
         let out = render(&mut g, 44_100.0, 512);
         let pass_rms = rms(&out);
         assert!(pass_rms > 0.3, "VCA with default CV=1.0 should pass audio, rms={pass_rms}");
+    }
+
+    #[test]
+    fn oscillator_pulse_width_param_changes_timbre() {
+        // PulseWidth 0.1 should produce a narrow pulse; PulseWidth 0.9 a wide pulse.
+        // Both are square (waveform=2) but with audibly different harmonic content.
+        let mut narrow = FlowGraph::new();
+        narrow.add_node(1, FlowNodeType::Oscillator);
+        narrow.set_node_params(1, &[
+            (FlowParamKey::Waveform, 2.0),
+            (FlowParamKey::PulseWidth, 0.1),
+        ]);
+        narrow.add_node(2, FlowNodeType::Output);
+        narrow.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
+        narrow.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let mut wide = FlowGraph::new();
+        wide.add_node(1, FlowNodeType::Oscillator);
+        wide.set_node_params(1, &[
+            (FlowParamKey::Waveform, 2.0),
+            (FlowParamKey::PulseWidth, 0.9),
+        ]);
+        wide.add_node(2, FlowNodeType::Output);
+        wide.set_node_params(2, &[(FlowParamKey::Gain, 1.0)]);
+        wide.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+
+        let a = render(&mut narrow, 44_100.0, 1024);
+        let b = render(&mut wide, 44_100.0, 1024);
+        let diff = a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum::<f32>() / 1024.0;
+        assert!(diff > 0.01, "expected PW=0.1 and PW=0.9 to produce different timbres, diff={diff}");
+    }
+
+    #[test]
+    fn midi_in_transpose_shifts_frequency() {
+        let mut g_no_transpose = FlowGraph::new();
+        g_no_transpose.add_node(1, FlowNodeType::MidiIn);
+        g_no_transpose.add_node(2, FlowNodeType::Oscillator);
+        g_no_transpose.add_node(3, FlowNodeType::Output);
+        g_no_transpose.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
+        g_no_transpose.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        g_no_transpose.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        let mut g_transposed = FlowGraph::new();
+        g_transposed.add_node(1, FlowNodeType::MidiIn);
+        g_transposed.set_node_params(1, &[(FlowParamKey::Transpose, 12.0)]); // +1 octave
+        g_transposed.add_node(2, FlowNodeType::Oscillator);
+        g_transposed.add_node(3, FlowNodeType::Output);
+        g_transposed.set_node_params(3, &[(FlowParamKey::Gain, 1.0)]);
+        g_transposed.add_connection(FlowConnection { from_node: 1, from_port: 0, to_node: 2, to_port: 0 });
+        g_transposed.add_connection(FlowConnection { from_node: 2, from_port: 0, to_node: 3, to_port: 0 });
+
+        // Set same MIDI note on both
+        set_midi_state(&mut g_no_transpose, 1, 60, 100, true);
+        set_midi_state(&mut g_transposed, 1, 60, 100, true);
+
+        let a = render(&mut g_no_transpose, 44_100.0, 512);
+        let b = render(&mut g_transposed, 44_100.0, 512);
+
+        // Octave transposition should produce audibly different signal
+        let diff = a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum::<f32>() / 512.0;
+        assert!(diff > 0.05, "expected transposed MidiIn to produce different pitch, diff={diff}");
     }
 }
 

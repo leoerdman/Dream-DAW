@@ -90,7 +90,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                             <Music size={12} />
                             <span>{KEY_TONICS[keyTonic]} {KEY_MODES[keyMode]}</span>
                         </span>
-                        <span style={{ opacity: 0.85, fontSize: 10 }}>▾</span>
+                        <span style={{ opacity: 0.85, fontSize: 'var(--font-size-xs)' }}>▾</span>
                     </button>
                     {keyMenuOpen && (
                         <div
@@ -188,7 +188,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                         }}
                     >
                         <span>{gridLabel}</span>
-                        <span style={{ opacity: 0.8, fontSize: 10 }}>▾</span>
+                        <span style={{ opacity: 0.8, fontSize: 'var(--font-size-xs)' }}>▾</span>
                     </button>
                     {gridOpen && (
                         <div

@@ -5,46 +5,86 @@ import { clamp01, vuNorm } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { METER_WIDTH, STRIP_WIDTH } from './MixerPanel.constants';
 
-// ── Isolated meter component: re-renders ONLY when master meter values change ──
+// ── PERF-OPT: Subscription-driven master meter — zero selector re-renders ──
 const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWidth: number }) {
-    const masterLeft = useEngineStore((s) => s.meters.master_left);
-    const masterRight = useEngineStore((s) => s.meters.master_right);
-    const peakL = masterLeft?.peak ?? -60;
-    const peakR = masterRight?.peak ?? -60;
-    // ENTERPRISE-METER-FIX: Use pure peak (not peak*0.7+rms*0.3) — same as MixerChannelMeters.
-    const meterL = clamp01(vuNorm(peakL));
-    const meterR = clamp01(vuNorm(peakR));
+    const meterLRef = useRef(0);
+    const meterRRef = useRef(0);
+    const holdLRef = useRef(0);
+    const holdRRef = useRef(0);
+    const rafIdRef = useRef(0);
+    const mountedRef = useRef(true);
+    const lastRef = useRef({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
-    // Peak hold indicators
-    const holdL = clamp01(vuNorm(masterLeft?.peak_hold ?? peakL));
-    const holdR = clamp01(vuNorm(masterRight?.peak_hold ?? peakR));
+    const [, setTick] = useState(0);
+    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
+    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        const unsub = useEngineStore.subscribe((state) => {
+            const masterLeft = state.meters.master_left;
+            const masterRight = state.meters.master_right;
+            const peakL = masterLeft?.peak ?? -60;
+            const peakR = masterRight?.peak ?? -60;
+            const mL = clamp01(vuNorm(peakL));
+            const mR = clamp01(vuNorm(peakR));
+            const hL = clamp01(vuNorm(masterLeft?.peak_hold ?? peakL));
+            const hR = clamp01(vuNorm(masterRight?.peak_hold ?? peakR));
+
+            const last = lastRef.current;
+            if (mL === last.mL && mR === last.mR && hL === last.hL && hR === last.hR) return;
+
+            meterLRef.current = mL;
+            meterRRef.current = mR;
+            holdLRef.current = hL;
+            holdRRef.current = hR;
+            lastRef.current = { mL, mR, hL, hR };
+
+            if (rafIdRef.current) return;
+            rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = 0;
+                if (mountedRef.current) forceUpdateRef.current();
+            });
+        });
+        return () => { mountedRef.current = false; unsub(); if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
+    }, []);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'row', gap: 1 }}>
-            <div style={{ width: meterWidth, position: 'relative', borderRadius: 2, overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterL} levelR={meterL} peakHoldL={holdL} peakHoldR={holdL} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+            <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                <MeterStrip levelL={meterLRef.current} levelR={meterLRef.current} peakHoldL={holdLRef.current} peakHoldR={holdLRef.current} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
-            <div style={{ width: meterWidth, position: 'relative', borderRadius: 2, overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-                <MeterStrip levelL={meterR} levelR={meterR} peakHoldL={holdR} peakHoldR={holdR} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+            <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                <MeterStrip levelL={meterRRef.current} levelR={meterRRef.current} peakHoldL={holdRRef.current} peakHoldR={holdRRef.current} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             </div>
         </div>
     );
 });
 
-// ── Isolated peak label: re-renders ONLY when master peak values change ──
+// ── PERF-OPT: Subscription-driven master peak labels — ref-based DOM mutation ──
 const MasterPeakLabels = memo(function MasterPeakLabels() {
-    const masterLeft = useEngineStore((s) => s.meters.master_left);
-    const masterRight = useEngineStore((s) => s.meters.master_right);
-    const peakL = masterLeft?.peak ?? -60;
-    const peakR = masterRight?.peak ?? -60;
+    const peakLRef = useRef<HTMLDivElement>(null);
+    const peakRRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const unsub = useEngineStore.subscribe((state) => {
+            const peakL = state.meters.master_left?.peak ?? -60;
+            const peakR = state.meters.master_right?.peak ?? -60;
+            const textL = Number.isFinite(peakL) && peakL > -90 ? formatDb(peakL) : '-∞';
+            const textR = Number.isFinite(peakR) && peakR > -90 ? formatDb(peakR) : '-∞';
+            if (peakLRef.current && peakLRef.current.textContent !== textL) peakLRef.current.textContent = textL;
+            if (peakRRef.current && peakRRef.current.textContent !== textR) peakRRef.current.textContent = textR;
+        });
+        return unsub;
+    }, []);
 
     return (
-        <div style={{ display: 'flex', gap: 3, justifyContent: 'center', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '1px 0 0', flexShrink: 0 }}>
-            <div style={{ width: 28, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
-                {Number.isFinite(peakL) && peakL > -90 ? formatDb(peakL) : '-∞'}
+        <div style={{ display: 'flex', gap: 3, justifyContent: 'center', fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '1px 0 0', flexShrink: 0 }}>
+            <div ref={peakLRef} style={{ width: 28, background: 'var(--surface-elevated)', borderRadius: 'var(--radius-2xs)', padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                -∞
             </div>
-            <div style={{ width: 28, background: 'var(--surface-elevated)', borderRadius: 1, padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
-                {Number.isFinite(peakR) && peakR > -90 ? formatDb(peakR) : '-∞'}
+            <div ref={peakRRef} style={{ width: 28, background: 'var(--surface-elevated)', borderRadius: 'var(--radius-2xs)', padding: '1px 0', textAlign: 'center', border: '1px solid color-mix(in srgb, var(--text-primary) 5%, transparent)' }}>
+                -∞
             </div>
         </div>
     );
@@ -100,7 +140,7 @@ export const MasterStrip = memo(function MasterStrip() {
             {/* ── Master Label ── */}
             <div style={{
                 height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-role-data)',
+                fontSize: 'var(--font-size-xs)', fontWeight: 700, fontFamily: 'var(--font-role-data)',
                 color: 'var(--color-text-secondary)', flexShrink: 0,
                 borderBottom: '1px solid var(--color-divider)',
                 background: 'color-mix(in srgb, var(--surface-2) 60%, transparent)',
@@ -122,16 +162,16 @@ export const MasterStrip = memo(function MasterStrip() {
                     style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
                 >
                     {/* Fader Groove */}
-                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 3, boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' }} />
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 6, background: 'color-mix(in srgb, var(--surface-2) 60%, var(--color-bg-base))', border: '1px solid color-mix(in srgb, var(--color-divider) 80%, var(--color-bg-base))', borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 1px 3px var(--color-overlay-dark)' }} />
 
                     {/* Fader Handle */}
                     <div style={{
                         position: 'absolute', left: 4, right: 4, bottom: `calc(${volNorm * 100}% - 6px)`, height: 12,
-                        background: trackColor, borderRadius: 2, border: '1px solid var(--color-overlay-dark)',
+                        background: trackColor, borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-overlay-dark)',
                         boxShadow: 'inset 0 1px 1px var(--color-overlay-light), 0 2px 4px var(--color-overlay-dark)', pointerEvents: 'none',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 1 }} />
+                        <div style={{ width: '70%', height: 2, background: 'color-mix(in srgb, var(--color-text-on-accent) 70%, transparent)', borderRadius: 'var(--radius-2xs)' }} />
                     </div>
                 </div>
 
@@ -141,7 +181,7 @@ export const MasterStrip = memo(function MasterStrip() {
 
             {/* ── dB & Peak Labels ── */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2px 4px 6px', flexShrink: 0, borderTop: '1px solid var(--color-divider)' }}>
-                <div style={{ fontSize: 10, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                <div style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', fontWeight: 600 }}>
                     {formatDb(volumeDb)}
                 </div>
                 <MasterPeakLabels />

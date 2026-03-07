@@ -189,7 +189,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
                 strokeWidth={isSelected ? 8 : 4}
                 opacity={isSelected ? 0.35 : 0.14}
                 pointerEvents="none"
-                style={{ filter: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
+                style={{ filter: 'none', transition: `stroke-width var(--transition-fast), opacity var(--transition-fast)` }}
             />
             {/* Core path — solid for audio/midi/gate, dashed for control/phase (Bitwig Grid pattern) */}
             <path

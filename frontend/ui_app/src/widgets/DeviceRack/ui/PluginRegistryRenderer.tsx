@@ -643,7 +643,7 @@ export class PluginRendererErrorBoundary extends React.Component<ErrorBoundaryPr
                 <div style={{
                     padding: 12,
                     color: 'var(--color-text-secondary)',
-                    fontSize: 11,
+                    fontSize: 'var(--font-size-sm)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',

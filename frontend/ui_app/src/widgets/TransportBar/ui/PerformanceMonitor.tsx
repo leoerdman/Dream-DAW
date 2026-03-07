@@ -8,10 +8,10 @@ const CONTAINER_STYLE: React.CSSProperties = {
     gap: 8,
     padding: '0 6px',
     height: 22,
-    borderRadius: 4,
+    borderRadius: 'var(--radius-md)',
     background: 'color-mix(in srgb, var(--color-bg-secondary) 60%, transparent)',
     border: '1px solid color-mix(in srgb, var(--color-border) 30%, transparent)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontFamily: 'var(--font-role-data)',
     fontWeight: 500,
     color: 'var(--color-text-secondary)',
@@ -20,7 +20,7 @@ const CONTAINER_STYLE: React.CSSProperties = {
 };
 
 const STAT_CONTAINER_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 3 };
-const STAT_LABEL_STYLE: React.CSSProperties = { color: 'var(--color-text-tertiary)', fontSize: 9, letterSpacing: '0.02em' };
+const STAT_LABEL_STYLE: React.CSSProperties = { color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', letterSpacing: '0.02em' };
 const STAT_VALUE_STYLE: React.CSSProperties = { minWidth: 28, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 
 /**
@@ -51,7 +51,7 @@ export function PerformanceMonitor() {
         >
             {/* DSP load — the #1 DAW metric: audio thread utilization */}
             <div style={STAT_CONTAINER_STYLE}>
-                <span style={{ color: dspColor, fontSize: 9, fontWeight: 600, letterSpacing: '0.02em' }}>DSP</span>
+                <span style={{ color: dspColor, fontSize: 'var(--font-size-2xs)', fontWeight: 600, letterSpacing: '0.02em' }}>DSP</span>
                 <MicroBar percent={dspPercent} color={dspColor} width={36} />
                 <span style={{ ...STAT_VALUE_STYLE, color: dspColor }}>
                     {dspPercent.toFixed(0)}%
@@ -96,7 +96,7 @@ function MicroBar({ percent, color, width = 30 }: { percent: number; color: stri
             style={{
                 width,
                 height: 6,
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
                 background: 'color-mix(in srgb, var(--color-bg-tertiary) 70%, transparent)',
                 overflow: 'hidden',
                 position: 'relative',
@@ -109,7 +109,7 @@ function MicroBar({ percent, color, width = 30 }: { percent: number; color: stri
                     left: 0,
                     height: '100%',
                     width: `${percent}%`,
-                    borderRadius: 3,
+                    borderRadius: 'var(--radius-sm)',
                     background: color,
                     transition: 'width 600ms cubic-bezier(0.22, 1, 0.36, 1), background 300ms ease',
                     boxShadow: `0 0 4px color-mix(in srgb, ${color} 40%, transparent)`,

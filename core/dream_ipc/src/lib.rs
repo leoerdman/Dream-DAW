@@ -90,10 +90,10 @@ pub fn flow_port_counts(node_type: FlowNodeType) -> (usize, usize) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlowParamKey {
-    Waveform, Frequency, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,
+    Waveform, Frequency, PulseWidth, FilterType, Cutoff, Resonance, EqLow, EqMid, EqHigh,
     Rate, Depth, EnvDepth, WindowMs, Feedback, Mix, Attack, Decay, Sustain, Release,
     Gain, Muted, Shape, Bipolar, PhaseOffset, Color, Level, Scale, TimeMs,
-    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Pan, PhaseInvert, Drive, Mode, Custom(u32),
+    Gain1, Gain2, Gain3, Gain4, Bias, OctaveOffset, Transpose, Pan, PhaseInvert, Drive, Mode, Custom(u32),
 }
 
 impl FlowParamKey {
@@ -101,6 +101,7 @@ impl FlowParamKey {
         match key {
             "waveform" => Self::Waveform,
             "frequency" => Self::Frequency,
+            "pulseWidth" | "pulse_width" => Self::PulseWidth,
             "filterType" | "filter_type" => Self::FilterType,
             "cutoff" => Self::Cutoff,
             "resonance" => Self::Resonance,
@@ -132,6 +133,7 @@ impl FlowParamKey {
             "gain4" | "gain_4" => Self::Gain4,
             "bias" => Self::Bias,
             "octaveOffset" | "octave_offset" => Self::OctaveOffset,
+            "transpose" => Self::Transpose,
             "pan" => Self::Pan,
             "phaseInvert" | "phase_invert" => Self::PhaseInvert,
             "drive" => Self::Drive,

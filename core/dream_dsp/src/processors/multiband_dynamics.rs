@@ -32,8 +32,8 @@ use crate::svf::SvfFilter;
 
 /// Per-band compressor state
 struct BandCompressor {
+    /// Linked-stereo envelope follower (peak of L+R).
     env_l: f32,
-    env_r: f32,
     threshold_db: f32,
     ratio: f32,
     gain_db: f32,
@@ -46,7 +46,7 @@ struct BandCompressor {
 impl BandCompressor {
     fn new(sr: f32) -> Self {
         Self {
-            env_l: 0.0, env_r: 0.0,
+            env_l: 0.0,
             threshold_db: -20.0,
             ratio: 4.0,
             gain_db: 0.0,
@@ -204,7 +204,7 @@ impl DspProcessor for MultibandDynamicsProcessor {
         self.mh_l.reset();
         self.mh_r.reset();
         for b in &mut self.bands {
-            b.env_l = 0.0; b.env_r = 0.0;
+            b.env_l = 0.0;
             b.gain_reduction_db = 0.0;
         }
     }

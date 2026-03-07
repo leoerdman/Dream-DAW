@@ -143,7 +143,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
             className="scrollbar-hide"
         >
             {loading ? (
-                <div style={{ padding: 12, color: 'var(--color-text-tertiary)', fontSize: 13, textAlign: 'center' }}>
+                <div style={{ padding: 12, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-md)', textAlign: 'center' }}>
                     Loading parameters...
                 </div>
             ) : (

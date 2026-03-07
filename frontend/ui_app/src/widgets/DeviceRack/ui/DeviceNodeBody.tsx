@@ -105,7 +105,7 @@ export const DeviceNodeBody = React.memo(({
             >
                 {/* Rack type label */}
                 <div style={{
-                    fontSize: 9,
+                    fontSize: 'var(--font-size-2xs)',
                     fontWeight: 700,
                     color: accent,
                     letterSpacing: '0.06em',
@@ -127,7 +127,7 @@ export const DeviceNodeBody = React.memo(({
                                 flexDirection: 'column',
                                 gap: 1,
                                 padding: '3px 4px',
-                                borderRadius: 3,
+                                borderRadius: 'var(--radius-sm)',
                                 background: chain.is_disabled
                                     ? 'var(--color-overlay-light, rgba(255,255,255,0.02))'
                                     : 'var(--color-overlay-medium, rgba(255,255,255,0.04))',
@@ -138,18 +138,18 @@ export const DeviceNodeBody = React.memo(({
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 4,
-                                fontSize: 9,
+                                fontSize: 'var(--font-size-2xs)',
                                 fontWeight: 600,
                                 color: chain.is_solo
                                     ? 'var(--color-warning)'
                                     : 'var(--color-text-secondary)',
                             }}>
-                                {chain.is_solo && <span style={{ fontSize: 7, color: 'var(--color-warning)' }}>S</span>}
-                                {chain.is_disabled && <span style={{ fontSize: 7, color: 'var(--color-error)' }}>M</span>}
+                                {chain.is_solo && <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-warning)' }}>S</span>}
+                                {chain.is_disabled && <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-error)' }}>M</span>}
                                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {chain.name || `Chain ${String.fromCharCode(65 + chainIdx)}`}
                                 </span>
-                                <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                                <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
                                     {chain.deviceCount}
                                 </span>
                             </div>
@@ -165,7 +165,7 @@ export const DeviceNodeBody = React.memo(({
                                         <span
                                             key={devIdx}
                                             style={{
-                                                fontSize: 8,
+                                                fontSize: 'var(--font-size-micro)',
                                                 color: 'var(--color-text-tertiary)',
                                                 letterSpacing: '0.02em',
                                             }}
@@ -187,7 +187,7 @@ export const DeviceNodeBody = React.memo(({
                         borderTop: '1px solid var(--color-divider, rgba(255,255,255,0.06))',
                     }}>
                         <div style={{
-                            fontSize: 8,
+                            fontSize: 'var(--font-size-micro)',
                             fontWeight: 600,
                             color: 'var(--color-text-tertiary)',
                             letterSpacing: '0.05em',
@@ -211,14 +211,14 @@ export const DeviceNodeBody = React.memo(({
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 3,
-                                            fontSize: 8,
+                                            fontSize: 'var(--font-size-micro)',
                                             color: 'var(--color-text-secondary)',
                                         }}
                                     >
                                         <div style={{
                                             width: 24,
                                             height: 3,
-                                            borderRadius: 1.5,
+                                            borderRadius: 'var(--radius-2xs)',
                                             background: 'var(--color-border-subtle, rgba(255,255,255,0.08))',
                                             position: 'relative',
                                             overflow: 'hidden',
@@ -226,7 +226,7 @@ export const DeviceNodeBody = React.memo(({
                                             <div style={{
                                                 width: `${Math.min(100, (mc.value / 127) * 100)}%`,
                                                 height: '100%',
-                                                borderRadius: 1.5,
+                                                borderRadius: 'var(--radius-2xs)',
                                                 background: accent,
                                                 opacity: 0.7,
                                             }} />

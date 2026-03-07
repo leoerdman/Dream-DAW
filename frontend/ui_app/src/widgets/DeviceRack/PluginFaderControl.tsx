@@ -230,7 +230,7 @@ export const PluginFader = React.memo(({
                     width: THUMB_W,
                     height: THUMB_H,
                     transform: 'translateY(-50%)',
-                    borderRadius: 1,
+                    borderRadius: 'var(--radius-2xs)',
                     background: isDragging
                         ? 'var(--color-accent-primary)'
                         : 'color-mix(in srgb, var(--color-text-primary) 85%, transparent)',

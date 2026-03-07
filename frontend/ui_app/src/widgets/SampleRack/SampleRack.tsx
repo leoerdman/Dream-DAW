@@ -27,6 +27,30 @@ const PAD_COLORS: Record<number, string> = {
     8: 'var(--token-color-hex-5ce0a6)', 9: 'var(--token-color-hex-5ce0a6)', 10: 'var(--token-color-hex-f0c430)', 11: 'var(--token-color-hex-f0c430)',
     12: 'var(--token-color-hex-f0c430)', 13: 'var(--token-color-hex-f0c430)', 14: 'var(--token-color-hex-cf8ef7)', 15: 'var(--token-color-hex-cf8ef7)',
 };
+
+// ── Layout Constants ──────────────────────────────────────────────────
+const PAD_GRID_GAP = 3;
+const PAD_GRID_PADDING = 8;
+const PAD_GRID_WIDTH = 220;
+/** Pad number indicator position. */
+const PAD_NUM_TOP = 2;
+const PAD_NUM_LEFT = 4;
+/** Pad status indicator position. */
+const PAD_STATUS_TOP = 2;
+const PAD_STATUS_RIGHT = 3;
+const PAD_STATUS_SOLO_OFFSET = 18;
+/** Detail panel grid spacing. */
+const DETAIL_GAP = 4;
+const DETAIL_PADDING = 4;
+/** Waveform label insets. */
+const WAVEFORM_LABEL_TOP = 6;
+const WAVEFORM_LABEL_LEFT = 8;
+const WAVEFORM_BOTTOM_OFFSET = 4;
+/** Mute/Solo button dimensions. */
+const MUTE_SOLO_BTN_W = 32;
+const MUTE_SOLO_BTN_H = 20;
+const KNOBS_GAP = 8;
+const CTRL_MARGIN_R = 8;
 export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: SampleRackProps) {
     const [selectedPad, setSelectedPad] = useState<number>(0);
     const statusError = useStatusStore((s) => s.setError);
@@ -97,7 +121,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
             {/* ── LEFT: 4×4 Pad Grid ── */}
             <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gridTemplateRows: 'repeat(4, 1fr)',
-                gap: 3, padding: 8, flex: '0 0 auto', width: 220,
+                gap: PAD_GRID_GAP, padding: PAD_GRID_PADDING, flex: '0 0 auto', width: PAD_GRID_WIDTH,
             }}>
                 {Array.from({ length: 16 }).map((_, rIdx) => {
                     const row = 3 - Math.floor(rIdx / 4);
@@ -121,7 +145,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             }}
                             style={{
                                 position: 'relative', overflow: 'hidden',
-                                borderRadius: 6,
+                                borderRadius: 'var(--radius-lg)',
                                 border: isSelected
                                     ? `var(--space-0-5) solid ${pc}`
                                     : canDrop
@@ -141,8 +165,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                         >
                             {/* Pad number */}
                             <span style={{
-                                position: 'absolute', top: 2, left: 4,
-                                fontSize: 8, color: isSelected ? pc : 'var(--token-color-rgba-255-255-255-0d25)',
+                                position: 'absolute', top: PAD_NUM_TOP, left: PAD_NUM_LEFT,
+                                fontSize: 'var(--font-size-micro)', color: isSelected ? pc : 'var(--token-color-rgba-255-255-255-0d25)',
                                 fontWeight: 700, fontFamily: 'var(--font-role-data)',
                             }}>
                                 {i + 1}
@@ -150,14 +174,14 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {/* Disable/Solo indicators */}
                             {p?.is_disabled && (
                                 <span style={{
-                                    position: 'absolute', top: 2, right: 3,
-                                    fontSize: 7, color: 'var(--token-color-rgba-255-255-255-0d35)', fontWeight: 700,
+                                    position: 'absolute', top: PAD_STATUS_TOP, right: PAD_STATUS_RIGHT,
+                                    fontSize: 'var(--font-size-micro)', color: 'var(--token-color-rgba-255-255-255-0d35)', fontWeight: 700,
                                 }}>OFF</span>
                             )}
                             {p?.is_soloed && (
                                 <span style={{
-                                    position: 'absolute', top: 2, right: p?.is_disabled ? 18 : 3,
-                                    fontSize: 7, color: 'var(--token-color-hex-5caeff)', fontWeight: 700,
+                                    position: 'absolute', top: PAD_STATUS_TOP, right: p?.is_disabled ? PAD_STATUS_SOLO_OFFSET : PAD_STATUS_RIGHT,
+                                    fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-5caeff)', fontWeight: 700,
                                 }}>S</span>
                             )}
                             {/* Waveform or pad name */}
@@ -165,7 +189,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 <PadWaveform samplePath={p.sample_path} />
                             ) : null}
                             <span style={{
-                                fontSize: hasSample ? 8 : 9, fontWeight: 600,
+                                fontSize: hasSample ? 'var(--font-size-micro)' : 'var(--font-size-2xs)', fontWeight: 600,
                                 color: hasSample ? 'var(--token-color-hex-ffffff)' : 'var(--token-color-rgba-255-255-255-0d35)',
                                 textAlign: 'center', lineHeight: 1.1,
                                 overflow: 'hidden', textOverflow: 'ellipsis',
@@ -181,7 +205,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
             <div style={{
                 flex: 1, minWidth: 0,
                 display: 'grid', gridTemplateRows: 'var(--token-size-px-102) auto',
-                gap: 4, padding: 4,
+                gap: DETAIL_GAP, padding: DETAIL_PADDING,
                 background: 'var(--token-color-rgba-0-0-0-0d15)',
                 borderLeft: 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d04)',
             }}>
@@ -205,22 +229,22 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                         <PadWaveform samplePath={pad.sample_path} />
                                     </div>
                                 ) : (
-                                    <span style={{ fontSize: 10, color: 'var(--token-color-rgba-255-255-255-0d3)', fontFamily: 'var(--font-role-data)' }}>
+                                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-rgba-255-255-255-0d3)', fontFamily: 'var(--font-role-data)' }}>
                                         NO SAMPLE LOADED
                                     </span>
                                 )}
                             </div>
                             <div style={{
-                                position: 'absolute', top: 6, left: 8,
-                                color: 'var(--token-color-hex-e0e0e0)', fontSize: 10, fontWeight: 700,
+                                position: 'absolute', top: WAVEFORM_LABEL_TOP, left: WAVEFORM_LABEL_LEFT,
+                                color: 'var(--token-color-hex-e0e0e0)', fontSize: 'var(--font-size-xs)', fontWeight: 700,
                                 fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-wide)'
                             }}>
                                 PAD {selectedPad + 1}
                             </div>
                             <div style={{
-                                position: 'absolute', bottom: 4, left: 8, right: 8,
+                                position: 'absolute', bottom: WAVEFORM_BOTTOM_OFFSET, left: WAVEFORM_LABEL_LEFT, right: WAVEFORM_LABEL_LEFT,
                                 color: pad.sample_path ? 'var(--token-color-hex-5ce0a6)' : 'var(--token-color-rgba-255-255-255-0d4)',
-                                fontSize: 10, fontFamily: 'var(--font-role-data)',
+                                fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-role-data)',
                                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                             }}>
                                 {pad.sample_path ? pad.sample_path.split('/').pop() : 'Drop sample here'}
@@ -231,7 +255,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                     style={{
                                         position: 'absolute', top: 4, right: 8,
                                         background: 'var(--token-color-rgba-255-100-100-0d15)', border: 'var(--space-px) solid var(--token-color-rgba-255-100-100-0d3)',
-                                        borderRadius: 4, color: 'var(--token-color-hex-ff8080)', fontSize: 9, padding: 'var(--space-0-5) var(--space-1-5)',
+                                        borderRadius: 'var(--radius-md)', color: 'var(--token-color-hex-ff8080)', fontSize: 'var(--font-size-2xs)', padding: 'var(--space-0-5) var(--space-1-5)',
                                         cursor: 'pointer', fontWeight: 600,
                                     }}
                                 >
@@ -241,7 +265,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                         </div>
                         {/* Knobs Grid */}
                         <div style={{
-                            display: 'flex', flexWrap: 'wrap', gap: 8,
+                            display: 'flex', flexWrap: 'wrap', gap: KNOBS_GAP,
                             padding: 'var(--space-2) var(--space-1)',
                             alignItems: 'flex-start',
                         }}>
@@ -260,34 +284,34 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             <PluginKnob param={{ name: 'Cutoff', value: pad.filter_cutoff ?? 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 }}
                                 compact onChange={(_, v) => setFilterCutoff(v)} />
                             {/* Enable/Disable + Solo */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: DETAIL_GAP, marginLeft: 'auto', marginRight: CTRL_MARGIN_R, alignSelf: 'center' }}>
                                 <button onClick={toggleDisabled} style={{
-                                    width: 32, height: 20,
+                                    width: MUTE_SOLO_BTN_W, height: MUTE_SOLO_BTN_H,
                                     border: !pad.is_disabled
                                         ? 'var(--space-px) solid var(--token-color-hex-5ce0a6)'
                                         : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: !pad.is_disabled
                                         ? 'var(--token-color-rgba-92-224-166-0d2)'
                                         : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: !pad.is_disabled
                                         ? 'var(--token-color-hex-5ce0a6)'
                                         : 'var(--token-color-rgba-255-255-255-0d4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 700, cursor: 'pointer', transition: 'all var(--transition-micro)', fontFamily: 'var(--font-role-data)'
                                 }}>{selectedPad + 1}</button>
                                 <button onClick={toggleSolo} style={{
-                                    width: 32, height: 20,
+                                    width: MUTE_SOLO_BTN_W, height: MUTE_SOLO_BTN_H,
                                     border: pad.is_soloed
                                         ? 'var(--space-px) solid var(--token-color-hex-5caeff)'
                                         : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: pad.is_soloed
                                         ? 'var(--token-color-rgba-92-174-255-0d2)'
                                         : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: pad.is_soloed
                                         ? 'var(--token-color-hex-5caeff)'
                                         : 'var(--token-color-rgba-255-255-255-0d4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 700, cursor: 'pointer', transition: 'all var(--transition-micro)', fontFamily: 'var(--font-role-data)'
                                 }}>SOLO</button>
                             </div>
                         </div>
@@ -295,7 +319,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                 ) : (
                     <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        height: '100%', fontSize: 11, color: 'var(--token-color-rgba-255-255-255-0d3)',
+                        height: '100%', fontSize: 'var(--font-size-sm)', color: 'var(--token-color-rgba-255-255-255-0d3)',
                         fontFamily: 'var(--font-role-data)', fontStyle: 'italic',
                     }}>
                         SELECT A PAD

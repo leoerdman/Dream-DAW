@@ -36,7 +36,7 @@ const FORMAT_GROUPS: FormatGroup[] = [
 const toggleTrackStyle: CSSProperties = {
     width: 38,
     height: 22,
-    borderRadius: 11,
+    borderRadius: 'var(--radius-2xl)',
     cursor: 'pointer',
     border: 'none',
     display: 'flex',

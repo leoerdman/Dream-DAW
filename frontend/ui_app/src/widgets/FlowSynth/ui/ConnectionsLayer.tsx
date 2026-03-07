@@ -74,7 +74,14 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
             requestAnimationFrame(() => updatePath(endX, endY));
         };
 
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onCancel);
+        };
+
         const onPointerUp = (e: PointerEvent) => {
+            cleanup();
             const world = toWorld(e.clientX, e.clientY);
             const snap = findSnap(world.x, world.y);
             if (snap) {
@@ -84,12 +91,17 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
             }
         };
 
-        window.addEventListener('pointermove', onPointerMove);
-        window.addEventListener('pointerup', onPointerUp, { once: true });
-        return () => {
-            window.removeEventListener('pointermove', onPointerMove);
-            window.removeEventListener('pointerup', onPointerUp);
+        // ENTERPRISE: Handle pointer cancel (tab switch, system dialog, touch interruption)
+        // to prevent orphaned pointermove listeners from leaking.
+        const onCancel = () => {
+            cleanup();
+            cancelConnectionDrag();
         };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onCancel);
+        return cleanup;
     }, [pendingConnection, commitConnection, cancelConnectionDrag, viewportRef]);
 
     // BUG-007 FIX: Pre-compute port index maps for O(1) lookups instead of O(N) findIndex.

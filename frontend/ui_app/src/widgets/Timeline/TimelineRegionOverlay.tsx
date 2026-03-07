@@ -1,8 +1,8 @@
 import React from 'react';
 
 const REGION_OVERLAY_LINE_STYLE: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0, width: 1, pointerEvents: 'none' };
-const REGION_OVERLAY_DRAG_STYLE: React.CSSProperties = { position: 'absolute', top: 2, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' };
-const REGION_OVERLAY_RESIZE_STYLE: React.CSSProperties = { position: 'absolute', width: 4, height: 10, borderRadius: 1, border: 'none', cursor: 'ew-resize', pointerEvents: 'all' };
+const REGION_OVERLAY_DRAG_STYLE: React.CSSProperties = { position: 'absolute', top: 2, width: 14, height: 12, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' };
+const REGION_OVERLAY_RESIZE_STYLE: React.CSSProperties = { position: 'absolute', width: 4, height: 10, borderRadius: 'var(--radius-2xs)', border: 'none', cursor: 'ew-resize', pointerEvents: 'all' };
 
 interface TimelineRegionOverlayProps {
     trackHeight: number;

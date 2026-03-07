@@ -222,7 +222,11 @@ async fn split_track_to_stems_with_deltas_cmd(
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
+    let mut deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(after_project),
+    });
     Ok(DeltaMutationResponse {
-        deltas: collect_added_track_and_clip_deltas(&before_project, &after_project),
+        deltas,
     })
 }

@@ -288,7 +288,7 @@ pub(super) fn collect_added_track_and_clip_deltas(
     let before_clip_ids: std::collections::HashSet<Uuid> = before
         .tracks
         .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.id))
+        .flat_map(|t| t.clips.iter().map(|c| c.id).chain(t.midi_clips.iter().map(|c| c.id)))
         .collect();
 
     for (track_index, track) in after.tracks.iter().enumerate() {

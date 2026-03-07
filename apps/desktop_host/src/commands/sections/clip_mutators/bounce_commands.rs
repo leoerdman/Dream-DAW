@@ -461,7 +461,10 @@ async fn bounce_selection_to_track_with_deltas_cmd(
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    let mut deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(after_project),
+    });
     Ok(DeltaMutationResponse {
         deltas,
     })
@@ -907,7 +910,10 @@ async fn bounce_group_with_deltas_cmd(
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    let mut deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(after_project),
+    });
     Ok(DeltaMutationResponse {
         deltas,
     })
@@ -1155,6 +1161,9 @@ pub async fn consolidate_selection_with_deltas_cmd(
         .map_err(|e| e.to_string())?
         .clone();
         
-    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    let mut deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+        project: Box::new(after_project),
+    });
     Ok(DeltaMutationResponse { deltas })
 }

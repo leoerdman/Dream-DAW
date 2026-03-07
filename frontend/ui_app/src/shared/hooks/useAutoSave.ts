@@ -61,6 +61,9 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
             }
         };
 
+        // JS `setInterval` truncates Infinity to 0 causing infinite loops!
+        if (intervalMs === Infinity || intervalMs <= 0) return;
+
         timerRef.current = setInterval(tick, intervalMs);
 
         return () => {

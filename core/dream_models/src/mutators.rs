@@ -360,6 +360,40 @@ pub fn split_clip(
     }
     // ── Create the two halves ──────────────────────────────────────
     let original = &project.tracks[track_idx].clips[clip_idx];
+    
+    // ENTERPRISE FIX: Calculate correct source offset proportion based on warp/pitch parameters.
+    // If a clip is stretched 2x (is_warped), 10 timeline frames = 5 source frames.
+    // If we just added 10 to right_source_offset, it would incorrectly skip 10 source frames.
+    let source_start = original.source_offset.sample_frame;
+    let source_total = original.warp_source_duration_frames.max(original.duration.sample_frame).max(MIN_CLIP_FRAMES);
+    let timeline_total = original.duration.sample_frame.max(MIN_CLIP_FRAMES);
+    
+    // Pitch shift acts as a fixed playback rate scalar even for unwarped clips in the engine.
+    let pitch_multiplier = if original.pitch_shift_semitones != 0.0 {
+        2.0_f64.powf(original.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
+    } else {
+        1.0
+    };
+
+    let consumed_source_frames = if original.is_warped {
+        // Precise fractional source-to-timeline warp ratio for warped clips
+        let warp_ratio = source_total as f64 / timeline_total as f64;
+        (left_duration as f64 * warp_ratio).round() as i64
+    } else {
+        // Unwarped clips move through source linearly but scaled by pitch
+        (left_duration as f64 * pitch_multiplier).round() as i64
+    };
+
+    // Allocate source frames to left and right halves. 
+    // This perfectly partitions the clip so that `linear_warp_rate` in audio_thread_runner 
+    // remains absolutely perfectly identical for both clip fragments!
+    // NOTE: `warp_source_duration_frames` represents the amount of source that spans `duration`.
+    // It does NOT mean "end position in source".
+    
+    let left_warp_source = consumed_source_frames;
+    let right_source_start = source_start + consumed_source_frames;
+    let right_warp_source = source_total - consumed_source_frames;
+
     // Left half: keeps original UUID, same position, truncated duration
     let left = AudioClip {
         id: original.id,
@@ -367,26 +401,24 @@ pub fn split_clip(
         fade_out_frames: 0,
         // BUG-H7 FIX: Clamp inherited fade_in to not exceed new left duration
         fade_in_frames: original.fade_in_frames.min(left_duration / 2),
-        // WARP-003 FIX: Both split halves reference the same source file.
-        // Keep the FULL original warp_source_duration_frames — the source_offset
-        // already indicates which portion each half reads from.
-        warp_source_duration_frames: original.warp_source_duration_frames,
+        warp_source_duration_frames: if original.is_warped { left_warp_source.max(MIN_CLIP_FRAMES) } else { original.warp_source_duration_frames },
+        warp_markers: if original.is_warped { vec![] } else { original.warp_markers.clone() },
         ..original.clone()
     };
-    // Right half: new UUID, starts at split point, offset adjusted
-    let right_source_offset = original.source_offset.sample_frame + (split_frame - clip_start);
+    
+    // Right half: new UUID, starts at split point, offset adjusted exactly using ratio
     let right = AudioClip {
         id: Uuid::new_v4(),
         name: format!("{} (split)", original.name),
         position: AbsoluteTime::new(split_frame),
         duration: AbsoluteTime::new(right_duration),
-        source_offset: AbsoluteTime::new(right_source_offset),
+        source_offset: AbsoluteTime::new(right_source_start.max(0)),
         fade_in_frames: 0,
         // BUG-H7 FIX: Clamp inherited fade_out to not exceed new right duration
         fade_out_frames: original.fade_out_frames.min(right_duration / 2),
         is_selected: false,
-        // WARP-003 FIX: Both split halves keep the FULL original source length.
-        warp_source_duration_frames: original.warp_source_duration_frames,
+        warp_source_duration_frames: if original.is_warped { right_warp_source.max(MIN_CLIP_FRAMES) } else { original.warp_source_duration_frames },
+        warp_markers: if original.is_warped { vec![] } else { original.warp_markers.clone() },
         ..original.clone()
     };
     let result = SplitResult {
@@ -989,21 +1021,70 @@ mod tests {
     #[test]
     fn split_clip_preserves_gain() {
         let mut project = make_test_project();
-        project.tracks[0].clips[0].gain = 0.75;
         let clip_id = project.tracks[0].clips[0].id;
+        project.tracks[0].clips[0].gain = 0.5;
         let result = split_clip(&mut project, clip_id, 22050).unwrap();
-        let left = project.tracks[0]
-            .clips
-            .iter()
-            .find(|c| c.id == result.left_id)
-            .unwrap();
-        let right = project.tracks[0]
-            .clips
-            .iter()
-            .find(|c| c.id == result.right_id)
-            .unwrap();
-        assert!((left.gain - 0.75_f32).abs() < f32::EPSILON);
-        assert!((right.gain - 0.75_f32).abs() < f32::EPSILON);
+        
+        let left = project.tracks[0].clips.iter().find(|c| c.id == result.left_id).unwrap();
+        let right = project.tracks[0].clips.iter().find(|c| c.id == result.right_id).unwrap();
+        assert_eq!(left.gain, 0.5);
+        assert_eq!(right.gain, 0.5);
+    }
+
+    #[test]
+    fn split_clip_warped_distributes_source_proportionally() {
+        let mut project = make_test_project();
+        let clip_id = project.tracks[0].clips[0].id;
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = true;
+            clip.position = AbsoluteTime::new(0);
+            clip.duration = AbsoluteTime::new(44100); // 1 second timeline
+            clip.warp_source_duration_frames = 88200; // 2 seconds source (playing 2x fast)
+            clip.source_offset = AbsoluteTime::new(0);
+        }
+
+        // Split exactly in the middle of timeline
+        let result = split_clip(&mut project, clip_id, 22050).unwrap();
+        let left = project.tracks[0].clips.iter().find(|c| c.id == result.left_id).unwrap();
+        let right = project.tracks[0].clips.iter().find(|c| c.id == result.right_id).unwrap();
+
+        // 22050 / 44100 = 0.5 ratio
+        // Left should get 88200 * 0.5 = 44100 source frames
+        assert_eq!(left.duration.sample_frame, 22050);
+        assert_eq!(left.warp_source_duration_frames, 44100);
+        assert_eq!(left.source_offset.sample_frame, 0);
+
+        // Right should start at 44100 source offset and get the remaining 44100
+        assert_eq!(right.duration.sample_frame, 22050);
+        assert_eq!(right.position.sample_frame, 22050);
+        assert_eq!(right.warp_source_duration_frames, 44100); // 44100 + 44100
+        assert_eq!(right.source_offset.sample_frame, 44100);
+    }
+
+    #[test]
+    fn split_clip_pitched_distributes_source_proportionally() {
+        let mut project = make_test_project();
+        let clip_id = project.tracks[0].clips[0].id;
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = false;
+            clip.position = AbsoluteTime::new(0);
+            clip.duration = AbsoluteTime::new(44100);
+            clip.source_offset = AbsoluteTime::new(0);
+            clip.pitch_shift_semitones = 12.0; // 2x playback speed
+        }
+
+        let result = split_clip(&mut project, clip_id, 22050).unwrap();
+        let left = project.tracks[0].clips.iter().find(|c| c.id == result.left_id).unwrap();
+        let right = project.tracks[0].clips.iter().find(|c| c.id == result.right_id).unwrap();
+
+        assert_eq!(left.duration.sample_frame, 22050);
+        assert_eq!(left.source_offset.sample_frame, 0);
+
+        // 22050 frames at 2x speed means consuming 44100 source frames
+        assert_eq!(right.duration.sample_frame, 22050);
+        assert_eq!(right.source_offset.sample_frame, 44100);
     }
     // ── Delete Clip Tests ────────────────────────────────────────────
     #[test]

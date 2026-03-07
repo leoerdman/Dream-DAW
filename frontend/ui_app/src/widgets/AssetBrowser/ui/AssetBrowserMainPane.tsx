@@ -150,14 +150,14 @@ const mainPaneStyle: React.CSSProperties = {
     flex: 1,
     minHeight: 0,
     minWidth: 0,
-    display: 'grid',
-    gridTemplateRows: 'auto minmax(0, 1fr) auto',
+    display: 'flex',
+    flexDirection: 'column',
     overflow: 'hidden',
     background: 'var(--color-bg-secondary)',
 };
 
 const filtersToolbarStyle: React.CSSProperties = {
-    gridRow: 1,
+    flexShrink: 0,
     display: 'flex',
     flexWrap: 'wrap',
     alignItems: 'center',
@@ -202,7 +202,7 @@ const pathStatStyle: React.CSSProperties = {
 };
 
 const listContainerStyle: React.CSSProperties = {
-    gridRow: 2,
+    flex: 1,
     minHeight: 0,
     overflow: 'hidden',
     display: 'flex',
@@ -234,7 +234,6 @@ const letterAnchorButtonStyle: React.CSSProperties = {
 };
 
 const previewRootStyle: React.CSSProperties = {
-    gridRow: 3,
     flexShrink: 0,
     borderTop: 'var(--space-0-5) solid var(--color-divider)',
     background: 'var(--color-bg-secondary)',

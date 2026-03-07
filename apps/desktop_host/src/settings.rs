@@ -141,6 +141,11 @@ pub(crate) struct AppSettings {
     /// Browser auto-preview toggle.
     #[serde(default = "default_true", alias = "browserAutoPreview")]
     pub(crate) browser_auto_preview: bool,
+    /// Auto-Save feature
+    #[serde(default = "default_true", alias = "autoSaveEnabled")]
+    pub(crate) auto_save_enabled: bool,
+    #[serde(default = "default_auto_save_interval", alias = "autoSaveIntervalMinutes")]
+    pub(crate) auto_save_interval_minutes: u32,
 }
 
 pub(crate) fn default_settings_version() -> u32 {
@@ -249,6 +254,9 @@ pub(crate) fn default_test_tone_frequency() -> f64 {
 pub(crate) fn default_true() -> bool {
     true
 }
+pub(crate) fn default_auto_save_interval() -> u32 {
+    3
+}
 pub(crate) fn default_user_folder() -> String {
     let home = dirs::home_dir().unwrap_or_default();
     home.join("Music").join("Dream DAW").display().to_string()
@@ -335,6 +343,8 @@ impl Default for AppSettings {
             arrangement_grid_snap_enabled: true,
             browser_excluded_formats: default_browser_excluded_formats(),
             browser_auto_preview: true,
+            auto_save_enabled: true,
+            auto_save_interval_minutes: default_auto_save_interval(),
         }
     }
 }

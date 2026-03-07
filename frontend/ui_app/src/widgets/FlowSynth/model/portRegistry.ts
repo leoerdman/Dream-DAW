@@ -440,8 +440,8 @@ const CONTROL_ROWS: Partial<Record<SynthNodeType, number>> = {
     multiply: 0,
     distortion: 1,   // mode selector
     vst3: 2,         // plugin selector
-    number: 1,       // value knob
-    quantize: 1,     // scale selector
+    number: 0,
+    quantize: 0,
     midiToFreq: 0,
     freqToMidi: 0,
     abs: 0,

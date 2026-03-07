@@ -220,9 +220,15 @@ function App() {
     return () => window.clearTimeout(timeoutId)
   }, [splashDone])
 
-  // ── Strike 6: Auto-Save (3 min timer, dirty-check) ──
+  // ── Strike 6: Auto-Save (user-configurable timer, dirty-check) ──
   // Only active after splash; pauses when tab is hidden.
-  useAutoSave(splashDone ? 3 * 60 * 1000 : Infinity)
+  // Reads autoSaveEnabled + autoSaveIntervalMinutes from settings store.
+  const autoSaveEnabled = useSettingsStore((s) => s.settings.autoSaveEnabled ?? true)
+  const autoSaveIntervalMinutes = useSettingsStore((s) => s.settings.autoSaveIntervalMinutes ?? 3)
+  const autoSaveMs = splashDone && autoSaveEnabled
+    ? autoSaveIntervalMinutes * 60 * 1000
+    : Infinity
+  useAutoSave(autoSaveMs)
 
   const handleSplashComplete = () => {
     // Only signals that headless init is done.

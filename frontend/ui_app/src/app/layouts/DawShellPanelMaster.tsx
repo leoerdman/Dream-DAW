@@ -2,6 +2,7 @@ import { SessionIoRow, SessionStripFader } from './DawShellPanelControls';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { sessionClipTransportBtnStyle } from './sessionPanelStyles';
+import { useEffect, useRef, useState } from 'react';
 
 export function SessionMasterScenes({
     width,
@@ -47,6 +48,10 @@ export function SessionMasterScenes({
     );
 }
 
+/**
+ * PERF-OPT: Subscription-driven master strip meters for session view.
+ * Uses RAF coalescing + value equality to avoid ~30fps React re-renders.
+ */
 export function SessionMasterStrip({
     width,
     masterVolume,
@@ -56,10 +61,34 @@ export function SessionMasterStrip({
     masterVolume: number;
     setMasterVolume: (gain: number) => void | Promise<unknown>;
 }) {
-    const masterMeterL = useEngineStore((s) => s.meters.master_left);
-    const masterMeterR = useEngineStore((s) => s.meters.master_right);
-    const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
-    const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
+    const meterLRef = useRef(0);
+    const meterRRef = useRef(0);
+    const rafIdRef = useRef(0);
+    const mountedRef = useRef(true);
+    const lastRef = useRef({ mL: 0, mR: 0 });
+    const [, setTick] = useState(0);
+    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
+    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        const unsub = useEngineStore.subscribe((state) => {
+            const mL = dbToMeterNorm(state.meters.master_left?.peak ?? -60);
+            const mR = dbToMeterNorm(state.meters.master_right?.peak ?? -60);
+            const last = lastRef.current;
+            if (mL === last.mL && mR === last.mR) return;
+            meterLRef.current = mL;
+            meterRRef.current = mR;
+            lastRef.current = { mL, mR };
+            if (rafIdRef.current) return;
+            rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = 0;
+                if (mountedRef.current) forceUpdateRef.current();
+            });
+        });
+        return () => { mountedRef.current = false; unsub(); if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
+    }, []);
+
     return (
         <div style={{ width, padding: 'var(--space-2) var(--space-1-5) var(--space-1-5)', borderLeft: 'var(--space-px) solid var(--color-timeline-grid-line)', display: 'grid', gridTemplateRows: 'auto auto auto auto 1fr auto', gap: 4, background: 'color-mix(in srgb, var(--color-bg-panel) 96%, var(--color-timeline-bg))' }}>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
@@ -69,8 +98,8 @@ export function SessionMasterStrip({
             <SessionStripFader
                 gain={masterVolume}
                 pan={0}
-                meterL={masterLevelL}
-                meterR={masterLevelR}
+                meterL={meterLRef.current}
+                meterR={meterRRef.current}
                 onGainChange={(nextGain) => { void setMasterVolume(nextGain); }}
                 onPanChange={() => { }}
                 panDisabled

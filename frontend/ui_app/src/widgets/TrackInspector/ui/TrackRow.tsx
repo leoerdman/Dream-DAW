@@ -165,7 +165,10 @@ export const TrackRow = memo(({
                 display: 'flex',
                 flexDirection: 'column',
                 height: trackHeight,
-                borderBottom: isMasterFixed ? 'none' : 'var(--space-px) solid var(--color-divider)',
+                // ENTERPRISE FIX: Use a dark semi-transparent border that's visible against
+                // any track color (yellow, red, green, etc.). The previous --color-divider
+                // was too subtle and invisible against colored group backgrounds.
+                borderBottom: isMasterFixed ? 'none' : 'var(--space-px) solid rgba(0, 0, 0, 0.35)',
                 borderTop: 'none',
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
@@ -179,6 +182,9 @@ export const TrackRow = memo(({
                 position: 'relative',
                 flexShrink: 0,
                 boxSizing: 'border-box',
+                // ENTERPRISE FIX: Clip inner content so colored track backgrounds
+                // don't overflow and cover the borderBottom divider line.
+                overflow: 'hidden',
                 width: '100%',
                 outline: isGroupDropTarget ? 'var(--space-0-5) solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
                 outlineOffset: isGroupDropTarget ? 'calc(-1 * var(--token-size-px-2))' : 0,

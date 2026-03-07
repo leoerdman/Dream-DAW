@@ -260,6 +260,10 @@ export class CanvasClipRenderer {
         this._drawMarquee(ctx, vp, marquee);
         this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
         this._drawGroupMiniatures(ctx, vp, clips, range);
+        // ENTERPRISE FIX: Draw track dividers AFTER clips and miniatures so they
+        // are always visible. Previously drawn inside _drawGrid (before clips),
+        // causing clips and group miniature backgrounds to paint over them.
+        this._drawTrackDividers(ctx, vp, theme);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
@@ -372,7 +376,23 @@ export class CanvasClipRenderer {
         ctx.fillStyle = gridBarColor;
         ctx.fill(barPath);
 
-        // ── P2: Batch track dividers into one path ──
+        ctx.restore();
+    }
+
+    /**
+     * ENTERPRISE FIX: Draw track dividers as a separate pass AFTER clips + miniatures.
+     * Previously drawn inside _drawGrid (before clips), causing clip bodies
+     * and group miniature backgrounds to paint over them — making dividers invisible.
+     */
+    private _drawTrackDividers(
+        ctx: CanvasRenderingContext2D,
+        vp: ViewportMatrix,
+        theme: TimelineTheme,
+    ): void {
+        const rulerH = vp.rulerHeight;
+        const vpW = vp.viewportWidth;
+        const vpH = vp.viewportHeight;
+
         ctx.fillStyle = theme.trackDivider;
         ctx.beginPath();
         for (let i = 0; i <= vp.trackCount; i++) {
@@ -381,8 +401,6 @@ export class CanvasClipRenderer {
             ctx.rect(0, y, vpW, 1);
         }
         ctx.fill();
-
-        ctx.restore();
     }
 
     private _drawRuler(

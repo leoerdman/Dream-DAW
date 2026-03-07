@@ -161,7 +161,12 @@ export function createTelemetryActions(
                                 telemetryUpdate.connected = true;
                                 telemetryUpdate.lastError = null;
                             }
-                            enqueuePendingStoreUpdate(set, telemetryUpdate);
+                            // PERF FIX: Skip store update entirely when nothing changed.
+                            // Without this, an empty {} was still enqueued on every tick,
+                            // triggering Object.assign + RAF scheduling for a no-op flush.
+                            if (telemetryUpdate.transport || telemetryUpdate.performance || telemetryUpdate.connected !== undefined) {
+                                enqueuePendingStoreUpdate(set, telemetryUpdate);
+                            }
                         },
                     );
                     telemetryMetersBinaryUnlisten = await listen<number[] | Uint8Array | ArrayBuffer>(

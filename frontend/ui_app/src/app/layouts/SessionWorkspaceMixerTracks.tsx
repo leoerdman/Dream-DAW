@@ -1,6 +1,7 @@
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { ProjectDelta } from '@/shared/api/projectDelta';
 import * as React from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
@@ -41,6 +42,10 @@ export function SessionWorkspaceMixerTracks({
     );
 }
 
+/**
+ * PERF-OPT: Subscription-driven track strip meters for session view.
+ * Uses RAF coalescing + value equality to avoid N × 30fps React re-renders.
+ */
 const SessionWorkspaceMixerTrackStrip = React.memo(({
     track,
     trackIndex,
@@ -58,11 +63,35 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
     setTrackVolume: SessionWorkspaceMixerTracksProps['setTrackVolume'];
     setTrackPan: SessionWorkspaceMixerTracksProps['setTrackPan'];
 }) => {
-    const meterPair = useEngineStore((s) => s.meters.tracks[trackIndex]);
-    const peakDbL = meterPair ? meterPair[0].peak : -60;
-    const peakDbR = meterPair ? meterPair[1].peak : -60;
-    const trackMeterL = dbToMeterNorm(peakDbL);
-    const trackMeterR = dbToMeterNorm(peakDbR);
+    const meterLRef = useRef(0);
+    const meterRRef = useRef(0);
+    const rafIdRef = useRef(0);
+    const mountedRef = useRef(true);
+    const lastRef = useRef({ mL: 0, mR: 0 });
+    const [, setTick] = useState(0);
+    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
+    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        const unsub = useEngineStore.subscribe((state) => {
+            const meterPair = state.meters.tracks[trackIndex];
+            const mL = dbToMeterNorm(meterPair ? meterPair[0].peak : -60);
+            const mR = dbToMeterNorm(meterPair ? meterPair[1].peak : -60);
+            const last = lastRef.current;
+            if (mL === last.mL && mR === last.mR) return;
+            meterLRef.current = mL;
+            meterRRef.current = mR;
+            lastRef.current = { mL, mR };
+            if (rafIdRef.current) return;
+            rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = 0;
+                if (mountedRef.current) forceUpdateRef.current();
+            });
+        });
+        return () => { mountedRef.current = false; unsub(); if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
+    }, [trackIndex]);
+
     const trackColor = track.color || 'var(--color-status-info)';
 
     return (
@@ -83,8 +112,8 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
                     trackColor={trackColor}
                     gain={track.volume}
                     pan={track.pan}
-                    meterL={trackMeterL}
-                    meterR={trackMeterR}
+                    meterL={meterLRef.current}
+                    meterR={meterRRef.current}
                     onGainChange={(nextGain) => { void setTrackVolume(trackIndex, nextGain); }}
                     onPanChange={(nextPan) => { void setTrackPan(trackIndex, nextPan); }}
                     trackIndex={trackIndex}

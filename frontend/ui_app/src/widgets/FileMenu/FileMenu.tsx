@@ -7,6 +7,7 @@ import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { withProjectLoad } from '@/shared/lib/projectLoadGuard';
 import { MenuItem, MenuSeparator } from './FileMenuParts';
 import { pathBasename } from './fileMenuPath';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 /** Recent project entry from the Rust backend. */
 interface RecentProject {
@@ -43,7 +44,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         if (open) {
             engineApi.getRecentProjects()
                 .then(setRecentProjects)
-                .catch(err => console.error('[Dream] Failed to load recent:', err));
+                .catch(err => { console.error('[Dream] Failed to load recent:', err); useStatusStore.getState().setError(`Load recent projects failed: ${err instanceof Error ? err.message : String(err)}`); });
         }
     }, [open]);
 

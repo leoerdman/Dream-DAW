@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { z } from 'zod';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { viewportProxy, type ViewportState } from '../lib/ViewportProxy';
 import { nodeMotionProxy } from '../lib/NodeMotionProxy';
 import {
@@ -416,9 +417,15 @@ function _forceSaveConfig(state: FlowSynthState): Promise<void> {
     if (trackIndex < 0) { _saveInFlight = false; return Promise.resolve(); }
     return engine.saveFlowSynthConfig(trackIndex, jsonStr).then(response => {
         if (response?.deltas?.length) {
-            return useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig').catch(console.error);
+            return useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig').catch((err) => {
+                console.error('[Dream] FlowSynth delta apply failed:', err);
+                useStatusStore.getState().setError(`Flow Synth save failed: ${err instanceof Error ? err.message : String(err)}`);
+            });
         }
-    }).catch(console.error).finally(() => { _saveInFlight = false; });
+    }).catch((err) => {
+        console.error('[Dream] FlowSynth config save failed:', err);
+        useStatusStore.getState().setError(`Flow Synth config save failed: ${err instanceof Error ? err.message : String(err)}`);
+    }).finally(() => { _saveInFlight = false; });
 }
 
 // ENTERPRISE: Aggressively debounced disk-save.
@@ -1420,7 +1427,10 @@ useEngineStore.subscribe((state) => {
 
     if (projectId) {
         // P3 FIX: Use named constant instead of magic number 500.
-        setTimeout(() => initFlowEnginesFromProject().catch(console.error), FLOW_ENGINE_SETTLE_MS);
+        setTimeout(() => initFlowEnginesFromProject().catch((err) => {
+            console.error('[Dream] initFlowEnginesFromProject failed:', err);
+            useStatusStore.getState().setError(`Flow Synth init failed: ${err instanceof Error ? err.message : String(err)}`);
+        }), FLOW_ENGINE_SETTLE_MS);
     }
 });
 

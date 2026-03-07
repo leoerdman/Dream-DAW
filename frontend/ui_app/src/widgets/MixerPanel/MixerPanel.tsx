@@ -3,6 +3,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { MixerChannelStrip } from './MixerChannelStrip';
 import { MasterStrip } from './MasterStrip';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 interface MixerPanelProps {
     selectedTrackId: string;
@@ -39,7 +40,7 @@ export const MixerPanel = memo(function MixerPanel({ selectedTrackId, onSelectTr
         void engineApi
             .armTrackWithDeltas(index, !isArmed)
             .then(res => useEngineStore.getState().applyProjectDeltas(res.deltas, 'mixer:arm'))
-            .catch(console.error);
+            .catch((err) => { console.error('[Dream] armTrack failed:', err); useStatusStore.getState().setError(`Arm track failed: ${err instanceof Error ? err.message : String(err)}`); });
     }, []);
 
     return (

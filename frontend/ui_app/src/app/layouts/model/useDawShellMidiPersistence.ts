@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { beatDurationToFrames, beatToFrame, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
@@ -255,7 +256,7 @@ export function useDawShellMidiPersistence({
                         // Successful roundtrip: clip is no longer locally dirty.
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
-                    .catch((error) => console.error('[Dream] updateMidiClip failed:', error));
+                    .catch((error) => { console.error('[Dream] updateMidiClip failed:', error); useStatusStore.getState().setError(`MIDI save failed: ${error instanceof Error ? error.message : String(error)}`); });
             }, MIDI_SAVE_THROTTLE_MS) as ThrottledSender<MidiNote[]>;
             midiSaveThrottlesRef.current.set(clipId, send);
         }
@@ -275,7 +276,7 @@ export function useDawShellMidiPersistence({
                     .then(() => {
                         dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
-                    .catch((error) => console.error('[Dream] setMidiClipEnvelopes failed:', error));
+                    .catch((error) => { console.error('[Dream] setMidiClipEnvelopes failed:', error); useStatusStore.getState().setError(`MIDI envelope save failed: ${error instanceof Error ? error.message : String(error)}`); });
             }, MIDI_ENVELOPE_SAVE_THROTTLE_MS) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
             midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
         }

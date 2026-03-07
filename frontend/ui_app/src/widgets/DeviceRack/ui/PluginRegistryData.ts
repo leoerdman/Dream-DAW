@@ -141,7 +141,10 @@ export const PLUGIN_REGISTRY: Record<string, PluginDefinition> = {
         settingsPanel: {
             params: ['sync l', 'sync r', 'note l', 'note r', 'pingpong'],
             maxCols: 2,
-            toggleParams: ['pingpong'],
+            // 'pingpong' is NOT in toggleParams — it's already rendered via definition.buttons.
+            // 'sync l', 'sync r' are excluded from knob grid — handled by the Time/Sync dropdown.
+            // 'note l', 'note r' are excluded from knob grid — handled by the Note enum dropdowns.
+            toggleParams: ['sync l', 'sync r', 'note l', 'note r', 'pingpong'],
             enumLabels: {
                 'note l': ['1/32', '1/16T', '1/16', '1/16D', '1/8T', '1/8', '1/8D', '1/4T', '1/4', '1/4D', '1/2T', '1/2', '1/2D', '1 Bar'],
                 'note r': ['1/32', '1/16T', '1/16', '1/16D', '1/8T', '1/8', '1/8D', '1/4T', '1/4', '1/4D', '1/2T', '1/2', '1/2D', '1 Bar'],

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { ProjectDelta } from '@/shared/api/engine';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 type MidiEnvelopePoint = { beat: number; value: number };
 type MidiEnvelope = { paramId: string; points: MidiEnvelopePoint[] };
@@ -41,7 +42,7 @@ export function usePointerUpFinalizer({
                         await applyProjectDeltas(response.deltas, 'midi-notes:pointerup');
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
-                    .catch((err) => console.error('[Dream] updateMidiClip final flush failed:', err));
+                    .catch((err) => { console.error('[Dream] updateMidiClip final flush failed:', err); useStatusStore.getState().setError(`MIDI note save failed: ${err instanceof Error ? err.message : String(err)}`); });
             }
 
             for (const clipId of Array.from(dirtyMidiEnvelopeClipIdsRef.current)) {
@@ -51,7 +52,7 @@ export function usePointerUpFinalizer({
                     .then(() => {
                         dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
-                    .catch((err) => console.error('[Dream] setMidiClipEnvelopes final flush failed:', err));
+                    .catch((err) => { console.error('[Dream] setMidiClipEnvelopes final flush failed:', err); useStatusStore.getState().setError(`MIDI envelope save failed: ${err instanceof Error ? err.message : String(err)}`); });
             }
         };
 

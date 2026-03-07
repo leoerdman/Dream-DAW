@@ -3,6 +3,7 @@ import throttle from 'lodash.throttle';
 import * as engineApi from '@/shared/api/engine';
 import { useAutomationStore, type AutomationLane as LaneData } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 export function useAutomationLaneSync(lane: LaneData) {
     const pushPointsThrottled = useMemo(
@@ -11,7 +12,7 @@ export function useAutomationLaneSync(lane: LaneData) {
                 engineApi
                     .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
                     .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:throttle'))
-                    .catch((err) => console.error('[Dream] setAutomationPoints failed:', err));
+                    .catch((err) => { console.error('[Dream] setAutomationPoints failed:', err); useStatusStore.getState().setError(`Automation sync failed: ${err instanceof Error ? err.message : String(err)}`); });
             }, 16),
         [lane.trackId, lane.paramKey],
     );
@@ -36,7 +37,7 @@ export function useAutomationLaneSync(lane: LaneData) {
         engineApi
             .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, buildEnginePoints())
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:flush'))
-            .catch((err) => console.error('[Dream] setAutomationPoints final push failed:', err));
+            .catch((err) => { console.error('[Dream] setAutomationPoints final push failed:', err); useStatusStore.getState().setError(`Automation flush failed: ${err instanceof Error ? err.message : String(err)}`); });
     }, [buildEnginePoints, lane.trackId, lane.paramKey]);
 
     return { flushPointsToEngine, pushPointsImmediate, pushPointsThrottled };

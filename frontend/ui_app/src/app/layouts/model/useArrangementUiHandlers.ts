@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 type Args = {
     setFitTimelineToken: React.Dispatch<React.SetStateAction<number>>;
@@ -45,7 +46,7 @@ export function useArrangementUiHandlers({
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
         // Drop browser item onto the timeline at the given track and beat.
         void dropBrowserItemOnTimeline(item, trackIndex, beat)
-            .catch((err) => console.error('[Dream] browser drop failed:', err));
+            .catch((err) => { console.error('[Dream] browser drop failed:', err); useStatusStore.getState().setError(`Browser drop failed: ${err instanceof Error ? err.message : String(err)}`); });
     }, [dropBrowserItemOnTimeline]);
 
     return {

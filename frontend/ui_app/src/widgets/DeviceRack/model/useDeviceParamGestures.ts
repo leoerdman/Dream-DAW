@@ -9,6 +9,7 @@ import { createAdaptiveParamSenderFactory, createAdaptiveRuntimeBatchSenderFacto
 import { useDeviceParamPruning } from './useDeviceParamPruning';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 type DeviceParamTrack = { id: string; effects: Array<{ id: string }> } | null;
 export function useDeviceParamGestures(
     chain: DeviceSlot[],
@@ -256,6 +257,7 @@ export function useDeviceParamGestures(
                         }
                     } catch (err) {
                         console.error('[Dream] gesture commit failed:', err);
+                        useStatusStore.getState().setError(`Param gesture commit failed: ${err instanceof Error ? err.message : String(err)}`);
                     }
                 }
 
@@ -270,6 +272,7 @@ export function useDeviceParamGestures(
                         }
                     } catch (err) {
                         console.error('[Dream] internal gesture batch commit failed:', err);
+                        useStatusStore.getState().setError(`Param batch commit failed: ${err instanceof Error ? err.message : String(err)}`);
                     }
                 }
             })();
@@ -315,7 +318,7 @@ export function useDeviceParamGestures(
                     .then(response => {
                         useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-batch');
                     })
-                    .catch(err => console.error('[Dream] applyParamBatch internal gesture batch commit failed:', err));
+                    .catch(err => { console.error('[Dream] applyParamBatch internal gesture batch commit failed:', err); useStatusStore.getState().setError(`Param batch apply failed: ${err instanceof Error ? err.message : String(err)}`); });
             }
         } else {
             normalizedEntries.forEach((entry, idx) => {

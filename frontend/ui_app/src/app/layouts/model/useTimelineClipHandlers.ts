@@ -12,7 +12,7 @@ import type { ProjectDelta } from '@/shared/api/engine';
  * for backward compatibility during migration.
  */
 function resolveClipById(state: EngineStore, clipId: string): TimelineClip | undefined {
-    return state.clips.byId[clipId] ?? state.clipsById[clipId];
+    return state.clips.byId[clipId];
 }
 
 type BottomPanelMode = 'rack' | 'clip';
@@ -90,21 +90,7 @@ export function useTimelineClipHandlers({
     // SSOT FIX: pruneGhostClip derives all state from single filtered array.
     const pruneGhostClip = useCallback((clipId: string) => {
         if (!clipId) return;
-        useEngineStore.setState((s) => {
-            if (!resolveClipById(s as unknown as EngineStore, clipId)) return s;
-            const nextTimelineClips = s.timelineClips.filter((c) => c.id !== clipId);
-            const nextClipsById: Record<string, TimelineClip> = {};
-            const nextAllIds: string[] = [];
-            for (const c of nextTimelineClips) {
-                nextClipsById[c.id] = c;
-                nextAllIds.push(c.id);
-            }
-            return {
-                timelineClips: nextTimelineClips,
-                clipsById: nextClipsById,
-                clips: { byId: nextClipsById, allIds: nextAllIds },
-            };
-        });
+        useEngineStore.getState().deleteClip(clipId);
         setSelectedClipIds((prev) => prev.filter((id) => id !== clipId));
     }, [setSelectedClipIds]);
 
@@ -125,7 +111,7 @@ export function useTimelineClipHandlers({
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
-        // SSOT: Use clipsById as the single canonical lookup map.
+        // SSOT: Use clips.byId as the single canonical lookup map.
         const liveClip = resolveClipById(liveState, clipId);
         const liveExists = Boolean(liveClip);
         if (!liveExists) {
@@ -224,43 +210,14 @@ export function useTimelineClipHandlers({
         // This bridges the 100-200ms IPC gap, preventing the TimelineEngine from
         // collapsing to stale store values (causing waveform snap-back) on mouseUp.
         //
-        // CRITICAL: Must update ALL 3 store slices (timelineClips, clipsById, clips)
-        // for true SSOT. Previously only patched timelineClips, leaving clipsById/clips
-        // stale during the gap window.
-        useEngineStore.setState((state) => {
-            const nextClips = state.timelineClips.map((c) => {
-                if (c.id !== clipId) return c;
-                // BUG-TRIM-01 FIX: Use camelCase `sourceOffset` (matches TimelineClip type).
-                // BUG-TRIM-02 FIX: Update startBeat/durationBeats/durationSamples — these are
-                // the fields the rendering pipeline actually reads (not position/duration).
-                // BUG-TRIM-04 FIX: Preserve warpSourceDurationFrames from the pre-trim clip.
-                // This field represents the total source file length and must NOT change
-                // during trim — changing it breaks the sourceTotal calculation in
-                // _composeDrawClips and causes the waveform window to drift.
-                return {
-                    ...c,
-                    startBeat: newStartBeat,
-                    durationBeats: newDurationBeats,
-                    durationSamples: newDurationFrames,
-                    ...(typeof optSourceOffset === 'number'
-                        ? { sourceOffset: Math.round(optSourceOffset) }
-                        : {}),
-                };
-            });
-            // SSOT: Also patch clipsById and clips.byId with optimistic values
-            // so resolveClipById() and any other readers get consistent state.
-            const nextClipsById = { ...state.clipsById };
-            const nextClipsByIdEntity = { ...state.clips.byId };
-            const optimisticClip = nextClips.find((c) => c.id === clipId);
-            if (optimisticClip) {
-                nextClipsById[clipId] = optimisticClip;
-                nextClipsByIdEntity[clipId] = optimisticClip;
-            }
-            return {
-                timelineClips: nextClips,
-                clipsById: nextClipsById,
-                clips: { ...state.clips, byId: nextClipsByIdEntity },
-            };
+        // CRITICAL: Update the SSOT clips store.
+        useEngineStore.getState().patchClip(clipId, {
+            startBeat: newStartBeat,
+            durationBeats: newDurationBeats,
+            durationSamples: newDurationFrames,
+            ...(typeof optSourceOffset === 'number'
+                ? { sourceOffset: Math.round(optSourceOffset) }
+                : {}),
         });
 
         void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)

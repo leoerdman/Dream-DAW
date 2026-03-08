@@ -147,7 +147,7 @@ export function applyProjectDeltasToState(
                 project.pulse_map?.sample_rate ?? project.sample_rate,
                 state.transport.sample_rate,
             );
-            const timelineClips: DeltaApplyState['timelineClips'] = [];
+            const snapshotClips: TimelineClip[] = [];
             const snapshotTrackIds: string[] = [];
             const snapshotTracksById: Record<string, ProjectTrack> = {};
 
@@ -165,7 +165,7 @@ export function applyProjectDeltasToState(
                     const clipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
                     const hasClipColorOverride = Boolean(clip.color_hex ?? clip.color_override);
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
-                    timelineClips.push({
+                    snapshotClips.push({
                         id: clip.id,
                         name: clip.name,
                         trackIndex: trackIdx,
@@ -205,7 +205,7 @@ export function applyProjectDeltasToState(
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration?.sample_frame, 1));
                     const midiClipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
                     const hasMidiClipColorOverride = Boolean(clip.color_hex ?? clip.color_override);
-                    timelineClips.push({
+                    snapshotClips.push({
                         id: clip.id,
                         name: clip.name,
                         trackIndex: trackIdx,
@@ -239,18 +239,10 @@ export function applyProjectDeltasToState(
                 snapshotTrackIds,
                 snapshotTracksById,
             );
-            const sanitizedTimelineClips = normalizeTimelineClips(timelineClips) as TimelineClip[];
-
-            // BUG-P008 FIX: O(N) for-loop instead of O(2N) Object.fromEntries + .map().
-            const clipsByIdSnapshot: Record<string, typeof sanitizedTimelineClips[number]> = {};
-            for (let i = 0; i < sanitizedTimelineClips.length; i++) {
-                clipsByIdSnapshot[sanitizedTimelineClips[i].id] = sanitizedTimelineClips[i];
-            }
+            const sanitizedTimelineClips = normalizeTimelineClips(snapshotClips) as TimelineClip[];
 
             return {
                 nextState: {
-                    timelineClips: sanitizedTimelineClips,
-                    clipsById: clipsByIdSnapshot,
                     clips: toEntityState(sanitizedTimelineClips),
                     ...snapshotTrackState,
                 },
@@ -265,12 +257,10 @@ export function applyProjectDeltasToState(
 
     const canonicalTracks = buildTrackStatePatch(state).tracks;
     // BUG-FIX: Zustand freezes state objects. Delta handlers mutate working
-    // state in-place (e.g. `state.timelineClips[idx] = clip`), so we MUST
+    // state in-place (e.g. `state.clips.byId[id] = clip`), so we MUST
     // create shallow clones here to avoid "Attempted to assign to readonly
     // property" TypeError crashes.
     const working: DeltaWorkingState = {
-        timelineClips: [...state.timelineClips],
-        clipsById: { ...state.clipsById },
         // BUG-036 FIX: Initialize clips EntityState — enables typed updates in ClipsMerged handler.
         clips: { byId: { ...state.clips.byId }, allIds: [...state.clips.allIds] },
         projectTracks: canonicalTracks.allIds
@@ -308,22 +298,14 @@ export function applyProjectDeltasToState(
     if (!working.changed) {
         return { nextState: null, snapshotMeta: null, unhandledDeltaKinds };
     }
-    const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips) as TimelineClip[];
+    const sanitizedTimelineClips = normalizeTimelineClips(working.clips.allIds.map(id => working.clips.byId[id])) as TimelineClip[];
     const nextTrackState = storeHelpersBuildTrackStatePatch<ProjectTrack>(
         working.tracks.allIds,
         working.tracks.byId,
     );
 
-    // BUG-P008 FIX: O(N) for-loop instead of O(2N) Object.fromEntries + .map().
-    const clipsByIdDelta: Record<string, typeof sanitizedTimelineClips[number]> = {};
-    for (let i = 0; i < sanitizedTimelineClips.length; i++) {
-        clipsByIdDelta[sanitizedTimelineClips[i].id] = sanitizedTimelineClips[i];
-    }
-
     return {
         nextState: {
-            timelineClips: sanitizedTimelineClips,
-            clipsById: clipsByIdDelta,
             clips: toEntityState(sanitizedTimelineClips),
             ...nextTrackState,
         },

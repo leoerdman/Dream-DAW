@@ -10,7 +10,6 @@ export interface KeyboardShortcutsConfig {
     trackIds: string[];
     tracksById: Record<string, ProjectTrack>;
     editCursorBeat?: number;
-    timelineClips: TimelineClip[];
     marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
     onTogglePlayback: () => void;
     onClipSelectionChanged: (clipIds: string[]) => void;

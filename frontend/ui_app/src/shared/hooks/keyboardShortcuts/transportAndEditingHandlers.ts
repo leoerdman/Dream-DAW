@@ -2,6 +2,7 @@ import * as engine from '@/shared/api/engine';
 import { clamp01, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
 import { useRegionEditStore } from '@/shared/stores/useRegionEditStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -228,7 +229,8 @@ export async function handlePitchShortcuts(
     e: KeyboardEvent,
     ctx: ShortcutCtx,
 ): Promise<boolean> {
-    const { selectedClipId, selectedClipIds, timelineClips, activePanel } = ctx;
+    const { selectedClipId, selectedClipIds, activePanel } = ctx;
+    const timelineClips = selectAllClips(useEngineStore.getState());
 
     if (matchesShortcutAction(e, 'pitch_plus_12') && !e.repeat) {
         if (activePanel !== 'arrangement') return false;

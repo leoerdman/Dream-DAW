@@ -1,4 +1,5 @@
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
@@ -57,7 +58,7 @@ async function executeToolInner(
 ): Promise<string> {
     const state = useEngineStore.getState();
     const tracks = getOrderedTracks(state);
-    const clips = state.timelineClips;
+    const clips = selectAllClips(state);
     switch (name) {
         case 'get_project_overview': {
             let projectName = 'Untitled';
@@ -843,7 +844,7 @@ async function executeToolInner(
         }
         case 'get_midi_clip_notes': {
             const clipId = args.clipId as string;
-            const clip = useEngineStore.getState().timelineClips.find(c => c.id === clipId);
+            const clip = selectAllClips(useEngineStore.getState()).find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: `Clip ${clipId} not found` });
             if (clip.type !== 'midi') return JSON.stringify({ error: `Clip ${clipId} is not a MIDI clip (type: ${clip.type})` });
             const notes = (clip as { midiNotes?: MidiNoteLike[] }).midiNotes ?? [];
@@ -1066,7 +1067,7 @@ async function executeToolInner(
 export function buildSystemPrompt(): string {
     const s = useEngineStore.getState();
     const tracks = getOrderedTracks(s);
-    const clips = s.timelineClips;
+    const clips = selectAllClips(s);
     const bpm = resolveBpm(s.transport.bpm);
     const sr = resolveSampleRate(s.projectSampleRate);
     const transport = s.transport;

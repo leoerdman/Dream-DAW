@@ -414,10 +414,10 @@ fn search_near_project_recursive(als_path: &Path, file_name: &str) -> Option<Str
         }
         // Search great-grandparent for BPM-folder structures
         // (e.g. "ABLETON/160-200 BPM/48. Drift Away" shares with "ABLETON/120-160 BPM/*")
-        if let Some(great_grandparent) = grandparent.parent() {
-            if let Some(found) = search_directory_recursive(great_grandparent, file_name, 0, 3) {
-                return Some(found);
-            }
+        if let Some(great_grandparent) = grandparent.parent()
+            && let Some(found) = search_directory_recursive(great_grandparent, file_name, 0, 3)
+        {
+            return Some(found);
         }
     }
 
@@ -506,14 +506,14 @@ fn search_ableton_library(file_name: &str) -> Option<String> {
     // ── Dynamic scan for minor version directories (Live 12.3, Live 12.3.5, etc.) ──
     // Ableton stores support files under ~/Library/Application Support/Ableton/Live X.Y.Z/
     let ableton_support = home.join("Library/Application Support/Ableton");
-    if ableton_support.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&ableton_support) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("Live ") && entry.path().is_dir() {
-                    library_dirs.push(entry.path());
-                }
+    if ableton_support.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&ableton_support)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with("Live ") && entry.path().is_dir() {
+                library_dirs.push(entry.path());
             }
         }
     }
@@ -597,11 +597,10 @@ fn resolve_file_ref_enterprise(
     // Try: absolute path (with dash/space/dot variant matching)
     if let Some(abs) = &parsed.abs_path
         && !abs.trim().is_empty()
+        && let Some(found) = try_existing_variants(abs.trim())
     {
-        if let Some(found) = try_existing_variants(abs.trim()) {
-            log::debug!("[ALS Resolver] Found via absolute path: {}", found);
-            return Some(found);
-        }
+        log::debug!("[ALS Resolver] Found via absolute path: {}", found);
+        return Some(found);
     }
 
     // Try: relative path (with variant matching)
@@ -647,22 +646,21 @@ fn resolve_file_ref_enterprise(
     // Try: SearchHint PathHint (with variant matching)
     if let Some(hint) = &parsed.search_hint_path
         && !hint.trim().is_empty()
+        && let Some(found) = try_existing_variants(hint.trim())
     {
-        if let Some(found) = try_existing_variants(hint.trim()) {
-            let found_path = Path::new(&found);
-            // Validate file size if available
-            let size_ok = parsed
-                .search_hint_file_size
-                .map(|expected| {
-                    std::fs::metadata(found_path)
-                        .map(|m| m.len() as i64 == expected)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(true);
-            if size_ok {
-                log::debug!("[ALS Resolver] Found via SearchHint: {}", found);
-                return Some(found);
-            }
+        let found_path = Path::new(&found);
+        // Validate file size if available
+        let size_ok = parsed
+            .search_hint_file_size
+            .map(|expected| {
+                std::fs::metadata(found_path)
+                    .map(|m| m.len() as i64 == expected)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true);
+        if size_ok {
+            log::debug!("[ALS Resolver] Found via SearchHint: {}", found);
+            return Some(found);
         }
     }
 

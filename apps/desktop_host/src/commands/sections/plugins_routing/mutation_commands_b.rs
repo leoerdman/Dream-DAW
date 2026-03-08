@@ -288,7 +288,7 @@ fn set_slot_bypass_cmd(
                 fn find_slot_index_in_nodes(
                     nodes: &[dream_models::project::DeviceNode],
                     target_slot_id: uuid::Uuid,
-                    parent_bypassed: bool,
+                    _parent_bypassed: bool,
                     running: &mut usize,
                 ) -> Option<usize> {
                     for node in nodes {
@@ -309,7 +309,7 @@ fn set_slot_bypass_cmd(
                                     if let Some(idx) = find_slot_index_in_nodes(
                                         &chain.devices,
                                         target_slot_id,
-                                        parent_bypassed || rack.is_bypassed,
+                                        _parent_bypassed || rack.is_bypassed,
                                         running,
                                     ) {
                                         return Some(idx);

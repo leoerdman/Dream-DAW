@@ -44,9 +44,7 @@ export function useProjectAutoRecovery(): void {
             const hasNoTracks = state.tracks.allIds.length === 0;
             const isConnected = state.connected || state.telemetryRunning;
             const hasCanonicalClips = state.clips.allIds.length > 0;
-            const hasLegacyClipMap = Object.keys(state.clipsById).length > 0;
-            const hasTimelineClips = state.timelineClips.length > 0;
-            const hasAnyClipData = hasCanonicalClips || hasLegacyClipMap || hasTimelineClips;
+            const hasAnyClipData = hasCanonicalClips;
             const hasTracksButNoClips = state.tracks.allIds.length > 0 && !hasAnyClipData;
             const transportLooksActive = state.transport.is_playing || (state.transport.position_frames ?? 0) > 0;
             const looksLikeFreshBoot = state.projectHistory.length === 0 && state.projectHistoryCursor === 0;

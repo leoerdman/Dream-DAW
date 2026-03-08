@@ -12,6 +12,12 @@ use crate::vst3_host::Vst3Instance;
 
 pub type PluginInstanceArc = std::sync::Arc<parking_lot::Mutex<Box<dyn PluginInstance>>>;
 
+pub type SandboxedPluginInfo = (
+    Uuid,
+    std::sync::Arc<std::sync::RwLock<Vec<f64>>>,
+    std::sync::Arc<std::sync::atomic::AtomicU32>,
+);
+
 /// Manages all loaded plugin instances.
 ///
 /// The host owns all active plugin instances and provides methods to:
@@ -146,14 +152,7 @@ impl PluginHost {
         num_inputs: u16,
         num_outputs: u16,
         max_frames: u32,
-    ) -> Result<
-        (
-            Uuid,
-            std::sync::Arc<std::sync::RwLock<Vec<f64>>>,
-            std::sync::Arc<std::sync::atomic::AtomicU32>,
-        ),
-        PluginError,
-    > {
+    ) -> Result<SandboxedPluginInfo, PluginError> {
         let mut instance = SandboxedPluginInstance::create(
             instance_id,
             descriptor,

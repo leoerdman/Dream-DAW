@@ -32,7 +32,7 @@ pub enum FlowNodeType {
 }
 
 impl FlowNodeType {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_type(s: &str) -> Self {
         match s {
             "oscillator" => Self::Oscillator,
             "filter" => Self::Filter,
@@ -117,7 +117,7 @@ pub enum FlowParamKey {
 }
 
 impl FlowParamKey {
-    pub fn from_str(key: &str) -> Self {
+    pub fn parse_key(key: &str) -> Self {
         match key {
             "waveform" => Self::Waveform,
             "frequency" => Self::Frequency,

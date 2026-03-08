@@ -2,6 +2,7 @@ import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
 import { resolveSplitFrame } from './utils';
@@ -21,11 +22,11 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
             selectedClipId,
             selectedClipIds,
             editCursorBeat = -1,
-            timelineClips,
             marqueeSelection,
             playheadFrames,
             selectedTrackIndex,
         } = ctx;
+        const timelineClips = selectAllClips(useEngineStore.getState());
         const splitFrame = resolveSplitFrame(playheadFrames, editCursorBeat);
         const store = useEngineStore.getState();
         const bpm = resolveBpm(store.transport.bpm);
@@ -76,10 +77,10 @@ export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ct
         const {
             selectedClipId,
             selectedClipIds,
-            timelineClips,
             marqueeSelection,
             onClipSelectionChanged,
         } = ctx;
+        const timelineClips = selectAllClips(useEngineStore.getState());
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return null;
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
@@ -133,7 +134,8 @@ export async function nudgeSelectedClips(
     coarse: boolean,
 ): Promise<string[] | null> {
     try {
-        const { selectedClipId, selectedClipIds, timelineClips } = ctx;
+        const { selectedClipId, selectedClipIds } = ctx;
+        const timelineClips = selectAllClips(useEngineStore.getState());
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return null;
         const selected = timelineClips.filter((clip) => targets.includes(clip.id));
@@ -177,7 +179,8 @@ export async function nudgeSelectedClipsTrack(
     coarse: boolean,
 ): Promise<string[] | null> {
     try {
-        const { selectedClipId, selectedClipIds, timelineClips, trackIds } = ctx;
+        const { selectedClipId, selectedClipIds, trackIds } = ctx;
+        const timelineClips = selectAllClips(useEngineStore.getState());
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return null;
         const selected = timelineClips.filter((clip) => targets.includes(clip.id));

@@ -253,11 +253,11 @@ pub(super) fn process_master_bus(
     // Export master bus plugin metrics (e.g. Master Gain Reduction)
     let num_slots = master_device_chain.slots().len().min(16);
     let master_metrics = render_ctx.meter_bank.master_plugin_metrics();
-    for i in 0..num_slots {
-        master_metrics[i].store_peak(master_device_chain.slots()[i].get_metric_f32());
+    for (i, metric) in master_metrics.iter().enumerate().take(num_slots) {
+        metric.store_peak(master_device_chain.slots()[i].get_metric_f32());
     }
-    for i in num_slots..16 {
-        master_metrics[i].store_peak(0.0);
+    for metric in master_metrics.iter().take(16).skip(num_slots) {
+        metric.store_peak(0.0);
     }
 }
 

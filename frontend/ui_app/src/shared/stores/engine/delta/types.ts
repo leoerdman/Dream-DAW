@@ -8,8 +8,6 @@ export interface EntityState<T> {
 }
 
 export interface DeltaApplyState {
-    timelineClips: TimelineClip[];
-    clipsById: Record<string, TimelineClip>;
     clips: EntityState<TimelineClip>;
     tracks: EntityState<ProjectTrack>;
     projectBpm: number;
@@ -45,15 +43,13 @@ export interface SnapshotProjectMeta {
 export interface DeltaApplyResult {
     nextState: Pick<
         DeltaApplyState,
-        'timelineClips' | 'clipsById' | 'clips' | 'tracks'
+        'clips' | 'tracks'
     > | null;
     snapshotMeta?: SnapshotProjectMeta | null;
     unhandledDeltaKinds?: string[];
 }
 
 export interface DeltaWorkingState {
-    timelineClips: TimelineClip[];
-    clipsById: Record<string, TimelineClip>;
     /** BUG-036 FIX: Explicit clips EntityState — previously required unsafe `(state as any).clips` cast. */
     clips: EntityState<TimelineClip>;
     projectTracks: ProjectTrack[];

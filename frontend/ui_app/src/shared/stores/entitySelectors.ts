@@ -58,8 +58,26 @@ export const selectTrackCount = (s: ReturnType<typeof useEngineStore.getState>) 
 
 // ── Clip selectors ───────────────────────────────────────────────────────
 
-/** Select all clips as an ordered array (same as timelineClips). */
-export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) => s.timelineClips;
+const _allClipsCache = new WeakMap<string[], (TimelineClip | undefined)[]>();
+let _prevAllClipIdsRef: string[] | null = null;
+/** Select all clips as an ordered array (cached by allIds reference). */
+export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) => {
+    let key = s.clips.allIds;
+    if (_prevAllClipIdsRef && key !== _prevAllClipIdsRef && key.length === _prevAllClipIdsRef.length) {
+        let same = true;
+        for (let i = 0; i < key.length; i++) {
+            if (key[i] !== _prevAllClipIdsRef[i]) { same = false; break; }
+        }
+        if (same) key = _prevAllClipIdsRef;
+    }
+    let cached = _allClipsCache.get(key);
+    if (!cached) {
+        cached = key.map(id => s.clips.byId[id]);
+        _allClipsCache.set(key, cached);
+    }
+    _prevAllClipIdsRef = key;
+    return cached as TimelineClip[];
+};
 
 /** Select a single clip by ID. Returns undefined if not found. */
 export const selectClipById = (id: string) =>
@@ -72,7 +90,7 @@ const _clipsByTrackCache = new WeakMap<TimelineClip[], Record<number, TimelineCl
 /** Get clips filtered by track index. */
 export const selectClipsByTrackIndex = (trackIndex: number) =>
     (s: ReturnType<typeof useEngineStore.getState>): TimelineClip[] => {
-        const clips = s.timelineClips;
+        const clips = selectAllClips(s);
         let cache = _clipsByTrackCache.get(clips);
         if (!cache) {
             cache = {};

@@ -485,10 +485,9 @@ impl PluginSandboxSupervisor {
                             PluginHostEventMessage::ParameterChanged { index, value, .. } => {
                                 if let Some(cache) = self.parameter_caches.get(id)
                                     && let Ok(mut lock) = cache.write()
+                                    && (index as usize) < lock.len()
                                 {
-                                    if (index as usize) < lock.len() {
-                                        lock[index as usize] = value;
-                                    }
+                                    lock[index as usize] = value;
                                 }
                             }
                             PluginHostEventMessage::LatencyChanged { latency_samples, .. } => {

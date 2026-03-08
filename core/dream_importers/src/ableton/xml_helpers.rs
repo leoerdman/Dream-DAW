@@ -431,7 +431,7 @@ pub fn parse_track_key_note_target_broad(track_node: roxmltree::Node<'_, '_>) ->
 pub fn parse_track_i64_value_broad(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
     let node_found = find_tag_in_track(track_node, tag);
 
-    let Some(n) = node_found else { return None; };
+    let n = node_found?;
 
     if let Some(val_str) = n.attribute("Value") {
         return parse_i64_value(val_str);

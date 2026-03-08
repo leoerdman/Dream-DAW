@@ -424,6 +424,7 @@ fn extract_plugin_info_field(
 ///   8. BranchDeviceId `?n=` parameter (URL-encoded name)
 ///   9. BrowserContentPath query string fragment
 ///  10. infer_device_display_name() fallback
+#[allow(clippy::too_many_arguments)]
 fn resolve_preferred_plugin_name(
     user_name: &str,
     plug_name: &str,

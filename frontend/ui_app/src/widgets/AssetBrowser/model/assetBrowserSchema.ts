@@ -52,7 +52,7 @@ export const STATIC_CATEGORIES: BrowserCategory[] = [
 ];
 
 export const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
-export const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC'] as const;
+export const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC', 'MIDI'] as const;
 export const AUDIO_FILTERS = ['Audio: All', 'Loops', 'One Shot', 'Drums', 'Vocals'] as const;
 export const SORT_FILTERS = ['Sort: Name ↑', 'Sort: Name ↓', 'Sort: Size ↑', 'Sort: Size ↓'] as const;
 export const SIZE_FILTERS = ['Filter: All', '< 1 MB', '≥ 1 MB'] as const;

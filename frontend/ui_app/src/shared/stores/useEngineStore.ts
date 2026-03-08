@@ -49,9 +49,7 @@ export interface EngineStore {
     isDirty: boolean;
     transport: TransportState;
     meters: MeteringSnapshot;
-    timelineClips: TimelineClip[];
     tracks: EntityState<ProjectTrack>;
-    clipsById: Record<string, TimelineClip>;
     clips: EntityState<TimelineClip>;
     projectSampleRate: number;
     projectBpm: number;
@@ -110,6 +108,14 @@ export interface EngineStore {
     /** Restore native plugin windows for a track (reopen from preserved open set). */
     restoreEditorsForTrack: (trackId: string) => Promise<void>;
     resetMeterPeakHold: (trackIndex: number | 'master') => void;
+
+    // ── SSOT: Centralized Clip Mutators ──
+    /** Atomically apply updates to a clip across all internal index representations. */
+    patchClip: (id: string, patch: Partial<TimelineClip>) => void;
+    /** Delete a single clip across all internal index representations. */
+    deleteClip: (id: string) => void;
+    /** Replace all clips and auto-derive legacy array and map views. */
+    setNormalizedClips: (clips: TimelineClip[]) => void;
 }
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
@@ -170,8 +176,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     isDirty: false, // Legacy fallback, to be replaced by tab-specific dirty state
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
-    timelineClips: [],
-    clipsById: {},
     clips: { byId: {}, allIds: [] },
     tracks: { byId: {}, allIds: [] },
     projectSampleRate: 44100,
@@ -294,6 +298,35 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),
     resetMeterPeakHold: (trackIndex) => resetTelemetryPeaks(trackIndex),
+    patchClip: (id, patch) => set((s) => {
+        const existing = s.clips.byId[id];
+        if (!existing) return s;
+        const nextClip = { ...existing, ...patch };
+        const nextClipsById = { ...s.clips.byId, [id]: nextClip };
+        return {
+            clips: { ...s.clips, byId: nextClipsById },
+        };
+    }),
+    deleteClip: (id) => set((s) => {
+        if (!s.clips.byId[id]) return s;
+        const nextClipsById = { ...s.clips.byId };
+        delete nextClipsById[id];
+        return {
+            clips: { byId: nextClipsById, allIds: s.clips.allIds.filter(x => x !== id) },
+        };
+    }),
+    setNormalizedClips: (clipsArray) => set(() => {
+        const clipsById: Record<string, TimelineClip> = {};
+        for (let i = 0; i < clipsArray.length; i++) {
+            clipsById[clipsArray[i].id] = clipsArray[i];
+        }
+        return {
+            clips: {
+                byId: clipsById,
+                allIds: clipsArray.map((c) => c.id),
+            },
+        };
+    }),
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         try { // BUG-010: Error boundary wrapping entire delta application
             const sanitizedDeltas = sanitizeProjectDeltas(deltas);

@@ -883,6 +883,72 @@ pub fn resize_midi_clip(
     target.midi_clips.insert(insert_pos, clip);
     Ok(())
 }
+/// Consolidates a region of time on a MIDI track into a single MIDI clip,
+/// preserving existing notes and trimming/splitting underlying clips.
+pub fn consolidate_midi_region(
+    project: &mut Project,
+    track_index: usize,
+    start_time: AbsoluteTime,
+    duration: AbsoluteTime,
+) -> Result<MidiClip, MutatorError> {
+    if track_index >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange {
+            requested: track_index,
+            available: project.tracks.len(),
+        });
+    }
+
+    let end_time = AbsoluteTime::new(start_time.sample_frame + duration.sample_frame);
+    let track = &mut project.tracks[track_index];
+    
+    // Create new merged clip
+    let mut new_clip = MidiClip::new("Consolidated", start_time, duration);
+    new_clip.id = Uuid::new_v4();
+
+    // Find all overlapping clips and extract their notes within the region
+    for clip in &track.midi_clips {
+        let clip_start = clip.position.sample_frame;
+        let clip_end = clip.end_position().sample_frame;
+        
+        if clip_start < end_time.sample_frame && clip_end > start_time.sample_frame {
+            for note in &clip.notes {
+                let note_abs_start = clip_start + note.start_frame;
+                
+                // If the note starts within the region, keep it
+                if note_abs_start >= start_time.sample_frame && note_abs_start < end_time.sample_frame {
+                    let mut moved = *note;
+                    moved.start_frame = note_abs_start - start_time.sample_frame;
+                    new_clip.add_note(moved);
+                }
+            }
+        }
+    }
+
+    // Deduplicate notes by sorting then dedup
+    new_clip.notes.sort_by(|a, b| a.start_frame.cmp(&b.start_frame));
+    new_clip.notes.dedup_by(|b, a| {
+        if a.pitch == b.pitch && a.start_frame == b.start_frame {
+            if b.duration_frames > a.duration_frames {
+                a.duration_frames = b.duration_frames;
+            }
+            true
+        } else {
+            false
+        }
+    });
+
+    // Rely on centralized overlap resolution to trim underlying clips
+    handle_midi_overlaps(track, &new_clip, &[]);
+
+    let insert_pos = track
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&new_clip.position))
+        .unwrap_or_else(|i| i);
+    track.midi_clips.insert(insert_pos, new_clip.clone());
+
+    Ok(new_clip)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1508,68 +1574,4 @@ mod tests {
     }
 }
 
-/// Consolidates a region of time on a MIDI track into a single MIDI clip,
-/// preserving existing notes and trimming/splitting underlying clips.
-pub fn consolidate_midi_region(
-    project: &mut Project,
-    track_index: usize,
-    start_time: AbsoluteTime,
-    duration: AbsoluteTime,
-) -> Result<MidiClip, MutatorError> {
-    if track_index >= project.tracks.len() {
-        return Err(MutatorError::TrackOutOfRange {
-            requested: track_index,
-            available: project.tracks.len(),
-        });
-    }
 
-    let end_time = AbsoluteTime::new(start_time.sample_frame + duration.sample_frame);
-    let track = &mut project.tracks[track_index];
-    
-    // Create new merged clip
-    let mut new_clip = MidiClip::new("Consolidated", start_time, duration);
-    new_clip.id = Uuid::new_v4();
-
-    // Find all overlapping clips and extract their notes within the region
-    for clip in &track.midi_clips {
-        let clip_start = clip.position.sample_frame;
-        let clip_end = clip.end_position().sample_frame;
-        
-        if clip_start < end_time.sample_frame && clip_end > start_time.sample_frame {
-            for note in &clip.notes {
-                let note_abs_start = clip_start + note.start_frame;
-                
-                // If the note starts within the region, keep it
-                if note_abs_start >= start_time.sample_frame && note_abs_start < end_time.sample_frame {
-                    let mut moved = *note;
-                    moved.start_frame = note_abs_start - start_time.sample_frame;
-                    new_clip.add_note(moved);
-                }
-            }
-        }
-    }
-
-    // Deduplicate notes by sorting then dedup
-    new_clip.notes.sort_by(|a, b| a.start_frame.cmp(&b.start_frame));
-    new_clip.notes.dedup_by(|b, a| {
-        if a.pitch == b.pitch && a.start_frame == b.start_frame {
-            if b.duration_frames > a.duration_frames {
-                a.duration_frames = b.duration_frames;
-            }
-            true
-        } else {
-            false
-        }
-    });
-
-    // Rely on centralized overlap resolution to trim underlying clips
-    handle_midi_overlaps(track, &new_clip, &[]);
-
-    let insert_pos = track
-        .midi_clips
-        .binary_search_by(|c| c.position.cmp(&new_clip.position))
-        .unwrap_or_else(|i| i);
-    track.midi_clips.insert(insert_pos, new_clip.clone());
-
-    Ok(new_clip)
-}

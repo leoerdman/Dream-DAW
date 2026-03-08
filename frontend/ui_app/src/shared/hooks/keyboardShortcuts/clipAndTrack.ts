@@ -1,7 +1,7 @@
 import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate, DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils';
 import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
@@ -27,34 +27,22 @@ let _clipboardRegionBounds: { startBeat: number; endBeat: number } | null = null
  * SSOT: All three state containers are derived from a single filtered array.
  */
 function optimisticRemoveClips(clipIds: string[]): () => void {
-    const idSet = new Set(clipIds);
     const state = useEngineStore.getState();
     const snapshot = {
-        timelineClips: state.timelineClips,
-        clipsById: state.clipsById,
         clips: state.clips,
     };
 
-    const nextTimelineClips = state.timelineClips.filter((c: TimelineClip) => !idSet.has(c.id));
-    // SSOT: Derive maps from the single filtered array — no independent construction.
-    const nextClipsById: Record<string, TimelineClip> = {};
-    const nextAllIds: string[] = [];
-    for (const c of nextTimelineClips) {
-        nextClipsById[c.id] = c;
-        nextAllIds.push(c.id);
+    for (const clipId of clipIds) {
+        state.deleteClip(clipId);
     }
-    useEngineStore.setState({
-        timelineClips: nextTimelineClips,
-        clipsById: nextClipsById,
-        clips: { byId: nextClipsById, allIds: nextAllIds },
-    });
 
     return () => useEngineStore.setState(snapshot);
 }
 
 export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
     const { e, ctx, clipboardRef } = env;
-    const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, timelineClips, marqueeSelection, onClipSelectionChanged, activePanel, selectedTrackIndex, playheadFrames } = ctx;
+    const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, marqueeSelection, onClipSelectionChanged, activePanel, selectedTrackIndex, playheadFrames } = ctx;
+    const timelineClips = selectAllClips(useEngineStore.getState());
 
     if (matchesShortcutAction(e, 'glue_clips')) {
         if (activePanel !== 'arrangement') return false;

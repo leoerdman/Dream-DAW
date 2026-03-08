@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import {
     MissingAudioSection,
     MissingPluginsSection,
@@ -46,7 +47,7 @@ const decodeWantedPluginName = (pluginId: string, displayName: string): string =
 };
 
 export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps) => {
-    const timelineClips = useEngineStore((s) => s.timelineClips);
+    const timelineClips = useEngineStore(selectAllClips);
     const trackIds = useEngineStore((s) => s.tracks.allIds);
     const tracksById = useEngineStore((s) => s.tracks.byId);
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);

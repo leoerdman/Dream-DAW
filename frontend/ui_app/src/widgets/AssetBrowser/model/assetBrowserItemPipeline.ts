@@ -29,6 +29,7 @@ const FORMAT_GROUP_EXTENSIONS: Record<string, string[]> = {
     wma: ['wma'],
     webm: ['webm'],
     asd: ['asd'],
+    mid: ['mid', 'midi'],
 };
 
 /** Build a Set of lowercased extensions that belong to any of the excluded format groups. */
@@ -226,13 +227,15 @@ export function computeBrowserItems(params: {
     }
     if (isLibraryCategory) {
         if (formatFilter > 0) {
-            const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
+            const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac', 'midi'];
             const wanted = formatNames[formatFilter];
             if (wanted) base = base.filter((i) => {
                 if (!i.format) return false;
                 const fmt = i.format.toLowerCase();
                 // AIF and AIFF are the same container — match both
                 if (wanted === 'aiff') return fmt === 'aiff' || fmt === 'aif';
+                // MIDI and MID are the same
+                if (wanted === 'midi') return fmt === 'midi' || fmt === 'mid';
                 return fmt === wanted;
             });
         }

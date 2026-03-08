@@ -841,10 +841,19 @@ fn set_key_signature_with_deltas_cmd(
 async fn auto_save_if_dirty(
     project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    settings_state: tauri::State<'_, crate::settings::SettingsState>,
     app: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     let active_project_arc = active_project!(project_registry);
     let project_state: &crate::state_managers::ProjectState = &active_project_arc;
+    
+    // ENTERPRISE FIX: Guard auto-save against being disabled in settings.
+    // Even if the frontend timer fires, the backend must enforce the user's preference.
+    let auto_save_enabled = settings_state.settings.lock().map_err(|_| "Failed to lock settings")?.auto_save_enabled;
+    if !auto_save_enabled {
+        return Ok(serde_json::json!({ "saved": false, "reason": "disabled_in_settings" }));
+    }
+
     // ── Gate 1: Check dirty flag ──
     let is_dirty = *project_state.is_dirty.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     if !is_dirty {

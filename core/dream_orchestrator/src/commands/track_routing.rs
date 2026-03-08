@@ -229,11 +229,11 @@ impl Command for SetPluginSidechainSourceCommand {
             validate_sidechain_support(slot)?;
             changed = slot.sidechain_source_track_id != source_value;
             slot.sidechain_source_track_id = source_value.clone();
-            if let Some(mode) = self.send_mode {
-                if slot.sidechain_send_mode != mode {
-                    slot.sidechain_send_mode = mode;
-                    changed = true;
-                }
+            if let Some(mode) = self.send_mode 
+                && slot.sidechain_send_mode != mode 
+            {
+                slot.sidechain_send_mode = mode;
+                changed = true;
             }
             updated = true;
         }
@@ -281,11 +281,11 @@ fn find_and_set_sidechain(
                 validate_sidechain_support(slot)?;
                 let mut changed = slot.sidechain_source_track_id != *source_value;
                 slot.sidechain_source_track_id = source_value.clone();
-                if let Some(mode) = send_mode {
-                    if slot.sidechain_send_mode != mode {
-                        slot.sidechain_send_mode = mode;
-                        changed = true;
-                    }
+                if let Some(mode) = send_mode 
+                    && slot.sidechain_send_mode != mode 
+                {
+                    slot.sidechain_send_mode = mode;
+                    changed = true;
                 }
                 return Ok(Some(changed));
             }

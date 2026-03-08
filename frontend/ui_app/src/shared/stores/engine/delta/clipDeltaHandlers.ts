@@ -11,49 +11,24 @@ function isValidClipId(id: unknown): id is string {
     return typeof id === 'string' && id.trim().length > 0;
 }
 
-function syncClipMapFromTimeline(state: DeltaWorkingState): void {
-    const next: Record<string, TimelineClip> = {};
-    for (const clip of state.timelineClips) {
-        if (!isValidClipId(clip.id)) continue;
-        next[clip.id] = clip;
-    }
-    state.clipsById = next;
-}
+// This function used to rebuild clipsById from timelineClips.
+// It's no longer necessary with EntityState, replacing with a robust sync of allIds.
 
 // BUG-P001 FIX: Mutate working state in-place instead of O(n) spread copies.
 // DeltaWorkingState is a mutable working copy — safe to mutate directly.
 function upsertClip(state: DeltaWorkingState, clip: TimelineClip): void {
     if (!isValidClipId(clip.id)) return;
-    const existing = state.clipsById[clip.id];
-    if (existing) {
-        const idx = state.timelineClips.indexOf(existing);
-        if (idx >= 0) {
-            state.timelineClips[idx] = clip;
-        } else {
-            const fallbackIdx = state.timelineClips.findIndex((c) => c.id === clip.id);
-            if (fallbackIdx >= 0) {
-                state.timelineClips[fallbackIdx] = clip;
-            } else {
-                state.timelineClips.push(clip);
-            }
-        }
-    } else {
-        state.timelineClips.push(clip);
+    const existing = state.clips.byId[clip.id];
+    if (!existing) {
+        state.clips.allIds.push(clip.id);
     }
-    // BUG-P001 FIX: Direct property assignment instead of O(n) spread.
-    state.clipsById[clip.id] = clip;
+    state.clips.byId[clip.id] = clip;
 }
 
 // BUG-P002 FIX: Direct mutation instead of O(n) spread for cache warming.
 function resolveClip(state: DeltaWorkingState, clipId: string): TimelineClip | null {
     if (!isValidClipId(clipId)) return null;
-    const fromMap = state.clipsById[clipId];
-    if (fromMap) return fromMap;
-    const fromTimeline = state.timelineClips.find((c) => c.id === clipId) ?? null;
-    if (fromTimeline) {
-        state.clipsById[clipId] = fromTimeline;
-    }
-    return fromTimeline;
+    return state.clips.byId[clipId] ?? null;
 }
 
 export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
@@ -227,31 +202,30 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat })))
                 : representative.midiNotes,
         };
-        // BUG-P001 FIX: Mutate in-place instead of spread + filter.
-        const nextClips: TimelineClip[] = [];
-        for (const c of state.timelineClips) {
-            if (!sourceSet.has(c.id)) nextClips.push(c);
+        const nextById: Record<string, TimelineClip> = {};
+        const nextAllIds: string[] = [];
+
+        for (const id of state.clips.allIds) {
+            if (!sourceSet.has(id)) {
+                nextById[id] = state.clips.byId[id];
+                nextAllIds.push(id);
+            }
         }
-        nextClips.push(mergedClip);
-        state.timelineClips = nextClips;
-        syncClipMapFromTimeline(state);
-        // BUG-036 FIX: Rebuild clips EntityState after merge with proper types (no unsafe `as any`).
-        const mergedAllIds: string[] = [];
-        const mergedById: Record<string, import('@/shared/lib/arrangementTypes').TimelineClip> = {};
-        for (const c of state.timelineClips) {
-            mergedAllIds.push(c.id);
-            mergedById[c.id] = c;
-        }
-        state.clips = { byId: mergedById, allIds: mergedAllIds };
+
+        nextById[mergedClip.id] = mergedClip;
+        nextAllIds.push(mergedClip.id);
+
+        state.clips = { byId: nextById, allIds: nextAllIds };
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipDeleted') {
-        // BUG-P001 FIX: Direct delete instead of spread copy.
-        delete state.clipsById[delta.data.clip_id];
-        state.timelineClips = state.timelineClips.filter((c) => c.id !== delta.data.clip_id);
-        state.changed = true;
+        if (state.clips.byId[delta.data.clip_id]) {
+            delete state.clips.byId[delta.data.clip_id];
+            state.clips.allIds = state.clips.allIds.filter((id) => id !== delta.data.clip_id);
+            state.changed = true;
+        }
         return true;
     }
 

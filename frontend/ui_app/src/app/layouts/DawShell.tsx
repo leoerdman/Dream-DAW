@@ -9,6 +9,7 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useFlowSynthStore } from '@/widgets/FlowSynth/model/useFlowSynthStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import {
@@ -100,7 +101,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const applyProjectDeltas = useEngineStore(s => s.applyProjectDeltas);
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
-    const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
+    const timelineClipsSnapshot = useEngineStore(selectAllClips);
     const tracksEntity = useEngineStore(s => s.tracks);
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const automationVisible = useAutomationStore(s => s.globalVisible);
@@ -157,7 +158,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         trackIds: tracksEntity.allIds,
         tracksById: tracksEntity.byId,
         editCursorBeat,
-        timelineClips: timelineClipsSnapshot,
         marqueeSelection,
         onTogglePlayback: atomicTogglePlay,
         onClipSelectionChanged: setSelectedClipIds,

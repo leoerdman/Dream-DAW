@@ -472,7 +472,7 @@ pub(crate) fn apply_flow_synth_automation_block(
             {
                 let mut cursor = 0usize;
                 if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
-                    let flow_key = dream_ipc::FlowParamKey::from_str(param_key_str);
+                    let flow_key = dream_ipc::FlowParamKey::parse_key(param_key_str);
                     engine.update_node_param(node_id, flow_key, value);
                 }
             }

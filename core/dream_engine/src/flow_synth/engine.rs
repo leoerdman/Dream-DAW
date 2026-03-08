@@ -205,7 +205,7 @@ impl FlowSynthEngine {
                 // SAFETY: `MAX_VOICES > 0` is a compile-time invariant, so the
                 // iterator always yields at least one element and `min_by_key`
                 // never returns `None`. The `unwrap_or(0)` is a defensive fallback.
-                debug_assert!(MAX_VOICES > 0, "MAX_VOICES must be > 0");
+                const { assert!(MAX_VOICES > 0, "MAX_VOICES must be > 0") };
                 self.voices
                     .iter()
                     .enumerate()

@@ -104,9 +104,7 @@ impl FlowNode for UtilityNode {
         // For mono: pan affects level (attenuate toward silent side)
         let pan_total = (self.pan + pan_mod).clamp(-1.0, 1.0);
         // Simple equal-power pan law for mono: cos(π/4 * (pan+1))
-        let pan_gain = ((std::f32::consts::FRAC_PI_4) * (pan_total + 1.0)).cos()
-            .max(0.0)
-            .min(1.0);
+        let pan_gain = ((std::f32::consts::FRAC_PI_4) * (pan_total + 1.0)).cos().clamp(0.0, 1.0);
         // At center (pan=0): pan_gain ≈ 0.707 (equal power), we compensate
         // so center = unity: divide by cos(π/4) = 0.707
         let compensated = sample * (pan_gain / std::f32::consts::FRAC_1_SQRT_2);

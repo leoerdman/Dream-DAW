@@ -1,7 +1,9 @@
 import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveBpm, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { selectAllClips } from '@/shared/stores/entitySelectors';
 import { extractNewClipIdsFromDeltas } from '@/shared/lib/clipDeltaUtils';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
 
 export type RegionBox = { startBeat: number; endBeat: number; startTrack: number; endTrack: number };
@@ -21,9 +23,9 @@ export function normalizeRegion(marquee: KeyboardShortcutHandlerEnv['ctx']['marq
  * Used by destructive operations (Cut, Delete, Duplicate, Mute) where
  * splitRegionBoundaries has already been called to slice clips at boundaries.
  */
-export function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
+export function collectRegionClips(range: RegionBox): Array<TimelineClip> {
     const EPS = 1e-6;
-    const clips = useEngineStore.getState().timelineClips;
+    const clips = selectAllClips(useEngineStore.getState());
     const result = clips.filter((clip) => {
         if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
         const clipStart = clip.startBeat;
@@ -60,9 +62,9 @@ export function collectRegionClips(range: RegionBox): Array<KeyboardShortcutHand
  * Used by non-destructive operations (Copy) where we don't want to modify the
  * project. Per Ableton/Logic best practices: Copy should not split clips.
  */
-export function collectOverlappingClips(range: RegionBox): Array<KeyboardShortcutHandlerEnv['ctx']['timelineClips'][number]> {
+export function collectOverlappingClips(range: RegionBox): Array<TimelineClip> {
     const EPS = 1e-6;
-    const clips = useEngineStore.getState().timelineClips;
+    const clips = selectAllClips(useEngineStore.getState());
     return clips.filter((clip) => {
         if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
         const clipStart = clip.startBeat;
@@ -84,7 +86,7 @@ export async function splitRegionBoundaries(range: RegionBox): Promise<void> {
 
     for (const splitBeat of splitBeats) {
         const splitFrame = Math.max(0, beatToFrame(splitBeat, bpm, sampleRate));
-        const clips = useEngineStore.getState().timelineClips.filter((clip) => {
+        const clips = selectAllClips(useEngineStore.getState()).filter((clip) => {
             if (clip.trackIndex < range.startTrack || clip.trackIndex > range.endTrack) return false;
             const clipStart = clip.startBeat;
             const clipEnd = clip.startBeat + clip.durationBeats;

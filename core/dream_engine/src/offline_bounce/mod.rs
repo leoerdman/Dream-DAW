@@ -1334,28 +1334,26 @@ impl OfflineRenderer {
                         }
                         parent_slot.active = true;
                     }
-                } else {
-                    if pdc_delay_frames > 0 {
-                        let delay_buf = &mut ctx.pdc_buffers[track_idx];
-                        if delay_buf.len() != pdc_delay_frames as usize {
-                            delay_buf.resize(pdc_delay_frames as usize);
-                        }
-                        ctx.bounce_scratch_left[..frame_count].copy_from_slice(&slot.buf_left[..frame_count]);
-                        ctx.bounce_scratch_right[..frame_count].copy_from_slice(&slot.buf_right[..frame_count]);
-                        delay_buf.process_stereo(
-                            &mut ctx.bounce_scratch_left[..frame_count],
-                            &mut ctx.bounce_scratch_right[..frame_count],
-                        );
-                        render_ctx.master_bus.add_stereo(
-                            &ctx.bounce_scratch_left[..frame_count],
-                            &ctx.bounce_scratch_right[..frame_count],
-                        );
-                    } else {
-                        render_ctx.master_bus.add_stereo(
-                            &slot.buf_left[..frame_count],
-                            &slot.buf_right[..frame_count],
-                        );
+                } else if pdc_delay_frames > 0 {
+                    let delay_buf = &mut ctx.pdc_buffers[track_idx];
+                    if delay_buf.len() != pdc_delay_frames as usize {
+                        delay_buf.resize(pdc_delay_frames as usize);
                     }
+                    ctx.bounce_scratch_left[..frame_count].copy_from_slice(&slot.buf_left[..frame_count]);
+                    ctx.bounce_scratch_right[..frame_count].copy_from_slice(&slot.buf_right[..frame_count]);
+                    delay_buf.process_stereo(
+                        &mut ctx.bounce_scratch_left[..frame_count],
+                        &mut ctx.bounce_scratch_right[..frame_count],
+                    );
+                    render_ctx.master_bus.add_stereo(
+                        &ctx.bounce_scratch_left[..frame_count],
+                        &ctx.bounce_scratch_right[..frame_count],
+                    );
+                } else {
+                    render_ctx.master_bus.add_stereo(
+                        &slot.buf_left[..frame_count],
+                        &slot.buf_right[..frame_count],
+                    );
                 }
             }
         }

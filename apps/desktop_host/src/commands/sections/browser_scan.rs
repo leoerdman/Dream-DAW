@@ -25,6 +25,7 @@ const AUDIO_EXTENSIONS: &[&str] = &[
     "wma",
     "webm", "mkv",
     "sd2",
+    "mid", "midi",
 ];
 
 /// Plugin bundle extensions recognized by the browser.

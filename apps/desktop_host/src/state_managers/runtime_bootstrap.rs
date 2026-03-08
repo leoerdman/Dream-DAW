@@ -292,7 +292,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         is_shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         frontend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         prealloc_producer: Mutex::new(prealloc_producer),
-        internal_latency_snapshot: internal_latency_snapshot,
+        internal_latency_snapshot,
     };
 
     let project_registry = ProjectRegistry::new();

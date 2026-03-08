@@ -207,25 +207,11 @@ impl Default for LockFreeLevel {
 
 // ── MeterBank ──────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 pub struct TrackMeters {
     pub left: LockFreeLevel,
     pub right: LockFreeLevel,
     pub plugin_metrics: [LockFreeLevel; 16],
-}
-
-impl Default for TrackMeters {
-    fn default() -> Self {
-        Self {
-            left: LockFreeLevel::new(),
-            right: LockFreeLevel::new(),
-            plugin_metrics: [
-                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
-                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
-                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
-                LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(), LockFreeLevel::new(),
-            ],
-        }
-    }
 }
 
 /// A bank of lock-free meters for multiple tracks + master.

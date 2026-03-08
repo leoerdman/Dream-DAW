@@ -223,20 +223,19 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         };
         insertTrackAt(state, insertIndex, nextTrack);
 
-        state.timelineClips = state.timelineClips.map((clip) => (
-            clip.trackIndex >= insertIndex ? { ...clip, trackIndex: clip.trackIndex + 1 } : clip
-        ));
-        const nextClips: typeof state.clipsById = {};
-        const nextAllIds: string[] = [];
-        for (const clip of state.timelineClips) {
-            nextClips[clip.id] = clip;
-            nextAllIds.push(clip.id);
+        let changedClips = false;
+
+        for (const id of state.clips.allIds) {
+            const clip = state.clips.byId[id];
+            if (clip && clip.trackIndex >= insertIndex) {
+                state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex + 1 };
+                changedClips = true;
+            }
         }
-        state.clipsById = nextClips;
-        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
-        // DeltaWorkingState now has proper `clips: EntityState<TimelineClip>` field.
-        state.clips = { byId: nextClips, allIds: nextAllIds };
-        state.changed = true;
+
+        if (changedClips) {
+            state.changed = true;
+        }
         return true;
     }
 
@@ -250,20 +249,26 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         const removeIndex = removeTrackById(state, delta.data.track_id);
         if (removeIndex < 0) return true;
 
-        const nextTimeline = state.timelineClips
-            .filter((clip) => clip.trackIndex !== removeIndex)
-            .map((clip) => (clip.trackIndex > removeIndex ? { ...clip, trackIndex: clip.trackIndex - 1 } : clip));
-        const nextClips: typeof state.clipsById = {};
+        let changedClips = false;
         const nextAllIds: string[] = [];
-        for (const clip of nextTimeline) {
-            nextClips[clip.id] = clip;
-            nextAllIds.push(clip.id);
+        const nextById: Record<string, import('@/shared/lib/arrangementTypes').TimelineClip> = {};
+
+        for (const id of state.clips.allIds) {
+            const clip = state.clips.byId[id];
+            if (!clip) continue;
+            if (clip.trackIndex === removeIndex) continue;
+
+            if (clip.trackIndex > removeIndex) {
+                nextById[id] = { ...clip, trackIndex: clip.trackIndex - 1 };
+            } else {
+                nextById[id] = clip;
+            }
+            nextAllIds.push(id);
+            changedClips = true;
         }
-        state.timelineClips = nextTimeline;
-        state.clipsById = nextClips;
-        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
-        state.clips = { byId: nextClips, allIds: nextAllIds };
-        state.changed = true;
+
+        state.clips = { byId: nextById, allIds: nextAllIds };
+        if (changedClips) state.changed = true;
 
         // ENTERPRISE FIX: Clean up automation lanes for the removed track.
         // Without this, undo/redo track removal leaves stale lanes + breakpoints
@@ -282,26 +287,25 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         const newIndex = moveResult.newIndex;
         if (oldIndex === newIndex) return true;
 
-        state.timelineClips = state.timelineClips.map((clip) => {
-            if (clip.trackIndex === oldIndex) return { ...clip, trackIndex: newIndex };
-            if (oldIndex < newIndex && clip.trackIndex > oldIndex && clip.trackIndex <= newIndex) {
-                return { ...clip, trackIndex: clip.trackIndex - 1 };
+        let changedClips = false;
+
+        for (const id of state.clips.allIds) {
+            const clip = state.clips.byId[id];
+            if (!clip) continue;
+
+            if (clip.trackIndex === oldIndex) {
+                state.clips.byId[id] = { ...clip, trackIndex: newIndex };
+                changedClips = true;
+            } else if (oldIndex < newIndex && clip.trackIndex > oldIndex && clip.trackIndex <= newIndex) {
+                state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex - 1 };
+                changedClips = true;
+            } else if (oldIndex > newIndex && clip.trackIndex >= newIndex && clip.trackIndex < oldIndex) {
+                state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex + 1 };
+                changedClips = true;
             }
-            if (oldIndex > newIndex && clip.trackIndex >= newIndex && clip.trackIndex < oldIndex) {
-                return { ...clip, trackIndex: clip.trackIndex + 1 };
-            }
-            return clip;
-        });
-        const nextClips: typeof state.clipsById = {};
-        const nextAllIds: string[] = [];
-        for (const clip of state.timelineClips) {
-            nextClips[clip.id] = clip;
-            nextAllIds.push(clip.id);
         }
-        state.clipsById = nextClips;
-        // AUDIT FIX: Use typed `state.clips` instead of unsafe `(state as any).clips`.
-        state.clips = { byId: nextClips, allIds: nextAllIds };
-        state.changed = true;
+
+        if (changedClips) state.changed = true;
         return true;
     }
 

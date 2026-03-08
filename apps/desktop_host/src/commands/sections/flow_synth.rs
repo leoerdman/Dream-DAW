@@ -65,10 +65,10 @@ fn sync_flow_graph_cmd(
 
     let mut mapped_nodes = Vec::with_capacity(nodes.len());
     for (id, ty_str, params) in nodes {
-        let node_type = dream_ipc::FlowNodeType::from_str(&ty_str);
+        let node_type = dream_ipc::FlowNodeType::parse_type(&ty_str);
         let mut mapped_params = Vec::with_capacity(params.len());
         for (k_str, v_str) in params {
-            let key = dream_ipc::FlowParamKey::from_str(&k_str);
+            let key = dream_ipc::FlowParamKey::parse_key(&k_str);
             let value = dream_ipc::parse_flow_param_value(key, &v_str);
             mapped_params.push((key, value));
         }
@@ -124,7 +124,7 @@ fn sync_flow_graph_cmd(
         let winning_indices: std::collections::HashSet<usize> =
             seen_inputs.values().copied().collect();
         let mut filtered = Vec::with_capacity(winning_indices.len());
-        for (_orig_idx, conn) in valid_connections.iter().enumerate() {
+        for conn in valid_connections.iter() {
             // Map back to original index by finding this conn in `connections`.
             // Since we pushed in order, orig_idx corresponds to the position
             // in the original valid_connections iteration.
@@ -259,7 +259,7 @@ fn update_flow_node_param_cmd(
         resolve_flow_track_index(&project, track_index)?
     };
 
-    let parsed_key = dream_ipc::FlowParamKey::from_str(&key);
+    let parsed_key = dream_ipc::FlowParamKey::parse_key(&key);
     let parsed_value = dream_ipc::parse_flow_param_value(parsed_key, &value);
 
     push_command(

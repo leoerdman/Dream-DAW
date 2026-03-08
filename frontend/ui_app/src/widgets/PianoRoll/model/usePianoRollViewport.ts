@@ -129,7 +129,13 @@ export function usePianoRollViewport({
             }
         };
         element.addEventListener('wheel', onWheel, { passive: false });
-        return () => element.removeEventListener('wheel', onWheel);
+        return () => {
+            element.removeEventListener('wheel', onWheel);
+            if (noteHeightRafRef.current !== null) {
+                cancelAnimationFrame(noteHeightRafRef.current);
+                noteHeightRafRef.current = null;
+            }
+        };
     }, [pixelsPerBeatRef, scrollRef, setNoteHeight, setZoomOverrideH]);
 
     const noteHeightRef = useRef(noteHeight);
@@ -183,7 +189,7 @@ export function usePianoRollViewport({
             }
         };
 
-        requestAnimationFrame(() => {
+        const rafId = requestAnimationFrame(() => {
             const saved = scrollByClipKey.get(clipViewportKey);
             if (saved) {
                 grid.scrollTop = saved.top;
@@ -222,5 +228,6 @@ export function usePianoRollViewport({
                 centerToNotes();
             }
         });
+        return () => cancelAnimationFrame(rafId);
     }, [clipLengthBeats, clipStartBeat, clipViewportKey, keyboardScrollRef, pitchToY, scrollRef, trackIndex, visiblePitches, pixelsPerBeatRef]);
 }

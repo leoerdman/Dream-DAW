@@ -59,6 +59,7 @@ export const DawShellMainView = memo(({
                 style={{
                     width: browserWidth,
                     background: 'var(--color-bg-panel)',
+                    borderRight: 'var(--space-px) solid var(--color-divider)',
                 }}
             >
                 <ErrorBoundary module="Asset Browser">

@@ -111,7 +111,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
             <div style={previewRootStyle}>
                 <div style={previewControlsRowStyle}>
                     <div style={previewWaveContainerStyle}>
-                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={32} /> : <div style={previewPlaceholderStyle} />}
+                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={28} /> : <div style={previewPlaceholderStyle} />}
                     </div>
                     <button
                         onClick={() => {
@@ -263,7 +263,7 @@ const previewWaveContainerStyle: React.CSSProperties = {
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    padding: '2px var(--space-1)',
+    padding: 0,
 };
 
 const previewPlaceholderStyle: React.CSSProperties = {

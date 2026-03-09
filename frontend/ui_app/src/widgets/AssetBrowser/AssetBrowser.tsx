@@ -122,6 +122,7 @@ const splitLayoutStyle: React.CSSProperties = {
 const leftPaneWrapStyle: React.CSSProperties = {
     minWidth: 88,
     flexShrink: 0,
+    borderRight: 'var(--space-px) solid var(--color-divider)',
 };
 
 const splitHandleStyle: React.CSSProperties = {

@@ -28,6 +28,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const isPreviewingRef = useRef(false);
     const [isPreviewing, setIsPreviewing] = useState(false);
     const commitInFlightRef = useRef(false);
+    const editorRootRef = useRef<HTMLDivElement>(null);
 
     // Bug #55 fix: Sync draft state when clip changes.
     const prevClipIdRef = useRef(clip.id);
@@ -186,8 +187,33 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         }
     }, []);
 
+    // ── Scroll-wheel zoom for clip editor ──
+    // Cmd/Ctrl+Scroll = horizontal zoom (zoomX), Alt+Scroll = vertical zoom (zoomY).
+    // Uses passive:false wheel listener on the editor container for smooth,
+    // responsive zoom matching the arrangement timeline UX.
+    useEffect(() => {
+        const el = editorRootRef.current;
+        if (!el) return;
+        const onWheel = (e: WheelEvent) => {
+            const isZoomH = e.metaKey || e.ctrlKey;
+            const isZoomV = e.altKey;
+            if (!isZoomH && !isZoomV) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const factor = e.deltaY > 0 ? 0.9 : 1.1; // 10% steps
+            if (isZoomH) {
+                setZoomX((prev) => Math.max(0.25, Math.min(8, prev * factor)));
+            }
+            if (isZoomV) {
+                setZoomY((prev) => Math.max(0.5, Math.min(4, prev * factor)));
+            }
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, []);
+
     return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-base)', outline: 'none' }}>
+        <div ref={editorRootRef} style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-base)', outline: 'none' }}>
             <ClipEditorToolbar>
                 <span style={{
                     fontSize: 'var(--font-size-xs)',
@@ -236,7 +262,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 onCommitPitch={(value) => { void commitPitch(value); }}
                 onTogglePreview={() => { void togglePreview(); }}
             />}>
-                <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     {clip.filePath && visualDurationSamples > 0 && !clip.isOffline ? (
                         <SampleClipWaveformPane
                             filePath={clip.filePath}
@@ -248,6 +274,8 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                             waveHeightScale={zoomY}
                             color={toolbarColor}
                             beatsPerBar={beatsPerBar}
+                            onZoomX={(delta) => setZoomX((z) => Math.max(0.1, Math.min(32, z * (delta > 0 ? 1.15 : 1 / 1.15))))}
+                            onZoomY={(delta) => setZoomY((z) => Math.max(0.25, Math.min(4, z * (delta > 0 ? 1.15 : 1 / 1.15))))}
                         />
                     ) : (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: 'var(--space-px) dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>

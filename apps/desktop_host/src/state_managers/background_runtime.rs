@@ -41,11 +41,21 @@ struct SystemPerformancePayload {
     ram_total_mb: u64,
     /// Process (Dream DAW) memory in megabytes.
     process_memory_mb: u64,
-    /// Audio thread DSP load percentage (0–100). This is THE critical
-    /// metric for DAW users — shows how close the session is to dropout.
+    /// Audio thread DSP load percentage (0–100, EMA smoothed).
+    /// This is THE critical metric for DAW users — shows how close the session is to dropout.
     dsp_load: f32,
     /// Per-core CPU usage percentages (0-100).
     cpu_per_core: Vec<f32>,
+    /// Instantaneous (unsmoothed) DSP load. Can exceed 100% on xrun.
+    dsp_load_instant: f32,
+    /// Last audio callback duration in microseconds.
+    callback_duration_us: u64,
+    /// Worst-case (max) callback duration in microseconds since engine start.
+    callback_duration_max_us: u64,
+    /// Total detected xruns (buffer overruns) since engine start.
+    xrun_count: u64,
+    /// Total audio callbacks processed since engine start.
+    callback_count: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -156,8 +166,17 @@ pub(crate) fn spawn_background_runtime_threads(
                     }
                 };
 
-                // DSP load is read every tick (changes at 30fps audio callback rate)
+                // DSP load and audio thread diagnostics — read every tick.
+                // These are lock-free atomic reads (~nanoseconds).
                 cached_perf.dsp_load = handle.rt_debug_stats.dsp_load_percent();
+                cached_perf.dsp_load_instant = handle.rt_debug_stats.dsp_load_instant();
+                cached_perf.xrun_count = handle.rt_debug_stats.xrun_count();
+                {
+                    let snap = handle.rt_debug_stats.snapshot();
+                    cached_perf.callback_duration_us = snap.callback_duration_us_last;
+                    cached_perf.callback_duration_max_us = snap.callback_duration_us_max;
+                    cached_perf.callback_count = snap.callback_count;
+                }
 
                 let payload = TelemetryTickPayload {
                     transport,

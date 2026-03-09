@@ -207,7 +207,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
                 });
         }, 300);
         return () => { cancelled = true; clearTimeout(timerId); };
-    }, [isSamplesCategory, libraryScanNonce, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading, statusError]);
+    }, [isSamplesCategory, libraryScanNonce, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading, statusError, settings.userFolderPath]);
     useEffect(() => {
         const needsPluginCatalog = selectedCategoryId === 'plugins'
             || selectedCategoryId === 'all'

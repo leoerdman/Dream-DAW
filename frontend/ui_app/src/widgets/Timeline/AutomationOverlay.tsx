@@ -15,14 +15,15 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useViewportStore } from '@/shared/stores/useViewportStore';
 import { AutomationLane } from './AutomationLane';
+import { AUTOMATION_LANE_HEIGHT_PX, TIMELINE_RULER_HEIGHT_PX } from '@/shared/config/layoutConstants';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-/** Height of each automation lane sub-row in pixels. */
-const LANE_HEIGHT = 48;
+/** Lane height — sourced from shared layoutConstants SSOT. */
+const LANE_HEIGHT = AUTOMATION_LANE_HEIGHT_PX;
 
-/** Ruler height must match Timeline.tsx constant. */
-const RULER_HEIGHT = 28;
+/** Ruler height — sourced from shared layoutConstants SSOT. */
+const RULER_HEIGHT = TIMELINE_RULER_HEIGHT_PX;
 
 // ── Props ────────────────────────────────────────────────────────────────
 

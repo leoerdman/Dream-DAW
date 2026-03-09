@@ -73,6 +73,9 @@ pub struct PlaybackState {
 
     /// Loop end position in sample frames.
     pub loop_end: i64,
+
+    /// Whether the metronome/click track is enabled.
+    pub metronome_enabled: bool,
 }
 
 impl Default for PlaybackState {
@@ -90,6 +93,7 @@ impl Default for PlaybackState {
             // Default loop region: bars 9–17 (beats 32–64).
             loop_start: 32 * frames_per_beat,
             loop_end: 64 * frames_per_beat,
+            metronome_enabled: false,
         }
     }
 }
@@ -122,6 +126,7 @@ mod tests {
             loop_enabled: true,
             loop_start: 705600,
             loop_end: 1411200,
+            metronome_enabled: false,
         };
         let json = serde_json::to_string(&state).expect("serialize");
         let deserialized: PlaybackState = serde_json::from_str(&json).expect("deserialize");

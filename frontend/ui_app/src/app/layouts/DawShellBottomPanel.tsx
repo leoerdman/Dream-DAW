@@ -132,7 +132,7 @@ export function DawShellBottomPanel({
                         top: 0,
                         left: 0,
                         right: 0,
-                        height: 6,
+                        height: 'var(--daw-resize-handle-size)',
                         cursor: 'ns-resize',
                         zIndex: 'var(--z-modal)',
                         touchAction: 'none',
@@ -143,8 +143,8 @@ export function DawShellBottomPanel({
                 >
                     {/* Visual drag indicator pill */}
                     <div style={{
-                        width: 56,
-                        height: 2,
+                        width: 'var(--daw-resize-handle-pill-w)',
+                        height: 'var(--daw-resize-handle-pill-h)',
                         borderRadius: 1,
                         background: 'var(--color-text-tertiary, var(--token-color-rgba-255-255-255-0d15))',
                         transition: 'background 0.15s',

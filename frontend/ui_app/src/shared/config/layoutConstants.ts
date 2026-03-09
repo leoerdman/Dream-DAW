@@ -23,6 +23,8 @@ export const TRACK_HEIGHT_MIN_PX = TRACK_LEVEL_MIN;
 export const TRACK_HEIGHT_MAX_PX = TRACK_LEVEL_MAX;
 export const TRACK_HEIGHT_STEP_PX = TRACK_HEIGHT_SNAP_PX;
 export const TIMELINE_RULER_HEIGHT_PX = 28;
+/** Height of each additional automation lane stacked below the track row (px). */
+export const AUTOMATION_LANE_HEIGHT_PX = 48;
 
 /** Snap a raw pixel height to the nearest discrete track height level. */
 export const clampTrackHeightPx = (height: number): number =>

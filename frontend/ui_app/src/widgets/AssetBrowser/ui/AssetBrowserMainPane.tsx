@@ -44,7 +44,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                 <FilterPill options={SORT_FILTERS} value={logic.sortFilter} onChange={logic.setSortFilter} />
                 <FilterPill options={SIZE_FILTERS} value={logic.sizeFilter} onChange={logic.setSizeFilter} />
                 {logic.selectedCategoryId !== 'plugins' && (
-                    <button onClick={logic.triggerLibraryScan} style={pluginActionButtonStyle} title="Rescan sample library">
+                    <button onClick={() => { logic.triggerLibraryScan(); logic.triggerPluginScan(); }} style={pluginActionButtonStyle} title="Rescan sample library and plugins">
                         Rescan Library
                     </button>
                 )}
@@ -133,8 +133,11 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                         title={logic.previewEnabled ? 'Preview on' : 'Preview off'}
                         style={{
                             ...previewToggleStyle,
-                            background: logic.previewEnabled ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
-                            color: logic.previewEnabled ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                            background: logic.previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-control-bg)',
+                            color: logic.previewEnabled ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                            border: logic.previewEnabled
+                                ? 'var(--space-px) solid var(--color-accent-primary)'
+                                : 'var(--space-px) solid var(--color-border-subtle)',
                         }}
                         aria-pressed={logic.previewEnabled}
                     >
@@ -235,8 +238,8 @@ const letterAnchorButtonStyle: React.CSSProperties = {
 
 const previewRootStyle: React.CSSProperties = {
     flexShrink: 0,
-    borderTop: 'var(--space-0-5) solid var(--color-divider)',
-    background: 'var(--color-bg-secondary)',
+    borderTop: 'var(--space-px) solid var(--color-divider)',
+    background: 'var(--color-bg-panel)',
     position: 'relative',
     zIndex: 'var(--z-pane, 10)',
 };
@@ -244,8 +247,8 @@ const previewRootStyle: React.CSSProperties = {
 const previewControlsRowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    padding: 'var(--space-1) var(--space-2)',
-    gap: 5,
+    padding: 'var(--space-1) var(--space-1-5)',
+    gap: 'var(--space-1)',
     fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-secondary)',
 };
@@ -253,7 +256,7 @@ const previewControlsRowStyle: React.CSSProperties = {
 const previewWaveContainerStyle: React.CSSProperties = {
     flex: 1,
     minWidth: 0,
-    height: 36,
+    height: 28,
     borderRadius: 'var(--radius-md)',
     border: 'var(--space-px) solid var(--color-border-subtle)',
     background: 'color-mix(in srgb, var(--color-bg-base) 30%, transparent)',

@@ -286,13 +286,26 @@ export const SessionWorkspace = ({
                         top: -3,
                         left: 0,
                         right: 0,
-                        height: 6,
+                        height: 'var(--daw-resize-handle-size)',
                         cursor: 'ns-resize',
                         zIndex: 'var(--z-panel, 10)',
                         background: draggingMixerEdge ? 'var(--color-accent-primary)' : 'transparent',
                         transition: 'background 0.1s linear',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                     }}
-                />
+                >
+                    {/* Visual drag indicator pill */}
+                    <div style={{
+                        width: 'var(--daw-resize-handle-pill-w)',
+                        height: 'var(--daw-resize-handle-pill-h)',
+                        borderRadius: 1,
+                        background: 'var(--color-text-tertiary, var(--token-color-rgba-255-255-255-0d15))',
+                        transition: 'background 0.15s',
+                        pointerEvents: 'none',
+                    }} />
+                </div>
                 <div ref={mixerScrollRef} style={{ overflow: 'auto', minHeight: 0 }}>
                     <SessionWorkspaceMixerTracks
                         tracks={tracks}

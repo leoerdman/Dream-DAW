@@ -18,7 +18,7 @@ use super::audio_thread_track_pass::{TrackPassContext, process_track_graph_node}
 use crate::driver::midi_dispatcher::PluginNoteTracker;
 use dream_clip_engine::midi_scheduler::ScheduledNote;
 use dream_graph::GraphRenderer;
-use dream_ipc::metering::{METER_FLOOR_DB, compute_peak, compute_rms};
+use dream_ipc::metering::{METER_FLOOR_DB, compute_rms_and_peak};
 
 /// Safe test tone amplitude: -10 dBFS to avoid clipping during development.
 const TEST_TONE_AMPLITUDE: f32 = 0.316_227_76;
@@ -254,14 +254,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
             // └──────────────────────────────────────────────────────┘
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
                 let mut run_callback = || {
-                        // BUG-050 FIX: Only call Instant::now() when debug stats
-                        // are active. mach_absolute_time() is a ~20ns syscall
-                        // that's unnecessary overhead in production builds.
-                        let callback_start = if rt_debug_stats.is_enabled() {
-                            Some(Instant::now())
-                        } else {
-                            None
-                        };
+                        // DSP-LOAD-FIX: Always measure callback duration.
+                        // Previously gated behind is_enabled() (debug-only),
+                        // causing DSP load to always read 0.0% in production.
+                        // ~20ns Instant::now() overhead is negligible vs.
+                        // the typical 200–2000µs render budget.
+                        let callback_start = Instant::now();
                         // ═══════════════════════════════════════════════════════════════
                         // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
                         // ═══════════════════════════════════════════════════════════════
@@ -658,15 +656,27 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     if let Some(t_meters) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {
-                                        let rms_l = linear_to_db(compute_rms(&left[..c]));
-                                        let rms_r = linear_to_db(compute_rms(&right[..c]));
-                                        let peak_l = linear_to_db(compute_peak(&left[..c]));
-                                        let peak_r = linear_to_db(compute_peak(&right[..c]));
+                                        // PERF-007: Compute decay factor once per track.
                                         let track_decay = peak_decay_for_block(sample_rate_f64, c);
-                                        t_meters.left.store_rms(rms_l);
-                                        t_meters.right.store_rms(rms_r);
-                                        t_meters.left.store_peak_decay(peak_l, track_decay);
-                                        t_meters.right.store_peak_decay(peak_r, track_decay);
+                                        // PERF-006: Skip expensive RMS/peak math for muted tracks.
+                                        if render_ctx.track_slots[track_idx].strip.is_output_enabled() {
+                                            // PERF-007: Fused single-pass RMS+Peak — halves iterations.
+                                            let (rms_l_lin, peak_l_lin) = compute_rms_and_peak(&left[..c]);
+                                            let (rms_r_lin, peak_r_lin) = compute_rms_and_peak(&right[..c]);
+                                            let rms_l = linear_to_db(rms_l_lin);
+                                            let rms_r = linear_to_db(rms_r_lin);
+                                            let peak_l = linear_to_db(peak_l_lin);
+                                            let peak_r = linear_to_db(peak_r_lin);
+                                            t_meters.left.store_rms(rms_l);
+                                            t_meters.right.store_rms(rms_r);
+                                            t_meters.left.store_peak_decay(peak_l, track_decay);
+                                            t_meters.right.store_peak_decay(peak_r, track_decay);
+                                        } else {
+                                            t_meters.left.store_rms(f32::NEG_INFINITY);
+                                            t_meters.right.store_rms(f32::NEG_INFINITY);
+                                            t_meters.left.store_peak_decay(f32::NEG_INFINITY, track_decay);
+                                            t_meters.right.store_peak_decay(f32::NEG_INFINITY, track_decay);
+                                        }
 
                                         let chain = &render_ctx.track_slots[track_idx].device_chain;
                                         let num_slots = chain.slots().len().min(15); // Leave index 15 for Flow Synth telemetry
@@ -689,7 +699,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     // 5. Per-track spectrum feed (enterprise per-track EQ display)
                                     // Push mono-mixed post-FX audio into the per-track ring buffer.
                                     // Only active for tracks with an EQ UI requesting spectrum data.
-                                    if track_idx < render_ctx.per_track_spectrum_producers.len()
+                                    // PERF-006: Skip for muted tracks (all-zero buffers).
+                                    if render_ctx.track_slots[track_idx].strip.is_output_enabled()
+                                        && track_idx < render_ctx.per_track_spectrum_producers.len()
                                         && let Some(producer) = &mut render_ctx.per_track_spectrum_producers[track_idx]
                                     {
                                         for frame in 0..c {
@@ -804,9 +816,21 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         rt_debug_stats.record_callback(
                             frame_count,
                             commands_processed,
-                            callback_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
+                            callback_start.elapsed().as_micros() as u64,
                             deferred_topology.len(),
                         );
+                        // DSP-LOAD-FIX: Compute and record DSP load percentage.
+                        // budget_us = time available for one callback = (frames / sample_rate) * 1e6
+                        // load_pct = (time_used / budget) * 100
+                        // This is THE critical user-facing metric for audio performance.
+                        let budget_us = (frame_count as f64 / sample_rate_f64) * 1_000_000.0;
+                        let elapsed_us = callback_start.elapsed().as_micros() as f64;
+                        let load_pct = if budget_us > 0.0 {
+                            (elapsed_us / budget_us * 100.0) as f32
+                        } else {
+                            0.0
+                        };
+                        rt_debug_stats.record_dsp_load(load_pct);
 
                         // MEGA-03 FIX: Restore original FPU semantics for OS audio thread
                         #[cfg(target_arch = "x86_64")]

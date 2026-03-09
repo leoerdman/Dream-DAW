@@ -25,6 +25,9 @@ pub struct SharedRtDebugStats {
     dsp_load_percent: AtomicU32,
     /// Smoothed DSP load for UI display (EMA with α ≈ 0.1).
     dsp_load_smoothed: AtomicU32,
+    /// XRUN counter: incremented every time DSP load exceeds 100%.
+    /// This is the industry-standard dropout detection metric.
+    xrun_count: AtomicU64,
 }
 
 impl SharedRtDebugStats {
@@ -45,6 +48,7 @@ impl SharedRtDebugStats {
             gc_overflow_total: AtomicU64::new(0),
             dsp_load_percent: AtomicU32::new(0),
             dsp_load_smoothed: AtomicU32::new(0),
+            xrun_count: AtomicU64::new(0),
         }
     }
 
@@ -104,16 +108,21 @@ impl SharedRtDebugStats {
     /// Records the DSP load percentage from the audio callback.
     /// Called unconditionally every callback — the ~20ns `Instant::now()` overhead
     /// is negligible vs. the typical 200–2000µs render budget.
-    #[allow(dead_code)]
     pub(crate) fn record_dsp_load(&self, load_percent: f32) {
-        let clamped = load_percent.clamp(0.0, 100.0);
+        // Store unclamped for instant/peak readback, clamped for smoothed UI.
         self.dsp_load_percent
-            .store(clamped.to_bits(), Ordering::Relaxed);
+            .store(load_percent.to_bits(), Ordering::Relaxed);
+        let clamped = load_percent.clamp(0.0, 100.0);
         // Exponential moving average (α ≈ 0.1) for smooth UI display.
         let prev = f32::from_bits(self.dsp_load_smoothed.load(Ordering::Relaxed));
         let smoothed = prev + 0.1 * (clamped - prev);
         self.dsp_load_smoothed
             .store(smoothed.to_bits(), Ordering::Relaxed);
+        // XRUN detection: if raw load exceeds 100%, the callback overran its
+        // time budget. Increment the xrun counter for diagnostic visibility.
+        if load_percent > 100.0 {
+            self.xrun_count.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Returns the smoothed DSP load percentage (0–100) for UI display.
@@ -124,6 +133,11 @@ impl SharedRtDebugStats {
     /// Returns the instantaneous (unsmoothed) DSP load percentage.
     pub fn dsp_load_instant(&self) -> f32 {
         f32::from_bits(self.dsp_load_percent.load(Ordering::Relaxed))
+    }
+
+    /// Returns the total xrun (buffer overrun) count since engine start.
+    pub fn xrun_count(&self) -> u64 {
+        self.xrun_count.load(Ordering::Relaxed)
     }
 
     pub fn snapshot(&self) -> RtDebugSnapshot {
@@ -143,6 +157,7 @@ impl SharedRtDebugStats {
             gc_overflow_total: self.gc_overflow_total.load(Ordering::Relaxed),
             dsp_load_percent: self.dsp_load_percent(),
             dsp_load_instant: self.dsp_load_instant(),
+            xrun_count: self.xrun_count(),
         }
     }
 }
@@ -170,6 +185,8 @@ pub struct RtDebugSnapshot {
     pub gc_overflow_total: u64,
     /// Smoothed DSP load percentage (0–100) for UI display.
     pub dsp_load_percent: f32,
-    /// Raw instantaneous DSP load (0–100) — last callback only.
+    /// Raw instantaneous DSP load — last callback only. Can exceed 100% on xrun.
     pub dsp_load_instant: f32,
+    /// Total xrun (buffer overrun) count since engine start.
+    pub xrun_count: u64,
 }

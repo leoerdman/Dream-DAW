@@ -126,6 +126,11 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         endTrack: number;
     } | null>(null);
     const [clipContextMenu, setClipContextMenu] = useState<{ clipId: string; x: number; y: number } | null>(null);
+    // PERF FIX: Ref-stable access to clipContextMenu for useCallback handlers below.
+    // Without this, all 4 context menu handlers would have [clipContextMenu] in their
+    // dependency arrays, re-creating on every state change (defeating memoization).
+    const clipContextMenuRef = useRef(clipContextMenu);
+    clipContextMenuRef.current = clipContextMenu;
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
@@ -181,12 +186,22 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
     useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
+        // ENTERPRISE FIX: Wire the `dream:layout-toggle-panel` event so that
+        // the sampler's "Replace Sample" button actually opens the Missing Assets panel.
+        const onTogglePanel = (e: Event) => {
+            const detail = (e as CustomEvent<string>).detail;
+            if (detail === 'missing-assets') {
+                setMissingAssetsOpen(true);
+            }
+        };
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
         document.addEventListener('dream:open-export', onOpenExport as EventListener);
+        window.addEventListener('dream:layout-toggle-panel', onTogglePanel);
         dreamGlobals.setOpenExportModal(onOpenExport);
         return () => {
             window.removeEventListener('dream:open-export', onOpenExport as EventListener);
             document.removeEventListener('dream:open-export', onOpenExport as EventListener);
+            window.removeEventListener('dream:layout-toggle-panel', onTogglePanel);
             dreamGlobals.clearOpenExportModal(onOpenExport);
         };
     }, []);
@@ -572,6 +587,43 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     }, []);
     const handleCloseMissingAssets = useCallback(() => setMissingAssetsOpen(false), []);
     const handleCloseExport = useCallback(() => setExportOpen(false), []);
+    // PERF FIX: Stable context menu handlers. Uses clipContextMenuRef (ref) instead
+    // of clipContextMenu (state) so the callbacks never re-create on menu state changes.
+    const handleCtxDuplicate = useCallback(() => {
+        const ctx = clipContextMenuRef.current;
+        if (!ctx) return;
+        void engineApi.duplicateClipWithDeltas(ctx.clipId).then((res) => {
+            if (res?.deltas) applyProjectDeltas(res.deltas);
+        }).catch((err) => {
+            console.error('[Dream] duplicateClip failed:', err);
+            useStatusStore.getState().setError(`Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        setClipContextMenu(null);
+    }, [applyProjectDeltas]);
+    const handleCtxResetFades = useCallback(() => {
+        const ctx = clipContextMenuRef.current;
+        if (!ctx) return;
+        void engineApi.setClipFadesWithDeltas(ctx.clipId, 0, 0).then((res) => {
+            if (res?.deltas) applyProjectDeltas(res.deltas);
+        }).catch((err) => {
+            console.error('[Dream] resetFades failed:', err);
+            useStatusStore.getState().setError(`Reset fades failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        setClipContextMenu(null);
+    }, [applyProjectDeltas]);
+    const handleCtxDelete = useCallback(() => {
+        const ctx = clipContextMenuRef.current;
+        if (!ctx) return;
+        void engineApi.deleteClipWithDeltas(ctx.clipId).then((res) => {
+            if (res?.deltas) applyProjectDeltas(res.deltas);
+        }).catch((err) => {
+            console.error('[Dream] deleteClip failed:', err);
+            useStatusStore.getState().setError(`Clip delete failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        setSelectedClipIds((prev) => prev.filter((id) => id !== ctx.clipId));
+        setClipContextMenu(null);
+    }, [applyProjectDeltas]);
+    const handleCtxDismiss = useCallback(() => setClipContextMenu(null), []);
 
     // PERF FIX: Memoize computed props that were previously inline expressions,
     // creating new values every render and defeating React.memo downstream.
@@ -651,7 +703,6 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 onAssistantOpen={handleAssistantOpen}
                 onSelectClips={setSelectedClipIds}
                 missingAssetsOpen={missingAssetsOpen}
-                missingTotal={missingMediaSummary.total}
                 onCloseMissingAssets={handleCloseMissingAssets}
                 exportOpen={exportOpen}
                 onCloseExport={handleCloseExport}
@@ -669,35 +720,10 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                     x={clipContextMenu.x}
                     y={clipContextMenu.y}
                     clipId={clipContextMenu.clipId}
-                    onDuplicate={() => {
-                        void engineApi.duplicateClipWithDeltas(clipContextMenu.clipId).then((res) => {
-                            if (res?.deltas) applyProjectDeltas(res.deltas);
-                        }).catch((err) => {
-                            console.error('[Dream] duplicateClip failed:', err);
-                            useStatusStore.getState().setError(`Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`);
-                        });
-                        setClipContextMenu(null);
-                    }}
-                    onResetFades={() => {
-                        void engineApi.setClipFadesWithDeltas(clipContextMenu.clipId, 0, 0).then((res) => {
-                            if (res?.deltas) applyProjectDeltas(res.deltas);
-                        }).catch((err) => {
-                            console.error('[Dream] resetFades failed:', err);
-                            useStatusStore.getState().setError(`Reset fades failed: ${err instanceof Error ? err.message : String(err)}`);
-                        });
-                        setClipContextMenu(null);
-                    }}
-                    onDelete={() => {
-                        void engineApi.deleteClipWithDeltas(clipContextMenu.clipId).then((res) => {
-                            if (res?.deltas) applyProjectDeltas(res.deltas);
-                        }).catch((err) => {
-                            console.error('[Dream] deleteClip failed:', err);
-                            useStatusStore.getState().setError(`Clip delete failed: ${err instanceof Error ? err.message : String(err)}`);
-                        });
-                        setSelectedClipIds((prev) => prev.filter((id) => id !== clipContextMenu.clipId));
-                        setClipContextMenu(null);
-                    }}
-                    onDismiss={() => setClipContextMenu(null)}
+                    onDuplicate={handleCtxDuplicate}
+                    onResetFades={handleCtxResetFades}
+                    onDelete={handleCtxDelete}
+                    onDismiss={handleCtxDismiss}
                 />
             )}
         </div>

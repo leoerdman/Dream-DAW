@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
-import { ClipEditorRuler } from '@/widgets/ClipEditor/ClipEditorRuler';
+import { ClipEditorRuler, CLIP_EDITOR_RULER_HEIGHT } from '@/widgets/ClipEditor/ClipEditorRuler';
 
 type Props = {
     filePath: string;
@@ -51,6 +51,23 @@ export const SampleClipWaveformPane = ({
     // rather than falling back to the Timeline's unwarped global zoom scaling.
     const samplesPerPixel = durationSamples / Math.max(1, clipWidth);
 
+    // ── Vertical Grid Lines (extending full height from ruler into waveform body) ──
+    // Generates grid lines matching the ruler grid, rendered as full-height dividers
+    // so the user can visually correlate time positions with waveform features.
+    const verticalGridLines = useMemo(() => {
+        const lines: { x: number; isBar: boolean }[] = [];
+        const epsilon = 1e-6;
+        const visualStep = gridStep > 0 ? gridStep : 0.25;
+        const totalSteps = Math.ceil(clipDurationBeats / visualStep);
+        for (let i = 0; i <= totalSteps; i++) {
+            const beat = i * visualStep;
+            if (beat > clipDurationBeats + epsilon) break;
+            const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < epsilon;
+            lines.push({ x: beat * pxPerBeat, isBar });
+        }
+        return lines;
+    }, [clipDurationBeats, pxPerBeat, gridStep, beatsPerBar]);
+
     return (
         <div style={{
             flex: 1,
@@ -71,11 +88,31 @@ export const SampleClipWaveformPane = ({
                         gridStep={gridStep}
                         beatsPerBar={beatsPerBar}
                     />
+
+                    {/* ── Vertical grid lines extending through the entire waveform body ── */}
+                    {verticalGridLines.map((gl) => (
+                        <div
+                            key={`body-grid-${Math.round(gl.x)}`}
+                            style={{
+                                position: 'absolute',
+                                left: gl.x,
+                                top: CLIP_EDITOR_RULER_HEIGHT,
+                                bottom: 0,
+                                width: 1,
+                                background: gl.isBar
+                                    ? 'var(--color-grid-line-major)'
+                                    : 'var(--color-grid-line)',
+                                opacity: gl.isBar ? 0.5 : 0.25,
+                                pointerEvents: 'none',
+                            }}
+                        />
+                    ))}
+
                     <div
                         ref={bodyRef}
                         style={{
                             position: 'absolute',
-                            top: 24,
+                            top: CLIP_EDITOR_RULER_HEIGHT,
                             left: 0,
                             right: 0,
                             bottom: 0,

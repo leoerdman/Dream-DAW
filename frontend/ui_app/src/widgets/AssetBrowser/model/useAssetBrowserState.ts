@@ -90,7 +90,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
 
     const scanLoading = sampleScanLoading || pluginScanLoading || folderScanLoading;
     const scanError = sampleScanError || pluginScanError || folderScanError;
-    const isSamplesCategory = ['samples', 'all', 'drums'].includes(selectedCategoryId);
+    const isSamplesCategory = ['samples', 'all', 'drums', 'instruments', 'audioEffects', 'midiEffects'].includes(selectedCategoryId);
 
     return {
         debouncedQuery, setDebouncedQuery,

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { AutomationLane } from '@/shared/stores/useAutomationStore';
+import { AUTOMATION_LANE_HEIGHT_PX } from '@/shared/config/layoutConstants';
 
 interface TrackAutomationLaneHeaderProps {
     lane: AutomationLane;
@@ -22,7 +23,7 @@ export const TrackAutomationLaneHeader = memo(({
             style={{
                 display: 'flex',
                 alignItems: 'center',
-                height: 48, // LANE_HEIGHT
+                height: AUTOMATION_LANE_HEIGHT_PX,
                 boxSizing: 'border-box',
                 borderTop: 'var(--space-px) solid var(--color-divider)',
                 background: 'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',

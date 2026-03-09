@@ -29,6 +29,8 @@ export interface TransportLeftSectionProps {
     gridDivision: GridDivision;
     gridTriplet: boolean;
     setGridDivision: (division: GridDivision) => void;
+    metronomeEnabled: boolean;
+    onToggleMetronome: () => void;
 }
 
 export interface TransportCenterSectionProps {

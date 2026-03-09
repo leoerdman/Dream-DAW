@@ -4,6 +4,7 @@ import { scrollSync } from '@/shared/lib/useScrollSync';
 import {
     TIMELINE_RULER_HEIGHT_PX,
     TRACK_HEIGHT_DEFAULT_PX,
+    AUTOMATION_LANE_HEIGHT_PX,
     clampTrackHeightPx,
 } from '@/shared/config/layoutConstants';
 import {
@@ -210,7 +211,7 @@ export function useTrackHeightControls({
             if (automationVisible) {
                 const trackLanes = Object.values(lanes).filter(l => l.trackId === trackId && l.visible);
                 if (trackLanes.length > 0) {
-                    additionalHeight = Math.max(0, trackLanes.length - 1) * 48; // LANE_HEIGHT
+                    additionalHeight = Math.max(0, trackLanes.length - 1) * AUTOMATION_LANE_HEIGHT_PX;
                 }
             }
 

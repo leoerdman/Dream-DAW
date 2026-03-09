@@ -238,7 +238,7 @@ export function MissingSamplerSection({
 }: {
     missingSamples: MissingSamplerItem[];
     scanBusy: boolean;
-    onResolveSample: (samplePath: string, bestEntry: any, fileName: string) => Promise<void>;
+    onResolveSample: (samplePath: string, bestEntry: { path: string }, fileName: string) => Promise<void>;
 }) {
     return (
         <section style={sectionStyle}>
@@ -305,7 +305,7 @@ export function MissingSamplerSection({
                                     const path = typeof picked === 'string' ? picked : null;
                                     if (!path) return;
                                     // Make a mock entry for manual resolution
-                                    await onResolveSample(item.samplePath, { path } as any, fileName);
+                                    await onResolveSample(item.samplePath, { path }, fileName);
                                 }}
                                 style={iconBtnStyle}
                                 title="Browse for replacement sample"

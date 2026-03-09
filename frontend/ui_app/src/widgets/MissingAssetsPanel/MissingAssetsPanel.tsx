@@ -250,6 +250,35 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 }
             }
 
+            // ── Phase 1.5: Scan user's Browser Folders (PLACES) ──
+            try {
+                const browserFolders = await engineApi.getBrowserFolders();
+                for (const bf of browserFolders) {
+                    // Skip if it's the same as the project folder to avoid duplicate work
+                    if (bf === projectFolder) continue;
+
+                    setSearchProgress((prev) => prev ? { ...prev, current: `📂 Scanning ${bf.split('/').pop()}…` } : null);
+                    const bfEntries = await engineApi.scanFolderAll(bf);
+                    const bfAudio = bfEntries.filter((e) => !e.is_directory && AUDIO_EXTENSIONS.has(e.extension.toLowerCase()));
+
+                    if (bfAudio.length > 0) {
+                        const existingPaths = new Set(allAudioEntries.map(e => e.path));
+                        let added = 0;
+                        for (const entry of bfAudio) {
+                            if (!existingPaths.has(entry.path)) {
+                                allAudioEntries.push(entry);
+                                added++;
+                            }
+                        }
+                        if (added > 0) {
+                            setSearchProgress((prev) => prev ? { ...prev, audioFilesFound: prev.audioFilesFound + added } : null);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[AutoSearch] Failed to scan browser folders:', err);
+            }
+
             // ── Phase 2: Scan user-selected folder ──
             let userFolder = searchFolder;
             // If no user folder AND no project folder had results, prompt
@@ -264,9 +293,8 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 if (!userFolder) return; // User cancelled
                 setSearchFolder(userFolder);
             } else if (!userFolder) {
-                // Project folder had results but user hasn't picked a folder yet — that's OK,
-                // we'll still ask for one to handle non-project-folder files
-                // But first try matching with what we have
+                // Project folder / Browser folders had results but user hasn't picked a specific override folder yet.
+                // That's OK, we'll try matching with what we have from the project + browser folders.
             }
 
             if (userFolder && userFolder !== projectFolder) {

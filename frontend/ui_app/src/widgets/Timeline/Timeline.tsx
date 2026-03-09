@@ -8,7 +8,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
-import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
+import { clampTrackHeightPx, TIMELINE_RULER_HEIGHT_PX, TRACK_HEIGHT_DEFAULT_PX } from '@/shared/config/layoutConstants';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle, snapPhysical } from './lib/masterLaneGrid';
 
@@ -22,9 +22,9 @@ import { useTimelineClipSync } from './model/useTimelineClipSync';
 import { useTimelineRegionEdit } from './model/useTimelineRegionEdit';
 import { useTimelineViewportSync } from './model/useTimelineViewportSync';
 
-const RULER_HEIGHT = 28;
+const RULER_HEIGHT = TIMELINE_RULER_HEIGHT_PX;
 const DEFAULT_PPB = 20;
-const DEFAULT_TRACK_HEIGHT = 48;
+const DEFAULT_TRACK_HEIGHT = TRACK_HEIGHT_DEFAULT_PX;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
 const MASTER_LANE_ALIGNMENT_OFFSET_PX = 0;
 export const Timeline = (props: TimelineProps) => {

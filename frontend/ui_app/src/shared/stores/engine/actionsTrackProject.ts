@@ -6,6 +6,7 @@ import type { EngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { TrackStatePatch } from '@/shared/stores/engine/storeHelpers';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import {
     clearTrackControlCaches as clearTrackControlCachesLocal,
     getPendingMasterVolume,
@@ -373,9 +374,10 @@ export function createTrackProjectActions(
                 await get().applyProjectDeltas(response.deltas, 'importFile');
                 return response;
             } catch (err) {
-                const msg = `Import failed: ${err}`;
+                const msg = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
                 console.error(`[Dream] ${msg}`);
                 set({ lastError: msg });
+                useStatusStore.getState().setError(msg);
                 return null;
             }
         },
@@ -388,9 +390,10 @@ export function createTrackProjectActions(
                 const response = await engine.createMidiClipWithDeltas(trackIndex, safePosition, safeDuration);
                 await get().applyProjectDeltas(response.deltas, 'createMidiClip');
             } catch (err) {
-                const msg = `Create MIDI clip failed: ${err}`;
+                const msg = `Create MIDI clip failed: ${err instanceof Error ? err.message : String(err)}`;
                 console.error(`[Dream] ${msg}`);
                 set({ lastError: msg });
+                useStatusStore.getState().setError(msg);
             }
         },
     };

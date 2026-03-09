@@ -125,8 +125,8 @@ const leftPaneWrapStyle: React.CSSProperties = {
 };
 
 const splitHandleStyle: React.CSSProperties = {
-    width: 6,
+    width: 'var(--daw-resize-handle-size)',
     cursor: 'ew-resize',
-    background: 'transparent',
+    background: 'var(--daw-resize-strip-bg)',
     flexShrink: 0,
 };

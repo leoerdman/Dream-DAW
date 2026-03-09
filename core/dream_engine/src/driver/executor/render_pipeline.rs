@@ -268,26 +268,39 @@ pub(super) fn interleave_graph_output(
     channels: usize,
     data: &mut [f32],
 ) {
-    for i in 0..n {
-        let base = i * channels;
-        if base >= data.len() {
-            break;
-        }
-        if channels == 1 {
-            // ENTERPRISE FIX: Standard -3dB mono fold-down (FRAC_1_SQRT_2).
-            // Matches render_callback.rs standalone path for SSOT compliance.
-            // -3dB preserves perceived loudness for uncorrelated stereo content.
-            data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
-            continue;
-        }
-        data[base] = graph_out_left[i];
-        if base + 1 < data.len() {
+    // PERF-003: Hoist channel branch outside the hot loop.
+    // For stereo (99% of DAW users), the inner loop is now a tight
+    // L/R write with no per-sample branching, enabling auto-vectorization.
+    if channels == 2 {
+        // Fast path: stereo interleave with bounds-checked slice access
+        let out_frames = n.min(data.len() / 2);
+        for i in 0..out_frames {
+            let base = i * 2;
+            data[base] = graph_out_left[i];
             data[base + 1] = graph_out_right[i];
         }
-        for ch in 2..channels {
-            let idx = base + ch;
-            if idx < data.len() {
-                data[idx] = 0.0;
+    } else if channels == 1 {
+        // Mono fold-down
+        let out_frames = n.min(data.len());
+        for i in 0..out_frames {
+            data[i] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
+        }
+    } else {
+        // Surround / multi-channel fallback
+        for i in 0..n {
+            let base = i * channels;
+            if base >= data.len() {
+                break;
+            }
+            data[base] = graph_out_left[i];
+            if base + 1 < data.len() {
+                data[base + 1] = graph_out_right[i];
+            }
+            for ch in 2..channels {
+                let idx = base + ch;
+                if idx < data.len() {
+                    data[idx] = 0.0;
+                }
             }
         }
     }
@@ -441,29 +454,25 @@ pub(super) fn finalize_output_and_publish(
     let valid_data = &data[..n * channels];
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {
-        // BUG-013 FIX: Track drops as boolean per-buffer, not per-sample counter.
-        // Previously incremented the atomic up to N times per buffer (e.g., 1024
-        // atomic ops at 48kHz) — pure overhead when the ring is full.
-        let mut had_drops = false;
-        if channels >= 2 {
-            for frame in valid_data.chunks_exact(channels) {
-                let mono = (frame[0] + frame[1]) * 0.5;
-                if producer.push(mono).is_err() {
-                    had_drops = true;
-                }
+        // PERF-004: Batch write instead of per-sample push.
+        // One capacity check + contiguous write replaces N individual push()
+        // calls (each with their own atomic load/CAS overhead).
+        let mono_len = valid_data.len() / channels.max(1);
+        match producer.write_chunk_uninit(mono_len) {
+            Ok(chunk) => {
+                let mono_iter = valid_data.chunks_exact(channels).map(|frame| {
+                    if channels >= 2 {
+                        (frame[0] + frame[1]) * 0.5
+                    } else {
+                        frame[0]
+                    }
+                });
+                chunk.fill_from_iter(mono_iter);
             }
-        } else if channels == 1 {
-            // ENTERPRISE FIX: For mono devices, iterate frame-by-frame
-            // instead of per-sample to avoid pushing extra surround channel data.
-            for frame in valid_data.chunks_exact(channels) {
-                if producer.push(frame[0]).is_err() {
-                    had_drops = true;
-                }
+            Err(_) => {
+                crate::render_callback::SPECTRUM_DROP_COUNT
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-        }
-        if had_drops {
-            crate::render_callback::SPECTRUM_DROP_COUNT
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 

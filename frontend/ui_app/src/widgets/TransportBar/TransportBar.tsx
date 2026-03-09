@@ -266,6 +266,17 @@ export const TransportBar = ({
     const closeGridMenu = useCallback(() => setGridOpen(false), []);
     useClickOutside(keyMenuRef, closeKeyMenu, keyMenuOpen);
     useClickOutside(gridRef, closeGridMenu, gridOpen);
+
+    // ── Metronome Toggle State ──────────────────────────────────────
+    const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+    const handleToggleMetronome = useCallback(() => {
+        setMetronomeEnabled((prev) => {
+            const next = !prev;
+            void engineApi.setMetronomeEnabled(next);
+            return next;
+        });
+    }, []);
+
     // BUG-42 FIX: Escape key closes open menus.
     useEffect(() => {
         if (!keyMenuOpen && !gridOpen) return;
@@ -324,6 +335,8 @@ export const TransportBar = ({
                     gridDivision={gridDivision}
                     gridTriplet={gridTriplet}
                     setGridDivision={setGridDivision}
+                    metronomeEnabled={metronomeEnabled}
+                    onToggleMetronome={handleToggleMetronome}
                 />
                 <TransportCenterSection
                     isPlaying={isPlaying}

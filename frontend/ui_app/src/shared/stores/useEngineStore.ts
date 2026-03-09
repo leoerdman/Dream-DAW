@@ -68,7 +68,20 @@ export interface EngineStore {
     openEditorsByTrack: Record<string, Set<string>>;
     /** Export/bounce progress from backend `bounce_progress` events. */
     exportProgress: { jobId: string; progress: number; phase: string; status: string } | null;
-    performance: { cpuUsage: number; cpuPerCore: number[]; ramUsedMb: number; ramTotalMb: number; processMemoryMb: number; dspLoad: number };
+    performance: {
+        cpuUsage: number; cpuPerCore: number[]; ramUsedMb: number; ramTotalMb: number;
+        processMemoryMb: number; dspLoad: number;
+        /** Instantaneous (unsmoothed) DSP load. Can exceed 100% on xrun. */
+        dspLoadInstant: number;
+        /** Last audio callback duration in microseconds. */
+        callbackDurationUs: number;
+        /** Worst-case (max) callback duration in microseconds. */
+        callbackDurationMaxUs: number;
+        /** Total xruns (buffer overruns) since engine start. */
+        xrunCount: number;
+        /** Total audio callbacks processed since engine start. */
+        callbackCount: number;
+    };
     /** BUG-001: Mark the project as having unsaved changes. */
     markDirty: () => void;
     /** BUG-001: Clear the dirty flag (called after save). */
@@ -184,7 +197,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectBpm: 120,
     timeSigNumerator: 4,
     timeSigDenominator: 4,
-    performance: { cpuUsage: 0, cpuPerCore: [], ramUsedMb: 0, ramTotalMb: 0, processMemoryMb: 0, dspLoad: 0 },
+    performance: {
+        cpuUsage: 0, cpuPerCore: [], ramUsedMb: 0, ramTotalMb: 0, processMemoryMb: 0, dspLoad: 0,
+        dspLoadInstant: 0, callbackDurationUs: 0, callbackDurationMaxUs: 0, xrunCount: 0, callbackCount: 0,
+    },
     keySigEnabled: false,
     keySigTonic: 'C',
     keySigMode: 'Major',

@@ -196,6 +196,9 @@ pub(super) fn drain_commands(
                 *ctx.time_sig_numerator = numerator.max(1);
                 *ctx.time_sig_denominator = denominator.max(1);
             }
+            EngineCommand::SetMetronomeEnabled(enabled) => {
+                ctx.render_ctx.metronome_enabled = enabled;
+            }
             EngineCommand::SetBpmAndLoop {
                 bpm: new_bpm,
                 loop_enabled,

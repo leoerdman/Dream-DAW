@@ -126,6 +126,9 @@ export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFram
     const e = Number.isFinite(endFrames) ? Math.max(s + 1, Math.round(endFrames)) : s + 1;
     return safeInvoke<DeltaMutationResponse>('set_loop_with_deltas', { enabled, startFrames: s, endFrames: e });
 };
+// ENTERPRISE: Metronome toggle — sends SetMetronomeEnabled to audio thread.
+export const setMetronomeEnabled = (enabled: boolean) =>
+    safeInvoke<void>('set_metronome_enabled', { enabled });
 // ENTERPRISE FIX: Clamp track volume at API boundary — prevents NaN/Infinity/negative/excessive
 // gain from reaching the audio thread. Range 0..2 = 0 to +6dB (matches master volume and fader math).
 export const setTrackVolume = (trackIndex: number, volume: number) => {

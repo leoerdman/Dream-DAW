@@ -104,6 +104,11 @@ export function createTelemetryActions(
                             ram_total_mb: number;
                             process_memory_mb: number;
                             dsp_load: number;
+                            dsp_load_instant: number;
+                            callback_duration_us: number;
+                            callback_duration_max_us: number;
+                            xrun_count: number;
+                            callback_count: number;
                         };
                     }>(
                         'telemetry_tick',
@@ -149,6 +154,9 @@ export function createTelemetryActions(
                                 perf.ram_total_mb !== prev_perf.ramTotalMb ||
                                 perf.process_memory_mb !== prev_perf.processMemoryMb ||
                                 perf.dsp_load !== prev_perf.dspLoad ||
+                                perf.dsp_load_instant !== prev_perf.dspLoadInstant ||
+                                perf.callback_duration_us !== prev_perf.callbackDurationUs ||
+                                perf.xrun_count !== prev_perf.xrunCount ||
                                 perf.cpu_per_core !== prev_perf.cpuPerCore // We can skip deep equality here since it's a new array reference from Tauri IPC on changes, but to be 100% safe:
                             ) {
                                 telemetryUpdate.performance = {
@@ -158,6 +166,11 @@ export function createTelemetryActions(
                                     ramTotalMb: perf.ram_total_mb,
                                     processMemoryMb: perf.process_memory_mb,
                                     dspLoad: perf.dsp_load,
+                                    dspLoadInstant: perf.dsp_load_instant,
+                                    callbackDurationUs: perf.callback_duration_us,
+                                    callbackDurationMaxUs: perf.callback_duration_max_us,
+                                    xrunCount: perf.xrun_count,
+                                    callbackCount: perf.callback_count,
                                 };
                             }
                             if (!get().connected && !telemetryUpdate.connected) {

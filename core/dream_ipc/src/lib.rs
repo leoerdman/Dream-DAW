@@ -284,6 +284,9 @@ pub enum EngineCommand {
     /// Set project transport time signature used for plugin transport context.
     SetTimeSignature { numerator: u8, denominator: u8 },
 
+    /// Enable or disable the click/metronome.
+    SetMetronomeEnabled(bool),
+
     // ── Track Control ────────────────────────────────────────────────
     /// Set a track's volume (linear gain, 0.0–2.0). `track_index` is 0-based.
     SetTrackVolume { track_index: u16, volume: f32 },

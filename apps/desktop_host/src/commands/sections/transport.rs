@@ -684,6 +684,27 @@ fn set_loop_with_deltas(
     })
 }
 
+/// Enables or disables the metronome/click track.
+///
+/// Sends `SetMetronomeEnabled` to the audio thread ring buffer and
+/// persists the state in `PlaybackState` so the UI can read it back.
+#[tauri::command]
+fn set_metronome_enabled(
+    enabled: bool,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    push_command(&handle, EngineCommand::SetMetronomeEnabled(enabled))?;
+
+    let mut state = handle
+        .playback_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    state.metronome_enabled = enabled;
+
+    log::info!("[IPC] set_metronome_enabled({enabled})");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::beat_to_engine_frames;

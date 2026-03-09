@@ -85,6 +85,13 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         disabled={!draftWarpEnabled}
                         onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || DEFAULT_BPM)}
                         onBlur={() => onCommitWarp({ enabled: draftWarpEnabled, mode: draftWarpMode, baseBpm: draftWarpBaseBpm })}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                onCommitWarp({ enabled: draftWarpEnabled, mode: draftWarpMode, baseBpm: draftWarpBaseBpm });
+                                (e.target as HTMLInputElement).blur();
+                            }
+                        }}
                         style={{ width: 68, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}
                     />
                 </div>
@@ -178,12 +185,12 @@ export const SampleClipEditorSidebar = (props: Props) => {
                 </button>
                 <div style={{ display: 'grid', gap: 4 }}>
                     <span style={editorMetaTextStyle}>Zoom X</span>
-                    <input type="range" min={0.6} max={4} step={0.1} value={zoomX} onChange={(e) => setZoomX(Number(e.target.value))} />
+                    <input type="range" min={0.1} max={32} step={0.1} value={zoomX} onChange={(e) => setZoomX(Number(e.target.value))} />
                     <span style={{ ...editorMetaTextStyle }}>{zoomX.toFixed(1)}x</span>
                 </div>
                 <div style={{ display: 'grid', gap: 4 }}>
                     <span style={editorMetaTextStyle}>Height</span>
-                    <input type="range" min={0.5} max={2} step={0.05} value={zoomY} onChange={(e) => setZoomY(Number(e.target.value))} />
+                    <input type="range" min={0.25} max={4} step={0.05} value={zoomY} onChange={(e) => setZoomY(Number(e.target.value))} />
                     <span style={{ ...editorMetaTextStyle }}>{zoomY.toFixed(2)}x</span>
                 </div>
             </ClipEditorSection>

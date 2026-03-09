@@ -409,6 +409,35 @@ pub fn compute_peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0_f32, |max, s| max.max(s.abs()))
 }
 
+/// PERF-007: Fused single-pass RMS + Peak computation.
+///
+/// Computes both RMS and peak in a single iteration over the buffer.
+/// Eliminates the double-pass overhead of calling `compute_rms` + `compute_peak`
+/// separately. At 28 tracks × 512 frames × 2 channels, this saves ~28,672
+/// sample iterations per audio callback.
+///
+/// Returns `(rms_linear, peak_linear)`.
+///
+/// # Real-Time Safety
+/// Zero allocations. Single pass over the input slice.
+#[inline]
+pub fn compute_rms_and_peak(samples: &[f32]) -> (f32, f32) {
+    if samples.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut sum_sq: f64 = 0.0;
+    let mut peak: f32 = 0.0;
+    for &s in samples {
+        sum_sq += (s * s) as f64;
+        let abs = s.abs();
+        if abs > peak {
+            peak = abs;
+        }
+    }
+    let rms = (sum_sq / samples.len() as f64).sqrt() as f32;
+    (rms, peak)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════

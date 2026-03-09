@@ -59,6 +59,16 @@
   --daw-scrollbar-size: 10px;
   --daw-divider-width: 1px;
 
+  /* Panel resize handles — single source of truth for all drag-strips */
+  --daw-resize-handle-size: 6px;
+  /* hit-area thickness for panel edges */
+  --daw-resize-handle-pill-w: 56px;
+  /* visual drag-indicator pill width  */
+  --daw-resize-handle-pill-h: 2px;
+  /* visual drag-indicator pill height */
+  --daw-resize-strip-bg: var(--color-bg-header);
+  /* visible separator strip — matches panel header bars */
+
   /* ─────────────────────────────────────────────────────────────
      Z-INDICES (DAW Layer Stack — Enterprise 12-Level)
      ───────────────────────────────────────────────────────────── */

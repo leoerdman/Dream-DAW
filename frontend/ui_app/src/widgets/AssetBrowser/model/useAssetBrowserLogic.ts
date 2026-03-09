@@ -79,6 +79,7 @@ export function useAssetBrowserLogic() {
         setItemRowRef,
         getAudioDurationSec,
         setPreviewPlaying,
+        setFolderScanPath,
     } = state;
 
     const {
@@ -154,8 +155,14 @@ export function useAssetBrowserLogic() {
 
     const triggerLibraryScan = useCallback(() => {
         scanTriggeredRef.current = false;
+        // BUG-FIX: Clear all folder caches to force a complete re-read from the backend.
+        // Without this, stale folder listings persist when the user changes sample directories.
+        setFolderChildrenCache(new Map());
+        folderChildrenCacheRef.current = new Map();
+        setFolderScanPath(null);
+        setExpandedFolders(new Set());
         setLibraryScanNonce((prev) => prev + 1);
-    }, [scanTriggeredRef, setLibraryScanNonce]);
+    }, [scanTriggeredRef, setLibraryScanNonce, setFolderChildrenCache, folderChildrenCacheRef, setFolderScanPath, setExpandedFolders]);
 
     const handleSetPluginFolder = useCallback(async (target: 'vst2Path' | 'vst3Path') => {
         try {

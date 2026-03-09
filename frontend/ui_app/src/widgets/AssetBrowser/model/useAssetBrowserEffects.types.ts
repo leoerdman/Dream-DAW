@@ -30,6 +30,7 @@ export interface UseAssetBrowserEffectsParams {
         browserShowSizeColumn: boolean;
         browserShowTypeColumn: boolean;
         browserLeftPaneWidth: number;
+        userFolderPath?: string;
     };
     setShowSizeColumn: SetState<boolean>;
     setShowTypeColumn: SetState<boolean>;

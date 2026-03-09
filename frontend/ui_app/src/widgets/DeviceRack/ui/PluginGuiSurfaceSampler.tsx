@@ -20,18 +20,11 @@ interface PluginGuiSurfaceSamplerProps {
     onLoadSample?: () => void;
 }
 
-/* ── Tab button style (matching StatusBar Rack/Clip pattern) ───── */
-const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+/* ── Tab button styles (frozen module-level — enterprise perf pattern) ─ */
+const TAB_BTN_BASE: React.CSSProperties = Object.freeze({
     height: 18,
     minWidth: 52,
-    border: active
-        ? 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 44%, var(--color-control-border))'
-        : 'var(--space-px) solid transparent',
     borderRadius: 'var(--radius-sm)',
-    background: active
-        ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-control-bg))'
-        : 'transparent',
-    color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-2xs)',
     fontWeight: 600,
     letterSpacing: '0.02em',
@@ -41,6 +34,18 @@ const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
+});
+const TAB_BTN_ACTIVE: React.CSSProperties = Object.freeze({
+    ...TAB_BTN_BASE,
+    border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 44%, var(--color-control-border))',
+    background: 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-control-bg))',
+    color: 'var(--color-text-primary)',
+});
+const TAB_BTN_INACTIVE: React.CSSProperties = Object.freeze({
+    ...TAB_BTN_BASE,
+    border: 'var(--space-px) solid transparent',
+    background: 'transparent',
+    color: 'var(--color-text-secondary)',
 });
 
 export function PluginGuiSurfaceSampler({
@@ -193,16 +198,70 @@ export function PluginGuiSurfaceSampler({
             onPointerUp={commitDropFromStore}
             className={isDragOver ? 'sampler-drop-active' : undefined}
             style={{
-                display: 'grid',
-                gridTemplateRows: 'auto 1fr',
+                display: 'flex',
+                flexDirection: 'column',
                 height: '100%',
-                gap: 'var(--space-1)',
                 borderRadius: 'var(--radius-lg)',
                 background: 'var(--surface-tab-inactive)',
                 overflow: 'hidden',
             }}
         >
-            {/* ── Top section: Waveform area ─────────────────────── */}
+            {/* ── Persistent header: Sample name + Waveform/Settings tabs ── */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
+                flexShrink: 0,
+            }}>
+                <span style={{
+                    fontSize: 'var(--font-size-2xs)',
+                    fontWeight: 'var(--font-weight-bold)',
+                    color: sampleMissing
+                        ? 'var(--color-status-error)'
+                        : sampleName
+                            ? 'var(--token-color-hex-d7dce7)'
+                            : 'var(--token-color-hex-a8b0bd)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                    flex: 1,
+                    textDecoration: sampleMissing && sampleName ? 'line-through' : undefined,
+                }}>
+                    {sampleName ?? 'Drop sample here'}
+                </span>
+                {/* Tab switcher */}
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    border: 'var(--space-px) solid var(--color-control-border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 2,
+                    background: 'var(--color-control-bg)',
+                    boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
+                    flexShrink: 0,
+                    marginLeft: 8,
+                }}>
+                    {SAMPLER_PAGE_MANIFEST.pages.map(page => (
+                        <button
+                            key={page.id}
+                            type="button"
+                            data-no-drag
+                            onClick={() => setActivePageId(page.id)}
+                            style={activePageId === page.id ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE}
+                        >
+                            {page.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Waveform area (edge-to-edge, no padding) ─────────── */}
             {isWaveformPage && (
                 <div
                     data-no-drag
@@ -215,38 +274,11 @@ export function PluginGuiSurfaceSampler({
                     {/* Dark waveform background */}
                     <div style={{ position: 'absolute', inset: 0, background: 'var(--surface-tab-inactive)' }} />
 
-                    {/* Default Sample Name Header (Always visible to show missing filenamed too) */}
-                    <div style={{
-                        position: 'absolute',
-                        left: 8,
-                        top: 4,
-                        right: 140, // Avoid overlapping the tabs on the right
-                        color: sampleName ? 'var(--token-color-hex-d7dce7)' : 'var(--token-color-hex-a8b0bd)',
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 'var(--font-weight-bold)',
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        zIndex: 2,
-                    }}>
-                        {sampleMissing && sampleName ? (
-                            <span style={{ color: 'var(--color-status-error)', textDecoration: 'line-through' }}>
-                                {sampleName}
-                            </span>
-                        ) : (
-                            sampleName ?? 'Drop sample here'
-                        )}
-                    </div>
-
-
-
-                    {/* SVG waveform */}
+                    {/* SVG waveform — edge-to-edge, top-to-bottom */}
                     <svg
                         viewBox="0 0 1000 90"
                         preserveAspectRatio="none"
-                        style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))', willChange: 'transform', transform: 'translateZ(0)' }}
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', willChange: 'transform', transform: 'translateZ(0)' }}
                     >
                         <defs>
                             <linearGradient id={`samplerWaveFill-${device.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -277,8 +309,8 @@ export function PluginGuiSurfaceSampler({
 
                     {/* ENTERPRISE: Merged Missing Sample UI below */}
 
-                    {/* ADSR Overlay */}
-                    <div style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, pointerEvents: 'none' }}>
+                    {/* ADSR Overlay — edge-to-edge, top-to-bottom */}
+                    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                         <AdsrCurve
                             attack={finalNormAttack}
                             decay={finalNormDecay}
@@ -325,7 +357,6 @@ export function PluginGuiSurfaceSampler({
                                         data-no-drag
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            // Trigger the Missing Assets panel specifically for this missing file
                                             window.dispatchEvent(new CustomEvent('dream:layout-toggle-panel', { detail: 'missing-assets' }));
                                         }}
                                         style={{
@@ -362,49 +393,6 @@ export function PluginGuiSurfaceSampler({
                 </div>
             )}
 
-            {/* ── Settings / Waveform page universal header ────── */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '4px 8px',
-                borderBottom: 'var(--space-px) solid var(--color-divider)',
-                flexShrink: 0,
-            }}>
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 'var(--font-weight-bold)',
-                    color: 'var(--color-text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                }}>
-                    {activePage.label}
-                </span>
-                {/* Tab switcher */}
-                <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 2,
-                    border: 'var(--space-px) solid var(--color-control-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: 2,
-                    background: 'var(--color-control-bg)',
-                    boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
-                }}>
-                    {SAMPLER_PAGE_MANIFEST.pages.map(page => (
-                        <button
-                            key={page.id}
-                            type="button"
-                            data-no-drag
-                            onClick={() => setActivePageId(page.id)}
-                            style={tabBtnStyle(activePageId === page.id)}
-                        >
-                            {page.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
             {/* ── Params area (module-card wrapped) ───────────── */}
             <div
                 data-no-drag
@@ -413,7 +401,9 @@ export function PluginGuiSurfaceSampler({
                     flexDirection: 'column',
                     gap: 'var(--space-1)',
                     padding: 'var(--space-1) var(--space-1-5)',
-                    overflow: 'hidden',
+                    overflow: 'auto',
+                    flex: 1,
+                    minHeight: 0,
                 }}
             >
                 {/* Knobs row — module card */}

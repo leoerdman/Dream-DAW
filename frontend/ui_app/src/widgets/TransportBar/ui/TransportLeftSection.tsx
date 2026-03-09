@@ -35,6 +35,8 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
         gridDivision,
         gridTriplet,
         setGridDivision,
+        metronomeEnabled,
+        onToggleMetronome,
     } = props;
     const gridLabel = gridDivision === 'ADAPTIVE' ? 'Adaptive' : gridTriplet ? `${gridDivision}T` : gridDivision;
     return (
@@ -235,6 +237,38 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                         </div>
                     )}
                 </div>
+            </PillSection>
+            {/* ── Metronome Toggle ── */}
+            <PillSection>
+                <button
+                    onClick={onToggleMetronome}
+                    title={metronomeEnabled ? 'Metronome ON – click to disable' : 'Metronome OFF – click to enable'}
+                    aria-label="Toggle metronome"
+                    aria-pressed={metronomeEnabled}
+                    style={{
+                        ...valueChipStyle,
+                        minWidth: 30,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 0,
+                        background: metronomeEnabled
+                            ? 'var(--color-accent-primary-dim)'
+                            : TRANSPORT_UI.controlBg,
+                        color: metronomeEnabled
+                            ? 'var(--color-accent-primary)'
+                            : 'var(--color-text-tertiary)',
+                        border: metronomeEnabled
+                            ? 'var(--space-px) solid var(--color-accent-primary)'
+                            : `var(--space-px) solid ${TRANSPORT_UI.controlBorder}`,
+                    }}
+                >
+                    {/* Inline SVG metronome icon — triangular pendulum */}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2 L5 22 H19 L12 2 Z" />
+                        <line x1="12" y1="22" x2="18" y2="8" />
+                    </svg>
+                </button>
             </PillSection>
         </div>
     );

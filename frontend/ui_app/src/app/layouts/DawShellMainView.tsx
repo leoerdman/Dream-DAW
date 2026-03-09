@@ -59,7 +59,6 @@ export const DawShellMainView = memo(({
                 style={{
                     width: browserWidth,
                     background: 'var(--color-bg-panel)',
-                    borderRight: 'var(--space-px) solid var(--color-divider)',
                 }}
             >
                 <ErrorBoundary module="Asset Browser">
@@ -69,7 +68,16 @@ export const DawShellMainView = memo(({
             <div className="relative shrink-0 z-50" style={{ width: 0 }}>
                 <div
                     onPointerDown={beginBrowserResize}
-                    className="absolute top-0 bottom-0 left-[-3px] w-[6px] cursor-ew-resize hover:bg-white/5 transition-colors"
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: 'calc(-1 * var(--daw-resize-handle-size) / 2)',
+                        width: 'var(--daw-resize-handle-size)',
+                        cursor: 'ew-resize',
+                        background: 'var(--daw-resize-strip-bg)',
+                        transition: 'background var(--transition-fast)',
+                    }}
                     title="Resize Browser"
                 />
             </div>

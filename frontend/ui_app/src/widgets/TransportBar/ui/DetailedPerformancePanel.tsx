@@ -13,6 +13,7 @@
 import { useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getMetersRef } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
@@ -135,6 +136,23 @@ export function DetailedPerformancePanel({ onClose }: Props) {
     const masterMetricsRef = useRef<HTMLDivElement>(null);
     const sandboxStatsRef = useRef<HTMLSpanElement>(null);
     const cpuCoresRef = useRef<HTMLDivElement>(null);
+    // Audio Thread diagnostics refs
+    const callbackDurationRef = useRef<HTMLSpanElement>(null);
+    const callbackMaxRef = useRef<HTMLSpanElement>(null);
+    const dspPeakRef = useRef<HTMLSpanElement>(null);
+    const xrunCountRef = useRef<HTMLSpanElement>(null);
+    const bufferBudgetRef = useRef<HTMLSpanElement>(null);
+    const callbackCountRef = useRef<HTMLSpanElement>(null);
+    const budgetUtilRef = useRef<HTMLSpanElement>(null);
+
+    // Auto-diagnostics & event log refs
+    const diagnosticsRef = useRef<HTMLDivElement>(null);
+    const eventLogRef = useRef<HTMLDivElement>(null);
+    const prevXrunCountRef = useRef(0);
+    const eventLogEntriesRef = useRef<{ time: string; msg: string; severity: 'info' | 'warn' | 'crit' }[]>([]);
+    const MAX_LOG_ENTRIES = 50;
+    const lastSpikeLogMsRef = useRef(0);
+    const DSP_SPIKE_LOG_INTERVAL_MS = 5000; // throttle DSP spike logs to 1 per 5 seconds
 
     // Close on Escape
     useEffect(() => {
@@ -142,6 +160,20 @@ export function DetailedPerformancePanel({ onClose }: Props) {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
+
+    // Auto-enable RT debug stats (callback timing, callback count) when panel opens.
+    // These stats are opt-in because Instant::now() has ~20ns overhead per audio callback.
+    // Disable on unmount to avoid unnecessary overhead when monitor is closed.
+    useEffect(() => {
+        void engineApi.setRtDebugEnabled(true).catch((err) => {
+            console.warn('[Dream] setRtDebugEnabled(true) failed:', err);
+        });
+        return () => {
+            void engineApi.setRtDebugEnabled(false).catch((err) => {
+                console.warn('[Dream] setRtDebugEnabled(false) failed:', err);
+            });
+        };
+    }, []);
 
     // Subscribe to performance data
     useEffect(() => {
@@ -216,6 +248,100 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                 if (clipCountRef.current.textContent !== text) clipCountRef.current.textContent = text;
             }
 
+            // Audio Thread diagnostics
+            const { dspLoadInstant, callbackDurationUs, callbackDurationMaxUs, xrunCount: xruns, callbackCount: cbCount } = state.performance;
+            const budgetUs = transport.sample_rate > 0 && transport.output_latency_frames > 0
+                ? (transport.output_latency_frames / transport.sample_rate * 1_000_000)
+                : 0;
+            const budgetUtilPct = budgetUs > 0 ? (callbackDurationUs / budgetUs * 100) : 0;
+            if (callbackDurationRef.current) {
+                const text = `${callbackDurationUs} µs`;
+                if (callbackDurationRef.current.textContent !== text) callbackDurationRef.current.textContent = text;
+                callbackDurationRef.current.style.color = budgetUs > 0
+                    ? statusColor(budgetUtilPct, 50, 80)
+                    : 'var(--color-text-secondary)';
+            }
+            if (callbackMaxRef.current) {
+                const text = `${callbackDurationMaxUs} µs`;
+                if (callbackMaxRef.current.textContent !== text) callbackMaxRef.current.textContent = text;
+                callbackMaxRef.current.style.color = budgetUs > 0
+                    ? statusColor(callbackDurationMaxUs / budgetUs * 100, 50, 80)
+                    : 'var(--color-text-secondary)';
+            }
+            if (dspPeakRef.current) {
+                const text = `${dspLoadInstant.toFixed(1)}%`;
+                if (dspPeakRef.current.textContent !== text) dspPeakRef.current.textContent = text;
+                dspPeakRef.current.style.color = statusColor(Math.min(dspLoadInstant, 100), 50, 80);
+            }
+            if (xrunCountRef.current) {
+                const text = `${xruns}`;
+                if (xrunCountRef.current.textContent !== text) xrunCountRef.current.textContent = text;
+                xrunCountRef.current.style.color = xruns > 0 ? COLOR_CRIT : 'var(--color-text-secondary)';
+            }
+            if (bufferBudgetRef.current) {
+                const text = budgetUs > 0 ? `${budgetUs.toFixed(0)} µs` : '—';
+                if (bufferBudgetRef.current.textContent !== text) bufferBudgetRef.current.textContent = text;
+            }
+            if (budgetUtilRef.current) {
+                const text = budgetUs > 0 ? `${budgetUtilPct.toFixed(1)}%` : '—';
+                if (budgetUtilRef.current.textContent !== text) budgetUtilRef.current.textContent = text;
+                budgetUtilRef.current.style.color = budgetUs > 0
+                    ? statusColor(budgetUtilPct, 50, 80)
+                    : 'var(--color-text-secondary)';
+            }
+            if (callbackCountRef.current) {
+                const text = cbCount.toLocaleString();
+                if (callbackCountRef.current.textContent !== text) callbackCountRef.current.textContent = text;
+            }
+
+            // ── Auto-Diagnostics ──────────────────────────────────────
+            const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            // Detect new xruns
+            if (xruns > prevXrunCountRef.current) {
+                const newXruns = xruns - prevXrunCountRef.current;
+                appendLogEntry(eventLogEntriesRef, eventLogRef, MAX_LOG_ENTRIES, {
+                    time: nowStr,
+                    msg: `Buffer overrun (xrun) × ${newXruns} — DSP ${dspLoadInstant.toFixed(0)}%, callback ${callbackDurationUs}µs/${budgetUs.toFixed(0)}µs`,
+                    severity: 'crit',
+                });
+            }
+            prevXrunCountRef.current = xruns;
+
+            // Detect DSP spikes (>90%) — throttled to prevent log flooding at 30Hz tick rate
+            const nowMs = performance.now();
+            if (dspLoadInstant > 90 && (nowMs - lastSpikeLogMsRef.current) > DSP_SPIKE_LOG_INTERVAL_MS) {
+                lastSpikeLogMsRef.current = nowMs;
+                appendLogEntry(eventLogEntriesRef, eventLogRef, MAX_LOG_ENTRIES, {
+                    time: nowStr,
+                    msg: `DSP spike: ${dspLoadInstant.toFixed(1)}% — callback ${callbackDurationUs}µs`,
+                    severity: 'warn',
+                });
+            }
+
+            // Update smart diagnostics panel
+            if (diagnosticsRef.current) {
+                const alerts: string[] = [];
+                if (xruns > 0) {
+                    alerts.push(alertHtml('crit', `${xruns} xrun${xruns > 1 ? 's' : ''} detected — audio dropouts occurring. Consider increasing buffer size.`));
+                }
+                if (dspPct > 80) {
+                    alerts.push(alertHtml('warn', `DSP load ${dspPct.toFixed(0)}% — nearing limit. Freeze tracks or increase buffer size.`));
+                } else if (dspPct > 60) {
+                    alerts.push(alertHtml('info', `DSP load ${dspPct.toFixed(0)}% — moderate. Headroom is limited.`));
+                }
+                if (budgetUtilPct > 80 && callbackDurationUs > 0) {
+                    alerts.push(alertHtml('warn', `Callback uses ${budgetUtilPct.toFixed(0)}% of budget (${callbackDurationUs}µs / ${budgetUs.toFixed(0)}µs).`));
+                }
+                if (ramPct > 85) {
+                    alerts.push(alertHtml('warn', `RAM usage ${ramPct.toFixed(0)}% — close other apps to prevent swapping.`));
+                }
+                const html = alerts.length > 0
+                    ? alerts.join('')
+                    : '<div style="color:var(--color-status-success);font-size:11px">✓ All systems nominal</div>';
+                if (diagnosticsRef.current.innerHTML !== html) diagnosticsRef.current.innerHTML = html;
+            }
+
             // Sandbox Stats
             if (sandboxStatsRef.current) {
                 if (!sandbox || !sandbox.enabled) {
@@ -257,7 +383,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                 }
                 pluginMetricsRef.current.innerHTML = lines.length > 0
                     ? lines.join('')
-                    : '<div style="color:var(--color-text-tertiary);font-style:italic">No active plugins</div>';
+                    : '<div style="color:var(--color-text-tertiary);font-style:italic">No per-plugin timing (requires sandbox mode)</div>';
             }
 
             // Master bus plugin metrics
@@ -275,7 +401,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                         `</div>`;
                 } else {
                     masterMetricsRef.current.innerHTML =
-                        '<div style="color:var(--color-text-tertiary);font-style:italic">No active master plugins</div>';
+                        '<div style="color:var(--color-text-tertiary);font-style:italic">No per-plugin timing (requires sandbox mode)</div>';
                 }
             }
         });
@@ -307,6 +433,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             ``,
             `[System]`,
             `DSP Load: ${perf.dspLoad.toFixed(1)}%`,
+            `DSP Load (Peak): ${perf.dspLoadInstant.toFixed(1)}%`,
             `CPU Usage: ${perf.cpuUsage.toFixed(1)}%`,
             `RAM Usage: ${perf.ramUsedMb.toLocaleString()} / ${perf.ramTotalMb.toLocaleString()} MB`,
             `Process Memory: ${(perf.processMemoryMb / 1024).toFixed(2)} GB`,
@@ -317,6 +444,13 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             `Output Latency: ${transport.sample_rate > 0 ? (transport.output_latency_frames / transport.sample_rate * 1000).toFixed(1) : '?'} ms (${transport.output_latency_frames} samples)`,
             `Tracks: ${state.tracks.allIds.length}`,
             `Clips: ${state.clips.allIds.length}`,
+            ``,
+            `[Audio Thread]`,
+            `Callback Duration: ${perf.callbackDurationUs} µs`,
+            `Callback Max: ${perf.callbackDurationMaxUs} µs`,
+            `Buffer Budget: ${transport.sample_rate > 0 && transport.output_latency_frames > 0 ? (transport.output_latency_frames / transport.sample_rate * 1_000_000).toFixed(0) : '?'} µs`,
+            `Xruns: ${perf.xrunCount}`,
+            `Total Callbacks: ${perf.callbackCount.toLocaleString()}`,
             ``,
             `[Plugin Sandbox]`,
             `Status: ${sandboxStr}`,
@@ -334,7 +468,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             const trackName = state.tracks.byId[trackIds[ti]]?.name ?? `Track ${ti + 1}`;
             lines.push(`  ${trackName}: ${totalUs.toFixed(0)} µs`);
         }
-        if (!hasPlugins) lines.push('  No active track plugins');
+        if (!hasPlugins) lines.push('  No per-plugin timing (requires sandbox mode)');
 
         lines.push('');
         lines.push(`[Master Bus Load]`);
@@ -342,10 +476,10 @@ export function DetailedPerformancePanel({ onClose }: Props) {
         if (masterUs > 0.1) {
             lines.push(`  Master Chain: ${masterUs.toFixed(0)} µs`);
         } else {
-            lines.push('  No active master plugins');
+            lines.push('  No per-plugin timing (requires sandbox mode)');
         }
 
-        navigator.clipboard.writeText(lines.join('\\n')).catch(e => console.error('Failed to copy', e));
+        navigator.clipboard.writeText(lines.join('\n')).catch(e => console.error('Failed to copy', e));
     };
 
     return (
@@ -380,6 +514,13 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                             lineHeight: 1,
                         }}
                     >✕</button>
+                </div>
+            </div>
+
+            {/* Smart Diagnostics — auto-detected alerts */}
+            <div style={{ ...SECTION_STYLE, padding: '6px 14px' }}>
+                <div ref={diagnosticsRef}>
+                    <div style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic', fontSize: 'var(--font-size-2xs)' }}>Analyzing…</div>
                 </div>
             </div>
 
@@ -421,6 +562,39 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                 </div>
             </div>
 
+            {/* Audio Thread Diagnostics */}
+            <div style={SECTION_STYLE}>
+                <div style={SECTION_TITLE_STYLE}>Audio Thread</div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Callback Duration</span>
+                    <span ref={callbackDurationRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>— µs</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Callback Max</span>
+                    <span ref={callbackMaxRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>— µs</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>DSP Load (Peak)</span>
+                    <span ref={dspPeakRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>—</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Buffer Budget</span>
+                    <span ref={bufferBudgetRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>—</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Xruns</span>
+                    <span ref={xrunCountRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>0</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Total Callbacks</span>
+                    <span ref={callbackCountRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>0</span>
+                </div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Budget Utilization</span>
+                    <span ref={budgetUtilRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>—</span>
+                </div>
+            </div>
+
             {/* Plugin Sandbox */}
             <div style={SECTION_STYLE}>
                 <div style={SECTION_TITLE_STYLE}>Plugin Sandbox</div>
@@ -439,10 +613,27 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             </div>
 
             {/* Master Bus Load */}
-            <div style={{ ...SECTION_STYLE, borderBottom: 'none' }}>
+            <div style={SECTION_STYLE}>
                 <div style={SECTION_TITLE_STYLE}>Master Bus Load</div>
                 <div ref={masterMetricsRef} style={{ fontSize: 'var(--font-size-2xs)', fontVariantNumeric: 'tabular-nums' }}>
                     <div style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Waiting for data…</div>
+                </div>
+            </div>
+
+            {/* Event Log — timestamped xrun/spike events */}
+            <div style={{ ...SECTION_STYLE, borderBottom: 'none' }}>
+                <div style={SECTION_TITLE_STYLE}>Event Log</div>
+                <div
+                    ref={eventLogRef}
+                    style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontVariantNumeric: 'tabular-nums',
+                        maxHeight: 120,
+                        overflowY: 'auto',
+                        fontFamily: 'var(--font-role-data)',
+                    }}
+                >
+                    <div style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>No events yet</div>
                 </div>
             </div>
         </div>
@@ -483,4 +674,57 @@ function updateBar(ref: React.RefObject<HTMLDivElement | null>, pct: number, col
 
 function escapeHtml(str: string): string {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Auto-Diagnostics Helpers ─────────────────────────────────────────────
+
+interface LogEntry { time: string; msg: string; severity: 'info' | 'warn' | 'crit'; }
+
+const SEVERITY_COLORS: Record<string, string> = {
+    crit: 'var(--color-status-error)',
+    warn: 'var(--color-status-warning)',
+    info: 'var(--color-text-tertiary)',
+};
+
+const SEVERITY_ICONS: Record<string, string> = {
+    crit: '🔴',
+    warn: '⚠️',
+    info: 'ℹ️',
+};
+
+function appendLogEntry(
+    entriesRef: React.MutableRefObject<LogEntry[]>,
+    containerRef: React.RefObject<HTMLDivElement | null>,
+    maxEntries: number,
+    entry: LogEntry,
+): void {
+    entriesRef.current.push(entry);
+    if (entriesRef.current.length > maxEntries) {
+        entriesRef.current = entriesRef.current.slice(-maxEntries);
+    }
+    if (containerRef.current) {
+        const html = entriesRef.current
+            .slice()
+            .reverse()
+            .map((e) => {
+                const color = SEVERITY_COLORS[e.severity] ?? 'var(--color-text-tertiary)';
+                const icon = SEVERITY_ICONS[e.severity] ?? '';
+                return `<div style="padding:1px 0;color:${color};display:flex;gap:4px;align-items:flex-start">`
+                    + `<span style="color:var(--color-text-tertiary);flex-shrink:0">${e.time}</span>`
+                    + `<span>${icon} ${escapeHtml(e.msg)}</span>`
+                    + `</div>`;
+            })
+            .join('');
+        containerRef.current.innerHTML = html;
+        containerRef.current.scrollTop = 0;
+    }
+}
+
+function alertHtml(severity: 'crit' | 'warn' | 'info', msg: string): string {
+    const color = SEVERITY_COLORS[severity] ?? 'var(--color-text-tertiary)';
+    const icon = SEVERITY_ICONS[severity] ?? '';
+    return `<div style="color:${color};font-size:11px;padding:1px 0;display:flex;gap:4px;align-items:flex-start">`
+        + `<span style="flex-shrink:0">${icon}</span>`
+        + `<span>${escapeHtml(msg)}</span>`
+        + `</div>`;
 }

@@ -82,7 +82,7 @@ export function DebugPanel({
             }}
         >
             <div
-                onMouseDown={onDragStart}
+                onPointerDown={onDragStart}
                 style={{
                     display: 'flex',
                     alignItems: 'center',

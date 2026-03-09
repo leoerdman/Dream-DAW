@@ -27,7 +27,7 @@ interface TimelineMasterLaneProps {
         regionALengthBeats: number;
         regionBLengthBeats: number;
         regionsSwapCompatible: boolean;
-        beginRegionDrag: (which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.MouseEvent) => void;
+        beginRegionDrag: (which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.PointerEvent) => void;
         setRegionFromMarquee: (which: 'A' | 'B') => void;
         runDuplicateRegion: () => Promise<void>;
         runMoveRegion: (direction: -1 | 1) => Promise<void>;

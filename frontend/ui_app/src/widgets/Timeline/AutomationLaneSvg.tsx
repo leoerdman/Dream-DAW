@@ -1,6 +1,6 @@
 import type { AutomationBreakpoint, AutomationLane as LaneData } from '@/shared/stores/useAutomationStore';
 import { clamp01 } from '@/shared/lib/audioMath';
-import type { MouseEvent, RefObject } from 'react';
+import type { MouseEvent, PointerEvent, RefObject } from 'react';
 
 interface AutomationLaneSvgProps {
     svgRef: RefObject<SVGSVGElement | null>;
@@ -21,14 +21,14 @@ interface AutomationLaneSvgProps {
     fillOpacity: number;
     onSvgClick: (e: MouseEvent) => void;
     onSvgDoubleClick: (e: MouseEvent) => void;
-    onLineMouseDown: (e: MouseEvent, bpId: string) => void;
-    onBpMouseDown: (e: MouseEvent, bpId: string) => void;
+    onLineMouseDown: (e: PointerEvent, bpId: string) => void;
+    onBpMouseDown: (e: PointerEvent, bpId: string) => void;
     onBpDblClick: (e: MouseEvent, bpId: string) => void;
     onBpCurveToggle: (bpId: string) => void;
     onHoverChange: (bpId: string | null) => void;
     automationItems: Array<{ itemId: string; startBeat: number; endBeat: number }>;
-    onItemDragStart: (e: MouseEvent, itemId: string) => void;
-    onItemResizeStart: (e: MouseEvent, itemId: string) => void;
+    onItemDragStart: (e: PointerEvent, itemId: string) => void;
+    onItemResizeStart: (e: PointerEvent, itemId: string) => void;
 }
 
 export function AutomationLaneSvg({
@@ -162,7 +162,7 @@ export function AutomationLaneSvg({
                             strokeOpacity={0.35}
                             strokeWidth={1}
                             style={{ cursor: 'grab', pointerEvents: 'all' }}
-                            onMouseDown={(e) => onItemDragStart(e, item.itemId)}
+                            onPointerDown={(e) => onItemDragStart(e, item.itemId)}
                         />
                         <rect
                             x={x + w - 5}
@@ -173,7 +173,7 @@ export function AutomationLaneSvg({
                             fill={lane.color}
                             opacity={0.75}
                             style={{ cursor: 'ew-resize', pointerEvents: 'all' }}
-                            onMouseDown={(e) => onItemResizeStart(e, item.itemId)}
+                            onPointerDown={(e) => onItemResizeStart(e, item.itemId)}
                         />
                     </g>
                 );
@@ -192,7 +192,7 @@ export function AutomationLaneSvg({
                         strokeLinecap="round"
                         style={{ pointerEvents: 'all', cursor: 'crosshair' }}
                         onDoubleClick={(e) => onSvgDoubleClick(e)}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                             const localX = e.nativeEvent.offsetX;
                             const localY = e.nativeEvent.offsetY;
                             let bestIdx = -1;
@@ -260,7 +260,7 @@ export function AutomationLaneSvg({
                             stroke={lane.color}
                             strokeWidth={1}
                             style={{ cursor: 'ns-resize', pointerEvents: 'all' }}
-                            onMouseDown={(e) => onLineMouseDown(e, bp.id)}
+                            onPointerDown={(e) => onLineMouseDown(e, bp.id)}
                         />
                     </g>
                 );
@@ -283,7 +283,7 @@ export function AutomationLaneSvg({
                             r={14}
                             fill="transparent"
                             style={{ cursor: 'grab', pointerEvents: 'all' }}
-                            onMouseDown={(e) => onBpMouseDown(e, bp.id)}
+                            onPointerDown={(e) => onBpMouseDown(e, bp.id)}
                             onDoubleClick={(e) => onBpDblClick(e, bp.id)}
                             onContextMenu={(e) => {
                                 e.preventDefault();

@@ -51,10 +51,10 @@ export const ContextMenuPopup = ({
             if (ref.current && !ref.current.contains(target)) onDismiss();
         };
         const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
-        document.addEventListener('mousedown', handleClick);
+        document.addEventListener('pointerdown', handleClick);
         document.addEventListener('keydown', handleKey);
         return () => {
-            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('pointerdown', handleClick);
             document.removeEventListener('keydown', handleKey);
             if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
         };

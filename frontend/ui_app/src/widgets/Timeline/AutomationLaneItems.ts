@@ -35,7 +35,7 @@ export function useAutomationLaneItemHandlers({
         dragCleanupRef.current = null;
     }, []);
 
-    const handleItemDragStart = useCallback((e: React.MouseEvent, itemId: string) => {
+    const handleItemDragStart = useCallback((e: React.PointerEvent, itemId: string) => {
         e.preventDefault();
         e.stopPropagation();
         const svg = svgRef.current;
@@ -80,7 +80,7 @@ export function useAutomationLaneItemHandlers({
         svgRef,
     ]);
 
-    const handleItemResizeStart = useCallback((e: React.MouseEvent, itemId: string) => {
+    const handleItemResizeStart = useCallback((e: React.PointerEvent, itemId: string) => {
         e.preventDefault();
         e.stopPropagation();
         const svg = svgRef.current;

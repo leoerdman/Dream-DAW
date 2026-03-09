@@ -115,7 +115,7 @@ export function usePianoRollNoteInteractions({
         });
     }, [auditionNote, editorRootRef, notes, onNotesChange, pianoPencilMode, selectedNotes, setSelectedNotes, tool]);
 
-    const handleNoteDrag = useCallback((event: React.MouseEvent, noteId: string) => {
+    const handleNoteDrag = useCallback((event: React.PointerEvent, noteId: string) => {
         if (tool === 'paint' || pianoPencilMode) return;
         if (event.button !== 0) return;
         event.stopPropagation();

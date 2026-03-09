@@ -20,7 +20,7 @@ export function AssistantChatHeader({
     onHeaderMouseDown,
 }: AssistantChatHeaderProps) {
     return (
-        <div className="assistant-header" onMouseDown={onHeaderMouseDown}>
+        <div className="assistant-header" onPointerDown={onHeaderMouseDown}>
             <div className="assistant-header-left">
                 <GripVertical size={14} style={{ color: 'var(--color-text-tertiary)', marginRight: -4 }} />
                 <div className="assistant-header-icon">

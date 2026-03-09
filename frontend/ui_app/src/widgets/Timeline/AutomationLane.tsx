@@ -194,7 +194,7 @@ export const AutomationLane = memo(function AutomationLane({
     );
 
     const handleBpMouseDown = useCallback(
-        (e: React.MouseEvent, bpId: string) => {
+        (e: React.PointerEvent, bpId: string) => {
             e.stopPropagation();
             selectBreakpoint(bpId, e.shiftKey);
             setDraggingBp(bpId);
@@ -246,7 +246,7 @@ export const AutomationLane = memo(function AutomationLane({
     );
 
     const handleLineMouseDown = useCallback(
-        (e: React.MouseEvent, bpId: string) => {
+        (e: React.PointerEvent, bpId: string) => {
             e.stopPropagation();
             setCurveDragBp(bpId);
             setBreakpointCurve(lane.id, bpId, 'bezier');

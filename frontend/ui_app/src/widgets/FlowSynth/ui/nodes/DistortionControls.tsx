@@ -36,7 +36,7 @@ export function DistortionControls({ node }: Props) {
             <ControlRow label="Mode">
                 <NodeSelect
                     value={mode}
-                    options={DISTORTION_MODES as unknown as { value: string; label: string }[]}
+                    options={DISTORTION_MODES}
                     onChange={(v) => updateData({ mode: v })}
                 />
             </ControlRow>

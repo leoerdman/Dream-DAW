@@ -29,10 +29,10 @@ export const ClipContextMenuPopup = ({
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onDismiss();
         };
-        document.addEventListener('mousedown', handleClick);
+        document.addEventListener('pointerdown', handleClick);
         document.addEventListener('keydown', handleKey);
         return () => {
-            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('pointerdown', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
     }, [onDismiss]);

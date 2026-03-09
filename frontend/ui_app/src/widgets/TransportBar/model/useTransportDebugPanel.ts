@@ -151,10 +151,10 @@ export function useTransportDebugPanel() {
         const onEsc = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setPdcOpen(false);
         };
-        document.addEventListener('mousedown', onDown);
+        document.addEventListener('pointerdown', onDown);
         document.addEventListener('keydown', onEsc);
         return () => {
-            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('pointerdown', onDown);
             document.removeEventListener('keydown', onEsc);
         };
     }, [pdcOpen]);

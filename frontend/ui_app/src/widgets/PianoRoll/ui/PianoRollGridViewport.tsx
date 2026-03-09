@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type MutableRefObject, type RefObject } from 'react';
+import { memo, type MouseEvent, type PointerEvent, type MutableRefObject, type RefObject } from 'react';
 import {
     RULER_HEIGHT,
     VELOCITY_LANE_HEIGHT,
@@ -42,12 +42,12 @@ interface PianoRollGridViewportProps {
     stepInputCursorBeat: number;
     activeLane: PianoLaneType;
     readLaneValue: (note: MidiNote, lane: PianoLaneType) => number;
-    onLaneMouseDown: (noteId: string, event: MouseEvent) => void;
+    onLaneMouseDown: (noteId: string, event: PointerEvent) => void;
     handleGridClick: (event: MouseEvent) => void;
     handleGridDoubleClick: (event: MouseEvent) => void;
-    handleGridMouseDown: (event: MouseEvent) => void;
+    handleGridMouseDown: (event: PointerEvent) => void;
     handleNoteClick: (event: MouseEvent, noteId: string) => void;
-    handleNoteDrag: (event: MouseEvent, noteId: string) => void;
+    handleNoteDrag: (event: PointerEvent, noteId: string) => void;
     handleNoteMouseMove: (event: MouseEvent, noteId: string) => void;
     pitchToY: (pitch: number) => number;
 }
@@ -136,7 +136,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                 <div
                     onClick={handleGridClick}
                     onDoubleClick={handleGridDoubleClick}
-                    onMouseDown={handleGridMouseDown}
+                    onPointerDown={handleGridMouseDown}
                     style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, width: canvasWidth, height: canvasHeight, cursor: tool === 'paint' ? 'crosshair' : 'default' }}
                 >
                     <canvas ref={noteCanvasRef} style={{ position: 'absolute', left: 0, top: 0, width: canvasWidth, height: canvasHeight, pointerEvents: 'none' }} />
@@ -151,7 +151,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                             <div
                                 key={note.id}
                                 onClick={(e) => handleNoteClick(e, note.id)}
-                                onMouseDown={(e) => handleNoteDrag(e, note.id)}
+                                onPointerDown={(e) => handleNoteDrag(e, note.id)}
                                 onMouseMove={(e) => handleNoteMouseMove(e, note.id)}
                                 onMouseLeave={() => setHoveredNoteEdge(null)}
                                 style={{

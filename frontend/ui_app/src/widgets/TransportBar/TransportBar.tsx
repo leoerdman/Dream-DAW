@@ -159,10 +159,10 @@ export const TransportBar = ({
             }
         };
         const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotesOpen(false); };
-        if (onDown) document.addEventListener('mousedown', onDown);
+        if (onDown) document.addEventListener('pointerdown', onDown);
         document.addEventListener('keydown', onEsc);
         return () => {
-            if (onDown) document.removeEventListener('mousedown', onDown);
+            if (onDown) document.removeEventListener('pointerdown', onDown);
             document.removeEventListener('keydown', onEsc);
         };
     }, [notesOpen, notesPinned]);

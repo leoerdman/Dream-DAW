@@ -1,4 +1,4 @@
-import { memo, type MouseEvent as ReactMouseEvent } from 'react';
+import { memo, type PointerEvent as ReactPointerEvent } from 'react';
 import {
     VELOCITY_LANE_HEIGHT,
     type MidiNote,
@@ -15,7 +15,7 @@ interface PianoControlLaneProps {
     selectedNotes: Set<string>;
     color: string;
     readLaneValue: (note: MidiNote, lane: PianoLaneType) => number;
-    onLaneMouseDown: (noteId: string, e: ReactMouseEvent) => void;
+    onLaneMouseDown: (noteId: string, e: ReactPointerEvent) => void;
 }
 
 export const PianoControlLane = memo(function PianoControlLane({
@@ -71,7 +71,7 @@ export const PianoControlLane = memo(function PianoControlLane({
                 return (
                     <div
                         key={`vel-${note.id}`}
-                        onMouseDown={(event) => onLaneMouseDown(note.id, event)}
+                        onPointerDown={(event) => onLaneMouseDown(note.id, event)}
                         style={{
                             position: 'absolute',
                             left: x,

@@ -7,7 +7,7 @@ export const PianoRollToolbar = memo(function PianoRollToolbar(props: PianoRollT
 
     return (
         <div
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
                 const target = e.target as HTMLElement;
                 if (target.tagName !== 'SELECT') {
                     e.preventDefault();

@@ -28,14 +28,14 @@ export const Select = ({
     value,
     options,
     onChange,
-    onMouseDown,
+    onPointerDown,
 }: {
     value: string;
     options: readonly string[];
     onChange: (v: string) => void;
-    onMouseDown?: () => void;
+    onPointerDown?: () => void;
 }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} onMouseDown={onMouseDown} style={selectStyle}>
+    <select value={value} onChange={(e) => onChange(e.target.value)} onPointerDown={onPointerDown} style={selectStyle}>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
 );

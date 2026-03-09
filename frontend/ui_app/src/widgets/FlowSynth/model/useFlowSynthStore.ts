@@ -442,26 +442,30 @@ function _scheduleSaveConfig(get: () => FlowSynthState): void {
 
     _saveTimeout = window.setTimeout(async () => {
         _saveTimeout = null;
-        let state = get();
-        let jsonStr = "";
 
         // ENTERPRISE FIX: If the user closed the editor or switched tracks BEFORE the debounce fired,
         // activeTrackId no longer matches capturedTrackId.
         // In that case, we MUST NOT abort the save, otherwise their work is permanently lost from the disk file!
         // But since we removed the stale cache, the sync save should ALREADY be triggered by closeFlowEditor!
         // So we only save here if we are still on the same track.
+        const state = get();
         if (state.activeTrackId !== capturedTrackId) return;
 
-        const vp = viewportProxy.getViewport();
-        jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
+        try {
+            const vp = viewportProxy.getViewport();
+            const jsonStr = buildFlowConfigJson(state, vp.x, vp.y, vp.zoom);
 
-        const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
-        if (trackIndex < 0) return;
-        const response = await engine.saveFlowSynthConfig(trackIndex, jsonStr);
-        // ENTERPRISE FIX: Apply returned delta so useEngineStore.tracks.byId[trackId].flow_synth
-        // is populated. Without this, the frontend store never learns about the saved config.
-        if (response?.deltas?.length) {
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig');
+            const trackIndex = useEngineStore.getState().tracks.allIds.indexOf(capturedTrackId);
+            if (trackIndex < 0) return;
+            const response = await engine.saveFlowSynthConfig(trackIndex, jsonStr);
+            // ENTERPRISE FIX: Apply returned delta so useEngineStore.tracks.byId[trackId].flow_synth
+            // is populated. Without this, the frontend store never learns about the saved config.
+            if (response?.deltas?.length) {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'saveFlowSynthConfig');
+            }
+        } catch (err) {
+            console.error('[FlowSynth] Debounced config save failed:', err);
+            useStatusStore.getState().setError(`Flow Synth save failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, FLOW_AUTO_SAVE_DEBOUNCE_MS);
 }

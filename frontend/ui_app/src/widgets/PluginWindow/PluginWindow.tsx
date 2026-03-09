@@ -112,7 +112,7 @@ export const PluginWindow = memo(function PluginWindow({
         titleDragCleanupRef.current = null;
     }, []);
 
-    const handleDragStart = useCallback((e: React.MouseEvent) => {
+    const handleDragStart = useCallback((e: React.PointerEvent) => {
         e.preventDefault();
         const startX = e.clientX;
         const startY = e.clientY;
@@ -197,7 +197,7 @@ export const PluginWindow = memo(function PluginWindow({
             }}
         >
             <div
-                onMouseDown={handleDragStart}
+                onPointerDown={handleDragStart}
                 style={{
                     height: TITLE_BAR_HEIGHT,
                     background: headerBackground ?? headerGradient,
@@ -221,7 +221,7 @@ export const PluginWindow = memo(function PluginWindow({
                 }}>
                     {/* Close */}
                     <div
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); onClose(); }}
                         title="Close"
                         style={{
@@ -266,7 +266,7 @@ export const PluginWindow = memo(function PluginWindow({
                     </div>
                     {/* Maximize / Snap inline */}
                     <div
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); onMaximize?.(); }}
                         title={onMaximize ? 'Snap to inline' : 'Maximize'}
                         style={{

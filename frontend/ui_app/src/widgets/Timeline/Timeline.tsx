@@ -392,7 +392,7 @@ export const Timeline = (props: TimelineProps) => {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onMouseDownCapture={() => useFocusPanelStore.getState().setActivePanel('arrangement')}
+            onPointerDownCapture={() => useFocusPanelStore.getState().setActivePanel('arrangement')}
         >
             <div
                 ref={arrangementRef}

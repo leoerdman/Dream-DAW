@@ -72,7 +72,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
         resolvedParam.min + clamp01(u) * (resolvedParam.max - resolvedParam.min),
         [resolvedParam.max, resolvedParam.min]);
 
-    const { isDragging, dialRef, onKnobPointerDown, onKnobPointerMove, endKnobDrag, beginMouseDrag } =
+    const { isDragging, dialRef, onKnobPointerDown, onKnobPointerMove, endKnobDrag } =
         usePluginKnobDrag({
             paramName: resolvedParam.name,
             value: safeValue,
@@ -168,7 +168,6 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                     onPointerMove={onKnobPointerMove}
                     onPointerUp={endKnobDrag}
                     onPointerCancel={endKnobDrag}
-                    onMouseDown={beginMouseDrag}
                     onDoubleClick={onDoubleClick}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu?.(e, resolvedParam.name); }}
                 >

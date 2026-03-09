@@ -74,7 +74,6 @@ export const PluginKnob = React.memo(({
         onKnobPointerDown,
         onKnobPointerMove,
         endKnobDrag,
-        beginMouseDrag,
     } = usePluginKnobDrag({
         paramName: param.name,
         value: safeValue,
@@ -173,7 +172,6 @@ export const PluginKnob = React.memo(({
                     onPointerMove={onKnobPointerMove}
                     onPointerUp={endKnobDrag}
                     onPointerCancel={endKnobDrag}
-                    onMouseDown={beginMouseDrag}
                     onDoubleClick={onKnobDoubleClick}
                 >
                     <KnobArcSvg

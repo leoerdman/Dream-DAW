@@ -97,7 +97,7 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, o
     return (
         <div ref={panelRef} style={panelStyle(panelPos)}>
             {/* Header — drag handle */}
-            <div onMouseDown={onDragStart} style={headerStyle}>
+            <div onPointerDown={onDragStart} style={headerStyle}>
                 <div style={titleStyle}>Notes</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {saveStatus === 'saved' && (

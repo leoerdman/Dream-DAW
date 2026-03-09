@@ -123,7 +123,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
             tabIndex={0}
             data-keyboard-scope="device-rack"
             data-selected-device-id={selectedDeviceId}
-            onMouseDown={() => { useFocusPanelStore.getState().setActivePanel('device-rack'); rackRef.current?.focus(); }}
+            onPointerDown={() => { useFocusPanelStore.getState().setActivePanel('device-rack'); rackRef.current?.focus(); }}
             style={{
                 display: 'flex',
                 flexDirection: 'column',

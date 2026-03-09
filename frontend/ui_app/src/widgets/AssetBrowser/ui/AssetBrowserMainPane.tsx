@@ -36,13 +36,13 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                     </>
                 ) : (
                     <>
-                        <FilterPill options={SOURCE_FILTERS as unknown as string[]} value={logic.sourceFilter} onChange={logic.setSourceFilter} />
-                        <FilterPill options={FORMAT_FILTERS as unknown as string[]} value={logic.formatFilter} onChange={logic.setFormatFilter} />
-                        <FilterPill options={AUDIO_FILTERS as unknown as string[]} value={logic.audioFilter} onChange={logic.setAudioFilter} />
+                        <FilterPill options={SOURCE_FILTERS} value={logic.sourceFilter} onChange={logic.setSourceFilter} />
+                        <FilterPill options={FORMAT_FILTERS} value={logic.formatFilter} onChange={logic.setFormatFilter} />
+                        <FilterPill options={AUDIO_FILTERS} value={logic.audioFilter} onChange={logic.setAudioFilter} />
                     </>
                 )}
-                <FilterPill options={SORT_FILTERS as unknown as string[]} value={logic.sortFilter} onChange={logic.setSortFilter} />
-                <FilterPill options={SIZE_FILTERS as unknown as string[]} value={logic.sizeFilter} onChange={logic.setSizeFilter} />
+                <FilterPill options={SORT_FILTERS} value={logic.sortFilter} onChange={logic.setSortFilter} />
+                <FilterPill options={SIZE_FILTERS} value={logic.sizeFilter} onChange={logic.setSizeFilter} />
                 {logic.selectedCategoryId !== 'plugins' && (
                     <button onClick={logic.triggerLibraryScan} style={pluginActionButtonStyle} title="Rescan sample library">
                         Rescan Library

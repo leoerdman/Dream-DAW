@@ -62,8 +62,8 @@ function FloatingPresetBar() {
                 setDropdownOpen(false);
             }
         };
-        document.addEventListener('mousedown', handler, true);
-        return () => document.removeEventListener('mousedown', handler, true);
+        document.addEventListener('pointerdown', handler, true);
+        return () => document.removeEventListener('pointerdown', handler, true);
     }, [dropdownOpen]);
 
     const handleSavePreset = useCallback(async () => {

@@ -115,7 +115,7 @@ export function usePianoRollLaneValues({
         };
     }, [laneValuesByNote.modWheel, laneValuesByNote.expression, notes, onSetMidiEnvelopes]);
 
-    const handleVelocityMouseDown = useCallback((noteId: string, event: React.MouseEvent) => {
+    const handleVelocityMouseDown = useCallback((noteId: string, event: React.PointerEvent) => {
         if (event.button !== 0) return;
         event.stopPropagation();
         event.preventDefault();

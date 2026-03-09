@@ -44,6 +44,16 @@ impl ProjectManager {
     /// Subdirectory for recorded audio files (live recording).
     const RECORDED_DIR: &'static str = "Recorded";
 
+    /// Subdirectory for processed audio (bounce, consolidate).
+    /// Mirrors Ableton's `Samples/Processed/` hierarchy.
+    const PROCESSED_DIR: &'static str = "Processed";
+
+    /// Subdirectory for bounced audio files.
+    const BOUNCE_DIR: &'static str = "Bounce";
+
+    /// Subdirectory for consolidated audio files (Cmd+J).
+    const CONSOLIDATE_DIR: &'static str = "Consolidate";
+
     /// Subdirectory for auto-backup copies.
     const BACKUP_DIR: &'static str = "Backup";
 
@@ -68,6 +78,9 @@ impl ProjectManager {
         let samples_dir = project_dir.join(Self::SAMPLES_DIR);
         let imported_dir = samples_dir.join(Self::IMPORTED_DIR);
         let recorded_dir = samples_dir.join(Self::RECORDED_DIR);
+        let processed_dir = samples_dir.join(Self::PROCESSED_DIR);
+        let bounce_dir = processed_dir.join(Self::BOUNCE_DIR);
+        let consolidate_dir = processed_dir.join(Self::CONSOLIDATE_DIR);
         let backup_dir = project_dir.join(Self::BACKUP_DIR);
 
         for dir in &[
@@ -75,6 +88,9 @@ impl ProjectManager {
             &samples_dir,
             &imported_dir,
             &recorded_dir,
+            &processed_dir,
+            &bounce_dir,
+            &consolidate_dir,
             &backup_dir,
         ] {
             fs::create_dir_all(dir)?;
@@ -107,10 +123,13 @@ impl ProjectManager {
         folder: &Path,
         copy_samples: bool,
     ) -> Result<PathBuf, ProjectFileError> {
-        // Ensure folder structure exists
+        // Ensure folder structure exists (including Processed/ subdirs)
         let samples_dir = folder.join(Self::SAMPLES_DIR);
         let imported_dir = samples_dir.join(Self::IMPORTED_DIR);
         let recorded_dir = samples_dir.join(Self::RECORDED_DIR);
+        let processed_dir = samples_dir.join(Self::PROCESSED_DIR);
+        let bounce_dir = processed_dir.join(Self::BOUNCE_DIR);
+        let consolidate_dir = processed_dir.join(Self::CONSOLIDATE_DIR);
         let backup_dir = folder.join(Self::BACKUP_DIR);
 
         for dir in &[
@@ -118,6 +137,9 @@ impl ProjectManager {
             &samples_dir,
             &imported_dir,
             &recorded_dir,
+            &processed_dir,
+            &bounce_dir,
+            &consolidate_dir,
             &backup_dir,
         ] {
             fs::create_dir_all(dir)?;
@@ -365,6 +387,96 @@ impl ProjectManager {
         false
     }
 
+    // ── Project-Aware Bounce Output ───────────────────────────────────
+
+    /// Creates a unique WAV file path for bounce output inside the project folder.
+    ///
+    /// Output: `{project_folder}/Samples/Processed/Bounce/{name}.wav`
+    /// If a file with the same name exists, appends a numeric suffix.
+    ///
+    /// Falls back to temp dir if `project_folder` is `None`.
+    pub fn make_project_bounce_path(
+        project_folder: Option<&Path>,
+        name: &str,
+    ) -> Result<String, ProjectFileError> {
+        let dir = match project_folder {
+            Some(folder) => {
+                let d = folder
+                    .join(Self::SAMPLES_DIR)
+                    .join(Self::PROCESSED_DIR)
+                    .join(Self::BOUNCE_DIR);
+                fs::create_dir_all(&d)?;
+                d
+            }
+            None => {
+                let d = std::env::temp_dir().join("dream_daw_bounces");
+                fs::create_dir_all(&d)?;
+                d
+            }
+        };
+        let sanitized = Self::sanitize_filename(name);
+        Ok(Self::unique_wav_path(&dir, &sanitized).to_string_lossy().to_string())
+    }
+
+    /// Creates a unique WAV file path for consolidate output inside the project folder.
+    ///
+    /// Output: `{project_folder}/Samples/Processed/Consolidate/{name}.wav`
+    pub fn make_project_consolidate_path(
+        project_folder: Option<&Path>,
+        name: &str,
+    ) -> Result<String, ProjectFileError> {
+        let dir = match project_folder {
+            Some(folder) => {
+                let d = folder
+                    .join(Self::SAMPLES_DIR)
+                    .join(Self::PROCESSED_DIR)
+                    .join(Self::CONSOLIDATE_DIR);
+                fs::create_dir_all(&d)?;
+                d
+            }
+            None => {
+                let d = std::env::temp_dir().join("dream_daw_bounces");
+                fs::create_dir_all(&d)?;
+                d
+            }
+        };
+        let sanitized = Self::sanitize_filename(name);
+        Ok(Self::unique_wav_path(&dir, &sanitized).to_string_lossy().to_string())
+    }
+
+    /// Sanitizes a string for use as a filename (removes/replaces invalid chars).
+    fn sanitize_filename(name: &str) -> String {
+        name.chars()
+            .map(|c| match c {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                '\0' => '_',
+                c => c,
+            })
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }
+
+    /// Generates a unique .wav path in `dir`, appending numeric suffix if needed.
+    fn unique_wav_path(dir: &Path, stem: &str) -> PathBuf {
+        let candidate = dir.join(format!("{}.wav", stem));
+        if !candidate.exists() {
+            return candidate;
+        }
+        for n in 1..10_000usize {
+            let candidate = dir.join(format!("{}_{}.wav", stem, n));
+            if !candidate.exists() {
+                return candidate;
+            }
+        }
+        // Final fallback with timestamp
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        dir.join(format!("{}_{}.wav", stem, ts))
+    }
+
     /// Extracts the project folder path from a project file path.
     ///
     /// If the file is inside a recognized project directory, returns it.
@@ -511,6 +623,9 @@ mod tests {
         assert!(folder.join("Samples").exists());
         assert!(folder.join("Samples/Imported").exists());
         assert!(folder.join("Samples/Recorded").exists());
+        assert!(folder.join("Samples/Processed").exists());
+        assert!(folder.join("Samples/Processed/Bounce").exists());
+        assert!(folder.join("Samples/Processed/Consolidate").exists());
         assert!(folder.join("Backup").exists());
 
         let _ = fs::remove_dir_all(&parent);

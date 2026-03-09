@@ -45,7 +45,7 @@ export function useEqSurfaceHandlers({
     }, [bands]);
 
     // ENTERPRISE: SVG coordinate resolver — used by all handlers.
-    const resolveSvgCoords = useCallback((e: React.MouseEvent<SVGSVGElement>): { svgX: number; svgY: number } | null => {
+    const resolveSvgCoords = useCallback((e: { clientX: number; clientY: number }): { svgX: number; svgY: number } | null => {
         const svg = eqSurfaceRef.current;
         if (!svg) return null;
         const rect = svg.getBoundingClientRect();
@@ -55,7 +55,7 @@ export function useEqSurfaceHandlers({
         };
     }, [eqSurfaceRef]);
 
-    const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
         if (e.button === 2) return;
         e.preventDefault();
         e.stopPropagation();
@@ -120,5 +120,5 @@ export function useEqSurfaceHandlers({
         }
     }, [findNearestEnabledBand, resolveSvgCoords, setEqContextMenu]);
 
-    return { handleMouseDown, handleDoubleClick, handleContextMenu };
+    return { handlePointerDown, handleDoubleClick, handleContextMenu };
 }

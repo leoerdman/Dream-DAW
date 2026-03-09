@@ -48,7 +48,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
 
     const startDrag = useCallback(
         (
-            e: React.MouseEvent,
+            e: React.PointerEvent,
             onDelta: (deltaPx: number, totalPx: number) => void,
         ) => {
             e.stopPropagation();
@@ -80,7 +80,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
     );
 
     const handleFadeInDrag = useCallback(
-        (e: React.MouseEvent) => {
+        (e: React.PointerEvent) => {
             startDrag(e, (delta) => {
                 const newPx = Math.max(0, fadeInPx + delta);
                 const fraction = Math.min(0.9, newPx / width);
@@ -91,7 +91,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
     );
 
     const handleFadeOutDrag = useCallback(
-        (e: React.MouseEvent) => {
+        (e: React.PointerEvent) => {
             startDrag(e, (delta) => {
                 const newPx = Math.max(0, fadeOutPx - delta);
                 const fraction = Math.min(0.9, newPx / width);
@@ -102,7 +102,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
     );
 
     const handleSlipDrag = useCallback(
-        (e: React.MouseEvent) => {
+        (e: React.PointerEvent) => {
             startDrag(e, (delta) => onSlip?.(delta));
         },
         [startDrag, onSlip],
@@ -170,7 +170,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             </svg>
 
             <div
-                onMouseDown={handleFadeInDrag}
+                onPointerDown={handleFadeInDrag}
                 onMouseEnter={() => setHoveredHandle('fadeIn')}
                 onMouseLeave={() => setHoveredHandle(null)}
                 style={{
@@ -194,7 +194,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             </div>
 
             <div
-                onMouseDown={handleFadeOutDrag}
+                onPointerDown={handleFadeOutDrag}
                 onMouseEnter={() => setHoveredHandle('fadeOut')}
                 onMouseLeave={() => setHoveredHandle(null)}
                 style={{
@@ -221,7 +221,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
 
             {showHandles && onSlip && (
                 <div
-                    onMouseDown={handleSlipDrag}
+                    onPointerDown={handleSlipDrag}
                     onMouseEnter={() => setHoveredHandle('slip')}
                     onMouseLeave={() => setHoveredHandle(null)}
                     style={{

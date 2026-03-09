@@ -11,6 +11,7 @@ import { AdsrCurve } from '@/widgets/DeviceRack/ui/PluginModules';
 interface PluginGuiSurfaceSamplerProps {
     device: DeviceSlot;
     samplerWaveformPath: string | null;
+    sampleMissing?: boolean;
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
@@ -45,6 +46,7 @@ const tabBtnStyle = (active: boolean): React.CSSProperties => ({
 export function PluginGuiSurfaceSampler({
     device,
     samplerWaveformPath,
+    sampleMissing = false,
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
@@ -183,8 +185,8 @@ export function PluginGuiSurfaceSampler({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onMouseUpCapture={commitDropFromStore}
-            onMouseUp={commitDropFromStore}
+            onPointerUpCapture={commitDropFromStore}
+            onPointerUp={commitDropFromStore}
             className={isDragOver ? 'sampler-drop-active' : undefined}
             style={{
                 display: 'grid',
@@ -224,7 +226,13 @@ export function PluginGuiSurfaceSampler({
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                     }}>
-                        {sampleName ?? 'Drop sample here'}
+                        {sampleMissing && sampleName ? (
+                            <span style={{ color: 'var(--color-status-error)', textDecoration: 'line-through' }}>
+                                {sampleName}
+                            </span>
+                        ) : (
+                            sampleName ?? 'Drop sample here'
+                        )}
                     </div>
 
                     {/* Tab switcher — top right */}
@@ -300,23 +308,48 @@ export function PluginGuiSurfaceSampler({
                         />
                     </div>
 
-                    {/* Load button — centered, only when no sample */}
-                    {!hasSample && (
-                        <button
-                            type="button"
-                            data-no-drag
-                            onClick={() => onLoadSample?.()}
-                            className="sampler-load-btn"
-                            style={{
-                                position: 'absolute',
-                                left: '50%',
-                                top: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                zIndex: 1,
-                            }}
-                        >
-                            Load Sample
-                        </button>
+                    {/* Load button — centered, when no sample or when sample is missing */}
+                    {(!hasSample || sampleMissing) && (
+                        <div style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            zIndex: 1,
+                            pointerEvents: 'none',
+                        }}>
+                            {sampleMissing && (
+                                <span style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'color-mix(in srgb, var(--color-status-error) 20%, transparent)',
+                                    border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 40%, transparent)',
+                                    color: 'var(--color-status-error)',
+                                    fontSize: 'var(--font-size-2xs)',
+                                    fontWeight: 'var(--font-weight-bold)',
+                                    letterSpacing: '0.04em',
+                                    textTransform: 'uppercase',
+                                    pointerEvents: 'none',
+                                }}>
+                                    ⚠ Sample Not Found
+                                </span>
+                            )}
+                            <button
+                                type="button"
+                                data-no-drag
+                                onClick={() => onLoadSample?.()}
+                                className="sampler-load-btn"
+                                style={{ pointerEvents: 'auto' }}
+                            >
+                                {sampleMissing ? 'Replace Sample' : 'Load Sample'}
+                            </button>
+                        </div>
                     )}
                 </div>
             )}

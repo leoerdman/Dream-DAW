@@ -177,8 +177,26 @@ async fn export_mix_cmd(
     // BUG-A013 FIX: Pre-flight write check to ensure the export path is valid and writable.
     // If the disk is full, the path is read-only, or the directory doesn't exist, this fails immediately
     // rather than waiting to the end of a 10-minute offline render to report an error.
-    if let Err(e) = std::fs::File::create(&settings.output_path) {
-        return Err(format!("Export path '{}' is not writable: {}", settings.output_path, e));
+    // ENTERPRISE FIX: Ensure parent directory exists before write test.
+    if let Some(parent) = std::path::Path::new(&settings.output_path).parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!("Cannot create export directory '{}': {}", parent.display(), e)
+            })?;
+        }
+    }
+    match std::fs::File::create(&settings.output_path) {
+        Ok(_) => {
+            // Remove the zero-byte test file — the actual renderer will create the
+            // real file. Without this, a cancelled or failed export leaves an orphan.
+            let _ = std::fs::remove_file(&settings.output_path);
+        }
+        Err(e) => {
+            return Err(format!(
+                "Export path '{}' is not writable: {}",
+                settings.output_path, e
+            ));
+        }
     }
 
     // ── Ensure external plugin runtime bindings are ready for export ──

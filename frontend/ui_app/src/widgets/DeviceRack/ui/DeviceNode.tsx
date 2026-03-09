@@ -16,7 +16,7 @@ interface DeviceNodeProps {
     onToggle: () => void;
     isSelected: boolean;
     showSettings: boolean;
-    onSelect: (e: React.MouseEvent) => void;
+    onSelect: (e: React.MouseEvent | React.PointerEvent) => void;
     onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
@@ -119,13 +119,13 @@ export const DeviceNode = React.memo(({
                 e.stopPropagation();
                 onContextMenu?.(e);
             }}
-            onMouseDownCapture={(e) => {
+            onPointerDownCapture={(e) => {
                 lastPointerTargetRef.current = e.target as HTMLElement;
-                // Click-anywhere selection: any left-button mousedown on the
+                // Click-anywhere selection: any left-button pointerdown on the
                 // device card selects it. Uses capture phase so selection
                 // fires before knob drag or button handlers.
                 if (e.button === 0) {
-                    onSelect(e as unknown as React.MouseEvent<HTMLDivElement>);
+                    onSelect(e);
                 }
             }}
             onDragStart={(e) => {
@@ -185,7 +185,7 @@ export const DeviceNode = React.memo(({
                 boxShadow: 'none',
                 cursor: canReorder ? 'grab' : 'default',
             }}
-            onMouseUp={() => {
+            onPointerUp={() => {
                 const dragging = useDragStore.getState().draggingItem;
                 const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
                 const isSamplerDevice =

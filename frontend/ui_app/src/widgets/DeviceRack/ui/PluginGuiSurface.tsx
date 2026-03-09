@@ -38,6 +38,7 @@ export const PluginGuiSurface = React.memo(({
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
     const [waveformPeaks, setWaveformPeaks] = useState<engineApi.PeakPair[] | null>(null);
+    const [sampleMissing, setSampleMissing] = useState(false);
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
     const [dragEqBand, setDragEqBand] = useState<number | null>(null);
     const [selectedEqBand, setSelectedEqBand] = useState<number | null>(null);
@@ -82,6 +83,7 @@ export const PluginGuiSurface = React.memo(({
             return;
         }
         let cancelled = false;
+        setSampleMissing(false);
         engineApi.getWaveformPeaksBinary(samplePath)
             .then((wf) => {
                 if (cancelled) return;
@@ -96,6 +98,7 @@ export const PluginGuiSurface = React.memo(({
                 if (!cancelled) {
                     console.warn('[Dream] sampler waveform load failed:', err);
                     setWaveformPeaks(null);
+                    setSampleMissing(true);
                 }
             });
         return () => {
@@ -256,6 +259,7 @@ export const PluginGuiSurface = React.memo(({
             <PluginGuiSurfaceSampler
                 device={device}
                 samplerWaveformPath={samplerWaveformPath}
+                sampleMissing={sampleMissing}
                 onParamChange={onParamChange}
                 onParamGestureStart={onParamGestureStart}
                 onParamGestureEnd={onParamGestureEnd}

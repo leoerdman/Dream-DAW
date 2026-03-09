@@ -193,7 +193,6 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
-                onMouseDown={(e) => e.stopPropagation()}
                 style={{
                     position: 'relative',
                     flex: 1,

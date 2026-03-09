@@ -190,8 +190,8 @@ export function useDeviceRackLogic(
     useEffect(() => {
         if (!autoCtxMenu) return;
         const close = () => setAutoCtxMenu(null);
-        window.addEventListener('mousedown', close);
-        return () => window.removeEventListener('mousedown', close);
+        window.addEventListener('pointerdown', close);
+        return () => window.removeEventListener('pointerdown', close);
     }, [autoCtxMenu]);
 
     // BUG-FIX: Ensure context menu clears when switching tracks to prevent cross-track ID corruption

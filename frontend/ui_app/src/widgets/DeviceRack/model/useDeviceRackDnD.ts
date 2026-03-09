@@ -66,7 +66,7 @@ export function useDeviceRackDnD(
             setIsDropActive(inside);
         };
 
-        const onMouseUp = async (e: PointerEvent) => {
+        const onPointerUp = async (e: PointerEvent) => {
             const dragging = useDragStore.getState().draggingItem;
             const targetTrack = dropTargetTrackRef.current;
             if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
@@ -158,11 +158,11 @@ export function useDeviceRackDnD(
         };
 
         window.addEventListener('pointermove', onMouseMove, true);
-        window.addEventListener('pointerup', onMouseUp, true);
+        window.addEventListener('pointerup', onPointerUp, true);
 
         return () => {
             window.removeEventListener('pointermove', onMouseMove, true);
-            window.removeEventListener('pointerup', onMouseUp, true);
+            window.removeEventListener('pointerup', onPointerUp, true);
         };
     }, [rackRef, draggingItem]);
 

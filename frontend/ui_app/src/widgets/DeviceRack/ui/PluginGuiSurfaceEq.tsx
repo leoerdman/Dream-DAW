@@ -113,7 +113,7 @@ export function PluginGuiSurfaceEq({
     const enabledBands = bands.filter(b => b.enabled);
     const curveStops = useMemo(() => buildEqGradientStops(enabledBands), [enabledBands]);
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
-    const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
+    const { handlePointerDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
         eqSurfaceRef,
         bands,
         eqBandFilterTypes,
@@ -160,8 +160,8 @@ export function PluginGuiSurfaceEq({
                         height="100%"
                         viewBox={`0 0 ${VB_W} ${VB_H}`}
                         preserveAspectRatio="xMidYMid slice"
-                        style={{ cursor: 'crosshair', display: 'block' , willChange: 'transform', transform: 'translateZ(0)'}}
-                        onMouseDown={handleMouseDown}
+                        style={{ cursor: 'crosshair', display: 'block', willChange: 'transform', transform: 'translateZ(0)' }}
+                        onPointerDown={handlePointerDown}
                         onDoubleClick={handleDoubleClick}
                         onContextMenu={handleContextMenu}
                     >

@@ -26,7 +26,7 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
 
     const [isDragging, setIsDragging] = useState(false);
     const dragPointerIdRef = useRef<number | null>(null);
-    const mouseDragActiveRef = useRef(false);
+
     const dragStartYRef = useRef(0);
     const dragStartUnitRef = useRef(0);
     const dialRef = useRef<HTMLDivElement | null>(null);
@@ -34,7 +34,6 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
     const onKnobPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        if (mouseDragActiveRef.current) return;
         dragPointerIdRef.current = e.pointerId;
         dragStartYRef.current = e.clientY;
         dragStartUnitRef.current = valueToUnit(value);
@@ -68,16 +67,7 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
         onGestureEnd?.(paramName);
     }, [onGestureEnd, paramName]);
 
-    const beginMouseDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.button !== 0 || dragPointerIdRef.current !== null) return;
-        e.preventDefault();
-        e.stopPropagation();
-        mouseDragActiveRef.current = true;
-        dragStartYRef.current = e.clientY;
-        dragStartUnitRef.current = valueToUnit(value);
-        setIsDragging(true);
-        onGestureStart?.(paramName);
-    }, [onGestureStart, paramName, value, valueToUnit]);
+
 
     useEffect(() => {
         if (!isDragging || dragPointerIdRef.current === null) return;
@@ -106,34 +96,7 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
         };
     }, [isDragging, onChange, onGestureEnd, paramName, quantizeValue, unitToValue]);
 
-    useEffect(() => {
-        if (!isDragging || !mouseDragActiveRef.current) return;
-        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
-        const onMouseMove = (e: PointerEvent) => {
-            if (!mouseDragActiveRef.current) return;
-            e.preventDefault();
-            const dy = e.clientY - dragStartYRef.current;
-            const dragScalePx = resolveKnobDragScalePx(e.shiftKey, e.altKey);
-            const nextUnit = dragStartUnitRef.current + ((-dy) / dragScalePx);
-            onChange(paramName, quantizeValue(unitToValue(nextUnit)));
-        };
 
-        const onMouseUp = () => {
-            if (!mouseDragActiveRef.current) return;
-            mouseDragActiveRef.current = false;
-            setIsDragging(false);
-            onGestureEnd?.(paramName);
-        };
-
-        window.addEventListener('pointermove', onMouseMove);
-        window.addEventListener('pointerup', onMouseUp);
-        window.addEventListener('pointercancel', onMouseUp);
-        return () => {
-            window.removeEventListener('pointermove', onMouseMove);
-            window.removeEventListener('pointerup', onMouseUp);
-            window.removeEventListener('pointercancel', onMouseUp);
-        };
-    }, [isDragging, onChange, onGestureEnd, paramName, quantizeValue, unitToValue]);
 
     return {
         isDragging,
@@ -141,6 +104,5 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
         onKnobPointerDown,
         onKnobPointerMove,
         endKnobDrag,
-        beginMouseDrag,
     };
 }

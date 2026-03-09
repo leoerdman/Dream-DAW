@@ -107,7 +107,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
             data-selected-notes={selectedNotes.size}
             onFocus={() => setIsEditorFocused(true)}
             onBlur={() => setIsEditorFocused(false)}
-            onMouseDown={() => { useFocusPanelStore.getState().setActivePanel('piano-roll'); editorRootRef.current?.focus(); }}
+            onPointerDown={() => { useFocusPanelStore.getState().setActivePanel('piano-roll'); editorRootRef.current?.focus(); }}
             style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--color-bg-base)', fontFamily: 'var(--font-role-body)', fontSize: 'var(--font-size-xs)' }}
         >
             <PianoRollToolbar

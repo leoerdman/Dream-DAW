@@ -58,7 +58,7 @@ export function EqBandOverlays({
                             pointerEvents: 'auto',
                             cursor: 'grab',
                         }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                             if (e.button === 2) return;
                             e.preventDefault();
                             e.stopPropagation();
@@ -189,7 +189,7 @@ export function EqBandContextMenu({
                 maxHeight: `min(${MENU_HEIGHT}px, calc(100vh - ${SAFE_MARGIN * 2}px))`,
                 overflowY: 'auto',
             }}
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             data-eq-context-menu
         >
             {Object.entries(EQ_FILTER_LABELS).map(([type, label]) => (

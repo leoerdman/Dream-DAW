@@ -29,7 +29,7 @@ export const ClipEditorToolbar = memo(function ClipEditorToolbar({
 }: ClipEditorToolbarProps) {
     return (
         <div
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
                 const target = e.target as HTMLElement;
                 if (target.tagName !== 'SELECT' && target.tagName !== 'INPUT') {
                     e.preventDefault();

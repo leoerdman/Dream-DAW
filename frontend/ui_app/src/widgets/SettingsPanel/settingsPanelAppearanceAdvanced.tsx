@@ -47,7 +47,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             step={1}
                             value={draftShade}
                             onChange={(e) => setDraftShade(clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
-                            onMouseUp={() => updateSetting('darkThemeShade', draftShade)}
+                            onPointerUp={() => updateSetting('darkThemeShade', draftShade)}
                             onTouchEnd={() => updateSetting('darkThemeShade', draftShade)}
                             style={sliderStyle}
                         />
@@ -86,7 +86,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             step={1}
                             value={draftForestCanopyPercent}
                             onChange={(e) => setDraftForestCanopyPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
+                            onPointerUp={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             onTouchEnd={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             style={sliderStyle}
                         />
@@ -100,7 +100,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                             step={1}
                             value={draftForestFogPercent}
                             onChange={(e) => setDraftForestFogPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
+                            onPointerUp={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             onTouchEnd={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             style={sliderStyle}
                         />
@@ -117,7 +117,7 @@ export function AppearanceAdvancedControls(props: AppearanceAdvancedProps) {
                         step={1}
                         value={draftLightTexturePercent}
                         onChange={(e) => setDraftLightTexturePercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                        onMouseUp={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
+                        onPointerUp={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
                         onTouchEnd={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
                         style={{ width: 180 }}
                     />

@@ -335,7 +335,14 @@ async fn bounce_selection_to_track_cmd(
     };
 
     let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
-    let output_path = dream_importers::stem_separation::make_bounce_output_path("selection_bounce")?;
+    // ENTERPRISE: Write bounce output to project folder (Samples/Processed/Bounce/)
+    let proj_folder = project_state.project_folder.lock()
+        .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?
+        .clone();
+    let output_path = dream_io::ProjectManager::make_project_bounce_path(
+        proj_folder.as_deref(),
+        &bounce_track_name,
+    ).map_err(|e| format!("Failed to create bounce output path: {e}"))?;
     let cfg = BounceConfig {
         output_path: output_path.clone(),
         sample_rate: project.sample_rate.max(1.0).round() as u32,
@@ -526,7 +533,15 @@ async fn bounce_track_cmd(
     }
 
     let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
-    let output_path = dream_importers::stem_separation::make_bounce_output_path("track_bounce")?;
+    // ENTERPRISE: Write bounce output to project folder (Samples/Processed/Bounce/)
+    let proj_folder = project_state.project_folder.lock()
+        .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?
+        .clone();
+    let bounce_name = format!("{} Bounce", source_track.name);
+    let output_path = dream_io::ProjectManager::make_project_bounce_path(
+        proj_folder.as_deref(),
+        &bounce_name,
+    ).map_err(|e| format!("Failed to create bounce output path: {e}"))?;
     let cfg = BounceConfig {
         output_path: output_path.clone(),
         sample_rate: project.sample_rate.max(1.0).round() as u32,
@@ -783,7 +798,15 @@ async fn bounce_group_cmd(
     }
 
     let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
-    let output_path = dream_importers::stem_separation::make_bounce_output_path("group_bounce")?;
+    // ENTERPRISE: Write bounce output to project folder (Samples/Processed/Bounce/)
+    let proj_folder = project_state.project_folder.lock()
+        .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?
+        .clone();
+    let bounce_name = format!("{} Group Bounce", group_track.name);
+    let output_path = dream_io::ProjectManager::make_project_bounce_path(
+        proj_folder.as_deref(),
+        &bounce_name,
+    ).map_err(|e| format!("Failed to create bounce output path: {e}"))?;
     let cfg = BounceConfig {
         output_path: output_path.clone(),
         sample_rate: project.sample_rate.max(1.0).round() as u32,
@@ -1015,9 +1038,30 @@ pub async fn consolidate_selection_cmd(
         }
         
         let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
-        let output_path = dream_importers::stem_separation::make_bounce_output_path(
-            &format!("consolidated_track_{}", track_idx)
-        )?;
+        // ENTERPRISE: Write consolidate output to project folder (Samples/Processed/Consolidate/)
+        let proj_folder = project_state.project_folder.lock()
+            .map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?
+            .clone();
+        // Build descriptive name from source clip names (Ableton-style)
+        let clip_names: Vec<String> = project.tracks.get(track_idx)
+            .map(|t| t.clips.iter()
+                .filter(|c| track_clip_ids.contains(&c.id))
+                .map(|c| c.name.clone())
+                .collect())
+            .unwrap_or_default();
+        let consolidate_label = if clip_names.len() <= 3 {
+            clip_names.join(" + ")
+        } else {
+            format!("{} + {} more", clip_names[..2].join(" + "), clip_names.len() - 2)
+        };
+        let track_name = project.tracks.get(track_idx)
+            .map(|t| t.name.as_str())
+            .unwrap_or("Track");
+        let consolidate_name = format!("{} Consolidated", track_name);
+        let output_path = dream_io::ProjectManager::make_project_consolidate_path(
+            proj_folder.as_deref(),
+            &consolidate_name,
+        ).map_err(|e| format!("Failed to create consolidate output path: {e}"))?;
         
         let cfg = BounceConfig {
             output_path: output_path.clone(),
@@ -1097,7 +1141,11 @@ pub async fn consolidate_selection_cmd(
 
         let cmd = dream_orchestrator::commands::clip_bounce::ConsolidateClipsCommand {
             file_path: output_path.clone(),
-            clip_name: "Consolidated".to_string(),
+            clip_name: if consolidate_label.is_empty() {
+                consolidate_name.clone()
+            } else {
+                format!("Consolidated ({})", consolidate_label)
+            },
             start_frame,
             timeline_duration_frames: timeline_frames,
             source_duration_frames: decoded.num_frames as i64,

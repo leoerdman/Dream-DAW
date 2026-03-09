@@ -151,10 +151,10 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) setContextMenu(null);
         };
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
-        window.addEventListener('mousedown', onClick, true);
+        window.addEventListener('pointerdown', onClick, true);
         window.addEventListener('keydown', onKey);
         return () => {
-            window.removeEventListener('mousedown', onClick, true);
+            window.removeEventListener('pointerdown', onClick, true);
             window.removeEventListener('keydown', onKey);
         };
     }, [contextMenu, contextMenuRef, setContextMenu]);
@@ -280,15 +280,15 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [items, selectedItemId, setSelectedItemId]);
     useEffect(() => {
         if (!columnMenuPos) return;
-        const onMouseDown = (e: MouseEvent) => {
+        const onPointerDown = (e: PointerEvent) => {
             if (!columnMenuRef.current) return;
             if (!columnMenuRef.current.contains(e.target as Node)) setColumnMenuPos(null);
         };
         const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setColumnMenuPos(null); };
-        window.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('pointerdown', onPointerDown);
         window.addEventListener('keydown', onKeyDown);
         return () => {
-            window.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('pointerdown', onPointerDown);
             window.removeEventListener('keydown', onKeyDown);
         };
     }, [columnMenuPos, columnMenuRef, setColumnMenuPos]);

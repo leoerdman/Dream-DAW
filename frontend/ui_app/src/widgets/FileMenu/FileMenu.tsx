@@ -35,8 +35,8 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                 setOpen(false);
             }
         };
-        document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
+        document.addEventListener('pointerdown', handleClick);
+        return () => document.removeEventListener('pointerdown', handleClick);
     }, [open]);
 
     // Load recent projects when menu opens

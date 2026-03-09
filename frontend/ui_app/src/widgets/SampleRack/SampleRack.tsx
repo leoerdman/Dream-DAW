@@ -136,7 +136,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                         <div
                             key={i}
                             onClick={() => setSelectedPad(i)}
-                            onMouseUp={() => {
+                            onPointerUp={() => {
                                 const drag = useDragStore.getState().draggingItem;
                                 if (drag?.path && canDropInZone(drag, 'sampler-surface').allowed) {
                                     handleDropSample(i, drag.path);

@@ -188,7 +188,7 @@ export const BrowserGlyph = memo(function BrowserGlyph({
 export const FilterPill = ({
     options, value, onChange,
 }: {
-    options: string[];
+    options: readonly string[];
     value: number;
     onChange: (v: number) => void;
 }) => (

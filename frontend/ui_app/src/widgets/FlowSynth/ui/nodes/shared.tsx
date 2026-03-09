@@ -29,7 +29,7 @@ export function ControlRow({ label, children }: ControlRowProps) {
 
 interface NodeSelectProps {
     value: string;
-    options: { value: string; label: string }[];
+    options: readonly { value: string; label: string }[];
     onChange: (value: string) => void;
 }
 
@@ -39,7 +39,6 @@ export function NodeSelect({ value, options, onChange }: NodeSelectProps) {
             value={value}
             onChange={(e) => { e.stopPropagation(); onChange(e.target.value); }}
             onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
             style={nodeSelectStyle}
         >
             {options.map((opt) => (
@@ -69,7 +68,6 @@ export function NodeSlider({ value, min, max, step, onChange }: NodeSliderProps)
             value={value}
             onChange={(e) => onChange(Number(e.target.value))}
             onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
             style={nodeSliderStyle}
         />
     );

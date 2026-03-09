@@ -20,7 +20,7 @@ interface DeviceNodeHeaderProps {
     onOpenGUI?: () => void;
     onEnsureActive?: () => void;
     onOpenSettings: () => void;
-    onSelect: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onSelect: (e: React.MouseEvent | React.PointerEvent) => void;
 }
 
 export function DeviceNodeHeader({

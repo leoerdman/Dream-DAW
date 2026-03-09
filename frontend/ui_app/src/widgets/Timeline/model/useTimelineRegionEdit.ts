@@ -99,7 +99,7 @@ export function useTimelineRegionEdit({
         regionDragCleanupRef.current = null;
     }, []);
 
-    const beginRegionDrag = useCallback((which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.MouseEvent) => {
+    const beginRegionDrag = useCallback((which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.PointerEvent) => {
         e.preventDefault();
         e.stopPropagation();
         const laneEl = masterLaneRef.current;

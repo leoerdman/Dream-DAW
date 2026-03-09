@@ -640,8 +640,8 @@ export const AdsrCurve = React.memo(function AdsrCurve({
                 </>
             )}
 
-            {/* Draggable handles */}
-            {handles.map((h) => (
+            {/* Draggable handles — hidden in transparent overlay mode (avoids mystery dots on waveform) */}
+            {!transparent && handles.map((h) => (
                 <circle
                     key={h.param}
                     cx={h.cx}

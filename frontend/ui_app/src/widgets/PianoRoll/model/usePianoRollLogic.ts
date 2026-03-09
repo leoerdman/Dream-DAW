@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, type PointerEvent } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { MAX_PPB, MIN_PPB } from '@/widgets/PianoRoll/model/pianoRollConfig';
@@ -209,7 +209,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         setSelectedNotes,
     });
 
-    const handleVelocityMouseDownWithFocus = useCallback((noteId: string, event: MouseEvent) => {
+    const handleVelocityMouseDownWithFocus = useCallback((noteId: string, event: PointerEvent) => {
         editorRootRef.current?.focus();
         handleVelocityMouseDown(noteId, event);
     }, [editorRootRef, handleVelocityMouseDown]);

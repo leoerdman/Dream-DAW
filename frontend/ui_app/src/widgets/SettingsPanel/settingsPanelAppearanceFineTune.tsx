@@ -55,7 +55,7 @@ export function AppearanceFineTune({
                             step={1}
                             value={draftShade}
                             onChange={(e) => setDraftShade(clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
-                            onMouseUp={() => updateSetting('darkThemeShade', draftShade)}
+                            onPointerUp={() => updateSetting('darkThemeShade', draftShade)}
                             onTouchEnd={() => updateSetting('darkThemeShade', draftShade)}
                             style={sliderStyle}
                         />
@@ -94,7 +94,7 @@ export function AppearanceFineTune({
                             step={1}
                             value={draftForestCanopyPercent}
                             onChange={(e) => setDraftForestCanopyPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
+                            onPointerUp={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             onTouchEnd={() => updateSetting('forestThemeCanopyPercent', draftForestCanopyPercent)}
                             style={sliderStyle}
                         />
@@ -108,7 +108,7 @@ export function AppearanceFineTune({
                             step={1}
                             value={draftForestFogPercent}
                             onChange={(e) => setDraftForestFogPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            onMouseUp={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
+                            onPointerUp={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             onTouchEnd={() => updateSetting('forestThemeFogPercent', draftForestFogPercent)}
                             style={sliderStyle}
                         />
@@ -125,7 +125,7 @@ export function AppearanceFineTune({
                         step={1}
                         value={draftLightTexturePercent}
                         onChange={(e) => setDraftLightTexturePercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                        onMouseUp={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
+                        onPointerUp={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
                         onTouchEnd={() => updateSetting('lightThemeTexturePercent', draftLightTexturePercent)}
                         style={{ width: 180 }}
                     />
@@ -140,7 +140,7 @@ export function AppearanceFineTune({
                     step={1}
                     value={draftThemeDetailPercent}
                     onChange={(e) => setDraftThemeDetailPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                    onMouseUp={() => updateSetting('themeDetailPercent', draftThemeDetailPercent)}
+                    onPointerUp={() => updateSetting('themeDetailPercent', draftThemeDetailPercent)}
                     onTouchEnd={() => updateSetting('themeDetailPercent', draftThemeDetailPercent)}
                     style={{ width: 180 }}
                 />
@@ -154,7 +154,7 @@ export function AppearanceFineTune({
                     step={1}
                     value={draftThemePanelsDetailPercent}
                     onChange={(e) => setDraftThemePanelsDetailPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                    onMouseUp={() => updateSetting('themePanelsDetailPercent', draftThemePanelsDetailPercent)}
+                    onPointerUp={() => updateSetting('themePanelsDetailPercent', draftThemePanelsDetailPercent)}
                     onTouchEnd={() => updateSetting('themePanelsDetailPercent', draftThemePanelsDetailPercent)}
                     style={{ width: 180 }}
                 />
@@ -168,7 +168,7 @@ export function AppearanceFineTune({
                     step={1}
                     value={draftThemeTimelineDetailPercent}
                     onChange={(e) => setDraftThemeTimelineDetailPercent(clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                    onMouseUp={() => updateSetting('themeTimelineDetailPercent', draftThemeTimelineDetailPercent)}
+                    onPointerUp={() => updateSetting('themeTimelineDetailPercent', draftThemeTimelineDetailPercent)}
                     onTouchEnd={() => updateSetting('themeTimelineDetailPercent', draftThemeTimelineDetailPercent)}
                     style={{ width: 180 }}
                 />

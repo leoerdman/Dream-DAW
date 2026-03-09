@@ -18,13 +18,13 @@ export function useClickOutside(
 ): void {
     useEffect(() => {
         if (!active) return;
-        const onDown = (e: MouseEvent) => {
+        const onDown = (e: PointerEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) {
                 onClose();
             }
         };
         // BUG-025 FIX: passive:true avoids blocking scroll during click-outside detection.
-        document.addEventListener('mousedown', onDown, { passive: true });
-        return () => document.removeEventListener('mousedown', onDown);
+        document.addEventListener('pointerdown', onDown, { passive: true });
+        return () => document.removeEventListener('pointerdown', onDown);
     }, [ref, onClose, active]);
 }

@@ -56,7 +56,7 @@ export function AudioTab({
                     <Select
                         value={settings.outputDevice}
                         options={outputOptions}
-                        onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
+                        onPointerDown={() => void refreshAudioDevices({ force: true, silent: true })}
                         onChange={async (v) => {
                             setRestartingEngine(true);
                             try {
@@ -78,7 +78,7 @@ export function AudioTab({
                     <Select
                         value={settings.fallbackOutputDevice || 'Default Output'}
                         options={outputOptions}
-                        onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
+                        onPointerDown={() => void refreshAudioDevices({ force: true, silent: true })}
                         onChange={(v) => updateSetting('fallbackOutputDevice', v)}
                     />
                     <button onClick={() => updateSetting('fallbackOutputDevice', settings.outputDevice || 'Default Output')} style={actionBtnSmStyle} title="Pin current output as fallback">
@@ -89,7 +89,7 @@ export function AudioTab({
                     <Select
                         value={settings.inputDevice}
                         options={inputOptions}
-                        onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
+                        onPointerDown={() => void refreshAudioDevices({ force: true, silent: true })}
                         onChange={(v) => updateSetting('inputDevice', v)}
                     />
                     {devicesLoading && audioDevices.inputs.length === 0 && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}

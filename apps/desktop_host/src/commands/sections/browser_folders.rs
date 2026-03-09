@@ -234,11 +234,23 @@ fn collect_plugins_recursive(
     }
 }
 
-/// Scans a folder for ALL file types (audio, plugins, projects, presets, etc.).
-/// Returns classified entries. Subfolders are also listed as navigable entries.
+/// Maximum number of files `scan_folder_all` will collect to prevent the IPC
+/// from blocking on extremely large libraries.
+const SCAN_FOLDER_ALL_MAX_FILES: usize = 50_000;
+/// Maximum recursion depth for `scan_folder_all`.
+const SCAN_FOLDER_ALL_MAX_DEPTH: u32 = 8;
+
+/// ENTERPRISE FIX: Recursively scans a folder for ALL file types
+/// (audio, plugins, projects, presets, etc.).
+/// Uses iterative BFS to prevent stack overflow on deep hierarchies.
+/// Returns classified entries with symlink cycle detection.
+///
+/// Previous implementation only read the top-level directory, which caused
+/// Auto Search in Missing Media to report "no audio files found" when files
+/// lived in subdirectories.
 #[tauri::command]
 fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
-    log::info!("[IPC] scan_folder_all: {}", path);
+    log::info!("[IPC] scan_folder_all (recursive): {}", path);
     let root = std::path::Path::new(&path);
     if !root.exists() {
         return Err(format!("Folder does not exist: {}", path));
@@ -247,78 +259,132 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
         return Err(format!("Path is not a directory: {}", path));
     }
 
-    let read_dir = std::fs::read_dir(root)
-        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+    use std::collections::{HashSet, VecDeque};
 
     let mut entries = Vec::new();
+    let mut file_count: usize = 0;
+    // Cycle detection: track canonical paths of visited directories.
+    let mut seen_dirs: HashSet<String> = HashSet::new();
 
-    for entry in read_dir.flatten() {
-        let file_name = entry.file_name().to_string_lossy().to_string();
-        // Skip hidden files
-        if file_name.starts_with('.') {
+    // BFS work queue: (directory_path, current_depth)
+    let mut queue: VecDeque<(std::path::PathBuf, u32)> = VecDeque::new();
+    queue.push_back((root.to_path_buf(), 0));
+
+    while let Some((current_dir, depth)) = queue.pop_front() {
+        if file_count >= SCAN_FOLDER_ALL_MAX_FILES {
+            log::warn!(
+                "[scan_folder_all] Hit file cap ({}) — stopping scan",
+                SCAN_FOLDER_ALL_MAX_FILES
+            );
+            break;
+        }
+        if depth > SCAN_FOLDER_ALL_MAX_DEPTH {
             continue;
         }
 
-        let entry_path = entry.path();
-        let metadata = std::fs::metadata(&entry_path).ok();
-        let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
-        let modified_at = metadata
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_default();
+        // Cycle detection via canonical path.
+        let canonical = current_dir
+            .canonicalize()
+            .unwrap_or_else(|_| current_dir.clone());
+        let canonical_str = canonical.to_string_lossy().to_string();
+        if !seen_dirs.insert(canonical_str.clone()) {
+            log::debug!(
+                "[scan_folder_all] Skipping already-visited: {}",
+                canonical_str
+            );
+            continue;
+        }
 
-        if entry_path.is_dir() {
-            // Check if it's a plugin bundle (.vst, .vst3, .component, .au)
-            let ext = entry_path.extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            let ext_lower = ext.to_lowercase();
-            if PLUGIN_EXTENSIONS.contains(&ext_lower.as_str()) {
+        let read_dir = match std::fs::read_dir(&current_dir) {
+            Ok(rd) => rd,
+            Err(err) => {
+                log::debug!(
+                    "[scan_folder_all] Cannot read '{}': {}",
+                    current_dir.display(),
+                    err
+                );
+                continue;
+            }
+        };
+
+        for entry in read_dir.flatten() {
+            if file_count >= SCAN_FOLDER_ALL_MAX_FILES {
+                break;
+            }
+
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            // Skip hidden files/directories
+            if file_name.starts_with('.') {
+                continue;
+            }
+
+            let entry_path = entry.path();
+            let metadata = std::fs::metadata(&entry_path).ok();
+            let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+            let modified_at = metadata
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs().to_string())
+                .unwrap_or_default();
+
+            if entry_path.is_dir() {
+                let ext = entry_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let ext_lower = ext.to_lowercase();
+
+                if PLUGIN_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    // Plugin bundle directory — treat as a file, do NOT recurse into it.
+                    entries.push(BrowserFileEntry {
+                        name: file_name,
+                        path: entry_path.to_string_lossy().to_string(),
+                        size_bytes,
+                        modified_at,
+                        extension: ext.to_uppercase(),
+                        file_type: "plugin".to_string(),
+                        is_directory: false,
+                        duration_seconds: None,
+                    });
+                    file_count += 1;
+                } else {
+                    // Regular subfolder — enqueue for recursive scanning.
+                    queue.push_back((entry_path, depth + 1));
+                }
+            } else if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
+                let file_type = classify_file_type(ext);
                 entries.push(BrowserFileEntry {
                     name: file_name,
                     path: entry_path.to_string_lossy().to_string(),
                     size_bytes,
                     modified_at,
                     extension: ext.to_uppercase(),
-                    file_type: "plugin".to_string(),
-                    is_directory: false, // Treat as file for UX
+                    file_type: file_type.to_string(),
+                    is_directory: false,
                     duration_seconds: None,
                 });
-            } else {
-                // Regular subfolder
-                entries.push(BrowserFileEntry {
-                    name: file_name,
-                    path: entry_path.to_string_lossy().to_string(),
-                    size_bytes: 0,
-                    modified_at,
-                    extension: String::new(),
-                    file_type: "folder".to_string(),
-                    is_directory: true,
-                    duration_seconds: None,
-                });
+                file_count += 1;
             }
-        } else if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-            let file_type = classify_file_type(ext);
-            let duration_seconds = None; // On-demand in frontend to prevent IPC timeout on large folders
-            entries.push(BrowserFileEntry {
-                name: file_name,
-                path: entry_path.to_string_lossy().to_string(),
-                size_bytes,
-                modified_at,
-                extension: ext.to_uppercase(),
-                file_type: file_type.to_string(),
-                is_directory: false,
-                duration_seconds,
-            });
         }
     }
 
-    // Sort: folders first, then by name
+    // Sort: audio first, then by name (case-insensitive)
     entries.sort_by(|a, b| {
-        b.is_directory.cmp(&a.is_directory)
+        // Audio files first for Auto Search relevance
+        let a_audio = a.file_type == "audio";
+        let b_audio = b.file_type == "audio";
+        b_audio
+            .cmp(&a_audio)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+
+    log::info!(
+        "[IPC] scan_folder_all: found {} files in '{}' (depth {}, cap {})",
+        entries.len(),
+        path,
+        SCAN_FOLDER_ALL_MAX_DEPTH,
+        SCAN_FOLDER_ALL_MAX_FILES,
+    );
 
     Ok(entries)
 }

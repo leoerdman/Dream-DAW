@@ -121,7 +121,7 @@ export function usePianoRollGridInteractions({
         insertNoteFromPointer(event.clientX, event.clientY, event.currentTarget as HTMLElement);
     }, [editorRootRef, insertNoteFromPointer, isDragInProgressRef, pianoPencilMode, tool]);
 
-    const handleGridPaintStart = useCallback((event: React.MouseEvent) => {
+    const handleGridPaintStart = useCallback((event: React.PointerEvent) => {
         if (tool !== 'paint') return;
         if (event.button !== 0) return;
         editorRootRef.current?.focus();
@@ -167,7 +167,7 @@ export function usePianoRollGridInteractions({
         window.addEventListener('pointercancel', onUp);
     }, [tool, editorRootRef, currentGridInterval, notesRef, yToPitch, clipBeats, snapToCellStart, pixelsPerBeat, enforceNoOverlap, onNotesChange, auditionNote]);
 
-    const handleGridSelectionStart = useCallback((event: React.MouseEvent) => {
+    const handleGridSelectionStart = useCallback((event: React.PointerEvent) => {
         if (tool === 'paint') return;
         if (event.button !== 0) return;
         editorRootRef.current?.focus();
@@ -222,7 +222,7 @@ export function usePianoRollGridInteractions({
         window.addEventListener('pointercancel', onUp);
     }, [tool, editorRootRef, setSelectionRect, setSelectedNotes, canvasWidth, canvasHeight, notes, pixelsPerBeat, pitchToY, noteHeight]);
 
-    const handleGridMouseDown = useCallback((event: React.MouseEvent) => {
+    const handleGridMouseDown = useCallback((event: React.PointerEvent) => {
         if (tool === 'paint') {
             handleGridPaintStart(event);
             return;

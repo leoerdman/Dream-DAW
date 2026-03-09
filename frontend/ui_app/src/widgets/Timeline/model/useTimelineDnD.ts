@@ -139,7 +139,7 @@ export function useTimelineDnD({
         if (!draggingItem) return;
         if (draggingItem.type !== 'audio' && draggingItem.type !== 'midi') return;
 
-        const onMouseUp = (e: PointerEvent) => {
+        const onPointerUp = (e: PointerEvent) => {
             const engine = engineRef.current;
             const canvas = canvasRef.current;
             if (!engine || !canvas) {
@@ -190,11 +190,11 @@ export function useTimelineDnD({
 
         // ENTERPRISE FIX (Phase 33): pointerup + pointercancel for full interrupt safety.
         // Legacy mouseup was missing pointercancel — OS interrupts left ghost clips stuck.
-        window.addEventListener('pointerup', onMouseUp, { capture: true });
-        window.addEventListener('pointercancel', onMouseUp, { capture: true });
+        window.addEventListener('pointerup', onPointerUp, { capture: true });
+        window.addEventListener('pointercancel', onPointerUp, { capture: true });
         return () => {
-            window.removeEventListener('pointerup', onMouseUp, { capture: true });
-            window.removeEventListener('pointercancel', onMouseUp, { capture: true });
+            window.removeEventListener('pointerup', onPointerUp, { capture: true });
+            window.removeEventListener('pointercancel', onPointerUp, { capture: true });
         };
     }, [draggingItem, engineRef, canvasRef, commandBusRef]);
 

@@ -114,7 +114,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                 e.preventDefault();
                 if (item.path) setContextMenu({ x: e.clientX, y: e.clientY, item });
             }}
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
                 if (!isDraggable || !item.path || e.button !== 0) return;
                 const startX = e.clientX;
                 const startY = e.clientY;

@@ -119,8 +119,8 @@ export const StatusBar = ({
                 setHistoryOpen(false);
             }
         };
-        document.addEventListener('mousedown', onDown);
-        return () => document.removeEventListener('mousedown', onDown);
+        document.addEventListener('pointerdown', onDown);
+        return () => document.removeEventListener('pointerdown', onDown);
     }, [historyOpen]);
 
     // BUG-99 FIX: Memoize historyItems to avoid creating new array every render.

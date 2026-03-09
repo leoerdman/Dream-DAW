@@ -95,9 +95,9 @@ export class TimelineEngine {
     private _metaKeyHeld = false;
 
     private _boundWheel: (e: WheelEvent) => void;
-    private _boundMouseDown: (e: MouseEvent) => void;
-    private _boundMouseMove: (e: PointerEvent) => void;
-    private _boundMouseUp: (e: PointerEvent) => void;
+    private _boundPointerDown: (e: PointerEvent) => void;
+    private _boundPointerMove: (e: PointerEvent) => void;
+    private _boundPointerUp: (e: PointerEvent) => void;
     private _boundDblClick: (e: MouseEvent) => void;
     private _boundContextMenu: (e: MouseEvent) => void;
     private _boundKeyDown: (e: KeyboardEvent) => void;
@@ -167,9 +167,9 @@ export class TimelineEngine {
         });
 
         this._boundWheel = this._onWheel.bind(this);
-        this._boundMouseDown = this._onMouseDown.bind(this);
-        this._boundMouseMove = this._onMouseMove.bind(this);
-        this._boundMouseUp = this._onMouseUp.bind(this);
+        this._boundPointerDown = this._onPointerDown.bind(this);
+        this._boundPointerMove = this._onPointerMove.bind(this);
+        this._boundPointerUp = this._onPointerUp.bind(this);
         this._boundDblClick = this._onDoubleClick.bind(this);
         this._boundContextMenu = this._onContextMenu.bind(this);
         this._boundKeyDown = this._onKeyDown.bind(this);
@@ -199,16 +199,16 @@ export class TimelineEngine {
         this._resizeObserver.observe(canvas);
 
         canvas.addEventListener('wheel', this._boundWheel, { passive: false });
-        canvas.addEventListener('pointerdown', this._boundMouseDown);
+        canvas.addEventListener('pointerdown', this._boundPointerDown);
         canvas.addEventListener('dblclick', this._boundDblClick);
         canvas.addEventListener('contextmenu', this._boundContextMenu);
 
         // ENTERPRISE FIX (Phase 33): Use pointer events for window-level listeners.
         // Legacy mousemove/mouseup missed pointercancel — OS interrupts (alerts,
         // sleep, 3-finger swipe) left the engine in stuck drag state.
-        window.addEventListener('pointermove', this._boundMouseMove);
-        window.addEventListener('pointerup', this._boundMouseUp);
-        window.addEventListener('pointercancel', this._boundMouseUp);
+        window.addEventListener('pointermove', this._boundPointerMove);
+        window.addEventListener('pointerup', this._boundPointerUp);
+        window.addEventListener('pointercancel', this._boundPointerUp);
         window.addEventListener('keydown', this._boundKeyDown, { capture: true });
         window.addEventListener('keyup', this._boundKeyUp, { capture: true });
         window.addEventListener('blur', this._boundWindowBlur);
@@ -233,14 +233,14 @@ export class TimelineEngine {
         const canvas = this._canvas;
         if (canvas) {
             canvas.removeEventListener('wheel', this._boundWheel);
-            canvas.removeEventListener('pointerdown', this._boundMouseDown);
+            canvas.removeEventListener('pointerdown', this._boundPointerDown);
             canvas.removeEventListener('dblclick', this._boundDblClick);
             canvas.removeEventListener('contextmenu', this._boundContextMenu);
         }
 
-        window.removeEventListener('pointermove', this._boundMouseMove);
-        window.removeEventListener('pointerup', this._boundMouseUp);
-        window.removeEventListener('pointercancel', this._boundMouseUp);
+        window.removeEventListener('pointermove', this._boundPointerMove);
+        window.removeEventListener('pointerup', this._boundPointerUp);
+        window.removeEventListener('pointercancel', this._boundPointerUp);
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
         window.removeEventListener('keyup', this._boundKeyUp, { capture: true });
         window.removeEventListener('blur', this._boundWindowBlur);
@@ -1199,7 +1199,7 @@ export class TimelineEngine {
         this._requestRedraw();
     }
 
-    private _onMouseDown(e: MouseEvent): void {
+    private _onPointerDown(e: PointerEvent): void {
         if (e.button !== 0) return; // Left click only
         if (!this._canvas) return;
 
@@ -1540,7 +1540,7 @@ export class TimelineEngine {
         }
     }
 
-    private _onMouseMove(e: PointerEvent): void {
+    private _onPointerMove(e: PointerEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
         const canvas = this._canvas;
         if (!canvas) return;
@@ -1850,7 +1850,7 @@ export class TimelineEngine {
         }
     }
 
-    private _onMouseUp(e: PointerEvent): void {
+    private _onPointerUp(e: PointerEvent): void {
         if (this._drag.mode === DragMode.None) return;
 
         const canvas = this._canvas;
@@ -2434,7 +2434,7 @@ export class TimelineEngine {
 
     // ────────────────────────────────────────────────────────────────────────
     // ENTERPRISE: Cmd+Drag visual state toggle.
-    // Called from _onMouseMove (ClipMove), _onKeyDown, and _onKeyUp.
+    // Called from _onPointerMove (ClipMove), _onKeyDown, and _onKeyUp.
     // When Cmd/Ctrl is held:
     //   - Primary clip + co-movers stay at ORIGINAL positions
     //   - Ghost clones appear at TARGET positions (full opacity)

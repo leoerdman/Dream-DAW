@@ -429,7 +429,7 @@ export const SynthNodeComponent = React.memo(function SynthNodeComponentBase({ n
             ref={nodeRef}
             data-flow-node-root="true"
             data-flow-node-id={node.id}
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
                 if (interactionDisabled) return;
                 e.stopPropagation();
                 selectNode(node.id, e.metaKey || e.ctrlKey || e.shiftKey);

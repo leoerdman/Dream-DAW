@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { snapToTrackHeightLevel } from '@/shared/config/trackHeightLevels';
 
 interface UseTrackInspectorResizeArgs {
@@ -66,16 +67,23 @@ export function useTrackInspectorResize({
                             .getState()
                             .applyProjectDeltas(response.deltas, 'track-inspector:resize-track-height'),
                     )
-                    .catch((err) => {
+                    .catch((err: unknown) => {
+                        const msg = err instanceof Error ? err.message : String(err);
                         console.error('[Dream] setTrackHeight failed:', err);
+                        useStatusStore.getState().setError(`Track resize failed: ${msg}`);
                     });
             }
         };
         window.addEventListener('pointermove', onPointerMove, { passive: false });
         window.addEventListener('pointerup', onPointerUp);
+        // ENTERPRISE: pointercancel fires when the OS interrupts the gesture
+        // (system alert, trackpad gesture, etc). Without this, pointermove
+        // listeners become orphaned — a memory leak and interaction corruption bug.
+        window.addEventListener('pointercancel', onPointerUp);
         return () => {
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
         };
     }, [resizingTrackId, clampRowHeight, applyTrackHeightOptimistic, setRowHeightOverrides]);
 

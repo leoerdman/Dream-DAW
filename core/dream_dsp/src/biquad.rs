@@ -269,6 +269,12 @@ impl BiquadFilter {
 
         self.x2 = self.x1;
         self.x1 = x;
+        // BUG-AUDIT-003: Flush denormals in input history to prevent CPU spikes.
+        // In Direct Form I, output = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2.
+        // When input goes to zero, x1/x2 decay and become subnormal (< 1e-15),
+        // causing 10-100x CPU cost per multiply on x86 FPUs.
+        if self.x1.abs() < 1e-15 { self.x1 = 0.0; }
+        if self.x2.abs() < 1e-15 { self.x2 = 0.0; }
         self.y2 = self.y1;
         // BUG-85 FIX: Flush denormals in IIR feedback to prevent CPU spikes on x86.
         // BUG-008 FIX: Prevent silent loss of signal on infinity/NaN by isolating

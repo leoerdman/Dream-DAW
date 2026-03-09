@@ -31,7 +31,13 @@ export function createFetchProjectAction(
                     return { projectHistory: history, projectHistoryCursor: merged.cursor };
                 });
             } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
                 console.warn('[Dream] syncProjectHistory failed:', e);
+                // ENTERPRISE (Phase 32): Surface persistent sync failures to user.
+                // Lazy import avoids circular dependency with useStatusStore.
+                import('@/shared/stores/useStatusStore').then(({ useStatusStore: statusStore }) => {
+                    statusStore.getState().setError(`History sync failed: ${msg}`);
+                }).catch(() => { /* ignore import failure in test/SSR */ });
             }
         },
     };

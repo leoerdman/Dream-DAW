@@ -20,9 +20,11 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 // the previous key, reuse the previous WeakMap key to avoid cache misses.
 const _allTracksCache = new WeakMap<string[], (ProjectTrack | undefined)[]>();
 let _prevAllIdsRef: string[] | null = null;
-/** Select all tracks as an ordered array (cached by allIds reference). */
+let _prevTracksByIdRef: Record<string, ProjectTrack> | null = null;
+/** Select all tracks as an ordered array (cached by allIds + byId reference). */
 export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) => {
     let key = s.tracks.allIds;
+    const byId = s.tracks.byId;
     // BUG-012 FIX: If the new allIds has the same content as the previous one
     // (e.g., [...state.allIds] spread in delta handler), reuse the old reference
     // so the WeakMap cache hits and we don't create a new mapped array.
@@ -33,12 +35,16 @@ export const selectAllTracks = (s: ReturnType<typeof useEngineStore.getState>) =
         }
         if (same) key = _prevAllIdsRef;
     }
+    // BUG-AUDIT FIX: Also invalidate when byId changes (e.g. track property update
+    // like volume/color/name changes byId ref without changing allIds).
+    const byIdChanged = _prevTracksByIdRef !== null && byId !== _prevTracksByIdRef;
     let cached = _allTracksCache.get(key);
-    if (!cached) {
-        cached = key.map(id => s.tracks.byId[id]);
+    if (!cached || byIdChanged) {
+        cached = key.map(id => byId[id]);
         _allTracksCache.set(key, cached);
     }
     _prevAllIdsRef = key;
+    _prevTracksByIdRef = byId;
     return cached;
 };
 
@@ -60,9 +66,11 @@ export const selectTrackCount = (s: ReturnType<typeof useEngineStore.getState>) 
 
 const _allClipsCache = new WeakMap<string[], (TimelineClip | undefined)[]>();
 let _prevAllClipIdsRef: string[] | null = null;
-/** Select all clips as an ordered array (cached by allIds reference). */
+let _prevClipsByIdRef: Record<string, TimelineClip> | null = null;
+/** Select all clips as an ordered array (cached by allIds + byId reference). */
 export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) => {
     let key = s.clips.allIds;
+    const byId = s.clips.byId;
     if (_prevAllClipIdsRef && key !== _prevAllClipIdsRef && key.length === _prevAllClipIdsRef.length) {
         let same = true;
         for (let i = 0; i < key.length; i++) {
@@ -70,12 +78,17 @@ export const selectAllClips = (s: ReturnType<typeof useEngineStore.getState>) =>
         }
         if (same) key = _prevAllClipIdsRef;
     }
+    // BUG-AUDIT FIX: Also invalidate when byId changes (e.g. patchClip updates
+    // clip properties without changing allIds). Without this, the cache returns
+    // stale clip objects with outdated positions/durations.
+    const byIdChanged = _prevClipsByIdRef !== null && byId !== _prevClipsByIdRef;
     let cached = _allClipsCache.get(key);
-    if (!cached) {
-        cached = key.map(id => s.clips.byId[id]);
+    if (!cached || byIdChanged) {
+        cached = key.map(id => byId[id]);
         _allClipsCache.set(key, cached);
     }
     _prevAllClipIdsRef = key;
+    _prevClipsByIdRef = byId;
     return cached as TimelineClip[];
 };
 

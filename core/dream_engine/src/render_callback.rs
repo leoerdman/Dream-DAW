@@ -1065,6 +1065,12 @@ fn warp_markers_beat_to_source_seconds(
     markers: &[dream_models::project::WarpMarkerPoint],
     beat: f64,
 ) -> f64 {
+    // AUDIT-P0-A01 FIX: Runtime guard — debug_assert! is stripped in release.
+    // Without this, corrupted project files with <2 markers cause an
+    // index-out-of-bounds panic on the RT thread, killing audio.
+    if markers.len() < 2 {
+        return if markers.is_empty() { 0.0 } else { markers[0].sec_time };
+    }
     debug_assert!(markers.len() >= 2);
 
     // Before first marker: extrapolate from first segment
@@ -1123,10 +1129,16 @@ fn warp_markers_local_rate(
     timeline_sr: f64,
     bpm: f64,
 ) -> f64 {
+    // AUDIT-P0-A01 FIX: Runtime guard — debug_assert! is stripped in release.
+    if markers.len() < 2 {
+        return 1.0; // Unity rate fallback
+    }
     debug_assert!(markers.len() >= 2);
 
-    // Find the segment containing this beat
-    let (m0, m1) = if beat <= markers[0].beat_time || markers.len() < 2 {
+    // AUDIT-P0-A02 FIX: Moved `markers.len() < 2` check BEFORE `markers[0]`
+    // access. Previously, short-circuit evaluation accessed `markers[0]`
+    // first — if markers was empty, this panicked on the RT thread.
+    let (m0, m1) = if markers.len() < 2 || beat <= markers[0].beat_time {
         (&markers[0], &markers[1])
     } else {
         let last = markers.len() - 1;

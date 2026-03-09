@@ -5,6 +5,7 @@ import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 type BottomPanelMode = 'rack' | 'clip';
 
@@ -119,6 +120,7 @@ export function useArrangementTrackViewModel({
             .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
             .catch((err) => {
                 console.error('[Dream] setGroupExpanded failed:', err);
+                useStatusStore.getState().setError(`Group toggle failed: ${err instanceof Error ? err.message : String(err)}`);
             });
     }, [applyProjectDeltas, collapsedGroups]);
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
@@ -91,6 +92,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 durationBeats: previousDurationBeats,
             });
             console.error('[SampleClipEditor] setClipPitch failed:', err);
+            useStatusStore.getState().setError(`Pitch change failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, [clip.id, bpm, sampleRate]);
 
@@ -152,6 +154,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 durationSamples: previousDurationSamples,
             });
             console.error('[SampleClipEditor] setClipWarp failed:', err);
+            useStatusStore.getState().setError(`Warp change failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
             commitInFlightRef.current = false;
         }
@@ -171,6 +174,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
             isPreviewingRef.current = true;
         } catch (err) {
             console.error('[SampleClipEditor] preview failed:', err);
+            useStatusStore.getState().setError(`Audio preview failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, [clip.filePath, isPreviewing]);
 

@@ -13,6 +13,7 @@
 import { create } from 'zustand';
 import * as engineApi from '@/shared/api/engine';
 import type { AppSettings } from '@/shared/api/engine';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 interface SettingsStore {
     /** Current application settings. */
@@ -104,6 +105,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             set({ settings: { ...DEFAULT_SETTINGS, ...settings }, loaded: true });
         } catch (err) {
             console.error('[SettingsStore] Failed to load settings:', err);
+            useStatusStore.getState().setError('Failed to load application settings');
             // Keep defaults
             set({ loaded: true });
         }
@@ -117,7 +119,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         try {
             await engineApi.updateSettings(updated);
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             console.error('[SettingsStore] Failed to persist setting:', key, err);
+            useStatusStore.getState().setError(`Failed to save setting "${String(key)}": ${msg}`);
             // Revert optimistic update
             set({ settings: current });
         }
@@ -130,7 +134,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         try {
             await engineApi.updateSettings(newSettings);
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             console.error('[SettingsStore] Failed to persist settings:', err);
+            useStatusStore.getState().setError(`Failed to save settings: ${msg}`);
             set({ settings: current });
         }
     },
@@ -143,7 +149,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             }
             return selected;
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             console.error('[SettingsStore] Folder pick failed:', err);
+            useStatusStore.getState().setError(`Folder selection failed: ${msg}`);
             return null;
         }
     },

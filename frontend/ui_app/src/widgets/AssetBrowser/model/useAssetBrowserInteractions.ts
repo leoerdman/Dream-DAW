@@ -139,7 +139,7 @@ export function useSplitResize({
     setLeftPaneWidth,
     persistBrowserPrefs,
 }: SplitResizeParams) {
-    return useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    return useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         e.preventDefault();
         const root = splitRootRef.current;
         if (!root) return;
@@ -152,21 +152,25 @@ export function useSplitResize({
             const nextWidth = pendingWidth;
             setLeftPaneWidth((prev) => (prev === nextWidth ? prev : nextWidth));
         };
-        const onMove = (me: MouseEvent) => {
+        const onMove = (me: PointerEvent) => {
             pendingWidth = Math.max(84, Math.min(180, Math.round(me.clientX - rootRect.left)));
             if (rafId === null) rafId = window.requestAnimationFrame(flushWidth);
         };
         const onUp = () => {
             if (rafId !== null) { window.cancelAnimationFrame(rafId); rafId = null; }
             flushWidth();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            // ENTERPRISE: pointercancel cleanup prevents orphaned listeners on system interrupt.
+            window.removeEventListener('pointercancel', onUp);
             const finalWidth = Math.max(84, Math.min(180, leftPaneWidthRef.current));
             persistBrowserPrefs({ browserLeftPaneWidth: finalWidth });
         };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [leftPaneWidthRef, persistBrowserPrefs, setLeftPaneWidth, splitRootRef]);
+
 }
 
 interface PreviewSyncParams {

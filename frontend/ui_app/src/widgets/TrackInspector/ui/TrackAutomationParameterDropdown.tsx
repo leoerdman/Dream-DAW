@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { getExternalPluginParamsForSlot } from '@/shared/api/engine';
 import type { TrackInspectorLogicState } from '@/widgets/TrackInspector/model/useTrackInspectorLogic';
 import type { ExternalPluginParamInfo } from '@/shared/api/engine';
@@ -187,6 +188,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
                                                 applyProjectDeltas(clearResponse.deltas, 'automation:param-switch-clear');
                                             } catch (err) {
                                                 console.error('[Dream] Failed to clear old automation param:', err);
+                                                useStatusStore.getState().setError(`Automation clear failed: ${err instanceof Error ? err.message : String(err)}`);
                                             }
                                         }
 
@@ -205,6 +207,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
                                             applyProjectDeltas(pushResponse.deltas, 'automation:param-switch-push');
                                         } catch (err) {
                                             console.error('[Dream] Failed to push automation to new param:', err);
+                                            useStatusStore.getState().setError(`Automation push failed: ${err instanceof Error ? err.message : String(err)}`);
                                         }
 
                                         setParamSelectorCtxMenu(null);

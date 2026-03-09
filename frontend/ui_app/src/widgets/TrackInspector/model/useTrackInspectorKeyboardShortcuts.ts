@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 
 interface UseTrackInspectorKeyboardShortcutsArgs {
@@ -60,6 +61,7 @@ export function useTrackInspectorKeyboardShortcuts({
                         }
                     }).catch((err) => {
                         console.error('[Dream] createGroup(multi) failed:', err);
+                        useStatusStore.getState().setError(`Create group failed: ${err instanceof Error ? err.message : String(err)}`);
                     });
                 } else {
                     handleGroupTrack(selectedTrackId);
@@ -75,6 +77,7 @@ export function useTrackInspectorKeyboardShortcuts({
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup-shortcut');
                     }).catch((err) => {
                         console.error('[Dream] ungroupTrack failed:', err);
+                        useStatusStore.getState().setError(`Ungroup failed: ${err instanceof Error ? err.message : String(err)}`);
                     });
                 }
             }

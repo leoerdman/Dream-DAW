@@ -74,7 +74,7 @@ export const AssetBrowser = () => {
                         }}
                     />
                 </div>
-                <div onMouseDown={beginSplitResize} style={splitHandleStyle} />
+                <div onPointerDown={beginSplitResize} style={splitHandleStyle} />
                 <AssetBrowserMainPane logic={logic} />
             </div>
 

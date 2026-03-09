@@ -5,6 +5,7 @@ import * as engineApi from '@/shared/api/engine';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useFlowSynthStore } from '@/widgets/FlowSynth/model/useFlowSynthStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -684,18 +685,27 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                     onDuplicate={() => {
                         void engineApi.duplicateClipWithDeltas(clipContextMenu.clipId).then((res) => {
                             if (res?.deltas) applyProjectDeltas(res.deltas);
+                        }).catch((err) => {
+                            console.error('[Dream] duplicateClip failed:', err);
+                            useStatusStore.getState().setError(`Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`);
                         });
                         setClipContextMenu(null);
                     }}
                     onResetFades={() => {
                         void engineApi.setClipFadesWithDeltas(clipContextMenu.clipId, 0, 0).then((res) => {
                             if (res?.deltas) applyProjectDeltas(res.deltas);
+                        }).catch((err) => {
+                            console.error('[Dream] resetFades failed:', err);
+                            useStatusStore.getState().setError(`Reset fades failed: ${err instanceof Error ? err.message : String(err)}`);
                         });
                         setClipContextMenu(null);
                     }}
                     onDelete={() => {
                         void engineApi.deleteClipWithDeltas(clipContextMenu.clipId).then((res) => {
                             if (res?.deltas) applyProjectDeltas(res.deltas);
+                        }).catch((err) => {
+                            console.error('[Dream] deleteClip failed:', err);
+                            useStatusStore.getState().setError(`Clip delete failed: ${err instanceof Error ? err.message : String(err)}`);
                         });
                         setSelectedClipIds((prev) => prev.filter((id) => id !== clipContextMenu.clipId));
                         setClipContextMenu(null);

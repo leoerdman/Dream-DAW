@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { isTrackActive } from '@/shared/utils/routing';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
@@ -153,6 +154,7 @@ export function useTrackInspectorDerivedState({
                 )
                 .catch((err) => {
                     console.error('[Dream] setGroupExpanded failed:', err);
+                    useStatusStore.getState().setError(`Group toggle failed: ${err instanceof Error ? err.message : String(err)}`);
                 });
             return next;
         });

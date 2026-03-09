@@ -3,6 +3,7 @@ import * as engineApi from '@/shared/api/engine';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 type MidiEnvelopePoint = { beat: number; value: number };
 type MidiEnvelope = { paramId: string; points: MidiEnvelopePoint[] };
@@ -44,6 +45,7 @@ export function usePendingMidiFlush({
                 })
                 .catch((err) => {
                     console.error('[Dream] flushPendingMidiEdits updateMidiClip failed:', err);
+                    useStatusStore.getState().setError(`MIDI note save failed: ${err instanceof Error ? err.message : String(err)}`);
                     return { ok: false as const, clipId };
                 }),
         );
@@ -54,6 +56,7 @@ export function usePendingMidiFlush({
                 .then(() => ({ ok: true as const, clipId }))
                 .catch((err) => {
                     console.error('[Dream] flushPendingMidiEdits setMidiClipEnvelopes failed:', err);
+                    useStatusStore.getState().setError(`MIDI envelope save failed: ${err instanceof Error ? err.message : String(err)}`);
                     return { ok: false as const, clipId };
                 }),
         );

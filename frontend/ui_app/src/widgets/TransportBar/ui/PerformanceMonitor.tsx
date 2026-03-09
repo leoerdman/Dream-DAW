@@ -182,7 +182,7 @@ function MicroBar({ barRef, width = 30 }: { barRef: React.RefObject<HTMLDivEleme
                     width: '0%',
                     borderRadius: 'var(--radius-sm)',
                     background: COLOR_SUCCESS,
-                    transition: 'width 600ms cubic-bezier(0.22, 1, 0.36, 1), background 300ms ease',
+                    transition: 'width 600ms cubic-bezier(0.22, 1, 0.36, 1), background 300ms ease, box-shadow 300ms ease',
                     boxShadow: `0 0 4px color-mix(in srgb, ${COLOR_SUCCESS} 40%, transparent)`,
                 }}
             />

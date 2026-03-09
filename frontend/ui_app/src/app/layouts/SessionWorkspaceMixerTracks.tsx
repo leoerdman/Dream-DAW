@@ -3,6 +3,7 @@ import type { ProjectDelta } from '@/shared/api/projectDelta';
 import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import * as engineApi from '@/shared/api/engine';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { SessionIoRow, SessionStripFader } from './DawShellPanelControls';
@@ -128,6 +129,7 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
                             .then((response) => applyProjectDeltas(response.deltas, 'session-arm-track'))
                             .catch((err) => {
                                 console.error('[SessionWorkspace] Failed to arm track', err);
+                                useStatusStore.getState().setError(`Arm track failed: ${err instanceof Error ? err.message : String(err)}`);
                             });
                     }}
                 />

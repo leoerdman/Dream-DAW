@@ -49,6 +49,18 @@ export const AutomationLane = memo(function AutomationLane({
     const [hoveredBp, setHoveredBp] = useState<string | null>(null);
     const [draggingBp, setDraggingBp] = useState<string | null>(null);
     const [curveDragBp, setCurveDragBp] = useState<string | null>(null);
+    // BUG-AUDIT-004: Ref to store cleanup functions for active drag listeners.
+    // If component unmounts during a drag, the useEffect cleanup calls this
+    // to remove window-level mousemove/mouseup listeners, preventing leaks.
+    const dragCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => {
+        return () => {
+            // Unmount safety: clean up any active drag listeners
+            dragCleanupRef.current?.();
+            dragCleanupRef.current = null;
+        };
+    }, []);
 
     const { flushPointsToEngine, pushPointsImmediate, pushPointsThrottled } = useAutomationLaneSync(lane);
 
@@ -193,16 +205,23 @@ export const AutomationLane = memo(function AutomationLane({
                 flushPointsToEngine();
             };
 
+            const cleanup = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                dragCleanupRef.current = null;
+            };
+
             const onUp = () => {
                 setDraggingBp(null);
                 pushPointsThrottled.cancel();
                 pushPointsImmediate();
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                cleanup();
             };
 
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
+            // BUG-AUDIT-004: Register cleanup for unmount safety.
+            dragCleanupRef.current = cleanup;
         },
         [
             selectBreakpoint,
@@ -239,15 +258,22 @@ export const AutomationLane = memo(function AutomationLane({
                 setBreakpointTension(lane.id, bpId, next);
                 flushPointsToEngine();
             };
+            const cleanup = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                dragCleanupRef.current = null;
+            };
+
             const onUp = () => {
                 setCurveDragBp(null);
                 pushPointsThrottled.cancel();
                 pushPointsImmediate();
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                cleanup();
             };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
+            // BUG-AUDIT-004: Register cleanup for unmount safety.
+            dragCleanupRef.current = cleanup;
         },
         [
             lane.id,

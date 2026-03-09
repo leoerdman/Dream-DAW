@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { DEFAULT_TIME_SIG_NUMERATOR } from '@/shared/lib/audioMath';
 import {
     type GridDivision,
@@ -30,9 +31,11 @@ export const useGridStore = create<GridStore>((set, get) => {
                 st.fixedMode,
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, reason))
-            .catch((err) => {
+            .catch((err: unknown) => {
                 set({ pendingSync: null });
+                const msg = err instanceof Error ? err.message : String(err);
                 console.error(`[GridStore] setArrangementGrid(${reason}) failed:`, err);
+                useStatusStore.getState().setError(`Grid sync failed: ${msg}`);
             });
     };
 

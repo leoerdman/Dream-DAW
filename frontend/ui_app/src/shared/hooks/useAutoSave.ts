@@ -24,14 +24,21 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
     const inFlightRef = useRef(false);
     // BUG-024 FIX: Track last-synced viewport to skip IPC when unchanged.
     const lastViewportRef = useRef({ ppb: -1, sl: -1, st: -1 });
+    // AUDIT-E01 FIX: Track unmount state to prevent post-unmount operations.
+    // If the component unmounts during an in-flight save, the promise resolution
+    // would otherwise log/act on a dead component context.
+    const cancelledRef = useRef(false);
 
     useEffect(() => {
+        cancelledRef.current = false;
+
         const tick = async () => {
             // Skip auto-save when tab is hidden (no point saving while user
             // is in another app — also avoids plugin state capture overhead).
             // BUG-048 FIX: Use nullish coalescing for environments where Page Visibility API is unavailable.
             if (document.hidden ?? false) return;
             if (inFlightRef.current) return; // Prevent overlapping saves
+            if (cancelledRef.current) return; // Prevent post-unmount saves
 
             inFlightRef.current = true;
             try {
@@ -47,15 +54,20 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
                 } catch (viewportErr) {
                     // BUG-H08 FIX: Log instead of silently swallowing.
                     // Persistent viewport sync failures were invisible.
-                    console.warn('[Dream] Viewport sync failed (non-fatal):', viewportErr);
+                    if (!cancelledRef.current) {
+                        console.warn('[Dream] Viewport sync failed (non-fatal):', viewportErr);
+                    }
                 }
+                if (cancelledRef.current) return; // Check after async viewport sync
                 const result = await autoSaveIfDirty();
-                if (result.saved) {
+                if (!cancelledRef.current && result.saved) {
                     console.info(`[Dream] Saved → ${result.path}`);
                 }
             } catch (err) {
                 // Non-fatal: log and keep timer running
-                console.warn('[Dream] Failed:', err);
+                if (!cancelledRef.current) {
+                    console.warn('[Dream] Failed:', err);
+                }
             } finally {
                 inFlightRef.current = false;
             }
@@ -67,6 +79,7 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
         timerRef.current = setInterval(tick, intervalMs);
 
         return () => {
+            cancelledRef.current = true;
             if (timerRef.current !== null) {
                 clearInterval(timerRef.current);
             }

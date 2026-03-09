@@ -1,5 +1,6 @@
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 /**
  * ENTERPRISE SSOT: Auto-delete a group track if it has zero remaining children.
@@ -34,6 +35,7 @@ export async function autoDeleteEmptyGroup(oldGroupId: string | null): Promise<v
             );
         } catch (err) {
             console.warn('[Dream] auto-delete empty group failed:', err);
+            useStatusStore.getState().setError(`Group cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
 }

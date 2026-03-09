@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 
 interface UseTrackInspectorTrackActionsArgs {
@@ -75,6 +76,7 @@ export function useTrackInspectorTrackActions({
                 .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:arm'))
                 .catch((err) => {
                     console.error('[Dream] armTrack failed:', err);
+                    useStatusStore.getState().setError(`Arm track failed: ${err instanceof Error ? err.message : String(err)}`);
                 });
         }
         setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
@@ -87,6 +89,7 @@ export function useTrackInspectorTrackActions({
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], output: targetId } }));
         } catch (err) {
             console.error('[Dream] setTrackRouting failed:', err);
+            useStatusStore.getState().setError(`Track routing failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, [setLocalOverrides]);
 
@@ -97,6 +100,7 @@ export function useTrackInspectorTrackActions({
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
         } catch (err) {
             console.error('[Dream] setTrackInput failed:', err);
+            useStatusStore.getState().setError(`Track input failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }, [setLocalOverrides]);
 

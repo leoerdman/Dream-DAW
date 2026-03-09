@@ -94,8 +94,8 @@ function ensureSnapshotCapacity(snapshot: MeteringSnapshot, trackCount: number):
     // Grow track arrays if needed (no shrink to avoid re-alloc churn)
     while (snapshot.tracks.length < trackCount) {
         snapshot.tracks.push([
-            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
-            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false, peak_hold: METER_FLOOR_DB, peak_hold_ts: 0 },
+            { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false, peak_hold: METER_FLOOR_DB, peak_hold_ts: 0 },
         ]);
     }
 }
@@ -104,8 +104,8 @@ function createEmptySnapshot(): MeteringSnapshot {
     return {
         tracks: [],
         track_plugin_metrics: [],
-        master_left: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
-        master_right: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false },
+        master_left: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false, peak_hold: METER_FLOOR_DB, peak_hold_ts: 0 },
+        master_right: { rms: METER_FLOOR_DB, peak: METER_FLOOR_DB, clipping: false, peak_hold: METER_FLOOR_DB, peak_hold_ts: 0 },
         master_plugin_metrics: new Array(16).fill(0),
     };
 }

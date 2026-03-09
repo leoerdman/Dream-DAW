@@ -1,5 +1,6 @@
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import type { TrackInspectorLogicState } from '@/widgets/TrackInspector/model/useTrackInspectorLogic';
 import { ColorPickerPopup } from '@/widgets/TrackInspector/ui/ColorPickerPopup';
 import { ContextMenuPopup } from '@/widgets/TrackInspector/ui/ContextMenuPopup';
@@ -37,6 +38,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                             })
                             .catch((err) => {
                                 console.error('[Dream] duplicate track (context menu) failed:', err);
+                                useStatusStore.getState().setError(`Duplicate track failed: ${err instanceof Error ? err.message : String(err)}`);
                             });
                         dismissAll();
                     }}

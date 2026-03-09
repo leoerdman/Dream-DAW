@@ -8,8 +8,7 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 
 /**
- * SSOT: Canonical clip lookup — uses clips.byId first, falls back to clipsById
- * for backward compatibility during migration.
+ * SSOT: Canonical clip lookup via normalized clips.byId map.
  */
 function resolveClipById(state: EngineStore, clipId: string): TimelineClip | undefined {
     return state.clips.byId[clipId];
@@ -323,6 +322,7 @@ export function useTimelineClipHandlers({
 
         void run().catch((err) => {
             console.error('[Dream] Cmd+Drag duplicate failed:', err);
+            useStatusStore.getState().setError(`Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`);
         });
     }, [
         applyProjectDeltas,

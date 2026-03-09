@@ -8,6 +8,8 @@ import { createTransportActions } from '@/shared/stores/engine/actionsTransport'
 import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
+import type { Project } from '@bindings/Project';
 
 // BUG-A017 FIX: Module-level constant — avoids re-creating a Set on every delta application.
 const SNAPSHOT_REASONS = new Set([
@@ -195,21 +197,21 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     exportProgress: null,
     // BUG-003 FIX: Avoid O(N) .find() on every markDirty() call.
     // Uses indexed iteration with early-exit instead of full scan.
+    // AUDIT-D01 FIX: Check tab dirty state unconditionally BEFORE creating
+    // new arrays. Previously, when s.isDirty was false, the .map() always
+    // ran even if the active tab was already dirty.
     markDirty: () => set((s) => {
         if (s.activeProjectId) {
-            // First check if already fully dirty
-            if (s.isDirty) {
-                // Quick check: is the active tab already dirty?
-                const byId = s.openProjects;
-                let alreadyDirty = false;
-                for (let i = 0, len = byId.length; i < len; i++) {
-                    if (byId[i].id === s.activeProjectId) {
-                        alreadyDirty = byId[i].isDirty;
-                        break;
-                    }
+            // Check if active tab is already dirty — scan once, skip .map() if so
+            let activeTabAlreadyDirty = false;
+            for (let i = 0, len = s.openProjects.length; i < len; i++) {
+                if (s.openProjects[i].id === s.activeProjectId) {
+                    activeTabAlreadyDirty = s.openProjects[i].isDirty;
+                    break;
                 }
-                if (alreadyDirty) return s; // Both already dirty — no-op
             }
+            if (s.isDirty && activeTabAlreadyDirty) return s; // Both already dirty — no-op
+            if (activeTabAlreadyDirty) return { isDirty: true }; // Tab dirty but global wasn't — just flip global
             const tabs = s.openProjects.map(t =>
                 t.id === s.activeProjectId ? { ...t, isDirty: true } : t
             );
@@ -241,6 +243,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             set({ activeProjectId: id });
         } catch (e) {
             console.error('[MultiProject] switchProjectTab failed:', e);
+            useStatusStore.getState().setError(`Switch project failed: ${e instanceof Error ? e.message : String(e)}`);
         }
     },
     addProjectTab: async () => {
@@ -261,6 +264,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
         } catch (e) {
             console.error('[MultiProject] createProjectTab failed:', e);
+            useStatusStore.getState().setError(`Create project tab failed: ${e instanceof Error ? e.message : String(e)}`);
         }
     },
     closeProjectTab: async (id) => {
@@ -288,6 +292,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
         } catch (e) {
             console.error('[MultiProject] closeProjectTab failed:', e);
+            useStatusStore.getState().setError(`Close project tab failed: ${e instanceof Error ? e.message : String(e)}`);
         }
     },
     setProjectDirtyState: (id, isDirty) => set((s) => ({
@@ -344,6 +349,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // BUG-017 FIX: Apply grid only ONCE from the most authoritative source.
             // If an ArrangementGridChanged delta exists, it is newer than any
             // snapshot grid — skip the snapshot to prevent double-apply flicker.
+            // AUDIT-C01: Declare snapshotDelta at outer scope so it's visible
+            // in both the set() callback and the automation sync block below.
+            const snapshotDelta = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
             const hasGridDelta = sanitizedDeltas.some(d => d.kind === 'ArrangementGridChanged');
             if (snapshotMeta && !hasGridDelta) {
                 useGridStore.getState().applyProjectGrid({
@@ -469,42 +477,106 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const automationDeltas = sanitizedDeltas.filter(
                 (d) => d.kind === 'AutomationPointsChanged',
             );
-            if (automationDeltas.length > 0) {
-                // Lazy import to avoid circular deps and minimize bundle impact.
+            // AUDIT-M02: Consolidated: both automation delta sync AND snapshot
+            // restore use the same lazy import. A single import() call feeds both.
+            const needsAutomationSync = automationDeltas.length > 0;
+            const needsSnapshotRestore = !!snapshotDelta;
+            if (needsAutomationSync || needsSnapshotRestore) {
                 import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
-                    const autoState = useAutomationStore.getState();
-                    for (const delta of automationDeltas) {
-                        const trackId: string = delta.data.track_id;
-                        const paramId: string = delta.data.param_id;
-                        const deltaPoints: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> = delta.data.points;
+                    // ── 1. Automation delta sync ──
+                    if (needsAutomationSync) {
+                        const autoState = useAutomationStore.getState();
+                        // AUDIT-C02 FIX: Build O(1) lookup Map instead of O(N)
+                        // Object.values().find() per delta. For projects with 100+
+                        // automation lanes, this reduces O(N²) to O(N).
+                        const laneLookup = new Map<string, { id: string; breakpoints: Array<{ id: string }> }>();
+                        for (const [laneId, lane] of Object.entries(autoState.lanes)) {
+                            laneLookup.set(`${lane.trackId}:${lane.paramKey}`, { id: laneId, breakpoints: lane.breakpoints });
+                        }
+                        for (const delta of automationDeltas) {
+                            const trackId: string = delta.data.track_id;
+                            const paramId: string = delta.data.param_id;
+                            const deltaPoints: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> = delta.data.points;
 
-                        // Find matching lane in automation store
-                        const lane = Object.values(autoState.lanes).find(
-                            (l) => l.trackId === trackId && l.paramKey === paramId,
-                        );
-
-                        if (lane) {
-                            // Update breakpoints from delta
-                            const newBreakpoints = deltaPoints.map((p, idx) => ({
-                                id: lane.breakpoints[idx]?.id ?? `bp_${Math.random().toString(36).slice(2, 14)}`,
-                                beat: p.beat,
-                                value: p.value,
-                                curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
-                                tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
-                            }));
-                            useAutomationStore.setState((prev) => ({
-                                lanes: {
-                                    ...prev.lanes,
-                                    [lane.id]: {
-                                        ...prev.lanes[lane.id],
-                                        breakpoints: newBreakpoints,
+                            const lane = laneLookup.get(`${trackId}:${paramId}`);
+                            if (lane) {
+                                // AUDIT-C03 FIX: crypto.randomUUID() replaces Math.random()
+                                // for enterprise-grade unique IDs.
+                                const newBreakpoints = deltaPoints.map((p, idx) => ({
+                                    id: lane.breakpoints[idx]?.id ?? `bp_${crypto.randomUUID()}`,
+                                    beat: p.beat,
+                                    value: p.value,
+                                    curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
+                                    tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
+                                }));
+                                useAutomationStore.setState((prev) => ({
+                                    lanes: {
+                                        ...prev.lanes,
+                                        [lane.id]: {
+                                            ...prev.lanes[lane.id],
+                                            breakpoints: newBreakpoints,
+                                        },
                                     },
-                                },
-                            }));
+                                }));
+                            }
+                        }
+                    }
+
+                    // ── 2. Snapshot restore (moved here from separate import) ──
+                    if (needsSnapshotRestore) {
+                        const currentTracks = get().tracks;
+                        const newLanes: Record<string, {
+                            id: string;
+                            trackId: string;
+                            paramName: string;
+                            paramKey: string;
+                            color: string;
+                            visible: boolean;
+                            breakpoints: Array<{
+                                id: string;
+                                beat: number;
+                                value: number;
+                                curve: 'linear' | 'bezier' | 'step';
+                                tension?: number;
+                                itemId?: string;
+                            }>;
+                        }> = {};
+
+                        for (const trackId of currentTracks.allIds) {
+                            const track = currentTracks.byId[trackId];
+                            if (!track || !track.automation_lanes || track.automation_lanes.length === 0) continue;
+
+                            for (const autoLane of track.automation_lanes) {
+                                if (!autoLane.points || autoLane.points.length === 0) continue;
+                                const laneId = `auto_${trackId.slice(0, 8)}_${autoLane.param_id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
+                                const paramName = autoLane.param_id.charAt(0).toUpperCase() + autoLane.param_id.slice(1).replace(/[._:]/g, ' ');
+                                newLanes[laneId] = {
+                                    id: laneId,
+                                    trackId,
+                                    paramName,
+                                    paramKey: autoLane.param_id,
+                                    color: track.color || 'var(--token-color-hex-58a6ff)',
+                                    visible: true,
+                                    breakpoints: autoLane.points.map((p, idx) => ({
+                                        id: `bp_${laneId}_${idx}`,
+                                        beat: p.beat,
+                                        value: p.value,
+                                        curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
+                                        tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
+                                    })),
+                                };
+                            }
+                        }
+
+                        if (Object.keys(newLanes).length > 0) {
+                            useAutomationStore.setState({
+                                lanes: newLanes,
+                            });
                         }
                     }
                 }).catch((err) => {
-                    console.error('[engine-store] Failed to sync automation delta to AutomationStore:', err);
+                    console.error('[engine-store] Failed to sync automation to AutomationStore:', err);
+                    useStatusStore.getState().setError(`Automation sync failed: ${err instanceof Error ? err.message : String(err)}`);
                 });
             }
 
@@ -520,17 +592,20 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
 
             // Sync tab name from snapshot (project open / switch / create)
-            // P2 FIX: Reuse snapshotDelta from L530 to avoid duplicate O(N) scan.
-            const snapshotDelta = sanitizedDeltas.find(d => d.kind === 'ProjectSnapshotReplaced');
-            const snapshotDataObj = snapshotDelta?.data as Record<string, unknown> | undefined;
-            const projectObj = snapshotDataObj?.project as { name?: string } | undefined;
-            if (projectObj?.name) {
+            // AUDIT-C01 FIX: Type-safe snapshot data access — replaces unsafe
+            // `as Record<string, unknown>` cast with proper Project type.
+            // Reuses snapshotDelta variable already declared at L347.
+            const snapshotProject = snapshotDelta?.data && typeof snapshotDelta.data === 'object'
+                ? (snapshotDelta.data as { project?: Project }).project
+                : undefined;
+            if (snapshotProject?.name) {
                 const activeId = get().activeProjectId;
                 if (activeId) {
+                    const projectName = snapshotProject.name;
                     set((s) => ({
                         openProjects: s.openProjects.map(t =>
                             t.id === activeId
-                                ? { ...t, name: projectObj!.name!, isDirty: !isSnapshotReason }
+                                ? { ...t, name: projectName, isDirty: !isSnapshotReason }
                                 : t
                         ),
                     }));
@@ -557,67 +632,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
             }
 
-            // ── ENTERPRISE: Restore automation store lanes from project snapshot ──
-            // When a project loads (snapshot replace), automation_lanes from each track
-            // need to be synced to useAutomationStore so the UI overlay shows them.
-            // P2 FIX: Reuse `snapshotDelta` instead of duplicate O(N) .find() scan.
-            if (snapshotDelta) {
-                import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
-                    const currentTracks = get().tracks;
-                    const newLanes: Record<string, {
-                        id: string;
-                        trackId: string;
-                        paramName: string;
-                        paramKey: string;
-                        color: string;
-                        visible: boolean;
-                        breakpoints: Array<{
-                            id: string;
-                            beat: number;
-                            value: number;
-                            curve: 'linear' | 'bezier' | 'step';
-                            tension?: number;
-                            itemId?: string;
-                        }>;
-                    }> = {};
-
-                    for (const trackId of currentTracks.allIds) {
-                        const track = currentTracks.byId[trackId];
-                        if (!track || !track.automation_lanes || track.automation_lanes.length === 0) continue;
-
-                        for (const autoLane of track.automation_lanes) {
-                            if (!autoLane.points || autoLane.points.length === 0) continue;
-                            const laneId = `auto_${trackId.slice(0, 8)}_${autoLane.param_id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
-                            // Derive a readable param name from the param_id
-                            const paramName = autoLane.param_id.charAt(0).toUpperCase() + autoLane.param_id.slice(1).replace(/[._:]/g, ' ');
-                            newLanes[laneId] = {
-                                id: laneId,
-                                trackId,
-                                paramName,
-                                paramKey: autoLane.param_id,
-                                color: track.color || 'var(--token-color-hex-58a6ff)',
-                                visible: true,
-                                breakpoints: autoLane.points.map((p, idx) => ({
-                                    id: `bp_${laneId}_${idx}`,
-                                    beat: p.beat,
-                                    value: p.value,
-                                    curve: (p.curve_type === 'step' ? 'step' : p.curve_type === 'bezier' ? 'bezier' : 'linear') as 'linear' | 'bezier' | 'step',
-                                    tension: p.curve_type === 'bezier' ? (p.tension ?? 0.5) : undefined,
-                                })),
-                            };
-                        }
-                    }
-
-                    if (Object.keys(newLanes).length > 0) {
-                        useAutomationStore.setState({
-                            lanes: newLanes,
-                            // Don't auto-show — user toggles via "A" key
-                        });
-                    }
-                }).catch((err) => {
-                    console.error('[engine-store] Failed to restore automation lanes from snapshot:', err);
-                });
-            }
+            // AUDIT-M02: Automation snapshot restore is now consolidated into the
+            // single lazy import block above (see needsSnapshotRestore branch),
+            // eliminating the duplicate import('@/shared/stores/useAutomationStore') call.
         } catch (err) {
             // BUG-010: Error boundary — catch and report any crash in delta application.
             console.error('[engine-store] CRITICAL: applyProjectDeltas crashed', err);

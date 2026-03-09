@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
@@ -86,8 +87,10 @@ export function useTrackInspectorDragDrop({
                 // SSOT: Auto-delete empty group after drag-out.
                 await autoDeleteEmptyGroup(oldGroupId);
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
                 console.error('[Dream] moveTrack(reorder) failed:', err);
+                useStatusStore.getState().setError(`Track move failed: ${msg}`);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;
@@ -104,8 +107,10 @@ export function useTrackInspectorDragDrop({
                 .then(async (response) => {
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-group-block');
                 })
-                .catch((err) => {
+                .catch((err: unknown) => {
+                    const msg = err instanceof Error ? err.message : String(err);
                     console.error('[Dream] moveTrackBlockToIndex failed:', err);
+                    useStatusStore.getState().setError(`Group move failed: ${msg}`);
                 });
             return;
         }
@@ -136,8 +141,10 @@ export function useTrackInspectorDragDrop({
                 // SSOT: Auto-delete empty source group after moving between groups.
                 if (isChangingGroup) await autoDeleteEmptyGroup(oldGroupId);
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
                 console.error('[Dream] moveTrackWithParent(group drop) failed:', err);
+                useStatusStore.getState().setError(`Track group assignment failed: ${msg}`);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;
@@ -258,9 +265,15 @@ export function useTrackInspectorDragDrop({
         autoScrollRafRef.current = window.requestAnimationFrame(runAutoScroll);
         window.addEventListener('pointermove', onPointerMove, { passive: false });
         window.addEventListener('pointerup', onPointerUp);
+        // ENTERPRISE: pointercancel fires when the OS interrupts the gesture
+        // (system alert, trackpad gesture, window focus loss). Without this,
+        // the drag state gets stuck — drop indicator stays visible and
+        // pointermove listener leaks until page reload.
+        window.addEventListener('pointercancel', onPointerUp);
         return () => {
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
             if (autoScrollRafRef.current !== null) {
                 window.cancelAnimationFrame(autoScrollRafRef.current);
                 autoScrollRafRef.current = null;

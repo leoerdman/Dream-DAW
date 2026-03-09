@@ -11,6 +11,7 @@ import {
     nextTrackHeightLevel,
 } from '@/shared/config/trackHeightLevels';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { ProjectDelta } from '@/shared/api/engine';
@@ -141,6 +142,7 @@ export function useTrackHeightControls({
                 ),
             ).catch((err) => {
                 console.warn('[Dream] setTrackHeight failed:', err);
+                useStatusStore.getState().setError(`Track height change failed: ${err instanceof Error ? err.message : String(err)}`);
             });
         };
 
@@ -182,6 +184,7 @@ export function useTrackHeightControls({
                 ),
             ).catch((err) => {
                 console.warn('[Dream] setTrackHeight reset failed:', err);
+                useStatusStore.getState().setError(`Track height reset failed: ${err instanceof Error ? err.message : String(err)}`);
             });
         };
 
@@ -231,6 +234,7 @@ export function useTrackHeightControls({
             ),
         ).catch((err) => {
             console.warn('[Dream] reset track heights failed:', err);
+            useStatusStore.getState().setError(`Reset track heights failed: ${err instanceof Error ? err.message : String(err)}`);
         });
     }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, trackIdsSnapshot]);
 

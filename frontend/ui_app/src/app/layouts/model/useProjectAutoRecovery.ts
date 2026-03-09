@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
 import { isProjectLoadInFlight, withProjectLoad } from '@/shared/lib/projectLoadGuard';
 
@@ -83,6 +84,7 @@ export function useProjectAutoRecovery(): void {
 
                 } catch (err) {
                     console.error('[AutoRecovery] Failed to recover project state:', err);
+                    useStatusStore.getState().setError(`Auto-recovery failed: ${err instanceof Error ? err.message : String(err)}`);
                 } finally {
                     recoveryInFlight = false;
                 }

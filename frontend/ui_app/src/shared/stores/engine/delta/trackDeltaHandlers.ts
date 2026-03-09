@@ -223,19 +223,17 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         };
         insertTrackAt(state, insertIndex, nextTrack);
 
-        let changedClips = false;
-
         for (const id of state.clips.allIds) {
             const clip = state.clips.byId[id];
             if (clip && clip.trackIndex >= insertIndex) {
                 state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex + 1 };
-                changedClips = true;
             }
         }
 
-        if (changedClips) {
-            state.changed = true;
-        }
+        // ENTERPRISE FIX (Phase 32): Track structural mutations MUST unconditionally
+        // dirty the project. Previously, adding a track to an empty project (no clips
+        // at insertIndex) would skip state.changed, causing auto-save to miss the change.
+        state.changed = true;
         return true;
     }
 
@@ -249,7 +247,6 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         const removeIndex = removeTrackById(state, delta.data.track_id);
         if (removeIndex < 0) return true;
 
-        let changedClips = false;
         const nextAllIds: string[] = [];
         const nextById: Record<string, import('@/shared/lib/arrangementTypes').TimelineClip> = {};
 
@@ -264,18 +261,24 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
                 nextById[id] = clip;
             }
             nextAllIds.push(id);
-            changedClips = true;
         }
 
         state.clips = { byId: nextById, allIds: nextAllIds };
-        if (changedClips) state.changed = true;
+        // ENTERPRISE FIX (Phase 32): Track removal is a structural mutation that
+        // MUST unconditionally dirty the project — not gated behind changedClips.
+        // Removing an empty track previously wouldn't trigger auto-save.
+        state.changed = true;
 
         // ENTERPRISE FIX: Clean up automation lanes for the removed track.
         // Without this, undo/redo track removal leaves stale lanes + breakpoints
         // in useAutomationStore — memory leak and data integrity bug.
         import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
             useAutomationStore.getState().cleanupTrackLanes(delta.data.track_id);
-        }).catch(() => { /* Ignore if store not available during SSR/test */ });
+        }).catch((err: unknown) => {
+            // ENTERPRISE (Phase 32): Log import failures instead of swallowing.
+            // In SSR/test, this is expected and harmless. In production, it's a real issue.
+            console.warn('[TrackDelta] AutomationStore cleanup import failed:', err);
+        });
 
         return true;
     }

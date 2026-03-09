@@ -609,7 +609,7 @@ export const AdsrCurve = React.memo(function AdsrCurve({
             width="100%"
             height="100%"
             viewBox={`0 0 ${VB_W} ${VB_H}`}
-            preserveAspectRatio="xMidYMid slice"
+            preserveAspectRatio={transparent ? 'none' : 'xMidYMid slice'}
             style={{ display: 'block', willChange: 'transform', transform: 'translateZ(0)', cursor: 'default' }}
         >
             {/* Background */}

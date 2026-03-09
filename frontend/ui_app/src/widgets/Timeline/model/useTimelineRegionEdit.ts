@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useRegionEditStore } from '@/shared/stores/useRegionEditStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -91,7 +91,15 @@ export function useTimelineRegionEdit({
         return useGridStore.getState().snapBeat(rawBeat, beatsPerBar, effectivePixelsPerBeat);
     };
 
-    const beginRegionDrag = (which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.MouseEvent) => {
+    // ENTERPRISE FIX (BUG-W5-003): Cleanup ref for active region drag listeners.
+    const regionDragCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => () => {
+        regionDragCleanupRef.current?.();
+        regionDragCleanupRef.current = null;
+    }, []);
+
+    const beginRegionDrag = useCallback((which: 'A' | 'B', mode: 'move' | 'resize-start' | 'resize-end', e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         const laneEl = masterLaneRef.current;
@@ -124,10 +132,16 @@ export function useTimelineRegionEdit({
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            regionDragCleanupRef.current = null;
+        };
+        regionDragCleanupRef.current?.();
+        regionDragCleanupRef.current = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    };
+    }, [regionA, regionB, masterLaneRef, viewportScrollX, effectivePixelsPerBeat, setRegionA, setRegionB, snapRegionBeat]);
 
     return {
         regionA,

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { selectAllClips } from '@/shared/stores/entitySelectors';
 import {
     MissingAudioSection,
@@ -13,6 +14,51 @@ interface MissingAssetsPanelProps {
     isOpen: boolean;
     onClose: () => void;
 }
+// ── Auto Search: Audio file matching constants ────────────────────────
+const AUDIO_EXTENSIONS = new Set(['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac', 'wma', 'opus']);
+
+/** Extract filename without extension. */
+const stem = (name: string): string => {
+    const dotIdx = name.lastIndexOf('.');
+    return dotIdx > 0 ? name.slice(0, dotIdx) : name;
+};
+
+/** Compact: lowercase alphanumeric only (ignores punctuation, spaces, underscores). */
+const compact = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Score how well a scanned audio file matches a missing clip name.
+ * Returns 0 (no match) to 100 (exact match).
+ */
+const scoreAudioFileMatch = (clipName: string, scannedName: string): number => {
+    const cn = clipName.trim().toLowerCase();
+    const sn = scannedName.trim().toLowerCase();
+    if (!cn || !sn) return 0;
+
+    // Exact basename match (e.g. "CS_OSV5_FoleyPerc_10.wav" = "CS_OSV5_FoleyPerc_10.wav")
+    if (cn === sn) return 100;
+
+    const clipStem = stem(cn);
+    const scanStem = stem(sn);
+
+    // Stem match (name without extension)
+    if (clipStem === scanStem) return 95;
+
+    // Compact match (ignore non-alphanumeric)
+    const clipCompact = compact(clipStem);
+    const scanCompact = compact(scanStem);
+    if (clipCompact && scanCompact && clipCompact === scanCompact) return 90;
+
+    // Prefix/suffix overlap
+    if (scanStem.startsWith(clipStem) || clipStem.startsWith(scanStem)) return 75;
+
+    // Substring containment
+    if (clipCompact && scanCompact) {
+        if (scanCompact.includes(clipCompact) || clipCompact.includes(scanCompact)) return 60;
+    }
+
+    return 0;
+};
 
 const readSlotStringField = (slot: unknown, key: string): string => {
     if (!slot || typeof slot !== 'object') return '';
@@ -55,6 +101,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const [pluginEntries, setPluginEntries] = useState<engineApi.BrowserFileEntry[]>([]);
     const [scanBusy, setScanBusy] = useState(false);
     const [autoResolveBusy, setAutoResolveBusy] = useState(false);
+    const [autoSearchBusy, setAutoSearchBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
     const missingClips = useMemo<MissingClipItem[]>(() => {
@@ -66,6 +113,105 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 trackName: (trackIds[c.trackIndex] ? tracksById[trackIds[c.trackIndex]]?.name : undefined) ?? `Track ${c.trackIndex + 1}`,
             }));
     }, [timelineClips, trackIds, tracksById]);
+
+    // ── Auto Search: Scan folder recursively and match missing audio files ──
+    const runAutoSearchAudio = useCallback(async () => {
+        if (autoSearchBusy || missingClips.length === 0) return;
+
+        // Step 1: Pick folder (or fall back to configured samples path)
+        let searchFolder: string | null = null;
+        try {
+            searchFolder = await engineApi.pickFolder();
+        } catch (err) {
+            console.error('[AutoSearch] pickFolder failed:', err);
+            useStatusStore.getState().setError(`Folder selection failed: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+        }
+        if (!searchFolder) return; // User cancelled
+
+        setAutoSearchBusy(true);
+        setMessage(`Scanning folder...`);
+
+        try {
+            // Step 2: Recursive scan
+            const allEntries = await engineApi.scanFolderAll(searchFolder);
+            const audioEntries = allEntries.filter(
+                (e) => !e.is_directory && AUDIO_EXTENSIONS.has(e.extension.toLowerCase()),
+            );
+
+            if (audioEntries.length === 0) {
+                setMessage('No audio files found in selected folder');
+                return;
+            }
+
+            setMessage(`Found ${audioEntries.length} audio files — matching...`);
+
+            // Step 3: For each missing clip, find the best matching scanned file
+            // Re-read missingClips from store to get the latest state
+            const currentClips = useEngineStore.getState().clips;
+            const currentTrackIds = useEngineStore.getState().tracks.allIds;
+            const currentTracksById = useEngineStore.getState().tracks.byId;
+            const freshMissing = currentClips.allIds
+                .map((id) => currentClips.byId[id])
+                .filter((c): c is NonNullable<typeof c> => !!c && c.type === 'audio' && !!c.isOffline)
+                .map((c) => ({
+                    clipId: c.id,
+                    clipName: c.name,
+                    trackName: (currentTrackIds[c.trackIndex] ? currentTracksById[currentTrackIds[c.trackIndex]]?.name : undefined) ?? `Track ${c.trackIndex + 1}`,
+                }));
+
+            if (freshMissing.length === 0) {
+                setMessage('All clips already resolved');
+                return;
+            }
+
+            let resolvedCount = 0;
+            let failedCount = 0;
+
+            for (const clip of freshMissing) {
+                // Find best match
+                let bestScore = 0;
+                let bestEntry: engineApi.BrowserFileEntry | null = null;
+
+                for (const entry of audioEntries) {
+                    const score = scoreAudioFileMatch(clip.clipName, entry.name);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestEntry = entry;
+                    }
+                }
+
+                // Only resolve if we have a reasonable match (score >= 60)
+                if (bestEntry && bestScore >= 60) {
+                    try {
+                        const response = await engineApi.resolveMissingFileWithDeltas(clip.clipId, bestEntry.path);
+                        await applyProjectDeltas(response.deltas, 'missing-assets:auto-search-resolve');
+                        resolvedCount++;
+                        setMessage(`Resolving... ${resolvedCount} found (${clip.clipName})`);
+                    } catch (err) {
+                        console.error(`[AutoSearch] Failed to resolve '${clip.clipName}':`, err);
+                        failedCount++;
+                    }
+                }
+            }
+
+            // Step 4: Report results
+            const unresolvedCount = freshMissing.length - resolvedCount - failedCount;
+            if (resolvedCount > 0 && unresolvedCount === 0) {
+                setMessage(`Auto Search complete: resolved all ${resolvedCount} missing file(s)`);
+            } else if (resolvedCount > 0) {
+                setMessage(`Auto Search: resolved ${resolvedCount}, ${unresolvedCount} still missing${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
+            } else {
+                setMessage(`Auto Search: no matching files found in the selected folder`);
+            }
+        } catch (err) {
+            console.error('[AutoSearch] scan failed:', err);
+            setMessage(`Auto Search failed: ${err instanceof Error ? err.message : String(err)}`);
+            useStatusStore.getState().setError(`Auto Search failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setAutoSearchBusy(false);
+        }
+    }, [autoSearchBusy, missingClips.length, applyProjectDeltas]);
 
     const missingPlugins = useMemo<MissingPluginSlot[]>(() => {
         const out: MissingPluginSlot[] = [];
@@ -204,7 +350,25 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         {missingClips.length} files offline · {missingPlugins.length} plugins missing
                     </span>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-1-5)', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={() => { void runAutoSearchAudio(); }}
+                        disabled={autoSearchBusy || missingClips.length === 0}
+                        style={{
+                            border: 'var(--border-width-1) solid var(--color-divider)',
+                            background: autoSearchBusy ? 'var(--color-bg-header)' : 'color-mix(in srgb, var(--color-status-info) 15%, var(--color-bg-header))',
+                            color: missingClips.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-status-info)',
+                            borderRadius: 'var(--radius-lg)',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 'var(--font-weight-semibold)',
+                            padding: 'var(--space-1) var(--space-2)',
+                            cursor: autoSearchBusy || missingClips.length === 0 ? 'default' : 'pointer',
+                            opacity: autoSearchBusy || missingClips.length === 0 ? 0.6 : 1,
+                            transition: 'background var(--transition-fast), color var(--transition-fast)',
+                        }}
+                    >
+                        {autoSearchBusy ? 'Searching...' : 'Auto Search'}
+                    </button>
                     <button
                         onClick={() => { void runAutoResolvePlugins(); }}
                         disabled={autoResolveBusy || missingPlugins.length === 0}

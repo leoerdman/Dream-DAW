@@ -1,4 +1,4 @@
-import { useCallback, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 
 interface ItemHandlersArgs {
     svgRef: RefObject<SVGSVGElement | null>;
@@ -25,6 +25,16 @@ export function useAutomationLaneItemHandlers({
     pushPointsImmediate,
     pushPointsThrottled,
 }: ItemHandlersArgs) {
+    // ENTERPRISE FIX (BUG-W5-001): Cleanup ref for active drag listeners.
+    // If component unmounts during an active drag, useEffect cleanup calls
+    // the stored cleanup function to remove window listeners.
+    const dragCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => () => {
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = null;
+    }, []);
+
     const handleItemDragStart = useCallback((e: React.MouseEvent, itemId: string) => {
         e.preventDefault();
         e.stopPropagation();
@@ -44,6 +54,12 @@ export function useAutomationLaneItemHandlers({
         const onUp = () => {
             pushPointsThrottled.cancel();
             pushPointsImmediate();
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            dragCleanupRef.current = null;
+        };
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
@@ -78,6 +94,12 @@ export function useAutomationLaneItemHandlers({
         const onUp = () => {
             pushPointsThrottled.cancel();
             pushPointsImmediate();
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            dragCleanupRef.current = null;
+        };
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };

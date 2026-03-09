@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, memo } from 'react';
+import { useState, useCallback, useRef, useEffect, memo } from 'react';
 
 interface ClipFadeHandlesProps {
     width: number;
@@ -38,6 +38,14 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
     const fadeInPx = Math.max(FADE_MIN_PX, fadeIn * width);
     const fadeOutPx = Math.max(FADE_MIN_PX, fadeOut * width);
 
+    // ENTERPRISE FIX (BUG-W5-002): Cleanup ref for active drag listeners.
+    const dragCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => () => {
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = null;
+    }, []);
+
     const startDrag = useCallback(
         (
             e: React.MouseEvent,
@@ -53,6 +61,13 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             };
 
             const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                dragCleanupRef.current = null;
+            };
+
+            dragCleanupRef.current?.();
+            dragCleanupRef.current = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
             };

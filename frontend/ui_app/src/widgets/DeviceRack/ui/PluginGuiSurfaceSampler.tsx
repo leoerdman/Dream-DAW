@@ -258,7 +258,7 @@ export function PluginGuiSurfaceSampler({
                     {/* SVG waveform */}
                     <svg
                         viewBox="0 0 1000 90"
-                        preserveAspectRatio="xMidYMid slice"
+                        preserveAspectRatio="none"
                         style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))', willChange: 'transform', transform: 'translateZ(0)' }}
                     >
                         <defs>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, memo, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useEffect, memo, type ReactNode } from 'react';
 
 interface PluginWindowProps {
     /** Plugin instance ID. */
@@ -105,6 +105,13 @@ export const PluginWindow = memo(function PluginWindow({
     const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
     const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number; edge: string } | null>(null);
 
+    // ENTERPRISE FIX (BUG-W6-001): Cleanup ref for title bar drag listeners.
+    const titleDragCleanupRef = useRef<(() => void) | null>(null);
+    useEffect(() => () => {
+        titleDragCleanupRef.current?.();
+        titleDragCleanupRef.current = null;
+    }, []);
+
     const handleDragStart = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         const startX = e.clientX;
@@ -123,6 +130,13 @@ export const PluginWindow = memo(function PluginWindow({
 
         const onUp = () => {
             dragRef.current = null;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            titleDragCleanupRef.current = null;
+        };
+
+        titleDragCleanupRef.current?.();
+        titleDragCleanupRef.current = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };

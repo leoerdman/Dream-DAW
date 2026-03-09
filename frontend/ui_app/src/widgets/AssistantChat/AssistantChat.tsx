@@ -62,6 +62,13 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     const projectId = useEngineStore((s) => `${s.tracks.allIds.length}:${s.projectBpm}`);
     const [historyLoadedForId, setHistoryLoadedForId] = useState<string | null>(null);
 
+    // ENTERPRISE FIX (BUG-W6-002): Cleanup ref for header drag listeners.
+    const headerDragCleanupRef = useRef<(() => void) | null>(null);
+    useEffect(() => () => {
+        headerDragCleanupRef.current?.();
+        headerDragCleanupRef.current = null;
+    }, []);
+
     const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
         if ((e.target as HTMLElement).closest('button, select, input')) return;
         e.preventDefault();
@@ -82,6 +89,12 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         };
         const onUp = () => {
             dragRef.current = null;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            headerDragCleanupRef.current = null;
+        };
+        headerDragCleanupRef.current?.();
+        headerDragCleanupRef.current = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };

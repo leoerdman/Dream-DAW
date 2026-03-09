@@ -95,12 +95,22 @@ export function useTimelineEngine(
 
         // Wire viewport flush with rAF throttling to prevent React/Zustand render thrashing
         // during high-frequency native trackpad scrolling/zooming.
+        // ENTERPRISE FIX: Always capture the latest snapshot so the rAF callback
+        // applies the most recent viewport data. Previously, intermediate snapshots
+        // were silently dropped when a rAF was already queued — this caused the
+        // master lane grid (and all viewport-derived UI) to desync from the
+        // actual scroll/zoom position until the *next* scroll event.
         let flushRafId = 0;
+        let latestSnap: ViewportSnapshot | null = null;
         engine.onViewportFlush = (snap) => {
+            latestSnap = snap;
             if (flushRafId) return;
             flushRafId = requestAnimationFrame(() => {
                 flushRafId = 0;
-                setViewportState(snap);
+                if (latestSnap) {
+                    setViewportState(latestSnap);
+                    latestSnap = null;
+                }
             });
         };
 

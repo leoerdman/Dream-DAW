@@ -44,6 +44,8 @@ struct SystemPerformancePayload {
     /// Audio thread DSP load percentage (0–100). This is THE critical
     /// metric for DAW users — shows how close the session is to dropout.
     dsp_load: f32,
+    /// Per-core CPU usage percentages (0-100).
+    cpu_per_core: Vec<f32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -106,6 +108,9 @@ pub(crate) fn spawn_background_runtime_threads(
                         .process(pid)
                         .map(|p| p.memory() / (1024 * 1024))
                         .unwrap_or(0);
+
+                    // Per-core info
+                    cached_perf.cpu_per_core = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
                 }
 
                 let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();

@@ -218,6 +218,9 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
             <ClipEditorShell sidebar={<SampleClipEditorSidebar
                 clipDurationBeats={clipDurationBeats}
                 filePath={clip.filePath}
+                sampleRate={clip.sampleRate}
+                channels={clip.channels}
+                numFrames={clip.numFrames}
                 draftWarpEnabled={draftWarpEnabled}
                 draftWarpMode={draftWarpMode}
                 draftWarpBaseBpm={draftWarpBaseBpm}

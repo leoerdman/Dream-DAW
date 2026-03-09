@@ -314,10 +314,10 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 const isSamplerNode = effectType === 'sampler'
                     || normalizeInternalPluginId(pluginId) === 'internal://instrument/sampler';
                 if (isSamplerNode) {
-                    // BUG-024 FIX: Each slot carries its own sampler_config.sample_path.
-                    // Previously fell back to selectedTrack.sampler?.sample_path which is the
-                    // track-level config — SSOT violation when multiple sampler devices exist.
-                    return ((node as DeviceNodeModel).sampler_config?.sample_path ?? '').trim();
+                    // Reverted hallucinated BUG-024: The built-in sampler ALWAYS draws from 
+                    // the SSOT track `sampler` config. DeviceNodes do not have a separate `sampler_config`. 
+                    // Dream DAW architecture fundamentally assigns one built-in sampler per track.
+                    return (selectedTrack?.sampler?.sample_path ?? '').trim();
                 }
                 return '';
             })();

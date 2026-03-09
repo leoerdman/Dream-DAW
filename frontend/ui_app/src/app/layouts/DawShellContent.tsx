@@ -51,7 +51,7 @@ interface DawShellContentProps {
     handlePianoRollEnvelopesChange: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined, envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void;
     handleGenerateMidiVariation: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined) => Promise<void>;
     missingAssetsOpen: boolean;
-    missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; total: number };
+    missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; missingSamplerCount: number; total: number };
     setMissingAssetsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setBottomPanelModeForActiveTrack: (next: 'rack' | 'clip' | ((prev: 'rack' | 'clip') => 'rack' | 'clip')) => void;
     panelInfo: string;

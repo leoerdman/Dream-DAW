@@ -3,7 +3,7 @@ import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 
 interface DawShellStatusAreaProps {
     missingAssetsOpen: boolean;
-    missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; total: number };
+    missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; missingSamplerCount: number; total: number };
     onToggleMissingAssets: () => void;
     panelMode: 'rack' | 'clip';
     onPanelModeChange: (mode: 'rack' | 'clip') => void;

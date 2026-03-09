@@ -1445,6 +1445,9 @@ export const updateFlowNodeParam = (
 ) =>
     safeInvoke<void>('update_flow_node_param_cmd', { trackIndex, nodeId, key, value });
 
+export const checkFilesExist = (paths: string[]) =>
+    safeInvoke<boolean[]>('check_files_exist', { paths });
+
 export const saveFlowSynthConfig = (trackIndex: number, configJson: string) =>
     safeInvoke<DeltaMutationResponse>('save_flow_synth_config_cmd', { trackIndex, configJson });
 

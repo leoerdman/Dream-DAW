@@ -20,6 +20,9 @@ interface SampleClipSidebarProps {
     commitWarp: (next: { enabled: boolean; mode: number; baseBpm: number }) => Promise<void>;
     commitPitch: (nextPitch: number) => Promise<void>;
     togglePreview: () => Promise<void>;
+    sampleRate?: number;
+    channels?: number;
+    numFrames?: number;
 }
 
 export function SampleClipSidebar({
@@ -40,12 +43,18 @@ export function SampleClipSidebar({
     commitWarp,
     commitPitch,
     togglePreview,
+    sampleRate,
+    channels,
+    numFrames,
 }: SampleClipSidebarProps) {
     return (
         <ClipEditorSidebar>
             <ClipEditorSection title="Clip Setup">
                 <ClipEditorMetaRow label="Length" value={formatBeatsAsBBS(clipDurationBeats, beatsPerBar)} />
                 <ClipEditorMetaRow label="Source" value={hasFilePath ? 'Linked' : 'Missing'} />
+                {sampleRate && <ClipEditorMetaRow label="Sample Rate" value={`${sampleRate} Hz`} />}
+                {channels && <ClipEditorMetaRow label="Channels" value={channels === 1 ? 'Mono' : channels === 2 ? 'Stereo' : `${channels} ch`} />}
+                {numFrames && sampleRate && <ClipEditorMetaRow label="Duration" value={`${(numFrames / sampleRate).toFixed(2)}s`} />}
             </ClipEditorSection>
 
             <ClipEditorSection title="Warp">

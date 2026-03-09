@@ -25,7 +25,6 @@ interface DawShellOverlaysProps {
     onAssistantClose: () => void;
     onSelectClips: (ids: string[]) => void;
     missingAssetsOpen: boolean;
-    missingTotal: number;
     onCloseMissingAssets: () => void;
     exportOpen: boolean;
     onCloseExport: () => void;
@@ -47,7 +46,6 @@ export const DawShellOverlays = memo(({
     onAssistantClose,
     onSelectClips,
     missingAssetsOpen,
-    missingTotal,
     onCloseMissingAssets,
     exportOpen,
     onCloseExport,
@@ -79,7 +77,7 @@ export const DawShellOverlays = memo(({
 
             <ErrorBoundary module="Resolver">
                 <Suspense fallback={null}>
-                    <MissingAssetsPanel isOpen={missingAssetsOpen && missingTotal > 0} onClose={onCloseMissingAssets} />
+                    <MissingAssetsPanel isOpen={missingAssetsOpen} onClose={onCloseMissingAssets} />
                 </Suspense>
             </ErrorBoundary>
 

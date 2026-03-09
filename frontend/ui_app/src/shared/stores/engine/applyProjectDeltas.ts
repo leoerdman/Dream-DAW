@@ -164,7 +164,6 @@ export function applyProjectDeltasToState(
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration?.sample_frame, 1));
                     const clipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
                     const hasClipColorOverride = Boolean(clip.color_hex ?? clip.color_override);
-                    const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     snapshotClips.push({
                         id: clip.id,
                         name: clip.name,
@@ -195,7 +194,7 @@ export function applyProjectDeltasToState(
                         // Map slope (-1..1) to curve (0..1) for the rendering pipeline.
                         fadeInCurve: 0.5 + toFiniteNumber(clip.fade_in_curve_slope ?? 0, 0) * 0.5,
                         fadeOutCurve: 0.5 + toFiniteNumber(clip.fade_out_curve_slope ?? 0, 0) * 0.5,
-                        isOffline: isMidiTrack ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
+                        isOffline: isMidiTrack ? false : Boolean(clip.is_offline ?? false),
                         muted: Boolean(clip.is_disabled ?? false),
                     });
                 }

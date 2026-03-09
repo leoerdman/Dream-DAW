@@ -99,6 +99,7 @@ export function createTelemetryActions(
                         transport: TransportState;
                         performance: {
                             cpu_usage: number;
+                            cpu_per_core: number[];
                             ram_used_mb: number;
                             ram_total_mb: number;
                             process_memory_mb: number;
@@ -147,10 +148,12 @@ export function createTelemetryActions(
                                 perf.ram_used_mb !== prev_perf.ramUsedMb ||
                                 perf.ram_total_mb !== prev_perf.ramTotalMb ||
                                 perf.process_memory_mb !== prev_perf.processMemoryMb ||
-                                perf.dsp_load !== prev_perf.dspLoad
+                                perf.dsp_load !== prev_perf.dspLoad ||
+                                perf.cpu_per_core !== prev_perf.cpuPerCore // We can skip deep equality here since it's a new array reference from Tauri IPC on changes, but to be 100% safe:
                             ) {
                                 telemetryUpdate.performance = {
                                     cpuUsage: perf.cpu_usage,
+                                    cpuPerCore: perf.cpu_per_core,
                                     ramUsedMb: perf.ram_used_mb,
                                     ramTotalMb: perf.ram_total_mb,
                                     processMemoryMb: perf.process_memory_mb,

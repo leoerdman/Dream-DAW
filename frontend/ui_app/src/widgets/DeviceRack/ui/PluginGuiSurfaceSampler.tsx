@@ -165,16 +165,20 @@ export function PluginGuiSurfaceSampler({
 
     // ── Precompute ADSR overlay values ─────────────────────────
     const attackParam = resolveSurfaceParam(device, 'attack');
-    const normAttack = attackParam ? (attackParam.value - attackParam.min) / (Math.max(0.001, attackParam.max - attackParam.min)) : 0.05;
+    const normAttack = attackParam ? Math.max(0, (attackParam.value - attackParam.min)) / (Math.max(0.001, attackParam.max - attackParam.min)) : 0.05;
+    const finalNormAttack = normAttack < 0.005 ? 0 : normAttack;
 
     const decayParam = resolveSurfaceParam(device, 'decay');
-    const normDecay = decayParam ? (decayParam.value - decayParam.min) / (Math.max(0.001, decayParam.max - decayParam.min)) : 0.2;
+    const normDecay = decayParam ? Math.max(0, (decayParam.value - decayParam.min)) / (Math.max(0.001, decayParam.max - decayParam.min)) : 0.2;
+    const finalNormDecay = normDecay < 0.005 ? 0 : normDecay;
 
     const sustainParam = resolveSurfaceParam(device, 'sustain');
-    const normSustain = sustainParam ? (sustainParam.value - sustainParam.min) / (Math.max(0.001, sustainParam.max - sustainParam.min)) : 0.5;
+    const normSustain = sustainParam ? Math.max(0, (sustainParam.value - sustainParam.min)) / (Math.max(0.001, sustainParam.max - sustainParam.min)) : 0.5;
+    const finalNormSustain = normSustain < 0.005 ? 0 : normSustain;
 
     const releaseParam = resolveSurfaceParam(device, 'release');
-    const normRelease = releaseParam ? (releaseParam.value - releaseParam.min) / (Math.max(0.001, releaseParam.max - releaseParam.min)) : 0.2;
+    const normRelease = releaseParam ? Math.max(0, (releaseParam.value - releaseParam.min)) / (Math.max(0.001, releaseParam.max - releaseParam.min)) : 0.2;
+    const finalNormRelease = normRelease < 0.005 ? 0 : normRelease;
 
     // ── Render ───────────────────────────────────────────────────
     const isWaveformPage = activePageId === 'waveform';
@@ -211,12 +215,12 @@ export function PluginGuiSurfaceSampler({
                     {/* Dark waveform background */}
                     <div style={{ position: 'absolute', inset: 0, background: 'var(--surface-tab-inactive)' }} />
 
-                    {/* Sample name ABOVE waveform — top left */}
+                    {/* Default Sample Name Header (Always visible to show missing filenamed too) */}
                     <div style={{
                         position: 'absolute',
                         left: 8,
                         top: 4,
-                        right: 120,
+                        right: 140, // Avoid overlapping the tabs on the right
                         color: sampleName ? 'var(--token-color-hex-d7dce7)' : 'var(--token-color-hex-a8b0bd)',
                         fontSize: 'var(--font-size-2xs)',
                         fontWeight: 'var(--font-weight-bold)',
@@ -225,6 +229,7 @@ export function PluginGuiSurfaceSampler({
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        zIndex: 2,
                     }}>
                         {sampleMissing && sampleName ? (
                             <span style={{ color: 'var(--color-status-error)', textDecoration: 'line-through' }}>
@@ -235,33 +240,7 @@ export function PluginGuiSurfaceSampler({
                         )}
                     </div>
 
-                    {/* Tab switcher — top right */}
-                    <div style={{
-                        position: 'absolute',
-                        right: 6,
-                        top: 3,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 2,
-                        border: 'var(--space-px) solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: 2,
-                        background: 'var(--color-control-bg)',
-                        boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
-                        zIndex: 2,
-                    }}>
-                        {SAMPLER_PAGE_MANIFEST.pages.map(page => (
-                            <button
-                                key={page.id}
-                                type="button"
-                                data-no-drag
-                                onClick={() => setActivePageId(page.id)}
-                                style={tabBtnStyle(activePageId === page.id)}
-                            >
-                                {page.label}
-                            </button>
-                        ))}
-                    </div>
+
 
                     {/* SVG waveform */}
                     <svg
@@ -296,108 +275,135 @@ export function PluginGuiSurfaceSampler({
                         ) : null}
                     </svg>
 
+                    {/* ENTERPRISE: Merged Missing Sample UI below */}
+
                     {/* ADSR Overlay */}
                     <div style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, pointerEvents: 'none' }}>
                         <AdsrCurve
-                            attack={normAttack}
-                            decay={normDecay}
-                            sustain={normSustain}
-                            release={normRelease}
+                            attack={finalNormAttack}
+                            decay={finalNormDecay}
+                            sustain={finalNormSustain}
+                            release={finalNormRelease}
                             accent="var(--token-color-hex-4a9eff)"
                             transparent
                         />
                     </div>
 
-                    {/* Load button — centered, when no sample or when sample is missing */}
+                    {/* Centralized Empty/Missing State Container */}
                     {(!hasSample || sampleMissing) && (
                         <div style={{
                             position: 'absolute',
-                            left: 0,
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
+                            inset: 0,
                             display: 'flex',
-                            flexDirection: 'column',
+                            flexDirection: 'row',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: 6,
-                            zIndex: 1,
+                            gap: 'var(--space-2)',
+                            zIndex: 10,
                             pointerEvents: 'none',
                         }}>
-                            {sampleMissing && (
-                                <span style={{
-                                    padding: '2px 8px',
-                                    borderRadius: 'var(--radius-sm)',
-                                    background: 'color-mix(in srgb, var(--color-status-error) 20%, transparent)',
-                                    border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 40%, transparent)',
-                                    color: 'var(--color-status-error)',
-                                    fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 'var(--font-weight-bold)',
-                                    letterSpacing: '0.04em',
-                                    textTransform: 'uppercase',
-                                    pointerEvents: 'none',
-                                }}>
-                                    ⚠ Sample Not Found
-                                </span>
+                            {sampleMissing ? (
+                                <>
+                                    <div style={{
+                                        padding: '4px 12px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        background: 'color-mix(in srgb, var(--color-status-error) 18%, transparent)',
+                                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 30%, transparent)',
+                                        color: 'var(--color-status-error)',
+                                        fontSize: 'var(--font-size-2xs)',
+                                        fontWeight: 'var(--font-weight-bold)',
+                                        letterSpacing: '0.04em',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                    }}>
+                                        <span>⚠️</span>
+                                        SAMPLE NOT FOUND
+                                    </div>
+                                    <button
+                                        type="button"
+                                        data-no-drag
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            // Trigger the Missing Assets panel specifically for this missing file
+                                            window.dispatchEvent(new CustomEvent('dream:layout-toggle-panel', { detail: 'missing-assets' }));
+                                        }}
+                                        style={{
+                                            padding: '4px 16px',
+                                            borderRadius: 'var(--radius-md)',
+                                            background: 'var(--surface-overlay)',
+                                            border: 'var(--space-px) solid var(--color-control-border)',
+                                            color: 'var(--color-text-primary)',
+                                            fontSize: 'var(--font-size-2xs)',
+                                            fontWeight: 'var(--font-weight-medium)',
+                                            cursor: 'pointer',
+                                            transition: 'background-color 0.15s ease',
+                                            pointerEvents: 'auto',
+                                        }}
+                                        onPointerEnter={(e) => (e.currentTarget.style.background = 'var(--surface-overlay-hover)')}
+                                        onPointerLeave={(e) => (e.currentTarget.style.background = 'var(--surface-overlay)')}
+                                    >
+                                        Replace Sample
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    type="button"
+                                    data-no-drag
+                                    onClick={() => onLoadSample?.()}
+                                    className="sampler-load-btn"
+                                    style={{ pointerEvents: 'auto' }}
+                                >
+                                    Load Sample
+                                </button>
                             )}
-                            <button
-                                type="button"
-                                data-no-drag
-                                onClick={() => onLoadSample?.()}
-                                className="sampler-load-btn"
-                                style={{ pointerEvents: 'auto' }}
-                            >
-                                {sampleMissing ? 'Replace Sample' : 'Load Sample'}
-                            </button>
                         </div>
                     )}
                 </div>
             )}
 
-            {/* ── Settings page header (when settings active) ────── */}
-            {!isWaveformPage && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '4px 8px',
-                    borderBottom: 'var(--space-px) solid var(--color-divider)',
-                    flexShrink: 0,
+            {/* ── Settings / Waveform page universal header ────── */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
+                flexShrink: 0,
+            }}>
+                <span style={{
+                    fontSize: 'var(--font-size-2xs)',
+                    fontWeight: 'var(--font-weight-bold)',
+                    color: 'var(--color-text-secondary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
                 }}>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 'var(--font-weight-bold)',
-                        color: 'var(--color-text-secondary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                    }}>
-                        {activePage.label}
-                    </span>
-                    {/* Tab switcher */}
-                    <div style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 2,
-                        border: 'var(--space-px) solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: 2,
-                        background: 'var(--color-control-bg)',
-                        boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
-                    }}>
-                        {SAMPLER_PAGE_MANIFEST.pages.map(page => (
-                            <button
-                                key={page.id}
-                                type="button"
-                                data-no-drag
-                                onClick={() => setActivePageId(page.id)}
-                                style={tabBtnStyle(activePageId === page.id)}
-                            >
-                                {page.label}
-                            </button>
-                        ))}
-                    </div>
+                    {activePage.label}
+                </span>
+                {/* Tab switcher */}
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    border: 'var(--space-px) solid var(--color-control-border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 2,
+                    background: 'var(--color-control-bg)',
+                    boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
+                }}>
+                    {SAMPLER_PAGE_MANIFEST.pages.map(page => (
+                        <button
+                            key={page.id}
+                            type="button"
+                            data-no-drag
+                            onClick={() => setActivePageId(page.id)}
+                            style={tabBtnStyle(activePageId === page.id)}
+                        >
+                            {page.label}
+                        </button>
+                    ))}
                 </div>
-            )}
+            </div>
 
             {/* ── Params area (module-card wrapped) ───────────── */}
             <div

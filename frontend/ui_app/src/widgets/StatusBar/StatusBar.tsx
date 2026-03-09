@@ -34,7 +34,7 @@ interface StatusBarProps {
     onMainViewModeChange?: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
     isFlowAvailable?: boolean;
     /** Missing media summary for inline badge in the status bar. */
-    missingMediaSummary?: { offlineClipCount: number; missingPluginCount: number; total: number };
+    missingMediaSummary?: { offlineClipCount: number; missingPluginCount: number; missingSamplerCount: number; total: number };
     /** Toggle the missing assets panel. */
     onToggleMissingAssets?: () => void;
 }
@@ -253,11 +253,17 @@ export const StatusBar = ({
                             {missingMediaSummary.offlineClipCount > 0 && (
                                 <span>{missingMediaSummary.offlineClipCount} file{missingMediaSummary.offlineClipCount !== 1 ? 's' : ''} offline</span>
                             )}
-                            {missingMediaSummary.offlineClipCount > 0 && missingMediaSummary.missingPluginCount > 0 && (
+                            {missingMediaSummary.offlineClipCount > 0 && (missingMediaSummary.missingPluginCount > 0 || missingMediaSummary.missingSamplerCount > 0) && (
                                 <span>·</span>
                             )}
                             {missingMediaSummary.missingPluginCount > 0 && (
                                 <span>{missingMediaSummary.missingPluginCount} plugin{missingMediaSummary.missingPluginCount !== 1 ? 's' : ''}</span>
+                            )}
+                            {missingMediaSummary.missingPluginCount > 0 && missingMediaSummary.missingSamplerCount > 0 && (
+                                <span>·</span>
+                            )}
+                            {missingMediaSummary.missingSamplerCount > 0 && (
+                                <span>{missingMediaSummary.missingSamplerCount} sample{missingMediaSummary.missingSamplerCount !== 1 ? 's' : ''}</span>
                             )}
                         </button>
                     )}

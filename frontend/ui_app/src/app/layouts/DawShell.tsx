@@ -48,6 +48,7 @@ import { readAssistantOpenPref, writeAssistantOpenPref } from './model/assistant
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { cancelIdle, scheduleIdle } from './model/idleWarmup';
 import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
+import { useMissingMediaSummary } from './model/useMissingMediaSummary';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
 type BottomPanelMode = 'rack' | 'clip';
@@ -357,21 +358,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         () => frameToBeat(transportLoopEnd, _loopBpm, projectSampleRate),
         [transportLoopEnd, _loopBpm, projectSampleRate],
     );
-    const missingMediaSummary = useMemo(() => {
-        const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
-        let missingPluginCount = 0;
-        for (const trackId of tracksEntity.allIds) {
-            const track = tracksEntity.byId[trackId];
-            if (!track) continue;
-            if (track.instrument?.plugin_id?.startsWith('missing://')) missingPluginCount += 1;
-            missingPluginCount += (track.effects ?? []).filter((fx) => fx.plugin_id?.startsWith('missing://')).length;
-        }
-        return {
-            offlineClipCount,
-            missingPluginCount,
-            total: offlineClipCount + missingPluginCount,
-        };
-    }, [timelineClipsForView, tracksEntity]);
+    const missingMediaSummary = useMissingMediaSummary(timelineClipsForView);
     const prevMissingTotalRef = useRef(0);
     useEffect(() => {
         const prev = prevMissingTotalRef.current;

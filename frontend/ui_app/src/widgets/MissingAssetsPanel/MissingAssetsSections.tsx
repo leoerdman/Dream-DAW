@@ -233,16 +233,18 @@ export type MissingSamplerItem = {
 
 export function MissingSamplerSection({
     missingSamples,
-    onResolveSamplerSample,
+    scanBusy,
+    onResolveSample,
 }: {
     missingSamples: MissingSamplerItem[];
-    onResolveSamplerSample: (trackId: string, samplePath: string, padIndex?: number) => Promise<void>;
+    scanBusy: boolean;
+    onResolveSample: (samplePath: string, bestEntry: any, fileName: string) => Promise<void>;
 }) {
     return (
         <section style={sectionStyle}>
             <div style={sectionTitleStyle}>Missing Sampler Samples</div>
             {missingSamples.length === 0 ? (
-                <div style={emptyTextStyle}>No missing sampler samples.</div>
+                <div style={emptyTextStyle}>{scanBusy ? 'Scanning sampler tracks…' : 'No missing sampler samples.'}</div>
             ) : missingSamples.map((item, idx) => {
                 const fileName = item.samplePath.split('/').pop() ?? item.samplePath;
                 const isPad = item.padIndex !== undefined;
@@ -302,7 +304,8 @@ export function MissingSamplerSection({
                                     });
                                     const path = typeof picked === 'string' ? picked : null;
                                     if (!path) return;
-                                    await onResolveSamplerSample(item.trackId, path, item.padIndex);
+                                    // Make a mock entry for manual resolution
+                                    await onResolveSample(item.samplePath, { path } as any, fileName);
                                 }}
                                 style={iconBtnStyle}
                                 title="Browse for replacement sample"
@@ -336,17 +339,30 @@ const sectionTitleStyle: CSSProperties = {
     color: 'var(--color-text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
+    paddingBottom: 'var(--space-0-5)',
+    borderBottom: 'var(--border-width-1) solid var(--color-divider)',
 };
-const emptyTextStyle: CSSProperties = { fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' };
+const emptyTextStyle: CSSProperties = {
+    fontSize: 'var(--font-size-sm)',
+    color: 'var(--color-text-tertiary)',
+    padding: 'var(--space-2)',
+    textAlign: 'center',
+    background: 'color-mix(in srgb, var(--color-bg-base) 40%, transparent)',
+    borderRadius: 'var(--radius-md)',
+    border: '1px dashed var(--color-divider)',
+    fontStyle: 'italic',
+};
 const cardStyle: CSSProperties = {
     border: 'var(--border-width-1) solid var(--color-divider)',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--color-bg-header)',
-    padding: 'var(--space-1-5)',
-    display: 'grid',
-    gap: 'var(--space-1)',
-    overflow: 'hidden', // ENTERPRISE: Prevent card content overflow
+    borderRadius: 'var(--radius-lg)',
+    background: 'color-mix(in srgb, var(--color-bg-header) 60%, transparent)',
+    padding: 'var(--space-2)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 'var(--space-1-5)',
+    overflow: 'hidden',
     minWidth: 0,
+    boxShadow: '0 2px 8px color-mix(in srgb, var(--shadow-color) 10%, transparent)',
 };
 const cardTitleStyle: CSSProperties = {
     fontSize: 'var(--font-size-sm)',
@@ -374,7 +390,7 @@ const actionBtnStyle: CSSProperties = {
 };
 const iconBtnStyle: CSSProperties = {
     border: 'var(--border-width-1) solid var(--color-divider)',
-    borderRadius: 'var(--radius-sm)',
+    borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-panel)',
     color: 'var(--color-text-secondary)',
     fontSize: 14,

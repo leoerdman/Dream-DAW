@@ -13,7 +13,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 const CONTAINER_STYLE: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 14,
     padding: '0 8px',
     height: 22,
     borderRadius: 'var(--radius-md)',
@@ -30,7 +30,7 @@ const CONTAINER_STYLE: React.CSSProperties = {
 
 const LABEL_STYLE: React.CSSProperties = {
     color: 'var(--color-text-tertiary)',
-    fontSize: 'var(--font-size-2xs)',
+    fontSize: 'var(--font-size-xs)',
     fontWeight: 600,
     letterSpacing: '0.03em',
 };
@@ -102,27 +102,27 @@ export function PerformanceMonitor() {
     }, []);
 
     return (
-        <div style={CONTAINER_STYLE} title="Performance Monitor">
+        <div style={CONTAINER_STYLE} title="Performance Monitor" id="performance-monitor">
             {/* DSP — audio thread utilization */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span ref={dspLabelRef} style={{ ...LABEL_STYLE, color: COLOR_OK }}>DSP</span>
                 <span ref={dspValueRef} style={{ color: COLOR_OK }}>0%</span>
             </div>
 
             {/* CPU */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span style={LABEL_STYLE}>CPU</span>
                 <span ref={cpuValueRef} style={{ color: COLOR_OK }}>0%</span>
             </div>
 
             {/* RAM */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span style={LABEL_STYLE}>RAM</span>
                 <span ref={ramValueRef} style={{ color: COLOR_OK }}>0%</span>
             </div>
 
             {/* Process memory */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span style={LABEL_STYLE}>MEM</span>
                 <span ref={memValueRef} style={{ color: 'var(--color-text-secondary)' }}>0M</span>
             </div>

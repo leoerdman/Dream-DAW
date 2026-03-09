@@ -7,6 +7,11 @@ const DRAG_SCALE_SHIFT_PX = 2000;
 const DRAG_SCALE_ALT_PX = 60;
 
 const resolveParamPrecision = (param: PluginParam): number => {
+    // Force 2 decimals for ADSR/Gain for consistent UI
+    const name = param.name.toLowerCase();
+    if (['attack', 'decay', 'sustain', 'release', 'vol', 'gain'].includes(name)) {
+        return 2;
+    }
     const step = param.step;
     if (!step || step <= 0) return 0;
     if (step >= 1) return 0;

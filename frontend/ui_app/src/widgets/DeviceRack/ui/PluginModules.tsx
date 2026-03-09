@@ -512,32 +512,28 @@ export const AdsrCurve = React.memo(function AdsrCurve({
     const svgRef = useRef<SVGSVGElement | null>(null);
     const dragRef = useRef<{ param: string; startX: number; startY: number; startVal: number } | null>(null);
 
-    // ── Geometry — FIXED segment proportions (no visual coupling) ──
-    const M = 4;        // minimal horizontal margin (start near left edge)
+    // ── Geometry — Proportional segment widths (true ADSR visual) ──
+    const M = 4;        // minimal horizontal margin
     const W = VB_W - 2 * M;   // usable width
     const TOP = 10;     // top margin
     const BOT = 108;    // bottom Y
     const H = BOT - TOP;
 
-    // Fixed width fractions — parameter values only affect Y-shape, NOT X-width
-    const segAFrac = 0.25;  // Attack segment = 25% of width
-    const segDFrac = 0.20;  // Decay = 20%
-    const segSFrac = 0.30;  // Sustain hold = 30%
-    const segRFrac = 0.25;  // Release = 25%
+    const baseSustain = 0.5; // Visual weight for the sustain hold segment
+    const A = Math.max(0, attack);
+    const D = Math.max(0, decay);
+    const R = Math.max(0, release);
 
-    const xA = M;                                    // Start (left edge)
-    const xB = M + segAFrac * W;                     // Attack peak
-    const xC = xB + segDFrac * W;                    // Decay end / sustain start
-    const xD = xC + segSFrac * W;                    // Sustain end / release start
+    // Total sum = A + D + R + base_sustain
+    const totalTime = A + D + baseSustain + R;
+
+    const xA = M;
+    const attackPeakX = xA + (A / totalTime) * W;
+    const decayMidX = attackPeakX + (D / totalTime) * W;
+    const xD = decayMidX + (baseSustain / totalTime) * W;
+    const releaseEndX = xD + (R / totalTime) * W;
 
     const susY = BOT - sustain * H;                  // Sustain level Y
-
-    // Attack controls the peak position within the attack segment
-    const attackPeakX = M + Math.max(0.02, attack) * segAFrac * W;
-    // Decay controls how quickly it reaches sustain within the decay segment
-    const decayMidX = xB + Math.max(0.02, decay) * segDFrac * W;
-    // Release controls the slope within the release segment
-    const releaseEndX = xD + Math.max(0.02, release) * segRFrac * W;
 
     const curvePath = [
         `M ${xA} ${BOT}`,                 // Start at bottom-left
@@ -553,7 +549,7 @@ export const AdsrCurve = React.memo(function AdsrCurve({
     const handles = [
         { param: 'attack', cx: attackPeakX, cy: TOP, color: 'var(--token-color-hex-4a9eff)' },
         { param: 'decay', cx: decayMidX, cy: susY, color: 'var(--token-color-hex-6db3ff)' },
-        { param: 'sustain', cx: (xC + xD) / 2, cy: susY, color: 'var(--token-color-hex-78d6ad)' },
+        { param: 'sustain', cx: (decayMidX + xD) / 2, cy: susY, color: 'var(--token-color-hex-78d6ad)' },
         { param: 'release', cx: releaseEndX, cy: BOT, color: 'var(--token-color-hex-7ab6ff)' },
     ];
 
@@ -589,7 +585,7 @@ export const AdsrCurve = React.memo(function AdsrCurve({
         } else {
             // Attack/Decay/Release: horizontal drag controls time
             const delta = (pt.x - dragRef.current.startX) / W;
-            const val = clamp01(dragRef.current.startVal + delta * 2);
+            const val = clamp01(dragRef.current.startVal + delta);
             onParamChange?.(param, val);
             dragRef.current.startX = pt.x;
             dragRef.current.startVal = val;
@@ -627,16 +623,16 @@ export const AdsrCurve = React.memo(function AdsrCurve({
             {/* Fill below curve */}
             <path d={fillPath} fill={accent} opacity={transparent ? "0.2" : "0.08"} />
 
-            {/* Envelope curve — thinner stroke */}
-            <path d={curvePath} fill="none" stroke={accent} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            {/* Envelope curve — standardized 2px stroke with Non-Scaling Vector Effect to resist ViewBox Stretch */}
+            <path d={curvePath} fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
 
             {/* Segment labels */}
             {!transparent && (
                 <>
-                    <text x={attackPeakX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>
-                    <text x={decayMidX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>
-                    <text x={(xC + xD) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">S</text>
-                    <text x={releaseEndX} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>
+                    {attack > 0.01 && <text x={(xA + attackPeakX) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">A</text>}
+                    {decay > 0.01 && <text x={(attackPeakX + decayMidX) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">D</text>}
+                    <text x={(decayMidX + xD) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">S</text>
+                    {release > 0.01 && <text x={(xD + releaseEndX) / 2} y={BOT + 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d35)" fontSize="7" fontFamily="var(--font-role-data)">R</text>}
                 </>
             )}
 

@@ -118,7 +118,23 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const [autoResolveBusy, setAutoResolveBusy] = useState(false);
     const [autoSearchBusy, setAutoSearchBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
-    const [searchFolder, setSearchFolder] = useState<string | null>(null);
+    const [searchFolder, setSearchFolder] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem('dream:missingAssetsSearchFolder');
+        } catch {
+            return null;
+        }
+    });
+
+    useEffect(() => {
+        if (searchFolder) {
+            try {
+                localStorage.setItem('dream:missingAssetsSearchFolder', searchFolder);
+            } catch {
+                // Ignore storage errors
+            }
+        }
+    }, [searchFolder]);
     const [searchProgress, setSearchProgress] = useState<{
         total: number;
         resolved: number;
@@ -138,6 +154,10 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const [searchLog, setSearchLog] = useState<SearchLogEntry[]>([]);
     const [searchPopupOpen, setSearchPopupOpen] = useState(false);
     const logRef = useRef<HTMLDivElement>(null);
+
+    // ── Missing sampler & sample-rack samples state ──────────────
+    const [missingSamplerSamples, setMissingSamplerSamples] = useState<MissingSamplerItem[]>([]);
+    const [samplerScanBusy, setSamplerScanBusy] = useState(false);
 
     // ── Raw missing clips (ungrouped) ──
     const missingClips = useMemo<MissingClipItem[]>(() => {
@@ -191,7 +211,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     // ENTERPRISE: Two-phase search — project folder is always checked first
     // (bounced/consolidated clips live there), then user-selected folder.
     const runAutoSearchAudio = useCallback(async () => {
-        if (autoSearchBusy || missingClips.length === 0) return;
+        if (autoSearchBusy) return;
 
         setAutoSearchBusy(true);
         setMessage('Preparing search…');
@@ -278,8 +298,14 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             // Step 2: Read fresh missing clips from store — group by source file
             const currentClips = useEngineStore.getState().clips;
 
-            // Build grouped map: fileName → [clipId, clipId, ...]
-            const missingByName = new Map<string, { clipIds: string[]; clipName: string }>();
+            // Build grouped map: fileName → [clipId, clipId, ...] or sampler targets
+            const missingByName = new Map<string, {
+                fileName: string;
+                clipIds: string[];
+                samplerItems: MissingSamplerItem[];
+            }>();
+
+            // 1. Group missing clips
             for (const id of currentClips.allIds) {
                 const c = currentClips.byId[id];
                 if (!c || c.type !== 'audio' || !c.isOffline) continue;
@@ -288,7 +314,19 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 if (existing) {
                     existing.clipIds.push(c.id);
                 } else {
-                    missingByName.set(key, { clipIds: [c.id], clipName: c.name });
+                    missingByName.set(key, { fileName: c.name, clipIds: [c.id], samplerItems: [] });
+                }
+            }
+
+            // 2. Group missing sampler samples
+            for (const item of missingSamplerSamples) {
+                const fileName = item.samplePath.split('/').pop() || item.samplePath;
+                const key = fileName.toLowerCase();
+                const existing = missingByName.get(key);
+                if (existing) {
+                    existing.samplerItems.push(item);
+                } else {
+                    missingByName.set(key, { fileName, clipIds: [], samplerItems: [item] });
                 }
             }
 
@@ -312,7 +350,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 let bestEntry: engineApi.BrowserFileEntry | null = null;
 
                 for (const entry of allAudioEntries) {
-                    let score = scoreAudioFileMatch(group.clipName, entry.name);
+                    let score = scoreAudioFileMatch(group.fileName, entry.name);
                     // ENTERPRISE: Boost score for files inside project folder (Samples/Processed/)
                     if (projectFolder && entry.path.startsWith(projectFolder) && score > 0) {
                         score = Math.min(100, score + 10);
@@ -321,10 +359,10 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         bestScore = score;
                         bestEntry = entry;
                     }
-                    // Fallback: try matching clip name against path segments
+                    // Fallback: try matching filename against path segments
                     if (score === 0) {
                         const pathSegments = entry.path.split('/').map(s => s.toLowerCase());
-                        const clipLower = stem(group.clipName).toLowerCase();
+                        const clipLower = stem(group.fileName).toLowerCase();
                         for (const seg of pathSegments) {
                             if (seg.includes(clipLower) || clipLower.includes(stem(seg))) {
                                 let pathScore = 45;
@@ -342,9 +380,11 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                     }
                 }
 
-                // ENTERPRISE: Resolve ALL clips that reference this source file
+                // ENTERPRISE: Resolve ALL clips AND sampler samples that reference this source file
                 if (bestEntry && bestScore >= 40) {
                     let groupResolved = 0;
+
+                    // Resolve clips
                     for (const clipId of group.clipIds) {
                         try {
                             const response = await engineApi.resolveMissingFileWithDeltas(clipId, bestEntry.path);
@@ -352,15 +392,34 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             groupResolved++;
                             resolvedClips++;
                         } catch (err) {
-                            console.error(`[AutoSearch] Failed to resolve clip '${clipId}' for '${group.clipName}':`, err);
+                            console.error(`[AutoSearch] Failed to resolve clip '${clipId}' for '${group.fileName}':`, err);
                             failedCount++;
                         }
                     }
+
+                    // Resolve sampler samples
+                    for (const sItem of group.samplerItems) {
+                        try {
+                            if (sItem.padIndex !== undefined) {
+                                const response = await engineApi.setSampleRackPadSampleWithDeltas(sItem.trackId, sItem.padIndex, bestEntry.path);
+                                await applyProjectDeltas(response.deltas, 'missing-assets:auto-search-resolve');
+                            } else {
+                                const response = await engineApi.setSamplerSampleWithDeltas(sItem.trackId, bestEntry.path);
+                                await applyProjectDeltas(response.deltas, 'missing-assets:auto-search-resolve');
+                            }
+                            groupResolved++;
+                            resolvedClips++; // Count them in the total "assets resolved" stat
+                        } catch (err) {
+                            console.error(`[AutoSearch] Failed to resolve sampler sample for '${group.fileName}':`, err);
+                            failedCount++;
+                        }
+                    }
+
                     if (groupResolved > 0) resolvedFiles++;
                     // Log entry: found
                     const isProjectFile = projectFolder && bestEntry.path.startsWith(projectFolder);
                     newLog.push({
-                        fileName: group.clipName,
+                        fileName: group.fileName,
                         status: groupResolved > 0 ? 'found' : 'error',
                         matchedPath: (isProjectFile ? '📂 ' : '') + (bestEntry.path.split('/').pop() ?? bestEntry.path),
                         clipCount: groupResolved,
@@ -371,7 +430,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         total: uniqueFiles.length,
                         resolved: resolvedFiles,
                         processed: processedFiles,
-                        current: `${group.clipName} — ${groupResolved}/${group.clipIds.length} clips`,
+                        current: `${group.fileName} — ${groupResolved} usages resolved`,
                         failed: failedCount,
                         phase: 'matching',
                         audioFilesFound: allAudioEntries.length,
@@ -379,7 +438,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 } else {
                     // Log entry: not found
                     newLog.push({
-                        fileName: group.clipName,
+                        fileName: group.fileName,
                         status: 'not_found',
                     });
                     setSearchLog([...newLog]);
@@ -388,7 +447,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         total: uniqueFiles.length,
                         resolved: resolvedFiles,
                         processed: processedFiles,
-                        current: `${group.clipName} — no match`,
+                        current: `${group.fileName} — no match`,
                         failed: failedCount,
                         phase: 'matching',
                         audioFilesFound: allAudioEntries.length,
@@ -420,9 +479,11 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             useStatusStore.getState().setError(`Auto Search failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setAutoSearchBusy(false);
-            // Don't auto-close popup—user can close it manually
+            // BUG-049/USER FIX: Do NOT auto-close the popup.
+            // Search completion popup remains open so user can read the logs.
+            // Core Missing Assets Panel also remains open until completely resolved.
         }
-    }, [autoSearchBusy, missingClips.length, applyProjectDeltas, searchFolder]);
+    }, [autoSearchBusy, missingClips.length, missingSamplerSamples, applyProjectDeltas, searchFolder]);
 
     const missingPlugins = useMemo<MissingPluginSlot[]>(() => {
         const out: MissingPluginSlot[] = [];
@@ -464,9 +525,6 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     // ── ENTERPRISE: Missing sampler & sample-rack samples ──────────────
     // Scans all tracks for sampler/rack-pad sample paths and checks file
     // existence by attempting waveform load. Files that fail are missing.
-    const [missingSamplerSamples, setMissingSamplerSamples] = useState<MissingSamplerItem[]>([]);
-    const [samplerScanBusy, setSamplerScanBusy] = useState(false);
-
     useEffect(() => {
         if (!isOpen) {
             setMissingSamplerSamples([]);
@@ -660,7 +718,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 }}>
                     {/* Title row */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>Missing Media</span>
+                        <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>Asset Manager</span>
                         <button onClick={onClose} style={{
                             border: 'none',
                             background: 'transparent',
@@ -669,7 +727,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             cursor: 'pointer',
                             padding: '2px 6px',
                             lineHeight: 1,
-                        }} title="Close">✕</button>
+                        }} title="Close popup">✕</button>
                     </div>
 
                     {/* Summary badges */}
@@ -683,7 +741,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             color: missingClips.length > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)',
                             fontWeight: 'var(--font-weight-medium)',
                         }}>
-                            {groupedMissingFiles.length} file{groupedMissingFiles.length !== 1 ? 's' : ''} ({missingClips.length} clip{missingClips.length !== 1 ? 's' : ''})
+                            {groupedMissingFiles.length} audio file{groupedMissingFiles.length !== 1 ? 's' : ''}
                         </span>
                         <span style={{
                             padding: '2px 8px',
@@ -696,101 +754,105 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         }}>
                             {missingPlugins.length} plugin{missingPlugins.length !== 1 ? 's' : ''}
                         </span>
-                        {missingSamplerSamples.length > 0 && (
-                            <span style={{
-                                padding: '2px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                background: 'color-mix(in srgb, var(--color-status-error) 18%, transparent)',
-                                color: 'var(--color-status-error)',
-                                fontWeight: 'var(--font-weight-medium)',
-                            }}>
-                                {missingSamplerSamples.length} sample{missingSamplerSamples.length !== 1 ? 's' : ''}
-                            </span>
-                        )}
-                    </div>
-
-                    {/* Search folder row — ENTERPRISE: overflow contained */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--space-1)',
-                        background: 'var(--color-bg-secondary)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '4px 8px',
-                        minHeight: 28,
-                        overflow: 'hidden', // Contain folder path overflow
-                    }}>
-                        <button
-                            onClick={() => { void pickSearchFolder(); }}
-                            style={{
-                                border: 'var(--border-width-1) solid var(--color-divider)',
-                                background: 'var(--color-bg-header)',
-                                color: 'var(--color-text-primary)',
-                                borderRadius: 'var(--radius-sm)',
-                                fontSize: 'var(--font-size-2xs)',
-                                padding: '2px 6px',
-                                cursor: 'pointer',
-                                flexShrink: 0,
-                                transition: 'background var(--transition-fast)',
-                            }}
-                            title="Choose search folder"
-                        >
-                            📂 Folder
-                        </button>
                         <span style={{
-                            fontSize: 'var(--font-size-2xs)',
-                            color: searchFolder ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            flex: 1,
-                            minWidth: 0, // ENTERPRISE: Allow flex child to shrink below content size
-                            direction: 'rtl',
-                            textAlign: 'left',
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: missingSamplerSamples.length > 0
+                                ? 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'
+                                : 'color-mix(in srgb, var(--color-status-success) 18%, transparent)',
+                            color: missingSamplerSamples.length > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)',
+                            fontWeight: 'var(--font-weight-medium)',
                         }}>
-                            {searchFolder || 'No folder selected'}
+                            {missingSamplerSamples.length} sampler file{missingSamplerSamples.length !== 1 ? 's' : ''}
                         </span>
                     </div>
 
-                    {/* Action buttons */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                        <button
-                            onClick={() => { void runAutoSearchAudio(); }}
-                            disabled={autoSearchBusy || missingClips.length === 0}
-                            style={{
-                                border: 'var(--border-width-1) solid var(--color-divider)',
-                                background: autoSearchBusy ? 'var(--color-bg-header)' : 'color-mix(in srgb, var(--color-status-info) 15%, var(--color-bg-header))',
-                                color: missingClips.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-status-info)',
+                    {/* Search folder row — ENTERPRISE: hidden if no missing assets */}
+                    {(groupedMissingFiles.length > 0 || missingPlugins.length > 0 || missingSamplerSamples.length > 0) && (
+                        <>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 'var(--space-1)',
+                                background: 'var(--color-bg-secondary)',
                                 borderRadius: 'var(--radius-md)',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 'var(--font-weight-semibold)',
-                                padding: '4px 10px',
-                                cursor: autoSearchBusy || missingClips.length === 0 ? 'default' : 'pointer',
-                                opacity: autoSearchBusy || missingClips.length === 0 ? 0.5 : 1,
-                                transition: 'background var(--transition-fast)',
-                            }}
-                        >
-                            {autoSearchBusy ? '⏳ Searching…' : '🔍 Auto Search'}
-                        </button>
-                        <button
-                            onClick={() => { void runAutoResolvePlugins(); }}
-                            disabled={autoResolveBusy || missingPlugins.length === 0}
-                            style={{
-                                border: 'var(--border-width-1) solid var(--color-divider)',
-                                background: 'var(--color-bg-header)',
-                                color: missingPlugins.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
-                                borderRadius: 'var(--radius-md)',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 'var(--font-weight-semibold)',
-                                padding: '4px 10px',
-                                cursor: autoResolveBusy || missingPlugins.length === 0 ? 'default' : 'pointer',
-                                opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.5 : 1,
-                                transition: 'background var(--transition-fast)',
-                            }}
-                        >
-                            {autoResolveBusy ? '⏳ Resolving…' : '🔌 Plugins'}
-                        </button>
-                    </div>
+                                padding: '4px 8px',
+                                minHeight: 28,
+                                overflow: 'hidden', // Contain folder path overflow
+                            }}>
+                                <button
+                                    onClick={() => { void pickSearchFolder(); }}
+                                    style={{
+                                        border: 'var(--border-width-1) solid var(--color-divider)',
+                                        background: 'var(--color-bg-header)',
+                                        color: 'var(--color-text-primary)',
+                                        borderRadius: 'var(--radius-sm)',
+                                        fontSize: 'var(--font-size-2xs)',
+                                        padding: '2px 6px',
+                                        cursor: 'pointer',
+                                        flexShrink: 0,
+                                        transition: 'background var(--transition-fast)',
+                                    }}
+                                    title="Choose search folder"
+                                >
+                                    📂 Folder
+                                </button>
+                                <span style={{
+                                    fontSize: 'var(--font-size-2xs)',
+                                    color: searchFolder ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    flex: 1,
+                                    minWidth: 0, // ENTERPRISE: Allow flex child to shrink below content size
+                                    direction: 'rtl',
+                                    textAlign: 'left',
+                                }}>
+                                    {searchFolder || 'No folder selected'}
+                                </span>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+                                <button
+                                    onClick={() => { void runAutoSearchAudio(); }}
+                                    disabled={autoSearchBusy}
+                                    style={{
+                                        border: 'var(--border-width-1) solid var(--color-divider)',
+                                        background: autoSearchBusy ? 'var(--color-bg-header)' : 'color-mix(in srgb, var(--color-status-info) 15%, var(--color-bg-header))',
+                                        color: 'var(--color-status-info)',
+                                        borderRadius: 'var(--radius-md)',
+                                        fontSize: 'var(--font-size-xs)',
+                                        fontWeight: 'var(--font-weight-semibold)',
+                                        padding: '4px 10px',
+                                        cursor: autoSearchBusy ? 'default' : 'pointer',
+                                        opacity: autoSearchBusy ? 0.5 : 1,
+                                        transition: 'background var(--transition-fast)',
+                                    }}
+                                >
+                                    {autoSearchBusy ? '⏳ Searching…' : '🔍 Auto Search'}
+                                </button>
+                                <button
+                                    onClick={() => { void runAutoResolvePlugins(); }}
+                                    disabled={autoResolveBusy || missingPlugins.length === 0}
+                                    style={{
+                                        border: 'var(--border-width-1) solid var(--color-divider)',
+                                        background: 'var(--color-bg-header)',
+                                        color: missingPlugins.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                                        borderRadius: 'var(--radius-md)',
+                                        fontSize: 'var(--font-size-xs)',
+                                        fontWeight: 'var(--font-weight-semibold)',
+                                        padding: '4px 10px',
+                                        cursor: autoResolveBusy || missingPlugins.length === 0 ? 'default' : 'pointer',
+                                        opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.5 : 1,
+                                        transition: 'background var(--transition-fast)',
+                                    }}
+                                >
+                                    {autoResolveBusy ? '⏳ Resolving…' : '🔌 Plugins'}
+                                </button>
+                            </div>
+                        </>
+                    )}
 
                     {/* ── ENTERPRISE: Render-popup-style search progress overlay ── */}
                     {searchPopupOpen && searchProgress && (
@@ -1052,82 +1114,103 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                     overflowY: 'auto',
                     overflowX: 'hidden',
                     padding: 'var(--space-2)',
-                    display: 'grid',
+                    display: 'flex',
+                    flexDirection: 'column',
                     gap: 'var(--space-2)',
                     alignContent: 'start',
+                    flex: 1, // fill vertically
                 }}>
-                    <MissingAudioSection
-                        groupedFiles={groupedMissingFiles}
-                        onResolveFile={async (clipIds, path, clipName) => {
-                            // ENTERPRISE: Batch resolve ALL clips for this source file
-                            let resolved = 0;
-                            for (const clipId of clipIds) {
-                                try {
-                                    const response = await engineApi.resolveMissingFileWithDeltas(clipId, path);
-                                    await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
-                                    resolved++;
-                                } catch (err) {
-                                    console.error(`[MissingAssets] resolveMissingFile failed for clip ${clipId}:`, err);
-                                }
-                            }
-                            if (resolved > 0) {
-                                setMessage(`✓ Resolved '${clipName}' (${resolved} clip${resolved > 1 ? 's' : ''})`);
-                            } else {
-                                setMessage(`✗ Failed to resolve '${clipName}'`);
-                            }
-                        }}
-                    />
-                    <MissingPluginsSection
-                        missingPlugins={missingPlugins}
-                        pluginEntries={pluginEntries}
-                        scanBusy={scanBusy}
-                        onReplacePlugin={async (trackId, slotId, path, name, wantedName) => {
-                            try {
-                                const response = await engineApi.replaceMissingPluginSlotWithDeltas(trackId, slotId, path, name || undefined);
-                                await applyProjectDeltas(response.deltas, name ? 'missing-assets:replace-plugin' : 'missing-assets:replace-plugin-manual');
-                                setMessage(name ? `✓ Replaced '${wantedName}' → '${name}'` : `✓ Replaced '${wantedName}'`);
-                            } catch (err) {
-                                console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
-                                setMessage(`✗ Failed to replace '${wantedName}'`);
-                            }
-                        }}
-                    />
-                    <MissingSamplerSection
-                        missingSamples={missingSamplerSamples}
-                        onResolveSamplerSample={async (trackId, newPath, padIndex) => {
-                            try {
-                                if (padIndex !== undefined) {
-                                    // Sample rack pad replacement
-                                    const response = await engineApi.setSampleRackPadSampleWithDeltas(
-                                        trackId,
-                                        padIndex,
-                                        newPath,
-                                    );
-                                    await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler-pad');
-                                } else {
-                                    // Single sampler instrument replacement
-                                    const response = await engineApi.setSamplerSampleWithDeltas(
-                                        trackId,
-                                        newPath,
-                                    );
-                                    await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler');
-                                }
-                                const fileName = newPath.split('/').pop() ?? newPath;
-                                setMessage(`✓ Replaced sampler sample → '${fileName}'`);
-                                // Remove resolved item from the missing list immediately
-                                setMissingSamplerSamples((prev) =>
-                                    prev.filter((item) => !(
-                                        item.trackId === trackId &&
-                                        (padIndex !== undefined ? item.padIndex === padIndex : item.padIndex === undefined)
-                                    )),
-                                );
-                            } catch (err) {
-                                console.error('[MissingAssets] resolve sampler sample failed:', err);
-                                const fileName = newPath.split('/').pop() ?? newPath;
-                                setMessage(`✗ Failed to replace sampler sample: ${fileName}`);
-                            }
-                        }}
-                    />
+                    {groupedMissingFiles.length === 0 && missingPlugins.length === 0 && missingSamplerSamples.length === 0 ? (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 'var(--space-4)',
+                            gap: 'var(--space-1-5)',
+                            margin: 'auto 0',
+                            textAlign: 'center',
+                            opacity: 0.9,
+                        }}>
+                            <div style={{ fontSize: 48, marginBottom: 'var(--space-1)', filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.2))' }}>✅</div>
+                            <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)' }}>All Media Found</div>
+                            <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', maxWidth: 220, lineHeight: 1.4 }}>There are no missing files or plugins in this project.</div>
+                        </div>
+                    ) : (
+                        <>
+                            {groupedMissingFiles.length > 0 && (
+                                <MissingAudioSection
+                                    groupedFiles={groupedMissingFiles}
+                                    onResolveFile={async (clipIds, path, clipName) => {
+                                        // ENTERPRISE: Batch resolve ALL clips for this source file
+                                        let resolved = 0;
+                                        for (const clipId of clipIds) {
+                                            try {
+                                                const response = await engineApi.resolveMissingFileWithDeltas(clipId, path);
+                                                await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
+                                                resolved++;
+                                            } catch (err) {
+                                                console.error(`[MissingAssets] resolveMissingFile failed for clip ${clipId}:`, err);
+                                            }
+                                        }
+                                        if (resolved > 0) {
+                                            setMessage(`✓ Resolved '${clipName}' (${resolved} clip${resolved > 1 ? 's' : ''})`);
+                                        } else {
+                                            setMessage(`✗ Failed to resolve '${clipName}'`);
+                                        }
+                                    }}
+                                />
+                            )}
+                            {missingSamplerSamples.length > 0 && (
+                                <MissingSamplerSection
+                                    missingSamples={missingSamplerSamples}
+                                    scanBusy={samplerScanBusy}
+                                    onResolveSample={async (samplePath, bestEntry, fileName) => {
+                                        let resolvedCount = 0;
+                                        // Update all tracks/pads matching this samplePath
+                                        for (const item of missingSamplerSamples) {
+                                            if (item.samplePath === samplePath) {
+                                                try {
+                                                    if (item.padIndex !== undefined) {
+                                                        // Rack Pad replacement
+                                                        const response = await engineApi.setSampleRackPadSampleWithDeltas(item.trackId, item.padIndex, bestEntry.path);
+                                                        await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler-pad');
+                                                    } else {
+                                                        // Single sampler instrument replacement
+                                                        const response = await engineApi.setSamplerSampleWithDeltas(item.trackId, bestEntry.path);
+                                                        await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler');
+                                                    }
+                                                    resolvedCount++;
+                                                    setMessage(`✓ Replaced sampler sample → '${fileName}'`);
+                                                } catch (err) {
+                                                    console.error('[MissingAssets] resolve sampler sample failed:', err);
+                                                    // Ignore single failures, continue trying others
+                                                    setMessage(`✗ Failed to replace sampler sample: ${fileName}`);
+                                                }
+                                            }
+                                        }
+                                    }}
+                                />
+                            )}
+                            {missingPlugins.length > 0 && (
+                                <MissingPluginsSection
+                                    missingPlugins={missingPlugins}
+                                    pluginEntries={pluginEntries}
+                                    scanBusy={scanBusy}
+                                    onReplacePlugin={async (trackId, slotId, path, name, wantedName) => {
+                                        try {
+                                            const response = await engineApi.replaceMissingPluginSlotWithDeltas(trackId, slotId, path, name || undefined);
+                                            await applyProjectDeltas(response.deltas, name ? 'missing-assets:replace-plugin' : 'missing-assets:replace-plugin-manual');
+                                            setMessage(name ? `✓ Replaced '${wantedName}' → '${name}'` : `✓ Replaced '${wantedName}'`);
+                                        } catch (err) {
+                                            console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
+                                            setMessage(`✗ Failed to replace '${wantedName}'`);
+                                        }
+                                    }}
+                                />
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
         </>

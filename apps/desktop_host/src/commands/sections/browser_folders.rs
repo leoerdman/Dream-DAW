@@ -18,6 +18,14 @@ struct BrowserFileEntry {
     duration_seconds: Option<f64>,
 }
 
+/// ENTERPRISE FIX: High-performance bulk file existence check.
+/// Used by the Missing Assets Panel to verify sampler samples without
+/// the overhead of loading full waveform peaks over IPC.
+#[tauri::command]
+fn check_files_exist(paths: Vec<String>) -> Result<Vec<bool>, String> {
+    Ok(paths.into_iter().map(|p| std::path::Path::new(&p).exists()).collect())
+}
+
 /// Returns the list of user-added browser folders from settings.
 #[tauri::command]
 fn get_browser_folders(

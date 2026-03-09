@@ -130,9 +130,11 @@ export function DetailedPerformancePanel({ onClose }: Props) {
     const trackCountRef = useRef<HTMLSpanElement>(null);
     const clipCountRef = useRef<HTMLSpanElement>(null);
 
-    // Plugin metrics container
+    // Plugin & Sandbox refs
     const pluginMetricsRef = useRef<HTMLDivElement>(null);
     const masterMetricsRef = useRef<HTMLDivElement>(null);
+    const sandboxStatsRef = useRef<HTMLSpanElement>(null);
+    const cpuCoresRef = useRef<HTMLDivElement>(null);
 
     // Close on Escape
     useEffect(() => {
@@ -144,8 +146,9 @@ export function DetailedPerformancePanel({ onClose }: Props) {
     // Subscribe to performance data
     useEffect(() => {
         const unsub = useEngineStore.subscribe((state) => {
-            const { cpuUsage, ramUsedMb, ramTotalMb, processMemoryMb, dspLoad } = state.performance;
+            const { cpuUsage, cpuPerCore, ramUsedMb, ramTotalMb, processMemoryMb, dspLoad } = state.performance;
             const transport = state.transport;
+            const sandbox = state.pluginSandbox;
 
             const dspPct = Math.min(100, Math.max(0, dspLoad));
             const cpuPct = Math.min(100, Math.max(0, cpuUsage));
@@ -158,6 +161,21 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             // CPU
             updateMetric(cpuValueRef, `${cpuPct.toFixed(1)}%`, statusColor(cpuPct));
             updateBar(cpuBarRef, cpuPct, statusColor(cpuPct));
+            if (cpuCoresRef.current) {
+                const lines = cpuPerCore.map((c, i) => {
+                    const color = statusColor(c, 50, 80);
+                    return `<div style="display:flex;justify-content:space-between;padding:1px 0">` +
+                        `<span style="color:var(--color-text-secondary)">Core ${i}</span>` +
+                        `<span style="color:${color};font-weight:600;min-width:40px;text-align:right">${c.toFixed(0)}%</span>` +
+                        `</div>`;
+                });
+                const html = lines.length > 0
+                    ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:6px">` + lines.join('') + `</div>`
+                    : '';
+                if (cpuCoresRef.current.innerHTML !== html) {
+                    cpuCoresRef.current.innerHTML = html;
+                }
+            }
 
             // RAM
             updateMetric(ramValueRef, `${ramPct.toFixed(1)}%`, statusColor(ramPct, 65, 85));
@@ -196,6 +214,24 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             if (clipCountRef.current) {
                 const text = `${state.clips.allIds.length}`;
                 if (clipCountRef.current.textContent !== text) clipCountRef.current.textContent = text;
+            }
+
+            // Sandbox Stats
+            if (sandboxStatsRef.current) {
+                if (!sandbox || !sandbox.enabled) {
+                    const text = 'Disabled (In-process)';
+                    if (sandboxStatsRef.current.textContent !== text) sandboxStatsRef.current.textContent = text;
+                } else {
+                    let running = 0; let crashed = 0; let bypassed = 0; let other = 0;
+                    for (const inst of sandbox.instances) {
+                        if (inst.bypass_requested) bypassed++;
+                        else if (inst.status === 'running') running++;
+                        else if (inst.status === 'crashed') crashed++;
+                        else other++;
+                    }
+                    const text = `${running} running, ${crashed} crashed, ${bypassed} bypassed` + (other > 0 ? `, ${other} starting` : '');
+                    if (sandboxStatsRef.current.textContent !== text) sandboxStatsRef.current.textContent = text;
+                }
             }
 
             // Per-track plugin metrics
@@ -246,23 +282,105 @@ export function DetailedPerformancePanel({ onClose }: Props) {
         return unsub;
     }, []);
 
+    const handleCopy = () => {
+        const state = useEngineStore.getState();
+        const perf = state.performance;
+        const transport = state.transport;
+        const sandbox = state.pluginSandbox;
+        const meters = getMetersRef();
+
+        let sandboxStr = 'Disabled';
+        if (sandbox && sandbox.enabled) {
+            let running = 0; let crashed = 0; let bypassed = 0; let other = 0;
+            for (const inst of sandbox.instances) {
+                if (inst.bypass_requested) bypassed++;
+                else if (inst.status === 'running') running++;
+                else if (inst.status === 'crashed') crashed++;
+                else other++;
+            }
+            sandboxStr = `${running} running, ${crashed} crashed, ${bypassed} bypassed, ${other} starting`;
+        }
+
+        const lines = [
+            `--- Dream DAW Diagnostics ---`,
+            `Time: ${new Date().toISOString()}`,
+            ``,
+            `[System]`,
+            `DSP Load: ${perf.dspLoad.toFixed(1)}%`,
+            `CPU Usage: ${perf.cpuUsage.toFixed(1)}%`,
+            `RAM Usage: ${perf.ramUsedMb.toLocaleString()} / ${perf.ramTotalMb.toLocaleString()} MB`,
+            `Process Memory: ${(perf.processMemoryMb / 1024).toFixed(2)} GB`,
+            ...perf.cpuPerCore.map((c, i) => `  Core ${i}: ${c.toFixed(1)}%`),
+            ``,
+            `[Audio Engine]`,
+            `Sample Rate: ${(transport.sample_rate / 1000).toFixed(1)} kHz`,
+            `Output Latency: ${transport.sample_rate > 0 ? (transport.output_latency_frames / transport.sample_rate * 1000).toFixed(1) : '?'} ms (${transport.output_latency_frames} samples)`,
+            `Tracks: ${state.tracks.allIds.length}`,
+            `Clips: ${state.clips.allIds.length}`,
+            ``,
+            `[Plugin Sandbox]`,
+            `Status: ${sandboxStr}`,
+            ``,
+            `[Track Plugin Load]`
+        ];
+
+        let hasPlugins = false;
+        const trackIds = state.tracks.allIds;
+        for (let ti = 0; ti < meters.track_plugin_metrics.length && ti < trackIds.length; ti++) {
+            const slots = meters.track_plugin_metrics[ti];
+            const totalUs = slots.reduce((s, v) => s + v, 0);
+            if (totalUs < 0.1) continue;
+            hasPlugins = true;
+            const trackName = state.tracks.byId[trackIds[ti]]?.name ?? `Track ${ti + 1}`;
+            lines.push(`  ${trackName}: ${totalUs.toFixed(0)} µs`);
+        }
+        if (!hasPlugins) lines.push('  No active track plugins');
+
+        lines.push('');
+        lines.push(`[Master Bus Load]`);
+        const masterUs = meters.master_plugin_metrics.reduce((s, v) => s + v, 0);
+        if (masterUs > 0.1) {
+            lines.push(`  Master Chain: ${masterUs.toFixed(0)} µs`);
+        } else {
+            lines.push('  No active master plugins');
+        }
+
+        navigator.clipboard.writeText(lines.join('\\n')).catch(e => console.error('Failed to copy', e));
+    };
+
     return (
         <div style={PANEL_STYLE} id="detailed-performance-panel">
             <div style={HEADER_STYLE}>
                 <span>⚡ Performance Monitor</span>
-                <button
-                    onClick={onClose}
-                    title="Close (Esc)"
-                    style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--color-text-tertiary)',
-                        cursor: 'pointer',
-                        fontSize: 16,
-                        padding: '0 2px',
-                        lineHeight: 1,
-                    }}
-                >✕</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        onClick={handleCopy}
+                        title="Copy diagnostic text"
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-primary)',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                        }}
+                    >Copy</button>
+                    <button
+                        onClick={onClose}
+                        title="Close (Esc)"
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-text-tertiary)',
+                            cursor: 'pointer',
+                            fontSize: 16,
+                            padding: '0 2px',
+                            lineHeight: 1,
+                        }}
+                    >✕</button>
+                </div>
             </div>
 
             {/* System Metrics */}
@@ -279,6 +397,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                     <span style={LABEL_STYLE}>Process Memory</span>
                     <span ref={memValueRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>—</span>
                 </div>
+                <div ref={cpuCoresRef} style={{ fontSize: 'var(--font-size-2xs)', fontVariantNumeric: 'tabular-nums' }}></div>
             </div>
 
             {/* Audio Engine */}
@@ -299,6 +418,15 @@ export function DetailedPerformancePanel({ onClose }: Props) {
                 <div style={ROW_STYLE}>
                     <span style={LABEL_STYLE}>Clips</span>
                     <span ref={clipCountRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>0</span>
+                </div>
+            </div>
+
+            {/* Plugin Sandbox */}
+            <div style={SECTION_STYLE}>
+                <div style={SECTION_TITLE_STYLE}>Plugin Sandbox</div>
+                <div style={ROW_STYLE}>
+                    <span style={LABEL_STYLE}>Status</span>
+                    <span ref={sandboxStatsRef} style={{ ...VALUE_STYLE, color: 'var(--color-text-secondary)' }}>Disabled</span>
                 </div>
             </div>
 

@@ -6,6 +6,9 @@ type Props = {
     clipDurationBeats: number;
     beatsPerBar?: number;
     filePath?: string;
+    sampleRate?: number;
+    channels?: number;
+    numFrames?: number;
     draftWarpEnabled: boolean;
     draftWarpMode: number;
     draftWarpBaseBpm: number;
@@ -27,6 +30,9 @@ export const SampleClipEditorSidebar = (props: Props) => {
         clipDurationBeats,
         beatsPerBar = DEFAULT_TIME_SIG_NUMERATOR,
         filePath,
+        sampleRate,
+        channels,
+        numFrames,
         draftWarpEnabled,
         draftWarpMode,
         draftWarpBaseBpm,
@@ -55,6 +61,9 @@ export const SampleClipEditorSidebar = (props: Props) => {
             <ClipEditorSection title="Clip Setup">
                 <ClipEditorMetaRow label="Length" value={formatBeatsAsBBS(clipDurationBeats, beatsPerBar)} />
                 <ClipEditorMetaRow label="Source" value={filePath ? 'Linked' : 'Missing'} />
+                {sampleRate && <ClipEditorMetaRow label="Format" value={`${sampleRate} Hz`} />}
+                {channels && <ClipEditorMetaRow label="Channels" value={channels === 1 ? 'Mono' : channels === 2 ? 'Stereo' : `${channels} ch`} />}
+                {numFrames && sampleRate && <ClipEditorMetaRow label="Duration" value={`${(numFrames / sampleRate).toFixed(3)}s`} />}
             </ClipEditorSection>
 
             <ClipEditorSection title="Warp">

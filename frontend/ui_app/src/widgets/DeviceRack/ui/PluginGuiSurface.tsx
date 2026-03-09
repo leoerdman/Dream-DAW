@@ -80,6 +80,7 @@ export const PluginGuiSurface = React.memo(({
         const samplePath = device.samplePath?.trim();
         if (!samplePath) {
             setWaveformPeaks(null);
+            setSampleMissing(false);
             return;
         }
         let cancelled = false;

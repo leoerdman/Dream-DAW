@@ -288,6 +288,23 @@ export function applyProjectDeltasToState(
         if (handledByPlugin) {
             continue;
         }
+
+        // ── Transport/Project deltas ─────────────────────────────────────
+        // These are always accompanied by a ProjectSnapshotReplaced delta
+        // which handles the full state update. We acknowledge them here to
+        // prevent noisy "Unhandled delta" console warnings.
+        if (
+            delta.kind === 'TempoChanged' ||
+            delta.kind === 'TimeSignatureChanged' ||
+            delta.kind === 'ArrangementGridChanged' ||
+            delta.kind === 'KeySignatureChanged' ||
+            delta.kind === 'ProjectRenamed' ||
+            delta.kind === 'LoopRegionChanged'
+        ) {
+            // Handled via snapshot — no pointwise state mutation needed.
+            continue;
+        }
+
         // Delta kind intentionally ignored by local reducer. Keep state stable
         // but report unhandled kinds so caller can recover via snapshot delta.
         unhandledDeltaKinds.push(delta.kind);

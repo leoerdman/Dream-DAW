@@ -195,6 +195,8 @@ pub(super) fn drain_commands(
             } => {
                 *ctx.time_sig_numerator = numerator.max(1);
                 *ctx.time_sig_denominator = denominator.max(1);
+                // Sync to RenderContext so metronome reads the live value.
+                ctx.render_ctx.time_sig_numerator = numerator.max(1);
             }
             EngineCommand::SetMetronomeEnabled(enabled) => {
                 ctx.render_ctx.metronome_enabled = enabled;

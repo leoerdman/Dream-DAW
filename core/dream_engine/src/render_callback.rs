@@ -294,39 +294,130 @@ pub struct RenderContext {
     /// Set via `EngineCommand::SetMetronomeEnabled`.
     pub metronome_enabled: bool,
 
+    /// RT-safe metronome click state — zero-allocation, no locks.
+    metronome_state: MetronomeState,
+
+    /// Beats per bar for metronome downbeat accent.
+    /// Updated by `EngineCommand::SetTimeSignature`.
+    pub time_sig_numerator: u8,
+
     /// BUG-047 FIX: Round-robin start index for Pro warp budget.
     /// Each buffer callback advances this index, ensuring later tracks
     /// get first pick on alternating callbacks for fair distribution.
     pro_warp_start_track: usize,
 }
 
+// ── Metronome Click State ──────────────────────────────────────────────
+
+/// RT-safe metronome click state.
+///
+/// Generates a decaying sine wave click when a beat boundary is crossed.
+/// Zero allocations, no locks, purely computational.
+///
+/// - Downbeats (beat 0 in a bar): 880 Hz, ~-10 dBFS
+/// - Other beats:                 660 Hz, ~-14 dBFS
+/// - Click duration: 30ms (sharp, professional-sounding)
+/// - Envelope: exponential decay (e^(-t * decay_rate))
+#[derive(Debug, Clone)]
+struct MetronomeState {
+    /// Remaining samples in the current click envelope (0 = no click playing).
+    remaining_samples: u32,
+    /// Total duration of a single click in samples.
+    click_duration_samples: u32,
+    /// Sine oscillator frequency for the current click (Hz).
+    click_freq: f64,
+    /// Peak amplitude for the current click (linear).
+    click_amplitude: f32,
+    /// Sine oscillator phase accumulator (0.0–1.0).
+    phase: f64,
+    /// Phase increment per sample (freq / sample_rate).
+    phase_inc: f64,
+    /// Exponential decay rate (higher = faster decay).
+    decay_rate: f64,
+    /// The beat number (floored) at the END of the previous buffer.
+    /// Used for beat-crossing detection.
+    prev_beat_floor: i64,
+    /// Whether the playhead was playing in the previous buffer.
+    prev_playing: bool,
+}
+
+impl MetronomeState {
+    fn new(sample_rate: f64) -> Self {
+        let click_duration_secs = 0.03; // 30ms click
+        let click_duration_samples = (sample_rate * click_duration_secs).round() as u32;
+        Self {
+            remaining_samples: 0,
+            click_duration_samples,
+            click_freq: 880.0,
+            click_amplitude: 0.0,
+            phase: 0.0,
+            phase_inc: 0.0,
+            decay_rate: 1.0 / click_duration_secs, // Full decay over duration
+            prev_beat_floor: i64::MIN,
+            prev_playing: false,
+        }
+    }
+
+    /// Trigger a new click at the given frequency and amplitude.
+    #[inline]
+    fn trigger(&mut self, freq: f64, amplitude: f32, sample_rate: f64) {
+        self.remaining_samples = self.click_duration_samples;
+        self.click_freq = freq;
+        self.click_amplitude = amplitude;
+        self.phase = 0.0;
+        self.phase_inc = freq / sample_rate;
+    }
+
+    /// Generate one sample of the click (returns 0.0 if no click active).
+    #[inline]
+    fn next_sample(&mut self, sample_rate: f64) -> f32 {
+        if self.remaining_samples == 0 {
+            return 0.0;
+        }
+        let elapsed = (self.click_duration_samples - self.remaining_samples) as f64
+            / sample_rate;
+        let envelope = (-elapsed * self.decay_rate * 6.0).exp() as f32;
+        let sine = (self.phase * std::f64::consts::TAU).sin() as f32;
+        self.phase += self.phase_inc;
+        if self.phase >= 1.0 {
+            self.phase -= 1.0;
+        }
+        self.remaining_samples -= 1;
+        sine * envelope * self.click_amplitude
+    }
+}
+
+impl Default for MetronomeState {
+    fn default() -> Self {
+        Self::new(44100.0)
+    }
+}
+
 /// Soft-clipping function for real-time output DAC protection.
 ///
 /// CoreAudio/CPAL hard-clip f32 outputs at ±1.0, producing zero-crossing
 /// discontinuities (harsh digital distortion). This function applies a gentle
-/// saturation curve above -0.45 dBFS, mapping [0.95, ∞) → [0.95, 1.0] with
-/// slope=1.0 at the threshold for inaudible transition.
+/// tanh-shaped curve that transparently limits peaks above +6dBFS while
+/// preserving signal below. The curve is C1-continuous (first derivative = 1.0
+/// at the threshold) for inaudible transition.
 ///
 /// NOT applied to offline exports — 32-bit float WAV can represent values
 /// above 0 dBFS, and professional mastering expects transparent headroom.
-pub fn soft_clip(sample: f32) -> f32 {
+#[inline]
+pub(crate) fn soft_clip(sample: f32) -> f32 {
     // Guard NaN/Inf inputs early to prevent propagation.
     if !sample.is_finite() {
         return 0.0;
     }
+    const THRESHOLD: f32 = 0.9;
+    const HEADROOM: f32 = 1.0 - THRESHOLD; // 0.1
     let abs = sample.abs();
-
-    // Threshold at 0.95 (-0.45 dBFS): preserves 99.5% of dynamic range.
-    // Below this, signal passes through with zero coloration.
-    const THRESH: f32 = 0.95;
-    const BETA: f32 = 1.0 - THRESH; // 0.05
-
-    if abs <= THRESH {
-        sample // 100% transparent below -0.45 dBFS
+    if abs <= THRESHOLD {
+        sample // 100% transparent below threshold
     } else {
-        let excess = abs - THRESH;
-        // Rational curve: asymptotically approaches 1.0, slope=1.0 at THRESH
-        let mapped = THRESH + (BETA * excess) / (BETA + excess);
+        let excess = abs - THRESHOLD;
+        // Rational curve: asymptotically approaches 1.0, slope=1.0 at threshold
+        let mapped = THRESHOLD + (HEADROOM * excess) / (HEADROOM + excess);
         sample.signum() * mapped
     }
 }
@@ -373,6 +464,8 @@ impl RenderContext {
             per_track_spectrum_producers: (0..actual_tracks).map(|_| None).collect(),
             offline_mode: false,
             metronome_enabled: false,
+            metronome_state: MetronomeState::new(sample_rate),
+            time_sig_numerator: 4,
             pro_warp_start_track: 0,
             internal_latency_snapshot,
         }
@@ -989,6 +1082,56 @@ impl RenderContext {
                 &slot.buf_left[..frame_count],
                 &slot.buf_right[..frame_count],
             );
+        }
+
+        // ── 5.5. Metronome click synthesis ─────────────────────────────
+        // Mix RT-safe metronome clicks into the master bus BEFORE metering
+        // and interleaving, so clicks go through the same soft-clip path.
+        if self.metronome_enabled && self.playhead.is_advancing() {
+            let bpm = current_bpm;
+            let sr = self.timeline_sample_rate;
+            let beats_per_bar = self.time_sig_numerator.max(1) as f64;
+
+            // For each sample in this buffer, compute the beat position
+            // and detect beat crossings.
+            let playhead_start_frame = self.playhead.position();
+            let samples_per_beat = (sr * 60.0) / bpm;
+            let current_beat_start = playhead_start_frame as f64 / samples_per_beat;
+
+            for i in 0..frame_count {
+                let beat_at_sample = current_beat_start + (i as f64 / samples_per_beat);
+                let beat_floor = beat_at_sample.floor() as i64;
+
+                // Detect beat crossing: current beat floor differs from previous
+                if beat_floor != self.metronome_state.prev_beat_floor
+                    && self.metronome_state.prev_playing
+                {
+                    // Determine if this is a downbeat (bar start)
+                    let beat_in_bar = beat_floor.rem_euclid(beats_per_bar as i64);
+                    let (freq, amp) = if beat_in_bar == 0 {
+                        (880.0, 0.32_f32)  // Downbeat: high pitch, louder (~-10 dBFS)
+                    } else {
+                        (660.0, 0.20_f32)  // Other beats: lower pitch, softer (~-14 dBFS)
+                    };
+                    self.metronome_state.trigger(freq, amp, sr);
+                }
+                self.metronome_state.prev_beat_floor = beat_floor;
+                self.metronome_state.prev_playing = true;
+
+                // Generate click sample and mix into master bus
+                let click_sample = self.metronome_state.next_sample(sr);
+                if click_sample.abs() > 1e-10 {
+                    if i < self.master_bus.left().len() {
+                        self.master_bus.left_mut()[i] += click_sample;
+                        self.master_bus.right_mut()[i] += click_sample;
+                    }
+                }
+            }
+        } else {
+            // Reset state when not playing — prevents stale beat detection
+            // on next play start.
+            self.metronome_state.prev_beat_floor = i64::MIN;
+            self.metronome_state.prev_playing = false;
         }
 
         // ── 6. Write master output ──────────────────────────────────

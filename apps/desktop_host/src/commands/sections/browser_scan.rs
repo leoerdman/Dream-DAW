@@ -248,14 +248,19 @@ const MAX_SCAN_FILES: usize = 50_000;
 
 #[tauri::command]
 fn scan_all_audio_sources(
-    app: tauri::AppHandle,
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<Vec<AudioFileEntry>, String> {
-    let samples_path = get_samples_path(app)?;
-    let browser_folders = {
+    let (samples_path, browser_folders) = {
         let settings = settings_state.settings.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        settings.browser_folders.clone()
+        (settings.samples_path.clone(), settings.browser_folders.clone())
     };
+
+    // Auto-create the samples directory if it doesn't exist
+    let samples_dir = std::path::Path::new(&samples_path);
+    if !samples_dir.exists() {
+        let _ = std::fs::create_dir_all(samples_dir);
+        log::info!("[IPC] scan_all_audio_sources: created samples directory: {}", samples_path);
+    }
 
     let mut all_entries: Vec<AudioFileEntry> = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();

@@ -59,7 +59,7 @@ export function useEqBandDragEffect({
         let lastQSentAt = 0;
         let lastFlushAt = 0;
         let rafId: number | null = null;
-        let latestEvent: MouseEvent | null = null;
+        let latestEvent: PointerEvent | null = null;
         let disposed = false;
 
         const flushMove = () => {
@@ -128,7 +128,8 @@ export function useEqBandDragEffect({
             }
         };
 
-        const onMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (e: PointerEvent) => {
             latestEvent = e;
             if (rafId != null) return;
             rafId = window.requestAnimationFrame(flushMove);
@@ -141,22 +142,24 @@ export function useEqBandDragEffect({
                 window.cancelAnimationFrame(rafId);
                 rafId = null;
             }
-            // Final flush to capture last mouse position
+            // Final flush to capture last pointer position
             flushMove();
             endEqBandGestureRef.current(bandIdx);
             setDragEqBandRef.current(null);
         };
 
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
 
         return () => {
             disposed = true;
             if (rafId != null) {
                 window.cancelAnimationFrame(rafId);
             }
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
         };
         // CRITICAL: Only depend on dragEqBand. All other deps are accessed via refs.
         // This prevents the effect from restarting mid-drag, which was the root cause

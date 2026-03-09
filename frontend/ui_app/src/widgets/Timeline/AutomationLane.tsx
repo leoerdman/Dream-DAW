@@ -199,15 +199,17 @@ export const AutomationLane = memo(function AutomationLane({
             selectBreakpoint(bpId, e.shiftKey);
             setDraggingBp(bpId);
 
-            const onMove = (ev: MouseEvent) => {
+            // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+            const onMove = (ev: PointerEvent) => {
                 const { beat, value } = pxToCoords(ev.clientX, ev.clientY);
                 moveBreakpoint(lane.id, bpId, beat, value);
                 flushPointsToEngine();
             };
 
             const cleanup = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
                 dragCleanupRef.current = null;
             };
 
@@ -218,9 +220,9 @@ export const AutomationLane = memo(function AutomationLane({
                 cleanup();
             };
 
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
-            // BUG-AUDIT-004: Register cleanup for unmount safety.
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
             dragCleanupRef.current = cleanup;
         },
         [
@@ -252,15 +254,17 @@ export const AutomationLane = memo(function AutomationLane({
             const startY = e.clientY;
             const latest = useAutomationStore.getState().lanes[lane.id];
             const initial = latest?.breakpoints.find((bp) => bp.id === bpId)?.tension ?? 0.5;
-            const onMove = (ev: MouseEvent) => {
+            // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+            const onMove = (ev: PointerEvent) => {
                 const dy = ev.clientY - startY;
                 const next = Math.max(0.05, Math.min(0.95, initial - dy * 0.004));
                 setBreakpointTension(lane.id, bpId, next);
                 flushPointsToEngine();
             };
             const cleanup = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
                 dragCleanupRef.current = null;
             };
 
@@ -270,9 +274,9 @@ export const AutomationLane = memo(function AutomationLane({
                 pushPointsImmediate();
                 cleanup();
             };
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
-            // BUG-AUDIT-004: Register cleanup for unmount safety.
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
             dragCleanupRef.current = cleanup;
         },
         [

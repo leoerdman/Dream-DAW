@@ -46,7 +46,8 @@ export function useDeviceRackDnD(
     // BUG-81 FIX: Only attach global listeners when a drag operation is active.
     useEffect(() => {
         if (!draggingItem) return;
-        const onMouseMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for consistency with useDragStore.
+        const onMouseMove = (e: PointerEvent) => {
             const dragging = useDragStore.getState().draggingItem;
             const targetTrack = dropTargetTrackRef.current;
             if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) {
@@ -65,7 +66,7 @@ export function useDeviceRackDnD(
             setIsDropActive(inside);
         };
 
-        const onMouseUp = async (e: MouseEvent) => {
+        const onMouseUp = async (e: PointerEvent) => {
             const dragging = useDragStore.getState().draggingItem;
             const targetTrack = dropTargetTrackRef.current;
             if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
@@ -90,9 +91,6 @@ export function useDeviceRackDnD(
                 } else {
                     const hint = dragging.slotHint ?? 'auto';
 
-                    // Always detect the effect-chain drop position first,
-                    // regardless of slot auto-detection, so we can override
-                    // the slot when user explicitly targets the effect chain.
                     const effectIds = (targetTrack.effects ?? [])
                         .map((effect) => effect?.id)
                         .filter((id): id is string => typeof id === 'string' && id.length > 0);
@@ -118,9 +116,6 @@ export function useDeviceRackDnD(
                         }
                     }
 
-                    // Resolve the slot: if user explicitly dropped on the effect
-                    // chain, force 'effect' regardless of auto-detection (fixes
-                    // MIDI tracks without instrument auto-routing to instrument).
                     let slot: 'instrument' | 'effect';
                     if (hint === 'instrument') {
                         slot = 'instrument';
@@ -132,7 +127,6 @@ export function useDeviceRackDnD(
                         slot = 'effect';
                     }
 
-                    // For effect slots, ensure insertIndex has a fallback.
                     if (slot === 'effect' && insertIndex === undefined) {
                         const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
                         if (selectedDeviceId && effectIdSet.has(selectedDeviceId)) {
@@ -163,12 +157,12 @@ export function useDeviceRackDnD(
             }
         };
 
-        window.addEventListener('mousemove', onMouseMove, true);
-        window.addEventListener('mouseup', onMouseUp, true);
+        window.addEventListener('pointermove', onMouseMove, true);
+        window.addEventListener('pointerup', onMouseUp, true);
 
         return () => {
-            window.removeEventListener('mousemove', onMouseMove, true);
-            window.removeEventListener('mouseup', onMouseUp, true);
+            window.removeEventListener('pointermove', onMouseMove, true);
+            window.removeEventListener('pointerup', onMouseUp, true);
         };
     }, [rackRef, draggingItem]);
 

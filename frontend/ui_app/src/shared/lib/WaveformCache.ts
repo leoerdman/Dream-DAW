@@ -15,6 +15,12 @@ import { getPeaks } from '@/shared/api/engine';
 const MAX_CACHE_ENTRIES = 512;
 /** Per-key warn throttle interval to prevent log storms on missing assets. */
 const WARN_THROTTLE_MS = 30_000;
+/**
+ * ENTERPRISE FIX: Negative cache TTL for missing/failed assets (ms).
+ * Prevents IPC retry storms: without this, every render frame re-triggers
+ * an IPC call for each missing clip (50+ clips × 4 LODs = 200+ IPC/s).
+ */
+const NEGATIVE_CACHE_TTL_MS = 60_000;
 
 /** Samples-per-peak at each mip level (Matches PeakCache.rs) */
 const MIP_FACTORS = [256, 1024, 4096, 16384];
@@ -44,6 +50,12 @@ export class WaveformCache {
     private readonly _cache = new Map<string, CacheEntry>();
     private readonly _pending = new Map<string, Promise<Float32Array | null>>();
     private readonly _lastWarnAtByKey = new Map<string, number>();
+    /**
+     * ENTERPRISE FIX: Negative cache — tracks keys that failed to load,
+     * preventing repeated IPC calls for missing files.
+     * Maps cacheKey → timestamp of failure.
+     */
+    private readonly _failedKeys = new Map<string, number>();
 
     /**
      * Called when async peak data arrives and is cached.
@@ -73,6 +85,8 @@ export class WaveformCache {
 
         const entry = this._cache.get(cacheKey);
         if (!entry) {
+            // ENTERPRISE FIX: Skip IPC if this key is in the negative cache.
+            if (this._isNegCached(cacheKey)) return null;
             this._fetchAsync(clipId, lodLevel, cacheKey);
             return null;
         }
@@ -105,7 +119,10 @@ export class WaveformCache {
         const fineCacheKey = `${clipId}:${fineLevel}`;
         const fineEntry = this._cache.get(fineCacheKey);
         if (!fineEntry) {
-            this._fetchAsync(clipId, fineLevel, fineCacheKey);
+            // ENTERPRISE FIX: Skip IPC if this key is in the negative cache.
+            if (!this._isNegCached(fineCacheKey)) {
+                this._fetchAsync(clipId, fineLevel, fineCacheKey);
+            }
             return null;
         }
 
@@ -136,7 +153,9 @@ export class WaveformCache {
         const coarseCacheKey = `${clipId}:${coarseLevel}`;
         const coarseEntry = this._cache.get(coarseCacheKey);
         if (!coarseEntry) {
-            this._fetchAsync(clipId, coarseLevel, coarseCacheKey);
+            if (!this._isNegCached(coarseCacheKey)) {
+                this._fetchAsync(clipId, coarseLevel, coarseCacheKey);
+            }
             // Return fine-only until coarse loads
             return { fine: fineData, coarse: null, blendFactor: 0 };
         }
@@ -155,7 +174,7 @@ export class WaveformCache {
         const lodLevel = this._selectLodLevel(samplesPerPixel);
         for (const cid of clipIds) {
             const cacheKey = `${cid}:${lodLevel}`;
-            if (!this._cache.has(cacheKey) && !this._pending.has(cacheKey)) {
+            if (!this._cache.has(cacheKey) && !this._pending.has(cacheKey) && !this._isNegCached(cacheKey)) {
                 this._fetchAsync(cid, lodLevel, cacheKey);
             }
         }
@@ -165,6 +184,7 @@ export class WaveformCache {
         this._cache.clear();
         this._pending.clear();
         this._lastWarnAtByKey.clear();
+        this._failedKeys.clear();
     }
 
     get size(): number {
@@ -175,6 +195,8 @@ export class WaveformCache {
 
     private _fetchAsync(clipId: string, lodLevel: number, cacheKey: string): void {
         if (this._pending.has(cacheKey)) return;
+        // Double-check negative cache inside _fetchAsync for safety.
+        if (this._isNegCached(cacheKey)) return;
 
         const promise = getPeaks(clipId, lodLevel)
             .then((bytes: Uint8Array) => {
@@ -206,6 +228,9 @@ export class WaveformCache {
             })
             .catch((err) => {
                 this._pending.delete(cacheKey);
+                // ENTERPRISE FIX: Record failure in negative cache to prevent
+                // re-triggering the IPC call on every render frame.
+                this._failedKeys.set(cacheKey, Date.now());
                 const now = Date.now();
                 const lastWarnAt = this._lastWarnAtByKey.get(cacheKey) ?? 0;
                 if (now - lastWarnAt >= WARN_THROTTLE_MS) {
@@ -216,6 +241,24 @@ export class WaveformCache {
             });
 
         this._pending.set(cacheKey, promise);
+    }
+
+    /**
+     * ENTERPRISE FIX: Check if a cache key is in the negative cache.
+     * Returns true if the key failed recently (within TTL), meaning we should
+     * NOT retry the IPC call. Returns false (and clears the entry) if the
+     * TTL has expired — allowing re-fetch so reconnected files load correctly.
+     */
+    private _isNegCached(cacheKey: string): boolean {
+        const failedAt = this._failedKeys.get(cacheKey);
+        if (failedAt === undefined) return false;
+        if (Date.now() - failedAt >= NEGATIVE_CACHE_TTL_MS) {
+            // TTL expired — allow retry (files may have been reconnected)
+            this._failedKeys.delete(cacheKey);
+            this._lastWarnAtByKey.delete(cacheKey);
+            return false;
+        }
+        return true;
     }
 
     /**

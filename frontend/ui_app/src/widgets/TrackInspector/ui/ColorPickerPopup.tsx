@@ -20,14 +20,14 @@ export const ColorPickerPopup = ({
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const handleClick = (e: MouseEvent) => {
+        const handleClick = (e: PointerEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
         };
         const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
-        document.addEventListener('mousedown', handleClick);
+        document.addEventListener('pointerdown', handleClick);
         document.addEventListener('keydown', handleKey);
         return () => {
-            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('pointerdown', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
     }, [onDismiss]);

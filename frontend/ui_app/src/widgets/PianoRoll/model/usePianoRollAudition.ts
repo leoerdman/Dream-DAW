@@ -104,10 +104,11 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             if (Date.now() - lastAuditionTriggerRef.current < 150) return;
             stopAllAudition();
         };
-        window.addEventListener('mouseup', handleGlobalRelease);
+        // ENTERPRISE FIX (Phase 33): Pointer events for consistency.
+        window.addEventListener('pointerup', handleGlobalRelease);
         window.addEventListener('blur', handleGlobalRelease);
         return () => {
-            window.removeEventListener('mouseup', handleGlobalRelease);
+            window.removeEventListener('pointerup', handleGlobalRelease);
             window.removeEventListener('blur', handleGlobalRelease);
         };
     }, [stopAllAudition]);

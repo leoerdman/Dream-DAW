@@ -45,26 +45,29 @@ export function useAutomationLaneItemHandlers({
         if (!item) return;
         const startMouseBeat = (e.clientX - rect.left) / pixelsPerBeat + scrollOffsetBeats;
         const anchorOffset = startMouseBeat - item.startBeat;
-        const onMove = (ev: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (ev: PointerEvent) => {
             const beat = (ev.clientX - rect.left) / pixelsPerBeat + scrollOffsetBeats;
             const newStart = Math.max(0, beat - anchorOffset);
             moveAutomationItem(laneId, itemId, newStart);
             flushPointsToEngine();
         };
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            dragCleanupRef.current = null;
+        };
         const onUp = () => {
             pushPointsThrottled.cancel();
             pushPointsImmediate();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            dragCleanupRef.current = null;
+            cleanup();
         };
         dragCleanupRef.current?.();
-        dragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        dragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [
         automationItems,
         flushPointsToEngine,
@@ -85,26 +88,29 @@ export function useAutomationLaneItemHandlers({
         const rect = svg.getBoundingClientRect();
         const item = automationItems.find((i) => i.itemId === itemId);
         if (!item) return;
-        const onMove = (ev: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (ev: PointerEvent) => {
             const beat = (ev.clientX - rect.left) / pixelsPerBeat + scrollOffsetBeats;
             const newLength = Math.max(0.125, beat - item.startBeat);
             stretchAutomationItem(laneId, itemId, newLength);
             flushPointsToEngine();
         };
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            dragCleanupRef.current = null;
+        };
         const onUp = () => {
             pushPointsThrottled.cancel();
             pushPointsImmediate();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            dragCleanupRef.current = null;
+            cleanup();
         };
         dragCleanupRef.current?.();
-        dragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        dragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [
         automationItems,
         flushPointsToEngine,

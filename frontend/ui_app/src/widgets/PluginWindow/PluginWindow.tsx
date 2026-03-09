@@ -120,7 +120,8 @@ export const PluginWindow = memo(function PluginWindow({
         const origY = position.y;
         dragRef.current = { startX, startY, origX, origY };
 
-        const onMove = (ev: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (ev: PointerEvent) => {
             if (!dragRef.current) return;
             setPosition({
                 x: dragRef.current.origX + (ev.clientX - dragRef.current.startX),
@@ -128,21 +129,21 @@ export const PluginWindow = memo(function PluginWindow({
             });
         };
 
-        const onUp = () => {
+        const cleanup = () => {
             dragRef.current = null;
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             titleDragCleanupRef.current = null;
         };
+        const onUp = () => { cleanup(); };
 
         titleDragCleanupRef.current?.();
-        titleDragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
+        titleDragCleanupRef.current = cleanup;
 
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [position]);
 
     const handleResizeStart = useCallback((e: React.PointerEvent, edge: string) => {

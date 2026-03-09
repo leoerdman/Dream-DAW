@@ -151,16 +151,20 @@ export function usePianoRollGridInteractions({
             auditionNote(drawPitch, 100, 95);
         };
         paintAt(event.clientX, event.clientY);
-        const onMove = (moveEvent: MouseEvent) => paintAt(moveEvent.clientX, moveEvent.clientY);
-        const onUp = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (moveEvent: PointerEvent) => paintAt(moveEvent.clientX, moveEvent.clientY);
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             pointerCleanupRef.current = null;
         };
+        const onUp = () => { cleanup(); };
         pointerCleanupRef.current?.();
-        pointerCleanupRef.current = onUp;
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        pointerCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [tool, editorRootRef, currentGridInterval, notesRef, yToPitch, clipBeats, snapToCellStart, pixelsPerBeat, enforceNoOverlap, onNotesChange, auditionNote]);
 
     const handleGridSelectionStart = useCallback((event: React.MouseEvent) => {
@@ -175,15 +179,17 @@ export function usePianoRollGridInteractions({
         isDragSelectingRef.current = false;
         const keepExisting = event.shiftKey;
         if (!keepExisting) setSelectedNotes(new Set());
-        const onMove = (moveEvent: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (moveEvent: PointerEvent) => {
             isDragSelectingRef.current = true;
             const x = Math.max(0, Math.min(canvasWidth, moveEvent.clientX - rect.left));
             const y = Math.max(0, Math.min(canvasHeight, moveEvent.clientY - rect.top));
             setSelectionRect({ x1: startX, y1: startY, x2: x, y2: y });
         };
         const onUp = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             pointerCleanupRef.current = null;
             isDragSelectingRef.current = false;
             setSelectionRect((current) => {
@@ -211,8 +217,9 @@ export function usePianoRollGridInteractions({
         };
         pointerCleanupRef.current?.();
         pointerCleanupRef.current = onUp;
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [tool, editorRootRef, setSelectionRect, setSelectedNotes, canvasWidth, canvasHeight, notes, pixelsPerBeat, pitchToY, noteHeight]);
 
     const handleGridMouseDown = useCallback((event: React.MouseEvent) => {

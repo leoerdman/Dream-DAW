@@ -149,7 +149,8 @@ export function usePianoRollLaneValues({
             }
         };
 
-        const onMove = (moveEvent: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (moveEvent: PointerEvent) => {
             const dy = moveEvent.clientY - startY;
             const sensitivity = moveEvent.shiftKey ? 0.5 : 1.5;
             const delta = Math.round(-dy * sensitivity);
@@ -172,20 +173,21 @@ export function usePianoRollLaneValues({
             }
         };
 
-        const onUp = (upEvent: MouseEvent) => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             laneDragCleanupRef.current = null;
+        };
+        const onUp = (upEvent: PointerEvent) => {
+            cleanup();
             if (!moved) applyAbsoluteFromY(upEvent.clientY);
         };
         laneDragCleanupRef.current?.();
-        laneDragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            laneDragCleanupRef.current = null;
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        laneDragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [activeLane, auditionNote, notes, onNotesChange, readLaneValue, selectedNotes, setSelectedNotes]);
 
     useEffect(() => () => {

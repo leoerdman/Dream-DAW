@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as engineApi from '@/shared/api/engine';
+import type { GroupedMissingFile } from './MissingAssetsPanel';
 
 export type MissingClipItem = {
     clipId: string;
@@ -18,56 +19,96 @@ export type MissingPluginSlot = {
 };
 
 type ResolveCallbacks = {
-    onResolveFile: (clipId: string, path: string, clipName: string) => Promise<void>;
+    onResolveFile: (clipIds: string[], path: string, clipName: string) => Promise<void>;
     onReplacePlugin: (trackId: string, slotId: string, path: string, name: string, wantedName: string) => Promise<void>;
     onSetMessage: (message: string) => void;
 };
 
+// ── ENTERPRISE: Grouped missing audio file section ──
 export function MissingAudioSection({
-    missingClips,
+    groupedFiles,
     onResolveFile,
 }: {
-    missingClips: MissingClipItem[];
+    groupedFiles: GroupedMissingFile[];
     onResolveFile: ResolveCallbacks['onResolveFile'];
 }) {
     return (
         <section style={sectionStyle}>
             <div style={sectionTitleStyle}>Missing Audio Files</div>
-            {missingClips.length === 0 ? (
+            {groupedFiles.length === 0 ? (
                 <div style={emptyTextStyle}>No offline audio clips.</div>
-            ) : missingClips.map((item) => (
-                <div key={item.clipId} style={cardStyle}>
-                    <div style={cardTitleStyle}>{item.clipName}</div>
-                    <div style={cardSubTitleStyle}>{item.trackName}</div>
-                    <div style={rowStyle}>
-                        <button
-                            onClick={async () => {
-                                const picked = await open({
-                                    multiple: false,
-                                    title: `Replace missing file: ${item.clipName}`,
-                                    filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                                });
-                                const path = typeof picked === 'string' ? picked : null;
-                                if (!path) return;
-                                await onResolveFile(item.clipId, path, item.clipName);
-                            }}
-                            style={actionBtnStyle}
-                        >
-                            Replace File...
-                        </button>
-                        <button
-                            onClick={() => {
-                                window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
-                                    detail: { query: item.clipName, categoryId: 'samples' },
-                                }));
-                            }}
-                            style={actionBtnStyle}
-                        >
-                            Find in Browser
-                        </button>
+            ) : groupedFiles.map((item) => {
+                // Extract extension from file name for type labeling
+                const dotIdx = item.fileName.lastIndexOf('.');
+                const ext = dotIdx > 0 ? item.fileName.slice(dotIdx + 1).toUpperCase() : 'AUDIO';
+                return (
+                    <div key={item.fileName} style={cardStyle}>
+                        <div style={cardTitleStyle}>{item.fileName}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: '1px 5px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'color-mix(in srgb, var(--color-browser-audio) 18%, transparent)',
+                                color: 'var(--color-browser-audio)',
+                                fontWeight: 'var(--font-weight-medium)',
+                            }}>🔊 {ext}</span>
+                            {/* ENTERPRISE: Show usage count and track names */}
+                            {item.usageCount > 1 && (
+                                <span style={{
+                                    fontSize: 'var(--font-size-2xs)',
+                                    padding: '1px 5px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'color-mix(in srgb, var(--color-status-warning) 15%, transparent)',
+                                    color: 'var(--color-status-warning)',
+                                    fontWeight: 'var(--font-weight-medium)',
+                                }}>×{item.usageCount} clips</span>
+                            )}
+                            <span style={{
+                                ...cardSubTitleStyle,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                            }}>
+                                {item.trackNames.length <= 2
+                                    ? item.trackNames.join(', ')
+                                    : `${item.trackNames[0]}, +${item.trackNames.length - 1}`}
+                            </span>
+                        </div>
+                        <div style={rowStyle}>
+                            <button
+                                onClick={async () => {
+                                    const picked = await open({
+                                        multiple: false,
+                                        title: `Replace missing file: ${item.fileName}`,
+                                        filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                    });
+                                    const path = typeof picked === 'string' ? picked : null;
+                                    if (!path) return;
+                                    // ENTERPRISE: Resolve ALL clips that reference this source file
+                                    await onResolveFile(item.clipIds, path, item.fileName);
+                                }}
+                                style={iconBtnStyle}
+                                title={`Replace file (resolves ${item.usageCount} clip${item.usageCount > 1 ? 's' : ''})`}
+                            >
+                                ♻️
+                            </button>
+                            <button
+                                onClick={() => {
+                                    window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
+                                        detail: { query: item.fileName, categoryId: 'samples' },
+                                    }));
+                                }}
+                                style={iconBtnStyle}
+                                title="Find in Browser"
+                            >
+                                📁
+                            </button>
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
         </section>
     );
 }
@@ -114,7 +155,17 @@ export function MissingPluginsSection({
                 return (
                     <div key={item.slotId} style={cardStyle}>
                         <div style={cardTitleStyle}>{item.displayName}</div>
-                        <div style={cardSubTitleStyle}>{item.trackName}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: '1px 5px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'color-mix(in srgb, var(--color-browser-plugin) 18%, transparent)',
+                                color: 'var(--color-browser-plugin)',
+                                fontWeight: 'var(--font-weight-medium)',
+                            }}>🔌 Plugin</span>
+                            <span style={cardSubTitleStyle}>{item.trackName}</span>
+                        </div>
                         <div style={{ ...cardSubTitleStyle, color: 'var(--color-text-secondary)' }}>Wanted: {item.wantedName}</div>
 
                         <div style={gridStyle}>
@@ -124,11 +175,11 @@ export function MissingPluginsSection({
                                     onClick={() => onReplacePlugin(item.trackId, item.slotId, p.path, p.name, item.wantedName)}
                                     style={{ ...actionBtnStyle, justifyContent: 'space-between', width: '100%', display: 'flex' }}
                                 >
-                                    <span>{p.name}</span>
-                                    <span style={{ opacity: 0.7 }}>Use</span>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                    <span style={{ opacity: 0.7, flexShrink: 0 }}>Use</span>
                                 </button>
                             )) : (
-                                <div style={emptyTextStyle}>{scanBusy ? 'Scanning plugins...' : 'No close plugin match found'}</div>
+                                <div style={emptyTextStyle}>{scanBusy ? 'Scanning plugins…' : 'No close plugin match found'}</div>
                             )}
                         </div>
 
@@ -144,9 +195,10 @@ export function MissingPluginsSection({
                                     if (!path) return;
                                     await onReplacePlugin(item.trackId, item.slotId, path, '', item.wantedName);
                                 }}
-                                style={actionBtnStyle}
+                                style={iconBtnStyle}
+                                title="Pick plugin file"
                             >
-                                Pick Plugin...
+                                🔌
                             </button>
                             <button
                                 onClick={() => {
@@ -154,9 +206,10 @@ export function MissingPluginsSection({
                                         detail: { query: item.wantedName, categoryId: 'plugins' },
                                     }));
                                 }}
-                                style={actionBtnStyle}
+                                style={iconBtnStyle}
+                                title="Find in Browser"
                             >
-                                Find in Browser
+                                📁
                             </button>
                         </div>
                     </div>
@@ -166,29 +219,58 @@ export function MissingPluginsSection({
     );
 }
 
-const sectionStyle: CSSProperties = { display: 'grid', gap: 'var(--space-2)' };
-const sectionTitleStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' };
-const emptyTextStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' };
+// ── Styles — ENTERPRISE: all cards properly overflow-contained ──
+const sectionStyle: CSSProperties = { display: 'grid', gap: 'var(--space-1-5)' };
+const sectionTitleStyle: CSSProperties = {
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 'var(--font-weight-bold)',
+    color: 'var(--color-text-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+};
+const emptyTextStyle: CSSProperties = { fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' };
 const cardStyle: CSSProperties = {
     border: 'var(--border-width-1) solid var(--color-divider)',
-    borderRadius: 'var(--radius-xl)',
+    borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-header)',
-    padding: 'var(--space-2)',
+    padding: 'var(--space-1-5)',
     display: 'grid',
-    gap: 'var(--space-1-5)',
+    gap: 'var(--space-1)',
+    overflow: 'hidden', // ENTERPRISE: Prevent card content overflow
+    minWidth: 0,
 };
-const cardTitleStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' };
+const cardTitleStyle: CSSProperties = {
+    fontSize: 'var(--font-size-sm)',
+    color: 'var(--color-text-primary)',
+    fontWeight: 'var(--font-weight-medium)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0, // ENTERPRISE: Allow text to shrink
+};
 const cardSubTitleStyle: CSSProperties = { fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' };
-const rowStyle: CSSProperties = { display: 'flex', gap: 'var(--space-1-5)' };
-const gridStyle: CSSProperties = { display: 'grid', gap: 'var(--space-1)' };
+const rowStyle: CSSProperties = { display: 'flex', gap: 'var(--space-1)' };
+const gridStyle: CSSProperties = { display: 'grid', gap: 'var(--space-0-5)' };
 const actionBtnStyle: CSSProperties = {
     border: 'var(--border-width-1) solid var(--color-divider)',
-    borderRadius: 'var(--radius-lg)',
+    borderRadius: 'var(--radius-sm)',
     background: 'var(--color-bg-panel)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-semibold)',
-    padding: 'var(--space-1) var(--space-2)',
+    fontWeight: 'var(--font-weight-medium)',
+    padding: '3px 8px',
     cursor: 'pointer',
     transition: 'background var(--transition-fast)',
+    overflow: 'hidden',
+};
+const iconBtnStyle: CSSProperties = {
+    border: 'var(--border-width-1) solid var(--color-divider)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--color-bg-panel)',
+    color: 'var(--color-text-secondary)',
+    fontSize: 14,
+    padding: '3px 6px',
+    cursor: 'pointer',
+    transition: 'background var(--transition-fast)',
+    lineHeight: 1,
 };

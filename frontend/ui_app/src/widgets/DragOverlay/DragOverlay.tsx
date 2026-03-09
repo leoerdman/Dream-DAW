@@ -23,14 +23,15 @@ export const DragOverlay = () => {
     useEffect(() => {
         if (!draggingItem) return;
 
-        const handleMouseMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for consistency.
+        const handleMouseMove = (e: PointerEvent) => {
             if (overlayRef.current) {
                 overlayRef.current.style.transform = `translate(${e.clientX + CURSOR_OFFSET_PX}px, ${e.clientY + CURSOR_OFFSET_PX}px)`;
             }
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
+        window.addEventListener('pointermove', handleMouseMove);
+        return () => window.removeEventListener('pointermove', handleMouseMove);
     }, [draggingItem]);
 
     if (!draggingItem) return null;

@@ -108,7 +108,8 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
 
     useEffect(() => {
         if (!isDragging || !mouseDragActiveRef.current) return;
-        const onMouseMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMouseMove = (e: PointerEvent) => {
             if (!mouseDragActiveRef.current) return;
             e.preventDefault();
             const dy = e.clientY - dragStartYRef.current;
@@ -124,11 +125,13 @@ export function usePluginKnobDrag(args: UsePluginKnobDragArgs) {
             onGestureEnd?.(paramName);
         };
 
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('pointermove', onMouseMove);
+        window.addEventListener('pointerup', onMouseUp);
+        window.addEventListener('pointercancel', onMouseUp);
         return () => {
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
+            window.removeEventListener('pointermove', onMouseMove);
+            window.removeEventListener('pointerup', onMouseUp);
+            window.removeEventListener('pointercancel', onMouseUp);
         };
     }, [isDragging, onChange, onGestureEnd, paramName, quantizeValue, unitToValue]);
 

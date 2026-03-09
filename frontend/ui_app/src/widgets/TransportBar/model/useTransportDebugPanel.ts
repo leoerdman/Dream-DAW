@@ -161,7 +161,8 @@ export function useTransportDebugPanel() {
 
     useEffect(() => {
         if (!pdcOpen) return;
-        const onMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (e: PointerEvent) => {
             if (!dragRef.current.dragging) return;
             const dx = e.clientX - dragRef.current.startX;
             const dy = e.clientY - dragRef.current.startY;
@@ -173,11 +174,13 @@ export function useTransportDebugPanel() {
         const onUp = () => {
             dragRef.current.dragging = false;
         };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
         return () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
         };
     }, [pdcOpen]);
 

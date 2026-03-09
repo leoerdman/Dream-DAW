@@ -96,8 +96,8 @@ export class TimelineEngine {
 
     private _boundWheel: (e: WheelEvent) => void;
     private _boundMouseDown: (e: MouseEvent) => void;
-    private _boundMouseMove: (e: MouseEvent) => void;
-    private _boundMouseUp: (e: MouseEvent) => void;
+    private _boundMouseMove: (e: PointerEvent) => void;
+    private _boundMouseUp: (e: PointerEvent) => void;
     private _boundDblClick: (e: MouseEvent) => void;
     private _boundContextMenu: (e: MouseEvent) => void;
     private _boundKeyDown: (e: KeyboardEvent) => void;
@@ -199,12 +199,16 @@ export class TimelineEngine {
         this._resizeObserver.observe(canvas);
 
         canvas.addEventListener('wheel', this._boundWheel, { passive: false });
-        canvas.addEventListener('mousedown', this._boundMouseDown);
+        canvas.addEventListener('pointerdown', this._boundMouseDown);
         canvas.addEventListener('dblclick', this._boundDblClick);
         canvas.addEventListener('contextmenu', this._boundContextMenu);
 
-        window.addEventListener('mousemove', this._boundMouseMove);
-        window.addEventListener('mouseup', this._boundMouseUp);
+        // ENTERPRISE FIX (Phase 33): Use pointer events for window-level listeners.
+        // Legacy mousemove/mouseup missed pointercancel — OS interrupts (alerts,
+        // sleep, 3-finger swipe) left the engine in stuck drag state.
+        window.addEventListener('pointermove', this._boundMouseMove);
+        window.addEventListener('pointerup', this._boundMouseUp);
+        window.addEventListener('pointercancel', this._boundMouseUp);
         window.addEventListener('keydown', this._boundKeyDown, { capture: true });
         window.addEventListener('keyup', this._boundKeyUp, { capture: true });
         window.addEventListener('blur', this._boundWindowBlur);
@@ -229,13 +233,14 @@ export class TimelineEngine {
         const canvas = this._canvas;
         if (canvas) {
             canvas.removeEventListener('wheel', this._boundWheel);
-            canvas.removeEventListener('mousedown', this._boundMouseDown);
+            canvas.removeEventListener('pointerdown', this._boundMouseDown);
             canvas.removeEventListener('dblclick', this._boundDblClick);
             canvas.removeEventListener('contextmenu', this._boundContextMenu);
         }
 
-        window.removeEventListener('mousemove', this._boundMouseMove);
-        window.removeEventListener('mouseup', this._boundMouseUp);
+        window.removeEventListener('pointermove', this._boundMouseMove);
+        window.removeEventListener('pointerup', this._boundMouseUp);
+        window.removeEventListener('pointercancel', this._boundMouseUp);
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
         window.removeEventListener('keyup', this._boundKeyUp, { capture: true });
         window.removeEventListener('blur', this._boundWindowBlur);
@@ -1535,7 +1540,7 @@ export class TimelineEngine {
         }
     }
 
-    private _onMouseMove(e: MouseEvent): void {
+    private _onMouseMove(e: PointerEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
         const canvas = this._canvas;
         if (!canvas) return;
@@ -1845,7 +1850,7 @@ export class TimelineEngine {
         }
     }
 
-    private _onMouseUp(e: MouseEvent): void {
+    private _onMouseUp(e: PointerEvent): void {
         if (this._drag.mode === DragMode.None) return;
 
         const canvas = this._canvas;

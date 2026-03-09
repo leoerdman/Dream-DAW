@@ -24,7 +24,7 @@ interface DawShellBottomPanelProps {
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
     setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
-    beginBottomPanelResize: (event: React.MouseEvent<HTMLDivElement>) => void;
+    beginBottomPanelResize: (event: React.PointerEvent<HTMLDivElement>) => void;
     selectedTimelineClip: TimelineClip | undefined;
     clipColor: string;
     midiNotes: MidiNote[];
@@ -123,8 +123,7 @@ export function DawShellBottomPanel({
             {/* ── Resize handle: Clip editor (free drag) or Rack (2-position snap) ── */}
             {(hasResizableClipEditor || bottomPanelMode === 'rack') && (
                 <div
-                    onMouseDown={hasResizableClipEditor ? beginBottomPanelResize : undefined}
-                    onPointerDown={bottomPanelMode === 'rack' ? onRackDragStart : undefined}
+                    onPointerDown={hasResizableClipEditor ? beginBottomPanelResize : bottomPanelMode === 'rack' ? onRackDragStart : undefined}
                     onPointerUp={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
                     onPointerCancel={bottomPanelMode === 'rack' ? onRackDragCancel : undefined}
                     title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack' : 'Resize Panel'}

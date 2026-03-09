@@ -64,12 +64,14 @@ export const useDragStore = create<DragState>((set, get) => ({
 
         // Attach global mousemove to track cursor for ghost preview rendering
         _cleanupMouseMove?.();
-        const onMove = (e: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Use pointer events for interrupt safety.
+        // Legacy mousemove missed pointercancel — drag could get stuck on OS interrupts.
+        const onMove = (e: PointerEvent) => {
             set({ cursorX: e.clientX, cursorY: e.clientY });
         };
-        window.addEventListener('mousemove', onMove);
+        window.addEventListener('pointermove', onMove);
         _cleanupMouseMove = () => {
-            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('pointermove', onMove);
         };
 
         // Safety-net: global mouseup ensures endDrag is ALWAYS called,
@@ -77,7 +79,8 @@ export const useDragStore = create<DragState>((set, get) => ({
         // Uses setTimeout(0) so drop-zone handlers fire first.
         _cleanupSafetyMouseUp?.();
         const onSafetyUp = () => {
-            window.removeEventListener('mouseup', onSafetyUp);
+            window.removeEventListener('pointerup', onSafetyUp);
+            window.removeEventListener('pointercancel', onSafetyUp);
             _cleanupSafetyMouseUp = null;
             // BUG-030 FIX: queueMicrotask() guarantees drop-zone handlers
             // fire first within the same task, unlike setTimeout(0).
@@ -87,9 +90,11 @@ export const useDragStore = create<DragState>((set, get) => ({
                 }
             });
         };
-        window.addEventListener('mouseup', onSafetyUp);
+        window.addEventListener('pointerup', onSafetyUp);
+        window.addEventListener('pointercancel', onSafetyUp);
         _cleanupSafetyMouseUp = () => {
-            window.removeEventListener('mouseup', onSafetyUp);
+            window.removeEventListener('pointerup', onSafetyUp);
+            window.removeEventListener('pointercancel', onSafetyUp);
         };
 
         // BUG-011 FIX: Reset drag if user Alt+Tabs away — prevents stuck drag state.

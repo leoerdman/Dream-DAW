@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useState } from 'react';
+import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -14,6 +14,7 @@ interface MissingAssetsPanelProps {
     isOpen: boolean;
     onClose: () => void;
 }
+
 // ── Auto Search: Audio file matching constants ────────────────────────
 const AUDIO_EXTENSIONS = new Set(['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac', 'wma', 'opus']);
 
@@ -35,7 +36,7 @@ const scoreAudioFileMatch = (clipName: string, scannedName: string): number => {
     const sn = scannedName.trim().toLowerCase();
     if (!cn || !sn) return 0;
 
-    // Exact basename match (e.g. "CS_OSV5_FoleyPerc_10.wav" = "CS_OSV5_FoleyPerc_10.wav")
+    // Exact basename match
     if (cn === sn) return 100;
 
     const clipStem = stem(cn);
@@ -92,6 +93,18 @@ const decodeWantedPluginName = (pluginId: string, displayName: string): string =
     return primary || 'plugin';
 };
 
+// ── Grouped missing clip type ──
+export type GroupedMissingFile = {
+    /** Canonical source file name (the key for grouping). */
+    fileName: string;
+    /** All clip IDs that reference this source file. */
+    clipIds: string[];
+    /** Human-readable track names where this file is used. */
+    trackNames: string[];
+    /** Number of clips using this source file. */
+    usageCount: number;
+};
+
 export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps) => {
     const timelineClips = useEngineStore(selectAllClips);
     const trackIds = useEngineStore((s) => s.tracks.allIds);
@@ -103,7 +116,27 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const [autoResolveBusy, setAutoResolveBusy] = useState(false);
     const [autoSearchBusy, setAutoSearchBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
+    const [searchFolder, setSearchFolder] = useState<string | null>(null);
+    const [searchProgress, setSearchProgress] = useState<{
+        total: number;
+        resolved: number;
+        current: string;
+        failed: number;
+        phase: 'scanning' | 'matching' | 'done';
+        audioFilesFound: number;
+    } | null>(null);
+    // ── ENTERPRISE: Render-style search log with per-file results ──
+    type SearchLogEntry = {
+        fileName: string;
+        status: 'searching' | 'found' | 'not_found' | 'error';
+        matchedPath?: string;
+        clipCount?: number;
+    };
+    const [searchLog, setSearchLog] = useState<SearchLogEntry[]>([]);
+    const [searchPopupOpen, setSearchPopupOpen] = useState(false);
+    const logRef = useRef<HTMLDivElement>(null);
 
+    // ── Raw missing clips (ungrouped) ──
     const missingClips = useMemo<MissingClipItem[]>(() => {
         return timelineClips
             .filter((c) => c.type === 'audio' && c.isOffline)
@@ -114,95 +147,209 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             }));
     }, [timelineClips, trackIds, tracksById]);
 
-    // ── Auto Search: Scan folder recursively and match missing audio files ──
-    const runAutoSearchAudio = useCallback(async () => {
-        if (autoSearchBusy || missingClips.length === 0) return;
+    // ── ENTERPRISE: Group clips by source file name to avoid duplicates ──
+    const groupedMissingFiles = useMemo<GroupedMissingFile[]>(() => {
+        const map = new Map<string, GroupedMissingFile>();
+        for (const clip of missingClips) {
+            const key = clip.clipName.toLowerCase();
+            const existing = map.get(key);
+            if (existing) {
+                existing.clipIds.push(clip.clipId);
+                if (!existing.trackNames.includes(clip.trackName)) {
+                    existing.trackNames.push(clip.trackName);
+                }
+                existing.usageCount++;
+            } else {
+                map.set(key, {
+                    fileName: clip.clipName,
+                    clipIds: [clip.clipId],
+                    trackNames: [clip.trackName],
+                    usageCount: 1,
+                });
+            }
+        }
+        return Array.from(map.values());
+    }, [missingClips]);
 
-        // Step 1: Pick folder (or fall back to configured samples path)
-        let searchFolder: string | null = null;
+    // ── Choose search folder (separate from running the search) ──
+    const pickSearchFolder = useCallback(async () => {
         try {
-            searchFolder = await engineApi.pickFolder();
+            const folder = await engineApi.pickFolder();
+            if (folder) {
+                setSearchFolder(folder);
+            }
         } catch (err) {
             console.error('[AutoSearch] pickFolder failed:', err);
             useStatusStore.getState().setError(`Folder selection failed: ${err instanceof Error ? err.message : String(err)}`);
-            return;
         }
-        if (!searchFolder) return; // User cancelled
+    }, []);
+
+    // ── Auto Search: Scan saved folder and match missing audio files ──
+    // ENTERPRISE: Batch-resolves ALL clips that share the same source file
+    const runAutoSearchAudio = useCallback(async () => {
+        if (autoSearchBusy || missingClips.length === 0) return;
+
+        // If no folder set, prompt to pick one first
+        let folder = searchFolder;
+        if (!folder) {
+            try {
+                folder = await engineApi.pickFolder();
+            } catch (err) {
+                console.error('[AutoSearch] pickFolder failed:', err);
+                useStatusStore.getState().setError(`Folder selection failed: ${err instanceof Error ? err.message : String(err)}`);
+                return;
+            }
+            if (!folder) return; // User cancelled
+            setSearchFolder(folder);
+        }
 
         setAutoSearchBusy(true);
-        setMessage(`Scanning folder...`);
+        setMessage('Scanning folder…');
+        setSearchLog([]);
+        setSearchPopupOpen(true);
+        setSearchProgress({ total: 0, resolved: 0, current: 'Scanning folder recursively…', failed: 0, phase: 'scanning', audioFilesFound: 0 });
 
         try {
-            // Step 2: Recursive scan
-            const allEntries = await engineApi.scanFolderAll(searchFolder);
+            // Step 1: Recursive scan
+            const allEntries = await engineApi.scanFolderAll(folder);
             const audioEntries = allEntries.filter(
                 (e) => !e.is_directory && AUDIO_EXTENSIONS.has(e.extension.toLowerCase()),
             );
 
             if (audioEntries.length === 0) {
-                setMessage('No audio files found in selected folder');
+                setSearchProgress({ total: 0, resolved: 0, current: `✗ No audio files in "${folder.split('/').pop()}"`, failed: 0, phase: 'done', audioFilesFound: 0 });
+                setSearchLog([{ fileName: '(no audio files in folder)', status: 'not_found' }]);
+                setMessage(`No audio files found in: ${folder}`);
                 return;
             }
 
-            setMessage(`Found ${audioEntries.length} audio files — matching...`);
+            setMessage(`Found ${audioEntries.length} audio files — matching…`);
+            setSearchProgress({ total: 0, resolved: 0, current: `Found ${audioEntries.length} audio files`, failed: 0, phase: 'matching', audioFilesFound: audioEntries.length });
 
-            // Step 3: For each missing clip, find the best matching scanned file
-            // Re-read missingClips from store to get the latest state
+            // Step 2: Read fresh missing clips from store — group by source file
             const currentClips = useEngineStore.getState().clips;
-            const currentTrackIds = useEngineStore.getState().tracks.allIds;
-            const currentTracksById = useEngineStore.getState().tracks.byId;
-            const freshMissing = currentClips.allIds
-                .map((id) => currentClips.byId[id])
-                .filter((c): c is NonNullable<typeof c> => !!c && c.type === 'audio' && !!c.isOffline)
-                .map((c) => ({
-                    clipId: c.id,
-                    clipName: c.name,
-                    trackName: (currentTrackIds[c.trackIndex] ? currentTracksById[currentTrackIds[c.trackIndex]]?.name : undefined) ?? `Track ${c.trackIndex + 1}`,
-                }));
 
-            if (freshMissing.length === 0) {
+            // Build grouped map: fileName → [clipId, clipId, ...]
+            const missingByName = new Map<string, { clipIds: string[]; clipName: string }>();
+            for (const id of currentClips.allIds) {
+                const c = currentClips.byId[id];
+                if (!c || c.type !== 'audio' || !c.isOffline) continue;
+                const key = c.name.toLowerCase();
+                const existing = missingByName.get(key);
+                if (existing) {
+                    existing.clipIds.push(c.id);
+                } else {
+                    missingByName.set(key, { clipIds: [c.id], clipName: c.name });
+                }
+            }
+
+            if (missingByName.size === 0) {
                 setMessage('All clips already resolved');
+                setSearchProgress(null);
                 return;
             }
 
-            let resolvedCount = 0;
+            const uniqueFiles = Array.from(missingByName.values());
+            setSearchProgress({ total: uniqueFiles.length, resolved: 0, current: `Matching ${uniqueFiles.length} unique files…`, failed: 0, phase: 'matching', audioFilesFound: audioEntries.length });
+            let resolvedFiles = 0;
+            let resolvedClips = 0;
             let failedCount = 0;
+            const newLog: SearchLogEntry[] = [];
 
-            for (const clip of freshMissing) {
-                // Find best match
+            for (const group of uniqueFiles) {
+                // Find best match for this source file
                 let bestScore = 0;
                 let bestEntry: engineApi.BrowserFileEntry | null = null;
 
                 for (const entry of audioEntries) {
-                    const score = scoreAudioFileMatch(clip.clipName, entry.name);
+                    const score = scoreAudioFileMatch(group.clipName, entry.name);
                     if (score > bestScore) {
                         bestScore = score;
                         bestEntry = entry;
                     }
-                }
-
-                // Only resolve if we have a reasonable match (score >= 60)
-                if (bestEntry && bestScore >= 60) {
-                    try {
-                        const response = await engineApi.resolveMissingFileWithDeltas(clip.clipId, bestEntry.path);
-                        await applyProjectDeltas(response.deltas, 'missing-assets:auto-search-resolve');
-                        resolvedCount++;
-                        setMessage(`Resolving... ${resolvedCount} found (${clip.clipName})`);
-                    } catch (err) {
-                        console.error(`[AutoSearch] Failed to resolve '${clip.clipName}':`, err);
-                        failedCount++;
+                    // Fallback: try matching clip name against path segments
+                    if (score === 0) {
+                        const pathSegments = entry.path.split('/').map(s => s.toLowerCase());
+                        const clipLower = stem(group.clipName).toLowerCase();
+                        for (const seg of pathSegments) {
+                            if (seg.includes(clipLower) || clipLower.includes(stem(seg))) {
+                                const pathScore = 45;
+                                if (pathScore > bestScore) {
+                                    bestScore = pathScore;
+                                    bestEntry = entry;
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
+
+                // ENTERPRISE: Resolve ALL clips that reference this source file
+                if (bestEntry && bestScore >= 40) {
+                    let groupResolved = 0;
+                    for (const clipId of group.clipIds) {
+                        try {
+                            const response = await engineApi.resolveMissingFileWithDeltas(clipId, bestEntry.path);
+                            await applyProjectDeltas(response.deltas, 'missing-assets:auto-search-resolve');
+                            groupResolved++;
+                            resolvedClips++;
+                        } catch (err) {
+                            console.error(`[AutoSearch] Failed to resolve clip '${clipId}' for '${group.clipName}':`, err);
+                            failedCount++;
+                        }
+                    }
+                    if (groupResolved > 0) resolvedFiles++;
+                    // Log entry: found
+                    newLog.push({
+                        fileName: group.clipName,
+                        status: groupResolved > 0 ? 'found' : 'error',
+                        matchedPath: bestEntry.path.split('/').pop() ?? bestEntry.path,
+                        clipCount: groupResolved,
+                    });
+                    setSearchLog([...newLog]);
+                    setSearchProgress({
+                        total: uniqueFiles.length,
+                        resolved: resolvedFiles,
+                        current: `${group.clipName} — ${groupResolved}/${group.clipIds.length} clips`,
+                        failed: failedCount,
+                        phase: 'matching',
+                        audioFilesFound: audioEntries.length,
+                    });
+                } else {
+                    // Log entry: not found
+                    newLog.push({
+                        fileName: group.clipName,
+                        status: 'not_found',
+                    });
+                    setSearchLog([...newLog]);
+                    setSearchProgress({
+                        total: uniqueFiles.length,
+                        resolved: resolvedFiles,
+                        current: `${group.clipName} — no match`,
+                        failed: failedCount,
+                        phase: 'matching',
+                        audioFilesFound: audioEntries.length,
+                    });
+                }
+                // Auto-scroll log
+                requestAnimationFrame(() => {
+                    if (logRef.current) {
+                        logRef.current.scrollTop = logRef.current.scrollHeight;
+                    }
+                });
             }
 
-            // Step 4: Report results
-            const unresolvedCount = freshMissing.length - resolvedCount - failedCount;
-            if (resolvedCount > 0 && unresolvedCount === 0) {
-                setMessage(`Auto Search complete: resolved all ${resolvedCount} missing file(s)`);
-            } else if (resolvedCount > 0) {
-                setMessage(`Auto Search: resolved ${resolvedCount}, ${unresolvedCount} still missing${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
+            // Step 3: Report results
+            const unresolvedFiles = uniqueFiles.length - resolvedFiles;
+            if (resolvedFiles > 0 && unresolvedFiles === 0) {
+                setSearchProgress({ total: uniqueFiles.length, resolved: resolvedFiles, current: `✓ All ${resolvedFiles} file(s) resolved! (${resolvedClips} clips)`, failed: failedCount, phase: 'done', audioFilesFound: audioEntries.length });
+                setMessage(`✓ Resolved all ${resolvedFiles} unique file(s) (${resolvedClips} clips total)`);
+            } else if (resolvedFiles > 0) {
+                setSearchProgress({ total: uniqueFiles.length, resolved: resolvedFiles, current: `✓ Done — ${resolvedClips} clips resolved, ${unresolvedFiles} files still missing`, failed: failedCount, phase: 'done', audioFilesFound: audioEntries.length });
+                setMessage(`Resolved ${resolvedFiles} file(s) (${resolvedClips} clips), ${unresolvedFiles} still missing${failedCount > 0 ? `, ${failedCount} error(s)` : ''}`);
             } else {
-                setMessage(`Auto Search: no matching files found in the selected folder`);
+                setSearchProgress({ total: uniqueFiles.length, resolved: 0, current: '✗ No matching files found', failed: 0, phase: 'done', audioFilesFound: audioEntries.length });
+                setMessage('No matching files found in the selected folder');
             }
         } catch (err) {
             console.error('[AutoSearch] scan failed:', err);
@@ -210,8 +357,9 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             useStatusStore.getState().setError(`Auto Search failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setAutoSearchBusy(false);
+            // Don't auto-close popup—user can close it manually
         }
-    }, [autoSearchBusy, missingClips.length, applyProjectDeltas]);
+    }, [autoSearchBusy, missingClips.length, applyProjectDeltas, searchFolder]);
 
     const missingPlugins = useMemo<MissingPluginSlot[]>(() => {
         const out: MissingPluginSlot[] = [];
@@ -262,8 +410,6 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             .then((entries) => {
                 if (!mounted) return;
                 setPluginEntries(entries.filter((e) => e.file_type === 'plugin'));
-                // Auto-retry resolver immediately after scan so user does not
-                // need to click Auto Resolve manually every time.
                 return engineApi.autoResolveMissingPluginsReportWithDeltas();
             })
             .then(async (response) => {
@@ -299,7 +445,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const runAutoResolvePlugins = async () => {
         if (autoResolveBusy || missingPlugins.length === 0) return;
         setAutoResolveBusy(true);
-        setMessage('Auto-resolving missing plugins...');
+        setMessage('Auto-resolving missing plugins…');
         try {
             const response = await engineApi.autoResolveMissingPluginsReportWithDeltas();
             await applyProjectDeltas(response.deltas, 'missing-assets:auto-resolve-bulk');
@@ -330,27 +476,107 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             top: 'var(--daw-transport-height)',
             right: 0,
             bottom: 'var(--daw-status-bar-height)',
-            width: 380,
+            width: 340,
             zIndex: 'var(--z-status-popup)',
             borderLeft: 'var(--border-width-1) solid var(--color-divider)',
             background: 'color-mix(in srgb, var(--color-bg-panel) 93%, var(--color-bg-base))',
             display: 'grid',
             gridTemplateRows: 'auto 1fr',
+            overflow: 'hidden', // ENTERPRISE: Prevent all child overflow
         }}>
+            {/* ── Header ── */}
             <div style={{
-                padding: 'var(--space-2-5) var(--space-3)',
                 borderBottom: 'var(--border-width-1) solid var(--color-divider)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: 'grid',
+                gap: 'var(--space-1-5)',
+                padding: 'var(--space-2) var(--space-2)',
+                overflow: 'hidden', // Prevent header overflow
             }}>
-                <div style={{ display: 'grid', gap: 'var(--space-0-5)' }}>
-                    <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-status-error)' }}>Missing Media Manager</span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                        {missingClips.length} files offline · {missingPlugins.length} plugins missing
+                {/* Title row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>Missing Media</span>
+                    <button onClick={onClose} style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 'var(--font-size-base)',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        lineHeight: 1,
+                    }} title="Close">✕</button>
+                </div>
+
+                {/* Summary badges */}
+                <div style={{ display: 'flex', gap: 'var(--space-1)', fontSize: 'var(--font-size-xs)', flexWrap: 'wrap' }}>
+                    <span style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: missingClips.length > 0
+                            ? 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'
+                            : 'color-mix(in srgb, var(--color-status-success) 18%, transparent)',
+                        color: missingClips.length > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)',
+                        fontWeight: 'var(--font-weight-medium)',
+                    }}>
+                        {groupedMissingFiles.length} file{groupedMissingFiles.length !== 1 ? 's' : ''} ({missingClips.length} clip{missingClips.length !== 1 ? 's' : ''})
+                    </span>
+                    <span style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: missingPlugins.length > 0
+                            ? 'color-mix(in srgb, var(--color-status-warning) 18%, transparent)'
+                            : 'color-mix(in srgb, var(--color-status-success) 18%, transparent)',
+                        color: missingPlugins.length > 0 ? 'var(--color-status-warning)' : 'var(--color-status-success)',
+                        fontWeight: 'var(--font-weight-medium)',
+                    }}>
+                        {missingPlugins.length} plugin{missingPlugins.length !== 1 ? 's' : ''}
                     </span>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-1-5)', flexWrap: 'wrap' }}>
+
+                {/* Search folder row — ENTERPRISE: overflow contained */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-1)',
+                    background: 'var(--color-bg-secondary)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '4px 8px',
+                    minHeight: 28,
+                    overflow: 'hidden', // Contain folder path overflow
+                }}>
+                    <button
+                        onClick={() => { void pickSearchFolder(); }}
+                        style={{
+                            border: 'var(--border-width-1) solid var(--color-divider)',
+                            background: 'var(--color-bg-header)',
+                            color: 'var(--color-text-primary)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--font-size-2xs)',
+                            padding: '2px 6px',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            transition: 'background var(--transition-fast)',
+                        }}
+                        title="Choose search folder"
+                    >
+                        📂 Folder
+                    </button>
+                    <span style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        color: searchFolder ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                        minWidth: 0, // ENTERPRISE: Allow flex child to shrink below content size
+                        direction: 'rtl',
+                        textAlign: 'left',
+                    }}>
+                        {searchFolder || 'No folder selected'}
+                    </span>
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
                     <button
                         onClick={() => { void runAutoSearchAudio(); }}
                         disabled={autoSearchBusy || missingClips.length === 0}
@@ -358,16 +584,16 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             border: 'var(--border-width-1) solid var(--color-divider)',
                             background: autoSearchBusy ? 'var(--color-bg-header)' : 'color-mix(in srgb, var(--color-status-info) 15%, var(--color-bg-header))',
                             color: missingClips.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-status-info)',
-                            borderRadius: 'var(--radius-lg)',
-                            fontSize: 'var(--font-size-sm)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 'var(--font-weight-semibold)',
-                            padding: 'var(--space-1) var(--space-2)',
+                            padding: '4px 10px',
                             cursor: autoSearchBusy || missingClips.length === 0 ? 'default' : 'pointer',
-                            opacity: autoSearchBusy || missingClips.length === 0 ? 0.6 : 1,
-                            transition: 'background var(--transition-fast), color var(--transition-fast)',
+                            opacity: autoSearchBusy || missingClips.length === 0 ? 0.5 : 1,
+                            transition: 'background var(--transition-fast)',
                         }}
                     >
-                        {autoSearchBusy ? 'Searching...' : 'Auto Search'}
+                        {autoSearchBusy ? '⏳ Searching…' : '🔍 Auto Search'}
                     </button>
                     <button
                         onClick={() => { void runAutoResolvePlugins(); }}
@@ -375,43 +601,255 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         style={{
                             border: 'var(--border-width-1) solid var(--color-divider)',
                             background: 'var(--color-bg-header)',
-                            color: 'var(--color-text-secondary)',
-                            borderRadius: 'var(--radius-lg)',
-                            fontSize: 'var(--font-size-sm)',
+                            color: missingPlugins.length === 0 ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 'var(--font-weight-semibold)',
-                            padding: 'var(--space-1) var(--space-2)',
+                            padding: '4px 10px',
                             cursor: autoResolveBusy || missingPlugins.length === 0 ? 'default' : 'pointer',
-                            opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.6 : 1,
-                            transition: `background var(--transition-fast)`,
+                            opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.5 : 1,
+                            transition: 'background var(--transition-fast)',
                         }}
                     >
-                        {autoResolveBusy ? 'Resolving...' : 'Auto Resolve'}
+                        {autoResolveBusy ? '⏳ Resolving…' : '🔌 Plugins'}
                     </button>
-                    <button onClick={onClose} style={{
-                        border: 'var(--border-width-1) solid var(--color-divider)',
-                        background: 'var(--color-bg-header)',
-                        color: 'var(--color-text-secondary)',
-                        borderRadius: 'var(--radius-lg)',
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 'var(--font-weight-semibold)',
-                        padding: 'var(--space-1) var(--space-2)',
-                        cursor: 'pointer',
-                        transition: `background var(--transition-fast)`,
-                    }}>Close</button>
                 </div>
+
+                {/* ── ENTERPRISE: Render-popup-style search progress overlay ── */}
+                {searchPopupOpen && searchProgress && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 9999,
+                        background: 'rgba(0, 0, 0, 0.6)',
+                        backdropFilter: 'blur(4px)',
+                        WebkitBackdropFilter: 'blur(4px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}>
+                        <div style={{
+                            width: 460,
+                            maxWidth: '90vw',
+                            maxHeight: '70vh',
+                            background: 'color-mix(in srgb, var(--color-bg-elevated) 98%, transparent)',
+                            border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.3)',
+                            display: 'grid',
+                            gridTemplateRows: 'auto auto 1fr auto',
+                            overflow: 'hidden',
+                        }}>
+                            {/* Popup header */}
+                            <div style={{
+                                padding: 'var(--space-3) var(--space-3) var(--space-2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                borderBottom: 'var(--border-width-1) solid var(--color-divider)',
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>
+                                        {searchProgress.phase === 'scanning' ? '🔍 Scanning Folder…' :
+                                            searchProgress.phase === 'matching' ? '🔍 Auto Search in Progress' :
+                                                searchProgress.resolved > 0 ? '✓ Search Complete' : '✗ Search Complete'}
+                                    </div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                                        {searchProgress.phase === 'scanning'
+                                            ? `Scanning "${searchFolder?.split('/').pop() ?? 'folder'}"…`
+                                            : `${searchProgress.audioFilesFound} audio files scanned`}
+                                    </div>
+                                </div>
+                                {searchProgress.phase === 'done' && (
+                                    <button
+                                        onClick={() => { setSearchPopupOpen(false); setSearchProgress(null); }}
+                                        style={{
+                                            border: 'none',
+                                            background: 'var(--color-bg-hover)',
+                                            color: 'var(--color-text-primary)',
+                                            borderRadius: 'var(--radius-sm)',
+                                            fontSize: 'var(--font-size-sm)',
+                                            padding: '4px 10px',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Close
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Progress bar */}
+                            <div style={{ padding: 'var(--space-2) var(--space-3)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                                    <span>{searchProgress.current}</span>
+                                    <span style={{ fontWeight: 'var(--font-weight-semibold)', flexShrink: 0, marginLeft: 8 }}>
+                                        {searchProgress.resolved}/{searchProgress.total}
+                                    </span>
+                                </div>
+                                <div style={{
+                                    height: 6,
+                                    borderRadius: 3,
+                                    background: 'color-mix(in srgb, var(--color-text-primary) 12%, transparent)',
+                                    overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        height: '100%',
+                                        width: searchProgress.total > 0
+                                            ? `${Math.round((searchProgress.resolved / searchProgress.total) * 100)}%`
+                                            : searchProgress.phase === 'scanning' ? '100%' : '0%',
+                                        background: searchProgress.phase === 'done'
+                                            ? (searchProgress.resolved > 0 ? 'var(--color-status-success)' : 'var(--color-status-error)')
+                                            : 'var(--color-status-info)',
+                                        borderRadius: 3,
+                                        transition: 'width 0.3s ease, background 0.3s ease',
+                                        animation: searchProgress.phase === 'scanning' ? 'pulse 1.5s ease-in-out infinite' : undefined,
+                                    }} />
+                                </div>
+                            </div>
+
+                            {/* Scrollable search log */}
+                            <div
+                                ref={logRef}
+                                style={{
+                                    overflowY: 'auto',
+                                    overflowX: 'hidden',
+                                    padding: '0 var(--space-3)',
+                                    minHeight: 100,
+                                    maxHeight: 300,
+                                }}
+                            >
+                                {searchLog.length === 0 && searchProgress.phase === 'scanning' && (
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--space-2) 0' }}>
+                                        Scanning folders for audio files…
+                                    </div>
+                                )}
+                                {searchLog.map((entry, idx) => (
+                                    <div
+                                        key={`${entry.fileName}-${idx}`}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: 8,
+                                            padding: '4px 0',
+                                            borderBottom: idx < searchLog.length - 1 ? 'var(--border-width-1) solid color-mix(in srgb, var(--color-divider) 60%, transparent)' : 'none',
+                                            fontSize: 'var(--font-size-xs)',
+                                        }}
+                                    >
+                                        {/* Status icon */}
+                                        <span style={{
+                                            flexShrink: 0,
+                                            width: 18,
+                                            textAlign: 'center',
+                                            fontSize: 'var(--font-size-sm)',
+                                        }}>
+                                            {entry.status === 'found' ? '✅' :
+                                                entry.status === 'error' ? '⚠️' :
+                                                    entry.status === 'not_found' ? '❌' : '🔄'}
+                                        </span>
+                                        {/* File info */}
+                                        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                            <div style={{
+                                                color: entry.status === 'found' ? 'var(--color-status-success)' :
+                                                    entry.status === 'not_found' ? 'var(--color-text-tertiary)' :
+                                                        'var(--color-status-error)',
+                                                fontWeight: 'var(--font-weight-medium)',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {entry.fileName}
+                                            </div>
+                                            {entry.status === 'found' && entry.matchedPath && (
+                                                <div style={{
+                                                    color: 'var(--color-text-secondary)',
+                                                    fontSize: 'var(--font-size-2xs)',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                }}>
+                                                    → {entry.matchedPath}
+                                                    {entry.clipCount && entry.clipCount > 1 ? ` (${entry.clipCount} clips resolved)` : ''}
+                                                </div>
+                                            )}
+                                            {entry.status === 'not_found' && (
+                                                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)' }}>
+                                                    No match found
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Footer with error count */}
+                            {(searchProgress.failed > 0 || searchProgress.phase === 'done') && (
+                                <div style={{
+                                    padding: 'var(--space-2) var(--space-3)',
+                                    borderTop: 'var(--border-width-1) solid var(--color-divider)',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: 'var(--font-size-xs)',
+                                }}>
+                                    {searchProgress.failed > 0 && (
+                                        <span style={{ color: 'var(--color-status-error)' }}>
+                                            {searchProgress.failed} error(s)
+                                        </span>
+                                    )}
+                                    {searchProgress.phase === 'done' && (
+                                        <span style={{ color: 'var(--color-text-secondary)', marginLeft: 'auto' }}>
+                                            {searchProgress.resolved > 0
+                                                ? `${searchProgress.resolved} of ${searchProgress.total} files resolved`
+                                                : 'No files could be resolved'}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Status message */}
+                {!searchProgress && message && (
+                    <div style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        color: 'var(--color-text-secondary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                    }}>{message}</div>
+                )}
             </div>
 
-            <div style={{ overflowY: 'auto', padding: 'var(--space-2-5)', display: 'grid', gap: 'var(--space-3)' }}>
+            {/* ── File list — ENTERPRISE: proper padding on all sides ── */}
+            <div style={{
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                padding: 'var(--space-2)',
+                display: 'grid',
+                gap: 'var(--space-2)',
+                alignContent: 'start',
+            }}>
                 <MissingAudioSection
-                    missingClips={missingClips}
-                    onResolveFile={async (clipId, path, clipName) => {
-                        try {
-                            const response = await engineApi.resolveMissingFileWithDeltas(clipId, path);
-                            await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
-                            setMessage(`Resolved file for '${clipName}'`);
-                        } catch (err) {
-                            console.error('[MissingAssets] resolveMissingFile failed:', err);
-                            setMessage(`Failed to resolve '${clipName}'`);
+                    groupedFiles={groupedMissingFiles}
+                    onResolveFile={async (clipIds, path, clipName) => {
+                        // ENTERPRISE: Batch resolve ALL clips for this source file
+                        let resolved = 0;
+                        for (const clipId of clipIds) {
+                            try {
+                                const response = await engineApi.resolveMissingFileWithDeltas(clipId, path);
+                                await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
+                                resolved++;
+                            } catch (err) {
+                                console.error(`[MissingAssets] resolveMissingFile failed for clip ${clipId}:`, err);
+                            }
+                        }
+                        if (resolved > 0) {
+                            setMessage(`✓ Resolved '${clipName}' (${resolved} clip${resolved > 1 ? 's' : ''})`);
+                        } else {
+                            setMessage(`✗ Failed to resolve '${clipName}'`);
                         }
                     }}
                 />
@@ -423,15 +861,13 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         try {
                             const response = await engineApi.replaceMissingPluginSlotWithDeltas(trackId, slotId, path, name || undefined);
                             await applyProjectDeltas(response.deltas, name ? 'missing-assets:replace-plugin' : 'missing-assets:replace-plugin-manual');
-                            setMessage(name ? `Replaced '${wantedName}' with '${name}'` : `Replaced '${wantedName}'`);
+                            setMessage(name ? `✓ Replaced '${wantedName}' → '${name}'` : `✓ Replaced '${wantedName}'`);
                         } catch (err) {
                             console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
-                            setMessage(`Failed to replace '${wantedName}'`);
+                            setMessage(`✗ Failed to replace '${wantedName}'`);
                         }
                     }}
                 />
-
-                {message && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{message}</div>}
             </div>
         </div>
     );

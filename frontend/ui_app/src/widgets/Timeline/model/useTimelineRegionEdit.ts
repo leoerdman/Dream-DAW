@@ -111,7 +111,7 @@ export function useTimelineRegionEdit({
         const originStart = region.startBeat;
         const originEnd = region.endBeat;
         const toBeat = (clientX: number) => Math.max(0, (clientX - rect.left + viewportScrollX) / Math.max(0.0001, effectivePixelsPerBeat));
-        const onMove = (ev: MouseEvent) => {
+        const onMove = (ev: PointerEvent) => {
             const beat = snapRegionBeat(toBeat(ev.clientX), ev.altKey);
             let nextStart = originStart;
             let nextEnd = originEnd;
@@ -129,18 +129,21 @@ export function useTimelineRegionEdit({
             if (which === 'A') setRegionA(next);
             else setRegionB(next);
         };
-        const onUp = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+        // ENTERPRISE FIX (Phase 33): pointerup + pointercancel for full interrupt safety.
+        // Legacy mouseup was missing pointercancel — OS interrupts (alerts, sleep,
+        // 3-finger swipe) left drag listeners orphaned.
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             regionDragCleanupRef.current = null;
         };
+        const onUp = () => { cleanup(); };
         regionDragCleanupRef.current?.();
-        regionDragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        regionDragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [regionA, regionB, masterLaneRef, viewportScrollX, effectivePixelsPerBeat, setRegionA, setRegionB, snapRegionBeat]);
 
     return {

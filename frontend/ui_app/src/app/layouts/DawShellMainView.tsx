@@ -18,7 +18,7 @@ interface DawShellMainViewProps {
     mainSplitRef: React.RefObject<HTMLElement | null>;
     timelineRef: React.RefObject<HTMLDivElement | null>;
     browserWidth: number;
-    beginBrowserResize: (event: React.MouseEvent<HTMLDivElement>) => void;
+    beginBrowserResize: (event: React.PointerEvent<HTMLDivElement>) => void;
     mainViewMode: 'arrangement' | 'session' | 'flow';
     tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
@@ -68,7 +68,7 @@ export const DawShellMainView = memo(({
             </aside>
             <div className="relative shrink-0 z-50" style={{ width: 0 }}>
                 <div
-                    onMouseDown={beginBrowserResize}
+                    onPointerDown={beginBrowserResize}
                     className="absolute top-0 bottom-0 left-[-3px] w-[6px] cursor-ew-resize hover:bg-white/5 transition-colors"
                     title="Resize Browser"
                 />

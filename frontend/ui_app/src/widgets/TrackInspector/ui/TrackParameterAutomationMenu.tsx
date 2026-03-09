@@ -49,7 +49,7 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
             setCoords({ x: finalX, y: finalY, opacity: 1, pointerEvents: 'auto' });
         });
 
-        const handleClick = (e: MouseEvent) => {
+        const handleClick = (e: PointerEvent) => {
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
                 setAutoCtxMenu(null);
             }
@@ -57,7 +57,7 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
 
         // Prevent immediate close from the very same click that opened it
         const timerId = setTimeout(() => {
-            document.addEventListener('mousedown', handleClick);
+            document.addEventListener('pointerdown', handleClick);
         }, 10);
 
         // Context menu close on escape
@@ -71,7 +71,7 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
         return () => {
             cancelAnimationFrame(measureId);
             clearTimeout(timerId);
-            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('pointerdown', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
     }, [autoCtxMenu, setAutoCtxMenu]);
@@ -90,7 +90,7 @@ export function TrackParameterAutomationMenu({ logic }: TrackParameterAutomation
     return (
         <div
             ref={menuRef}
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
             style={{
                 position: 'fixed',

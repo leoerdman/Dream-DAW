@@ -108,8 +108,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                             step={1}
                             value={draftPitch}
                             onChange={(e) => setDraftPitch(Number(e.target.value))}
-                            onMouseUp={(e) => onCommitPitch(Number(e.currentTarget.value))}
-                            onTouchEnd={(e) => onCommitPitch(Number(e.currentTarget.value))}
+                            onPointerUp={(e) => onCommitPitch(Number(e.currentTarget.value))}
                             onKeyUp={(e) => {
                                 if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                                     onCommitPitch(draftPitch);

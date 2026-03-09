@@ -13,8 +13,8 @@ type Args = {
 };
 
 type Result = {
-    beginBrowserResize: (e: React.MouseEvent<HTMLDivElement>) => void;
-    beginBottomPanelResize: (e: React.MouseEvent<HTMLDivElement>) => void;
+    beginBrowserResize: (e: React.PointerEvent<HTMLDivElement>) => void;
+    beginBottomPanelResize: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 export function usePaneResizeHandlers({
@@ -22,7 +22,7 @@ export function usePaneResizeHandlers({
     setBrowserWidth,
     setBottomPanelHeightPx,
 }: Args): Result {
-    const beginBrowserResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const beginBrowserResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         e.preventDefault();
         const splitRoot = mainSplitRef.current;
         if (!splitRoot) return;
@@ -39,7 +39,10 @@ export function usePaneResizeHandlers({
             setBrowserWidth((prev) => (prev === nextWidth ? prev : nextWidth));
         };
 
-        const onMove = (me: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Use pointer events exclusively.
+        // Previously had BOTH mousemove AND pointer listeners — causing
+        // onUp to fire twice per release (guarded by `finished` flag but wasteful).
+        const onMove = (me: PointerEvent) => {
             const nextWidth = Math.max(BROWSER_WIDTH_MIN_PX, Math.min(BROWSER_WIDTH_MAX_PX, Math.round(me.clientX - rootRect.left)));
             pendingWidth = nextWidth;
             if (rafId === null) {
@@ -55,8 +58,7 @@ export function usePaneResizeHandlers({
                 rafId = null;
             }
             flushWidth();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
             window.removeEventListener('pointercancel', onUp);
             window.removeEventListener('blur', onUp);
@@ -69,15 +71,14 @@ export function usePaneResizeHandlers({
             }
         };
 
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
         window.addEventListener('pointercancel', onUp);
         window.addEventListener('blur', onUp);
         document.addEventListener('visibilitychange', onVisibilityChange);
     }, [mainSplitRef, setBrowserWidth]);
 
-    const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const beginBottomPanelResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const minHeight = BOTTOM_PANEL_HEIGHT_MIN_PX;
@@ -96,7 +97,7 @@ export function usePaneResizeHandlers({
             root.style.setProperty('--daw-bottom-panel-height', `${pendingHeight}px`);
         };
 
-        const onMove = (me: MouseEvent) => {
+        const onMove = (me: PointerEvent) => {
             const nextHeight = Math.max(minHeight, Math.min(maxHeight, window.innerHeight - me.clientY));
             pendingHeight = nextHeight;
             if (rafId == null) {
@@ -119,8 +120,7 @@ export function usePaneResizeHandlers({
             }
             document.body.style.cursor = prevCursor;
             window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
             window.removeEventListener('pointercancel', onUp);
             window.removeEventListener('blur', onUp);
@@ -133,8 +133,7 @@ export function usePaneResizeHandlers({
             }
         };
 
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
         window.addEventListener('pointercancel', onUp);
         window.addEventListener('blur', onUp);

@@ -244,10 +244,11 @@ export const Timeline = (props: TimelineProps) => {
             commitLoopRef.current(pending);
             pendingLoopRef.current = null;
         };
-        window.addEventListener('mouseup', flush, true);
+        // ENTERPRISE FIX (Phase 33): Pointer events for consistency.
+        window.addEventListener('pointerup', flush, true);
         window.addEventListener('touchend', flush, true);
         return () => {
-            window.removeEventListener('mouseup', flush, true);
+            window.removeEventListener('pointerup', flush, true);
             window.removeEventListener('touchend', flush, true);
         };
     }, []);

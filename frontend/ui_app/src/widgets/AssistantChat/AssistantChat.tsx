@@ -79,7 +79,8 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         const origY = dragPos?.y ?? rect.top;
         dragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY };
 
-        const onMove = (me: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (me: PointerEvent) => {
             if (!dragRef.current) return;
             const dx = me.clientX - dragRef.current.startX;
             const dy = me.clientY - dragRef.current.startY;
@@ -87,19 +88,19 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
             const newY = Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.origY + dy));
             setDragPos({ x: newX, y: newY });
         };
-        const onUp = () => {
+        const cleanup = () => {
             dragRef.current = null;
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             headerDragCleanupRef.current = null;
         };
+        const onUp = () => { cleanup(); };
         headerDragCleanupRef.current?.();
-        headerDragCleanupRef.current = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        headerDragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [dragPos]);
 
     useEffect(() => {

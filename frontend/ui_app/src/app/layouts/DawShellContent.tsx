@@ -23,7 +23,7 @@ interface DawShellContentProps {
     mainSplitRef: React.RefObject<HTMLElement | null>;
     timelineRef: React.RefObject<HTMLDivElement | null>;
     browserWidth: number;
-    beginBrowserResize: (event: React.MouseEvent<HTMLDivElement>) => void;
+    beginBrowserResize: (event: React.PointerEvent<HTMLDivElement>) => void;
     mainViewMode: 'arrangement' | 'session' | 'flow';
     setMainViewMode: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
     isFlowAvailable: boolean;
@@ -40,7 +40,7 @@ interface DawShellContentProps {
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
     setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
-    beginBottomPanelResize: (event: React.MouseEvent<HTMLDivElement>) => void;
+    beginBottomPanelResize: (event: React.PointerEvent<HTMLDivElement>) => void;
     selectedTimelineClip: ReturnType<typeof import('./model/useArrangementTrackViewModel').useArrangementTrackViewModel>['selectedTimelineClip'] | undefined;
     clipColor: string;
     midiNotes: import('@/widgets/PianoRoll/model/pianoRollConfig').MidiNote[];

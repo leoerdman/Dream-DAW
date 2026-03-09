@@ -33,6 +33,10 @@ interface StatusBarProps {
     mainViewMode?: 'arrangement' | 'session' | 'flow';
     onMainViewModeChange?: React.Dispatch<React.SetStateAction<'arrangement' | 'session' | 'flow'>>;
     isFlowAvailable?: boolean;
+    /** Missing media summary for inline badge in the status bar. */
+    missingMediaSummary?: { offlineClipCount: number; missingPluginCount: number; total: number };
+    /** Toggle the missing assets panel. */
+    onToggleMissingAssets?: () => void;
 }
 
 export const StatusBar = ({
@@ -45,6 +49,8 @@ export const StatusBar = ({
     mainViewMode = 'arrangement',
     onMainViewModeChange,
     isFlowAvailable = false,
+    missingMediaSummary,
+    onToggleMissingAssets,
 }: StatusBarProps) => {
     const prefetchRackPanel = () => {
         void import('@/widgets/DeviceRack/DeviceRack');
@@ -127,7 +133,7 @@ export const StatusBar = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                height: 26,
+                height: 'var(--daw-status-bar-height)',
                 background: 'var(--color-bg-header)',
                 borderTop: 'var(--space-px) solid var(--color-divider)',
                 padding: '0 var(--space-2-5)',
@@ -218,6 +224,42 @@ export const StatusBar = ({
                                 </button>
                             )}
                         </div>
+                    )}
+                    {/* ── Inline Missing Media Badge ── */}
+                    {missingMediaSummary && missingMediaSummary.total > 0 && onToggleMissingAssets && (
+                        <button
+                            type="button"
+                            onClick={onToggleMissingAssets}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 40%, transparent)',
+                                borderRadius: 'var(--radius-md)',
+                                padding: '2px 8px',
+                                height: 22,
+                                background: 'color-mix(in srgb, var(--color-status-error) 12%, transparent)',
+                                color: 'var(--color-status-error)',
+                                fontSize: 'var(--font-size-2xs)',
+                                fontWeight: 'var(--font-weight-medium)',
+                                cursor: 'pointer',
+                                transition: 'background var(--transition-fast)',
+                                letterSpacing: '0.01em',
+                                flexShrink: 0,
+                            }}
+                            title="Open Missing Media Manager"
+                        >
+                            <span style={{ fontSize: 9, lineHeight: 1 }}>⚠</span>
+                            {missingMediaSummary.offlineClipCount > 0 && (
+                                <span>{missingMediaSummary.offlineClipCount} file{missingMediaSummary.offlineClipCount !== 1 ? 's' : ''} offline</span>
+                            )}
+                            {missingMediaSummary.offlineClipCount > 0 && missingMediaSummary.missingPluginCount > 0 && (
+                                <span>·</span>
+                            )}
+                            {missingMediaSummary.missingPluginCount > 0 && (
+                                <span>{missingMediaSummary.missingPluginCount} plugin{missingMediaSummary.missingPluginCount !== 1 ? 's' : ''}</span>
+                            )}
+                        </button>
                     )}
                     {!statusMessage && panelInfo && (
                         <StatusText>{panelInfo}</StatusText>

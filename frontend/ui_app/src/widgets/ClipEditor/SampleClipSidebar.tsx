@@ -113,8 +113,7 @@ export function SampleClipSidebar({
                             step={1}
                             value={draftPitch}
                             onChange={(e) => setDraftPitch(Number(e.target.value))}
-                            onMouseUp={(e) => void commitPitch(Number(e.currentTarget.value))}
-                            onTouchEnd={(e) => void commitPitch(Number(e.currentTarget.value))}
+                            onPointerUp={(e) => void commitPitch(Number(e.currentTarget.value))}
                             onKeyUp={(e) => {
                                 if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                                     void commitPitch(draftPitch);

@@ -171,7 +171,8 @@ export function usePianoRollNoteInteractions({
         );
         let lastAuditionPitch: number | null = null;
 
-        const onMove = (moveEvent: MouseEvent) => {
+        // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+        const onMove = (moveEvent: PointerEvent) => {
             const beatDelta = (moveEvent.clientX - startX) / pixelsPerBeatRef.current;
             const pitchDelta = Math.abs(moveEvent.clientY - startY) > noteHeight * 0.5 ? -Math.round((moveEvent.clientY - startY) / noteHeight) : 0;
             const snapOverrideHeld = isMac ? moveEvent.metaKey : moveEvent.ctrlKey;
@@ -208,7 +209,7 @@ export function usePianoRollNoteInteractions({
             });
             // FIX #5: During drag, only update positions WITHOUT enforceNoOverlap.
             // This prevents notes from being deleted when dragging through them.
-            // Overlap enforcement is deferred to mouseUp (drop).
+            // Overlap enforcement is deferred to pointerUp (drop).
             onNotesChange(updated);
             if (mode === 'move') {
                 const lead = updated.find((n) => n.id === noteId);
@@ -219,11 +220,15 @@ export function usePianoRollNoteInteractions({
             }
         };
 
-        const onUp = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+        const cleanup = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
             dragCleanupRef.current = null;
-            // FIX #5: Apply enforceNoOverlap only on drop (mouseUp),
+        };
+        const onUp = () => {
+            cleanup();
+            // FIX #5: Apply enforceNoOverlap only on drop (pointerUp),
             // not during drag. This resolves final note positions.
             const finalNotes = notesRef.current;
             onNotesChange(enforceNoOverlap(finalNotes, selectedIds));
@@ -232,9 +237,10 @@ export function usePianoRollNoteInteractions({
             });
         };
         dragCleanupRef.current?.();
-        dragCleanupRef.current = onUp;
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        dragCleanupRef.current = cleanup;
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
     }, [auditionNote, beatsPerBar, clipBeats, drumMode, editorRootRef, enforceNoOverlap, isMac, noteHeight, notesRef, onNotesChange, pianoPencilMode, pixelsPerBeatRef, selectedNotes, setSelectedNotes, snapBeat, snapEnabled, tool, visiblePitches]);
 
     const handleNoteMouseMove = useCallback((event: React.MouseEvent, noteId: string) => {

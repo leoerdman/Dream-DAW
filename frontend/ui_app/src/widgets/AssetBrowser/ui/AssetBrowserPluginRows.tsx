@@ -103,12 +103,14 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                         fileListRef.current.style.overflowY = 'auto';
                         fileListRef.current.style.overflowX = 'hidden';
                     }
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('mouseup', onUp);
+                    // ENTERPRISE FIX (Phase 33): Pointer events for consistency.
+                    window.removeEventListener('pointermove', onMove);
+                    window.removeEventListener('pointerup', onUp);
+                    window.removeEventListener('pointercancel', cleanup);
                     window.removeEventListener('blur', cleanup);
                     document.removeEventListener('visibilitychange', cleanup);
                 };
-                const onMove = (me: MouseEvent) => {
+                const onMove = (me: PointerEvent) => {
                     if (cancelled) return;
                     const dx = me.clientX - startX;
                     const dy = me.clientY - startY;
@@ -126,8 +128,9 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                     }
                 };
                 const onUp = () => cleanup();
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
+                window.addEventListener('pointermove', onMove);
+                window.addEventListener('pointerup', onUp);
+                window.addEventListener('pointercancel', cleanup);
                 window.addEventListener('blur', cleanup);
                 document.addEventListener('visibilitychange', cleanup);
             }}

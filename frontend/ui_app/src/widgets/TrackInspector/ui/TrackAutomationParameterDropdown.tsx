@@ -92,14 +92,14 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
             setCoords({ x: finalX, y: finalY, opacity: 1, pointerEvents: 'auto' });
         });
 
-        const handleClick = (e: MouseEvent) => {
+        const handleClick = (e: PointerEvent) => {
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
                 setParamSelectorCtxMenu(null);
             }
         };
 
         const timerId = setTimeout(() => {
-            document.addEventListener('mousedown', handleClick);
+            document.addEventListener('pointerdown', handleClick);
         }, 10);
 
         const handleKey = (e: KeyboardEvent) => {
@@ -110,7 +110,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
         return () => {
             cancelAnimationFrame(measureId);
             clearTimeout(timerId);
-            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('pointerdown', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
     }, [paramSelectorCtxMenu, setParamSelectorCtxMenu]);
@@ -120,7 +120,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
     return (
         <div
             ref={menuRef}
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
             style={{
                 position: 'fixed',

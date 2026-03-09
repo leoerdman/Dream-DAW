@@ -55,25 +55,26 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             e.preventDefault();
             const startX = e.clientX;
 
-            const onMove = (ev: MouseEvent) => {
+            // ENTERPRISE FIX (Phase 33): Pointer events for interrupt safety.
+            const onMove = (ev: PointerEvent) => {
                 const delta = ev.clientX - startX;
                 onDelta(delta, ev.clientX);
             };
 
-            const onUp = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+            const cleanup = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
                 dragCleanupRef.current = null;
             };
+            const onUp = () => { cleanup(); };
 
             dragCleanupRef.current?.();
-            dragCleanupRef.current = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
-            };
+            dragCleanupRef.current = cleanup;
 
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
         },
         [],
     );

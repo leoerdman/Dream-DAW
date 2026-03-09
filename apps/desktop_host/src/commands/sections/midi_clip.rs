@@ -131,6 +131,9 @@ async fn create_midi_clip_with_deltas_cmd(
                 file_path: None,
                 position: response.position_frames,
                 duration: response.duration_frames,
+                sample_rate: None,
+                channels: None,
+                num_frames: None,
             },
             dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
                 project: Box::new(project.clone()),

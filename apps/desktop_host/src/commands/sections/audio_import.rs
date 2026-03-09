@@ -304,6 +304,9 @@ async fn import_audio_file_with_deltas(
                 file_path: Some(file_path),
                 position,
                 duration,
+                sample_rate: Some(response.sample_rate),
+                channels: Some(response.channels as u16),
+                num_frames: Some(response.frames),
             },
             dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
                 project: Box::new(project.clone()),

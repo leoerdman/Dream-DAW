@@ -53,4 +53,10 @@ export interface TimelineClip {
     isOffline?: boolean;
     midiNotes?: TimelineMidiNote[];
     midiEnvelopes?: TimelineClipEnvelope[];
+    /** Audio file sample rate (e.g. 44100, 48000). MIDI clips will be undefined. */
+    sampleRate?: number;
+    /** Audio file channel count (1=mono, 2=stereo). MIDI clips will be undefined. */
+    channels?: number;
+    /** Total frames in the source audio file. MIDI clips will be undefined. */
+    numFrames?: number;
 }

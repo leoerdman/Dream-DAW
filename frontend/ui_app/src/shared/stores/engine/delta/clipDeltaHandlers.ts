@@ -61,6 +61,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             warpBaseBpm: delta.data.warp_base_bpm ?? undefined,
             warpSourceDurationFrames: delta.data.warp_source_duration_frames ?? undefined,
             pitchShiftSemitones: delta.data.pitch_shift_semitones ?? 0,
+            // ENTERPRISE: Audio file metadata for clip info display.
+            sampleRate: delta.data.sample_rate ?? undefined,
+            channels: delta.data.channels ?? undefined,
+            numFrames: delta.data.num_frames ?? undefined,
         };
         upsertClip(state, nextClip);
         state.changed = true;

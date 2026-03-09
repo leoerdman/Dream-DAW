@@ -62,6 +62,14 @@ pub enum ProjectDelta {
         file_path: Option<String>,
         position: i64,
         duration: i64,
+        /// ENTERPRISE: Audio file metadata — propagated from clip pool.
+        /// These are `None` for MIDI clips or when the source file is offline.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        channels: Option<u16>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        num_frames: Option<usize>,
     },
 
     /// A clip was resized (position and/or duration changed).

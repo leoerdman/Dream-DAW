@@ -219,6 +219,115 @@ export function MissingPluginsSection({
     );
 }
 
+// ── ENTERPRISE: Missing sampler/rack-pad samples section ──
+
+export type MissingSamplerItem = {
+    trackId: string;
+    trackName: string;
+    samplePath: string;
+    /** Present only when the sample belongs to a specific drum-rack pad. */
+    padIndex?: number;
+    /** Human-readable pad name (e.g. "Kick 1"). */
+    padName?: string;
+};
+
+export function MissingSamplerSection({
+    missingSamples,
+    onResolveSamplerSample,
+}: {
+    missingSamples: MissingSamplerItem[];
+    onResolveSamplerSample: (trackId: string, samplePath: string, padIndex?: number) => Promise<void>;
+}) {
+    return (
+        <section style={sectionStyle}>
+            <div style={sectionTitleStyle}>Missing Sampler Samples</div>
+            {missingSamples.length === 0 ? (
+                <div style={emptyTextStyle}>No missing sampler samples.</div>
+            ) : missingSamples.map((item, idx) => {
+                const fileName = item.samplePath.split('/').pop() ?? item.samplePath;
+                const isPad = item.padIndex !== undefined;
+                return (
+                    <div key={`${item.trackId}:${item.padIndex ?? 'main'}:${idx}`} style={cardStyle}>
+                        <div style={{
+                            ...cardTitleStyle,
+                            color: 'var(--color-status-error)',
+                            textDecoration: 'line-through',
+                        }}>
+                            {fileName}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: '1px 5px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: isPad
+                                    ? 'color-mix(in srgb, var(--color-status-warning) 18%, transparent)'
+                                    : 'color-mix(in srgb, var(--color-browser-audio) 18%, transparent)',
+                                color: isPad ? 'var(--color-status-warning)' : 'var(--color-browser-audio)',
+                                fontWeight: 'var(--font-weight-medium)',
+                            }}>
+                                {isPad ? `🥁 Pad ${(item.padIndex ?? 0) + 1}` : '🎹 Sampler'}
+                            </span>
+                            <span style={{
+                                ...cardSubTitleStyle,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                            }}>
+                                {item.trackName}
+                                {isPad && item.padName ? ` — ${item.padName}` : ''}
+                            </span>
+                        </div>
+                        {/* Full path — truncated from the left via rtl direction */}
+                        <div style={{
+                            fontSize: 'var(--font-size-2xs)',
+                            color: 'var(--color-text-tertiary)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            direction: 'rtl',
+                            textAlign: 'left',
+                            minWidth: 0,
+                        }}>
+                            {item.samplePath}
+                        </div>
+                        <div style={rowStyle}>
+                            <button
+                                onClick={async () => {
+                                    const picked = await open({
+                                        multiple: false,
+                                        title: `Replace missing sample: ${fileName}`,
+                                        filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                    });
+                                    const path = typeof picked === 'string' ? picked : null;
+                                    if (!path) return;
+                                    await onResolveSamplerSample(item.trackId, path, item.padIndex);
+                                }}
+                                style={iconBtnStyle}
+                                title="Browse for replacement sample"
+                            >
+                                ♻️
+                            </button>
+                            <button
+                                onClick={() => {
+                                    window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
+                                        detail: { query: fileName, categoryId: 'samples' },
+                                    }));
+                                }}
+                                style={iconBtnStyle}
+                                title="Find in Browser"
+                            >
+                                📁
+                            </button>
+                        </div>
+                    </div>
+                );
+            })}
+        </section>
+    );
+}
+
 // ── Styles — ENTERPRISE: all cards properly overflow-contained ──
 const sectionStyle: CSSProperties = { display: 'grid', gap: 'var(--space-1-5)' };
 const sectionTitleStyle: CSSProperties = {

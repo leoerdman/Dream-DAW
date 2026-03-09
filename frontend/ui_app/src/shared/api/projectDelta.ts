@@ -10,7 +10,7 @@ export interface MidiClipDeltaNote {
 
 export type ProjectDelta =
     | { kind: 'ClipMoved'; data: { clip_id: string; old_track_index: number; new_track_index: number; new_position: number } }
-    | { kind: 'ClipAdded'; data: { clip_id: string; track_index: number; name: string; clip_type: string; file_path: string | null; position: number; duration: number; source_offset?: number; is_warped?: boolean; warp_mode?: number | null; warp_base_bpm?: number; warp_source_duration_frames?: number; pitch_shift_semitones?: number } }
+    | { kind: 'ClipAdded'; data: { clip_id: string; track_index: number; name: string; clip_type: string; file_path: string | null; position: number; duration: number; source_offset?: number; is_warped?: boolean; warp_mode?: number | null; warp_base_bpm?: number; warp_source_duration_frames?: number; pitch_shift_semitones?: number; sample_rate?: number; channels?: number; num_frames?: number } }
     | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number; new_source_offset?: number } }
     | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
     | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }

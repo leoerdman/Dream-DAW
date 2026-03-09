@@ -313,6 +313,10 @@ pub(super) fn collect_added_track_and_clip_deltas(
                 file_path: Some(clip.file_path.clone()),
                 position: clip.position.sample_frame,
                 duration: clip.duration.sample_frame,
+                // Pool lookup avoided here — full snapshot follows.
+                sample_rate: None,
+                channels: None,
+                num_frames: None,
             });
         }
 
@@ -330,6 +334,9 @@ pub(super) fn collect_added_track_and_clip_deltas(
                 file_path: None,
                 position: clip.position.sample_frame,
                 duration: clip.duration.sample_frame,
+                sample_rate: None,
+                channels: None,
+                num_frames: None,
             });
         }
 

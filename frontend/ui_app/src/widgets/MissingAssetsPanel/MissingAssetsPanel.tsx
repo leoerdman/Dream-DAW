@@ -6,8 +6,10 @@ import { selectAllClips } from '@/shared/stores/entitySelectors';
 import {
     MissingAudioSection,
     MissingPluginsSection,
+    MissingSamplerSection,
     type MissingClipItem,
     type MissingPluginSlot,
+    type MissingSamplerItem,
 } from './MissingAssetsSections';
 
 interface MissingAssetsPanelProps {
@@ -459,6 +461,101 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
         return out.filter((x) => x.slotId.length > 0);
     }, [trackIds, tracksById]);
 
+    // ── ENTERPRISE: Missing sampler & sample-rack samples ──────────────
+    // Scans all tracks for sampler/rack-pad sample paths and checks file
+    // existence by attempting waveform load. Files that fail are missing.
+    const [missingSamplerSamples, setMissingSamplerSamples] = useState<MissingSamplerItem[]>([]);
+    const [samplerScanBusy, setSamplerScanBusy] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setMissingSamplerSamples([]);
+            return;
+        }
+        let cancelled = false;
+        setSamplerScanBusy(true);
+
+        const scanSamplerPaths = async () => {
+            const candidates: MissingSamplerItem[] = [];
+            const storeState = useEngineStore.getState();
+            const tIds = storeState.tracks.allIds;
+            const tById = storeState.tracks.byId;
+
+            for (const trackId of tIds) {
+                const track = tById[trackId];
+                if (!track) continue;
+
+                // Single-sample sampler instrument
+                const samplerPath = (track.sampler?.sample_path ?? '').trim();
+                if (samplerPath && !samplerPath.startsWith('internal://')) {
+                    candidates.push({
+                        trackId: track.id,
+                        trackName: track.name,
+                        samplePath: samplerPath,
+                    });
+                }
+
+                // Sample rack pads
+                const rack = track.sample_rack;
+                if (rack && Array.isArray(rack.pads)) {
+                    for (let p = 0; p < rack.pads.length; p++) {
+                        const padPath = (rack.pads[p]?.sample_path ?? '').trim();
+                        if (padPath && !padPath.startsWith('internal://')) {
+                            candidates.push({
+                                trackId: track.id,
+                                trackName: track.name,
+                                samplePath: padPath,
+                                padIndex: p,
+                                padName: (rack.pads[p] as { name?: string })?.name || undefined,
+                            });
+                        }
+                    }
+                }
+            }
+
+            if (candidates.length === 0) {
+                if (!cancelled) {
+                    setMissingSamplerSamples([]);
+                    setSamplerScanBusy(false);
+                }
+                return;
+            }
+
+            // Deduplicate by path to avoid checking the same file multiple times
+            const uniquePaths = new Map<string, MissingSamplerItem[]>();
+            for (const c of candidates) {
+                const key = c.samplePath.toLowerCase();
+                const existing = uniquePaths.get(key);
+                if (existing) {
+                    existing.push(c);
+                } else {
+                    uniquePaths.set(key, [c]);
+                }
+            }
+
+            const missing: MissingSamplerItem[] = [];
+
+            for (const [, items] of uniquePaths) {
+                if (cancelled) break;
+                try {
+                    // Attempt to load waveform — if successful, file exists
+                    await engineApi.getWaveformPeaksBinary(items[0].samplePath);
+                } catch {
+                    // File is missing — add all items that reference this path
+                    missing.push(...items);
+                }
+            }
+
+            if (!cancelled) {
+                setMissingSamplerSamples(missing);
+                setSamplerScanBusy(false);
+            }
+        };
+
+        void scanSamplerPaths();
+        return () => { cancelled = true; };
+    }, [isOpen, trackIds, tracksById]);
+
     useEffect(() => {
         if (!isOpen || missingPlugins.length === 0) return;
         let mounted = true;
@@ -599,6 +696,17 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         }}>
                             {missingPlugins.length} plugin{missingPlugins.length !== 1 ? 's' : ''}
                         </span>
+                        {missingSamplerSamples.length > 0 && (
+                            <span style={{
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'color-mix(in srgb, var(--color-status-error) 18%, transparent)',
+                                color: 'var(--color-status-error)',
+                                fontWeight: 'var(--font-weight-medium)',
+                            }}>
+                                {missingSamplerSamples.length} sample{missingSamplerSamples.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
                     </div>
 
                     {/* Search folder row — ENTERPRISE: overflow contained */}
@@ -981,6 +1089,42 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             } catch (err) {
                                 console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
                                 setMessage(`✗ Failed to replace '${wantedName}'`);
+                            }
+                        }}
+                    />
+                    <MissingSamplerSection
+                        missingSamples={missingSamplerSamples}
+                        onResolveSamplerSample={async (trackId, newPath, padIndex) => {
+                            try {
+                                if (padIndex !== undefined) {
+                                    // Sample rack pad replacement
+                                    const response = await engineApi.setSampleRackPadSampleWithDeltas(
+                                        trackId,
+                                        padIndex,
+                                        newPath,
+                                    );
+                                    await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler-pad');
+                                } else {
+                                    // Single sampler instrument replacement
+                                    const response = await engineApi.setSamplerSampleWithDeltas(
+                                        trackId,
+                                        newPath,
+                                    );
+                                    await applyProjectDeltas(response.deltas, 'missing-assets:resolve-sampler');
+                                }
+                                const fileName = newPath.split('/').pop() ?? newPath;
+                                setMessage(`✓ Replaced sampler sample → '${fileName}'`);
+                                // Remove resolved item from the missing list immediately
+                                setMissingSamplerSamples((prev) =>
+                                    prev.filter((item) => !(
+                                        item.trackId === trackId &&
+                                        (padIndex !== undefined ? item.padIndex === padIndex : item.padIndex === undefined)
+                                    )),
+                                );
+                            } catch (err) {
+                                console.error('[MissingAssets] resolve sampler sample failed:', err);
+                                const fileName = newPath.split('/').pop() ?? newPath;
+                                setMessage(`✗ Failed to replace sampler sample: ${fileName}`);
                             }
                         }}
                     />

@@ -121,37 +121,87 @@ pub fn handle_overlaps(track: &mut Track, target: &AudioClip, protected_ids: &[U
         }
 
         if clip_end > target_start {
+            let old_duration = (clip_end - clip_start).max(MIN_CLIP_FRAMES);
+            let old_warp_source = track.clips[i].warp_source_duration_frames;
+            let is_warped = track.clips[i].is_warped;
+            let pitch_multiplier = if track.clips[i].pitch_shift_semitones != 0.0 {
+                2.0_f64.powf(track.clips[i].pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
+            } else {
+                1.0
+            };
+
             if clip_start >= target_start && clip_end <= target_end {
                 track.clips.remove(i);
                 continue;
             } else if clip_start < target_start && clip_end > target_end {
+                let left_duration = target_start - clip_start;
                 let right_duration = clip_end - target_end;
-                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+                
+                let source_per_timeline = old_warp_source as f64 / old_duration as f64;
+                
+                track.clips[i].duration = AbsoluteTime::new(left_duration);
+                if is_warped {
+                    track.clips[i].warp_source_duration_frames = (left_duration as f64 * source_per_timeline).round() as i64;
+                }
                 clamp_audio_fades(&mut track.clips[i]);
 
                 if right_duration >= MIN_CLIP_FRAMES {
                     let mut right_half = track.clips[i].clone();
-                    let source_delta = target_end - clip_start;
+                    let timeline_delta = target_end - clip_start;
+                    
+                    let source_delta = if is_warped {
+                        (timeline_delta as f64 * source_per_timeline).round() as i64
+                    } else {
+                        (timeline_delta as f64 * pitch_multiplier).round() as i64
+                    };
 
                     right_half.id = Uuid::new_v4();
                     right_half.position = AbsoluteTime::new(target_end);
                     right_half.duration = AbsoluteTime::new(right_duration);
                     right_half.source_offset =
                         AbsoluteTime::new(right_half.source_offset.sample_frame + source_delta);
+                    if is_warped {
+                        right_half.warp_source_duration_frames = (right_duration as f64 * source_per_timeline).round() as i64;
+                        right_half.warp_markers.clear();
+                    }
                     clamp_audio_fades(&mut right_half);
 
                     track.clips.insert(i + 1, right_half);
                 }
             } else if clip_start >= target_start && clip_start < target_end {
-                let delta = target_end - clip_start;
-                track.clips[i].position = AbsoluteTime::new(target_end);
-                track.clips[i].duration = AbsoluteTime::new(clip_end - target_end);
-                track.clips[i].source_offset =
-                    AbsoluteTime::new(track.clips[i].source_offset.sample_frame + delta);
-                clamp_audio_fades(&mut track.clips[i]);
+                let left_edge_delta = target_end - clip_start;
+                let new_duration = clip_end - target_end;
+                
+                let source_delta = if is_warped {
+                    let source_per_timeline = old_warp_source as f64 / old_duration as f64;
+                    (left_edge_delta as f64 * source_per_timeline).round() as i64
+                } else {
+                    (left_edge_delta as f64 * pitch_multiplier).round() as i64
+                };
+
+                let clip = &mut track.clips[i];
+                clip.position = AbsoluteTime::new(target_end);
+                clip.duration = AbsoluteTime::new(new_duration);
+                clip.source_offset = AbsoluteTime::new(clip.source_offset.sample_frame + source_delta);
+                
+                if is_warped {
+                    let source_per_timeline = old_warp_source as f64 / old_duration as f64;
+                    clip.warp_source_duration_frames = (new_duration as f64 * source_per_timeline).round() as i64;
+                    clip.warp_markers.clear();
+                }
+                
+                clamp_audio_fades(clip);
             } else if clip_end > target_start && clip_end <= target_end {
-                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
-                clamp_audio_fades(&mut track.clips[i]);
+                let new_duration = target_start - clip_start;
+                let clip = &mut track.clips[i];
+                clip.duration = AbsoluteTime::new(new_duration);
+                
+                if is_warped {
+                    let source_per_timeline = old_warp_source as f64 / old_duration as f64;
+                    clip.warp_source_duration_frames = (new_duration as f64 * source_per_timeline).round() as i64;
+                }
+                
+                clamp_audio_fades(clip);
             }
 
             if track.clips[i].duration.sample_frame < MIN_CLIP_FRAMES {

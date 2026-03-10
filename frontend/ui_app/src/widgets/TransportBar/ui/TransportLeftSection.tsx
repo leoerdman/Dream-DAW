@@ -5,6 +5,7 @@ import { ControlButton, PillSection } from './TransportAtoms';
 import { TRANSPORT_UI } from './TransportUiTokens';
 import { keyMenuItemStyle } from './TransportSectionStyles';
 import type { TransportLeftSectionProps } from './TransportSectionTypes';
+import { VolumeFader } from '@/widgets/TrackInspector/ui/VolumeFader';
 
 export function TransportLeftSection(props: TransportLeftSectionProps) {
     const {
@@ -306,23 +307,11 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                 }}>
                                     Volume
                                 </span>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input
-                                        type="range"
-                                        min={0}
-                                        max={200}
-                                        step={1}
-                                        value={Math.round(props.metronomeVolume * 100)}
-                                        onChange={(e) => {
-                                            const pct = Number(e.target.value);
-                                            props.onMetronomeVolumeChange(pct / 100);
-                                        }}
-                                        style={{
-                                            flex: 1,
-                                            height: 4,
-                                            accentColor: 'var(--color-accent-primary)',
-                                            cursor: 'pointer',
-                                        }}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 20 }}>
+                                    <VolumeFader
+                                        compact
+                                        volumeLinear={props.metronomeVolume}
+                                        onVolumeChange={props.onMetronomeVolumeChange}
                                     />
                                     <span style={{
                                         fontSize: 'var(--font-size-xs)',

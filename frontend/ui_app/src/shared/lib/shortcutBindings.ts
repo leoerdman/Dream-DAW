@@ -15,7 +15,9 @@ export type ShortcutActionId =
     | 'region_move_right'
     | 'region_capture_a'
     | 'region_capture_b'
-    | 'region_swap_a_b';
+    | 'region_swap_a_b'
+    | 'zoom_in'
+    | 'zoom_out';
 
 export interface ShortcutDefinition {
     id: ShortcutActionId;
@@ -126,6 +128,18 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
         label: 'Region: Swap A/B',
         description: 'Swap clips between captured region A and B',
         defaultCombo: 'Alt+Shift+3',
+    },
+    {
+        id: 'zoom_in',
+        label: 'Zoom In',
+        description: 'Zoom in horizontally in the arrangement view',
+        defaultCombo: 'Cmd+=',
+    },
+    {
+        id: 'zoom_out',
+        label: 'Zoom Out',
+        description: 'Zoom out horizontally in the arrangement view',
+        defaultCombo: 'Cmd+-',
     },
 ];
 

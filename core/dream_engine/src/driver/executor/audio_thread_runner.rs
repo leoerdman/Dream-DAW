@@ -100,15 +100,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // AUD-057/058 FIX: Use named constants instead of hardcoded magic numbers.
     let mut graph_renderer = GraphRenderer::new(MAX_TRACKS, MAX_BUFFER_FRAMES);
     let prepared_graph = prepared_graph_snapshot.load();
-    // AUD-016: graph_dag/plan clone() allocates inside the closure that builds
-    // the callback — this is OK because it happens BEFORE the first callback
-    // fires. Inside the callback, clones only happen on generation change.
-    let mut graph_dag = prepared_graph.dag.clone();
-    let mut graph_plan = prepared_graph.plan.clone();
     let mut graph_out_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut graph_out_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut post_sum_processing_mask = vec![false; MAX_TRACKS];
-    graph_renderer.update_plan(&graph_plan, &graph_dag);
+    // BUG-RT-ALLOC FIX: Pass references directly from the atomic snapshot instead of cloning
+    graph_renderer.update_plan(&prepared_graph.plan, &prepared_graph.dag);
     let mut graph_last_generation = prepared_graph.generation;
     let mut graph_last_track_count = prepared_graph.track_count;
     // BUG-Q002 FIX: Removed dead _vst_diag_counter (was never read).
@@ -436,9 +432,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if prepared.generation != graph_last_generation
                             || prepared.track_count != graph_last_track_count
                         {
-                            graph_dag = prepared.dag.clone();
-                            graph_plan = prepared.plan.clone();
-                            graph_renderer.update_plan(&graph_plan, &graph_dag);
+                            // BUG-RT-ALLOC FIX: Pass references directly from the atomic snapshot
+                            // instead of executing Vec::clone() on the RT hot path.
+                            graph_renderer.update_plan(&prepared.plan, &prepared.dag);
                             graph_last_generation = prepared.generation;
                             graph_last_track_count = prepared.track_count;
                         }
@@ -587,8 +583,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         };
 
                         graph_renderer.render(
-                            &graph_plan,
-                            &graph_dag,
+                            &prepared.plan,
+                            &prepared.dag,
                             n,
                             &mut graph_out_left[..n],
                             &mut graph_out_right[..n],

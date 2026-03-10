@@ -4,6 +4,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
+import { useViewportStore } from '@/shared/stores/useViewportStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { isModKey, matchesShortcutAction } from './utils';
 import {
@@ -216,6 +217,24 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     // Cmd+D is now handled by the unified handler above (line ~62).
+
+    if (matchesShortcutAction(e, 'zoom_in') && !e.repeat) {
+        if (activePanel !== 'arrangement') return false;
+        e.preventDefault();
+        e.stopPropagation();
+        // ENTERPRISE: Use center of viewport for keyboard zoom shortcuts
+        useViewportStore.getState().zoomIn();
+        return true;
+    }
+
+    if (matchesShortcutAction(e, 'zoom_out') && !e.repeat) {
+        if (activePanel !== 'arrangement') return false;
+        e.preventDefault();
+        e.stopPropagation();
+        // ENTERPRISE: Use center of viewport for keyboard zoom shortcuts
+        useViewportStore.getState().zoomOut();
+        return true;
+    }
 
     return false;
 }

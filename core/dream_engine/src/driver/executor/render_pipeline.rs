@@ -99,9 +99,24 @@ pub(super) fn process_master_bus(
             let beat_at_sample = current_beat_start + (i as f64 / samples_per_beat);
             let beat_floor = beat_at_sample.floor() as i64;
 
-            if beat_floor != render_ctx.metronome_state.prev_beat_floor
-                && render_ctx.metronome_state.prev_playing
-            {
+            // BUG-RT015 FIX: Trigger metronome on the very first downbeat of playback.
+            // Previously, `&& prev_playing` blocked the first beat because playback
+            // typically starts from stopped (false). We now allow the first beat if
+            // we are within 5ms of a beat boundary to avoid spurious mid-beat clicks.
+            let mut trigger = false;
+            if render_ctx.metronome_state.prev_playing {
+                if beat_floor != render_ctx.metronome_state.prev_beat_floor {
+                    trigger = true;
+                }
+            } else {
+                // Playback just started (or playhead jumped).
+                // If it jumped precisely to a beat boundary, trigger it.
+                if beat_at_sample - (beat_floor as f64) < 0.005 {
+                    trigger = true;
+                }
+            }
+
+            if trigger {
                 let beat_in_bar = beat_floor.rem_euclid(beats_per_bar as i64);
                 let (freq, amp) = if beat_in_bar == 0 {
                     (880.0, 0.32_f32)  // Downbeat: high pitch, louder

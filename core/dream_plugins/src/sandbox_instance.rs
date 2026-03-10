@@ -295,7 +295,12 @@ impl PluginInstance for SandboxedPluginInstance {
         // Update or insert (no allocation since Vec is pre-allocated with_capacity(64))
         if let Some(entry) = self.param_cache.iter_mut().find(|(i, _)| *i == index) {
             entry.1 = value;
+        } else if self.param_cache.len() < self.param_cache.capacity() {
+            self.param_cache.push((index, value));
         } else {
+            // ENTERPRISE FIX: Prevent RT heap reallocation if >64 parameters are automated.
+            // Clear the debounce cache to make room (cache miss is better than audio dropout).
+            self.param_cache.clear();
             self.param_cache.push((index, value));
         }
 

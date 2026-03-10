@@ -252,6 +252,12 @@ pub fn resize_clip(
         let max_source_offset = original_source_total.saturating_sub(MIN_CLIP_FRAMES).max(0);
         clip.source_offset =
             AbsoluteTime::new(clip.source_offset.sample_frame.clamp(0, max_source_offset));
+
+        // BUG-W3 FIX: If we moved the left edge (trim left), we MUST clear warp_markers
+        // because they are anchored to timeline 0 of the clip. Unshifted markers cause jumps.
+        if left_edge_delta != 0 && clip.is_warped {
+            clip.warp_markers.clear();
+        }
         if clip.is_warped && original_source_total > 0 {
             // In trim mode, preserve the EXACT playback rate for warped clips so
             // non-shift resize behaves like crop, not re-stretch.
@@ -415,7 +421,7 @@ pub fn split_clip(
         // BUG-H7 FIX: Clamp inherited fade_in to not exceed new left duration
         fade_in_frames: original.fade_in_frames.min(left_duration / 2),
         warp_source_duration_frames: if original.is_warped { left_warp_source.max(MIN_CLIP_FRAMES) } else { original.warp_source_duration_frames },
-        warp_markers: if original.is_warped { vec![] } else { original.warp_markers.clone() },
+        warp_markers: original.warp_markers.clone(),
         ..original.clone()
     };
     

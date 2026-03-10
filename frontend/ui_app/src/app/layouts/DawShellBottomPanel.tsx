@@ -143,15 +143,7 @@ export function DawShellBottomPanel({
                         transition: 'background var(--transition-fast)',
                     }}
                 >
-                    {/* Visual drag indicator pill */}
-                    <div style={{
-                        width: 'var(--daw-resize-handle-pill-w)',
-                        height: 'var(--daw-resize-handle-pill-h)',
-                        borderRadius: 1,
-                        background: 'var(--color-text-tertiary, var(--token-color-rgba-255-255-255-0d15))',
-                        transition: 'background 0.15s',
-                        pointerEvents: 'none',
-                    }} />
+
                 </div>
             )}
             {bottomPanelMode === 'rack' ? (

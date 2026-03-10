@@ -87,6 +87,7 @@ pub(crate) fn invoke_handler()
         set_loop,
         set_loop_with_deltas,
         set_metronome_enabled,
+        set_metronome_volume,
         // Track Control
         set_track_volume,
         set_track_volume_with_deltas,

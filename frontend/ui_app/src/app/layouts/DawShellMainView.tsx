@@ -59,7 +59,6 @@ export const DawShellMainView = memo(({
                 style={{
                     width: browserWidth,
                     background: 'var(--color-bg-panel)',
-                    borderRight: 'var(--space-px) solid var(--color-divider)',
                 }}
             >
                 <ErrorBoundary module="Asset Browser">
@@ -100,12 +99,20 @@ export const DawShellMainView = memo(({
                         </ErrorBoundary>
                     </div>
 
+                    {/* ── TrackInspector left-edge visual separator strip ── */}
+                    <div
+                        className="relative shrink-0 z-50"
+                        style={{
+                            width: 'var(--daw-resize-handle-size)',
+                            background: 'var(--daw-resize-strip-bg)',
+                            flexShrink: 0,
+                        }}
+                    />
                     <aside
                         className="shrink-0 h-full z-40 flex flex-col overflow-hidden theme-ornament-inspector"
                         style={{
                             width: 'var(--daw-inspector-width)',
                             background: 'var(--color-bg-panel)',
-                            borderLeft: 'var(--space-px) solid var(--color-divider)',
                         }}
                     >
                         <ErrorBoundary module="Track Inspector">

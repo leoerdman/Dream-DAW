@@ -12,6 +12,38 @@
 
 use std::path::Path;
 
+fn get_arranger_clips<'a, 'input: 'a>(
+    track_node: roxmltree::Node<'a, 'input>,
+    tag_name: &'static str,
+) -> impl Iterator<Item = roxmltree::Node<'a, 'input>> {
+    track_node.descendants().filter(move |n| {
+        if !n.is_element() || !n.has_tag_name(tag_name) {
+            return false;
+        }
+        // ENTERPRISE FIX: Ensure clip belongs to ArrangerAutomation -> Events.
+        // Ableton path: <Track> ... <ArrangerAutomation><Events><AudioClip>
+        // Without this, Session view clips (<ClipSlotList>) are dumped onto
+        // the timeline at 0:00, causing massive phantom clips (e.g. "302.1.1").
+        let mut parent = n.parent_element();
+        let mut in_events = false;
+        let mut in_arranger_automation = false;
+        while let Some(p) = parent {
+            if p.has_tag_name("Events") {
+                in_events = true;
+            }
+            if p.has_tag_name("ArrangerAutomation") {
+                in_arranger_automation = true;
+                break;
+            }
+            if p.has_tag_name("ClipSlot") {
+                return false;
+            }
+            parent = p.parent_element();
+        }
+        in_events && in_arranger_automation
+    })
+}
+
 use dream_io::audio_reader::AudioReader;
 use dream_models::midi::{MidiClip, MidiNote};
 use dream_models::project::{AudioClip, Track};
@@ -71,10 +103,7 @@ fn import_audio_clips(
 ) {
     let mut source_duration_cache: std::collections::HashMap<String, Option<i64>> =
         std::collections::HashMap::new();
-    for clip_node in track_node
-        .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("AudioClip"))
-    {
+    for clip_node in get_arranger_clips(track_node, "AudioClip") {
         let Some(clip) = parse_audio_clip(
             clip_node,
             als_path,
@@ -346,10 +375,7 @@ fn import_midi_clips(
     sample_rate: f64,
     pointee_map: &std::collections::HashMap<String, String>,
 ) {
-    for clip_node in track_node
-        .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("MidiClip"))
-    {
+    for clip_node in get_arranger_clips(track_node, "MidiClip") {
         let Some(clip) = parse_midi_clip(clip_node, bpm, sample_rate, pointee_map) else {
             continue;
         };

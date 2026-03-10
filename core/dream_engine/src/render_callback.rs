@@ -295,11 +295,15 @@ pub struct RenderContext {
     pub metronome_enabled: bool,
 
     /// RT-safe metronome click state — zero-allocation, no locks.
-    metronome_state: MetronomeState,
+    pub(crate) metronome_state: MetronomeState,
 
     /// Beats per bar for metronome downbeat accent.
     /// Updated by `EngineCommand::SetTimeSignature`.
     pub time_sig_numerator: u8,
+
+    /// Metronome volume scale (0.0–2.0, default 1.0).
+    /// Applied as a linear multiplier on click amplitude.
+    pub metronome_volume: f32,
 
     /// BUG-047 FIX: Round-robin start index for Pro warp budget.
     /// Each buffer callback advances this index, ensuring later tracks
@@ -319,7 +323,7 @@ pub struct RenderContext {
 /// - Click duration: 30ms (sharp, professional-sounding)
 /// - Envelope: exponential decay (e^(-t * decay_rate))
 #[derive(Debug, Clone)]
-struct MetronomeState {
+pub(crate) struct MetronomeState {
     /// Remaining samples in the current click envelope (0 = no click playing).
     remaining_samples: u32,
     /// Total duration of a single click in samples.
@@ -336,9 +340,9 @@ struct MetronomeState {
     decay_rate: f64,
     /// The beat number (floored) at the END of the previous buffer.
     /// Used for beat-crossing detection.
-    prev_beat_floor: i64,
+    pub(crate) prev_beat_floor: i64,
     /// Whether the playhead was playing in the previous buffer.
-    prev_playing: bool,
+    pub(crate) prev_playing: bool,
 }
 
 impl MetronomeState {
@@ -360,7 +364,7 @@ impl MetronomeState {
 
     /// Trigger a new click at the given frequency and amplitude.
     #[inline]
-    fn trigger(&mut self, freq: f64, amplitude: f32, sample_rate: f64) {
+    pub(crate) fn trigger(&mut self, freq: f64, amplitude: f32, sample_rate: f64) {
         self.remaining_samples = self.click_duration_samples;
         self.click_freq = freq;
         self.click_amplitude = amplitude;
@@ -370,7 +374,7 @@ impl MetronomeState {
 
     /// Generate one sample of the click (returns 0.0 if no click active).
     #[inline]
-    fn next_sample(&mut self, sample_rate: f64) -> f32 {
+    pub(crate) fn next_sample(&mut self, sample_rate: f64) -> f32 {
         if self.remaining_samples == 0 {
             return 0.0;
         }
@@ -464,6 +468,7 @@ impl RenderContext {
             per_track_spectrum_producers: (0..actual_tracks).map(|_| None).collect(),
             offline_mode: false,
             metronome_enabled: false,
+            metronome_volume: 1.0,
             metronome_state: MetronomeState::new(sample_rate),
             time_sig_numerator: 4,
             pro_warp_start_track: 0,
@@ -1113,7 +1118,7 @@ impl RenderContext {
                     } else {
                         (660.0, 0.20_f32)  // Other beats: lower pitch, softer (~-14 dBFS)
                     };
-                    self.metronome_state.trigger(freq, amp, sr);
+                    self.metronome_state.trigger(freq, amp * self.metronome_volume, sr);
                 }
                 self.metronome_state.prev_beat_floor = beat_floor;
                 self.metronome_state.prev_playing = true;

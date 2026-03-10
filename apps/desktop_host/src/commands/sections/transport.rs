@@ -705,6 +705,18 @@ fn set_metronome_enabled(
     Ok(())
 }
 
+/// Sets the metronome volume (0.0–2.0, default 1.0).
+#[tauri::command]
+fn set_metronome_volume(
+    volume: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let safe_volume = volume.clamp(0.0, 2.0);
+    push_command(&handle, EngineCommand::SetMetronomeVolume(safe_volume))?;
+    log::info!("[IPC] set_metronome_volume({safe_volume})");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::beat_to_engine_frames;

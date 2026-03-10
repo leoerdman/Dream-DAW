@@ -80,7 +80,9 @@ export function useTrackInspectorDerivedState({
         // backend instead of hardcoding. Falls back to a raw hex value
         // (never a CSS variable — the backend rejects those).
         const realMaster = orderedTracks.find((t) => (t.track_type ?? '').toLowerCase() === 'master');
-        const masterColor = realMaster?.color || 'var(--color-text-tertiary)';
+        // ENTERPRISE: Never use CSS variables as color value — backend rejects them.
+        // Fallback to a neutral gray hex (#9ca3af) instead.
+        const masterColor = realMaster?.color || '#9ca3af';
         return {
             id: 'master',
             name: 'Master',
@@ -184,8 +186,13 @@ export function useTrackInspectorDerivedState({
     }, [liveTracks, rowHeightOverrides, trackHeight, automationVisible, lanes]);
 
     const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
+        // ENTERPRISE: Cycle detection prevents infinite loop on corrupted project data
+        // where groupId chains form a cycle (e.g. A→B→C→A).
+        const visited = new Set<string>();
         let groupId = track.groupId;
         while (groupId) {
+            if (visited.has(groupId)) return false; // cycle detected — treat as not collapsed
+            visited.add(groupId);
             if (collapsedGroups.has(groupId)) return true;
             groupId = trackById.get(groupId)?.groupId;
         }
@@ -202,20 +209,27 @@ export function useTrackInspectorDerivedState({
 
     const depthByTrackId = useMemo(() => {
         const memo = new Map<string, number>();
-        const visit = (id: string): number => {
+        const visit = (id: string, visiting: Set<string>): number => {
             const cached = memo.get(id);
             if (cached != null) return cached;
+            // ENTERPRISE: Cycle detection prevents infinite recursion on corrupted
+            // project data where groupId chains form a cycle.
+            if (visiting.has(id)) {
+                memo.set(id, 0);
+                return 0;
+            }
+            visiting.add(id);
             const t = trackById.get(id);
             if (!t?.groupId) {
                 memo.set(id, 0);
                 return 0;
             }
-            const parentDepth = visit(t.groupId);
+            const parentDepth = visit(t.groupId, visiting);
             const depth = parentDepth + 1;
             memo.set(id, depth);
             return depth;
         };
-        for (const t of tracks) visit(t.id);
+        for (const t of tracks) visit(t.id, new Set<string>());
         return memo;
     }, [tracks, trackById]);
 
@@ -225,8 +239,12 @@ export function useTrackInspectorDerivedState({
     // Returns colors from outermost ancestor → innermost parent.
     const getGroupAncestorColors = useCallback((track: TrackData): string[] => {
         const colors: string[] = [];
+        // ENTERPRISE: Cycle detection prevents infinite loop on corrupted group chains.
+        const visited = new Set<string>();
         let groupId = track.groupId;
         while (groupId) {
+            if (visited.has(groupId)) break; // cycle detected
+            visited.add(groupId);
             const parent = trackById.get(groupId);
             if (!parent) break;
             colors.push(parent.color);

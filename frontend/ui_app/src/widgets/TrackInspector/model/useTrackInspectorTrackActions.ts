@@ -26,7 +26,10 @@ export function useTrackInspectorTrackActions({
         if (!track) return;
         const idx = getTrackIndex(id);
         const newDisabled = !track.isDisabled;
-        if (idx >= 0) void engineSetTrackDisabled(idx, newDisabled);
+        if (idx >= 0) void engineSetTrackDisabled(idx, newDisabled).catch((err) => {
+            console.warn('[Dream] setTrackDisabled failed:', err);
+            useStatusStore.getState().setError(`Mute track failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
         setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isDisabled: newDisabled } }));
     }, [tracks, getTrackIndex, engineSetTrackDisabled, setLocalOverrides]);
 
@@ -53,7 +56,10 @@ export function useTrackInspectorTrackActions({
 
         for (const [trackId, soloed] of nextSoloById) {
             const idx = getTrackIndex(trackId);
-            if (idx >= 0) void engineSetTrackSolo(idx, soloed);
+            if (idx >= 0) void engineSetTrackSolo(idx, soloed).catch((err) => {
+                console.warn('[Dream] setTrackSolo failed:', err);
+                useStatusStore.getState().setError(`Solo track failed: ${err instanceof Error ? err.message : String(err)}`);
+            });
         }
 
         setLocalOverrides((prev) => {

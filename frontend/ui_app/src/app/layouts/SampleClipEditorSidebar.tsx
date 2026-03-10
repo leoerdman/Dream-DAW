@@ -98,25 +98,10 @@ export const SampleClipEditorSidebar = (props: Props) => {
             </ClipEditorSection>
 
             <ClipEditorSection title="Pitch">
-                <div style={{ display: 'grid', gap: 4 }}>
+                <div style={{ display: 'grid', gap: 6 }}>
                     <span style={editorMetaTextStyle}>Transpose (st)</span>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button
-                            type="button"
-                            onClick={() => nudgePitch(-12)}
-                            style={{ ...editorButtonStyle, minWidth: 40, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
-                            title="Transpose down octave"
-                        >
-                            -12
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => nudgePitch(-1)}
-                            style={{ ...editorButtonStyle, minWidth: 34, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
-                            title="Transpose down"
-                        >
-                            -1
-                        </button>
+                    {/* Row 1: Slider + numeric value */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <input
                             type="range"
                             min={MIN_PITCH_SHIFT}
@@ -130,24 +115,8 @@ export const SampleClipEditorSidebar = (props: Props) => {
                                     onCommitPitch(draftPitch);
                                 }
                             }}
-                            style={{ flex: 1 }}
+                            style={{ flex: 1, minWidth: 0 }}
                         />
-                        <button
-                            type="button"
-                            onClick={() => nudgePitch(1)}
-                            style={{ ...editorButtonStyle, minWidth: 34, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
-                            title="Transpose up"
-                        >
-                            +1
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => nudgePitch(12)}
-                            style={{ ...editorButtonStyle, minWidth: 40, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
-                            title="Transpose up octave"
-                        >
-                            +12
-                        </button>
                         <input
                             type="number"
                             min={MIN_PITCH_SHIFT}
@@ -161,16 +130,51 @@ export const SampleClipEditorSidebar = (props: Props) => {
                                     onCommitPitch(clampPitch(draftPitch));
                                 }
                             }}
-                            style={{ width: 58, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)', textAlign: 'right' }}
+                            style={{ width: 50, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1)', textAlign: 'right', flexShrink: 0 }}
                             title="Exact transpose in semitones"
                         />
+                    </div>
+                    {/* Row 2: Transpose buttons */}
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(-12)}
+                            style={{ ...editorButtonStyle, flex: 1, minWidth: 32, padding: 'var(--token-size-px-3) var(--space-1)' }}
+                            title="Transpose down octave"
+                        >
+                            -12
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(-1)}
+                            style={{ ...editorButtonStyle, flex: 1, minWidth: 28, padding: 'var(--token-size-px-3) var(--space-1)' }}
+                            title="Transpose down"
+                        >
+                            -1
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(1)}
+                            style={{ ...editorButtonStyle, flex: 1, minWidth: 28, padding: 'var(--token-size-px-3) var(--space-1)' }}
+                            title="Transpose up"
+                        >
+                            +1
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(12)}
+                            style={{ ...editorButtonStyle, flex: 1, minWidth: 32, padding: 'var(--token-size-px-3) var(--space-1)' }}
+                            title="Transpose up octave"
+                        >
+                            +12
+                        </button>
                         <button
                             type="button"
                             onClick={() => {
                                 setDraftPitch(0);
                                 onCommitPitch(0);
                             }}
-                            style={{ ...editorButtonStyle, minWidth: 52, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
+                            style={{ ...editorButtonStyle, flex: 1, minWidth: 40, padding: 'var(--token-size-px-3) var(--space-1)' }}
                             title="Reset transpose"
                         >
                             Reset
@@ -185,7 +189,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                 </button>
                 <div style={{ display: 'grid', gap: 4 }}>
                     <span style={editorMetaTextStyle}>Zoom X</span>
-                    <input type="range" min={0.1} max={32} step={0.1} value={zoomX} onChange={(e) => setZoomX(Number(e.target.value))} />
+                    <input type="range" min={0.05} max={128} step={0.05} value={zoomX} onChange={(e) => setZoomX(Number(e.target.value))} />
                     <span style={{ ...editorMetaTextStyle }}>{zoomX.toFixed(1)}x</span>
                 </div>
                 <div style={{ display: 'grid', gap: 4 }}>

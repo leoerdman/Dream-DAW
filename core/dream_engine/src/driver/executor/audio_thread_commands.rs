@@ -201,6 +201,9 @@ pub(super) fn drain_commands(
             EngineCommand::SetMetronomeEnabled(enabled) => {
                 ctx.render_ctx.metronome_enabled = enabled;
             }
+            EngineCommand::SetMetronomeVolume(volume) => {
+                ctx.render_ctx.metronome_volume = volume.clamp(0.0, 2.0);
+            }
             EngineCommand::SetBpmAndLoop {
                 bpm: new_bpm,
                 loop_enabled,

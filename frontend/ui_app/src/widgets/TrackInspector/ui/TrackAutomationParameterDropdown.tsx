@@ -34,11 +34,12 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
             return;
         }
 
+        let cancelled = false;
         const fetchParams = async () => {
             setLoading(true);
             try {
                 const track = useEngineStore.getState().tracks.byId[paramSelectorCtxMenu.trackId];
-                if (!track) return;
+                if (!track || cancelled) return;
 
                 const groups: GroupedParams[] = [];
                 // Add fixed track parameters
@@ -60,8 +61,10 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
 
                 // Add plugin parameters
                 for (const slot of allSlots) {
+                    if (cancelled) return;
                     try {
                         const params: ExternalPluginParamInfo[] = await getExternalPluginParamsForSlot(track.id, slot.id);
+                        if (cancelled) return;
                         if (params && params.length > 0) {
                             groups.push({
                                 slotName: slot.name || 'Plugin',
@@ -72,10 +75,10 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
                             });
                         }
                     } catch (e) {
-                        console.error(`Failed to fetch params for slot ${slot.id}`, e);
+                        console.error(`[Dream] Failed to fetch params for slot ${slot.id}`, e);
                     }
                 }
-                setGroupedParams(groups);
+                if (!cancelled) setGroupedParams(groups);
             } finally {
                 setLoading(false);
             }
@@ -108,6 +111,7 @@ export function TrackAutomationParameterDropdown({ logic }: TrackAutomationParam
         document.addEventListener('keydown', handleKey);
 
         return () => {
+            cancelled = true;
             cancelAnimationFrame(measureId);
             clearTimeout(timerId);
             document.removeEventListener('pointerdown', handleClick);

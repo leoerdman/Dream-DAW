@@ -64,9 +64,7 @@ export const FALLBACK_SAMPLES_PER_BEAT = 1024;
 export const RESIZE_BOUNDARY_EPS = 0.001; // SSOT: Epsilon for clip boundary collision during resize
 export const CURVE_X_WEIGHT = 0.7; // SSOT: Horizontal weight in fade curve blend
 export const CURVE_Y_WEIGHT = 0.3; // SSOT: Vertical weight in fade curve blend
-export const EDGE_WIDTH_MIN_PX = 4; // SSOT: Minimum edge grip width in px
-export const EDGE_WIDTH_MIN_RATIO = 0.1; // SSOT: Edge grip as fraction of clip width (min)
-export const EDGE_WIDTH_MAX_RATIO = 0.4; // SSOT: Edge grip as fraction of clip width (max)
+export const EDGE_WIDTH_FIXED_PX = 3; // SSOT: Fixed edge grip width in px (enterprise — predictable UX)
 // SSOT: Fine-factor multipliers for fade/fadeCurve drag precision
 export const FINE_FACTOR_ALT_SHIFT = 0.08;
 export const FINE_FACTOR_ALT = 0.14;

@@ -139,6 +139,8 @@ export function DawShellBottomPanel({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        background: 'var(--daw-resize-strip-bg)',
+                        transition: 'background var(--transition-fast)',
                     }}
                 >
                     {/* Visual drag indicator pill */}

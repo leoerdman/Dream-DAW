@@ -32,7 +32,7 @@ export const MAX_SPP = 65536;
 export const MIN_PIXELS_PER_BEAT = 5;
 
 /** Maximum pixels per beat for grid drawing. */
-export const MAX_PIXELS_PER_BEAT = 2000;
+export const MAX_PIXELS_PER_BEAT = 5000;
 
 /** Default zoom level. At 44.1kHz: ~5.8ms per pixel — comfortable overview. */
 export const DEFAULT_SPP = 256;

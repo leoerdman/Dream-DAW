@@ -182,7 +182,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     // Bug #28 fix: Use ref-based cleanup that always stops preview on unmount.
     useEffect(() => () => {
         if (isPreviewingRef.current) {
-            void engineApi.stopPreview();
+            void engineApi.stopPreview().catch((err) => console.warn('[Dream] stopPreview cleanup failed:', err));
             isPreviewingRef.current = false;
         }
     }, []);
@@ -202,7 +202,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
             e.stopPropagation();
             const factor = e.deltaY > 0 ? 0.9 : 1.1; // 10% steps
             if (isZoomH) {
-                setZoomX((prev) => Math.max(0.25, Math.min(8, prev * factor)));
+                setZoomX((prev) => Math.max(0.05, Math.min(128, prev * factor)));
             }
             if (isZoomV) {
                 setZoomY((prev) => Math.max(0.5, Math.min(4, prev * factor)));
@@ -274,8 +274,6 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                             waveHeightScale={zoomY}
                             color={toolbarColor}
                             beatsPerBar={beatsPerBar}
-                            onZoomX={(delta) => setZoomX((z) => Math.max(0.1, Math.min(32, z * (delta > 0 ? 1.15 : 1 / 1.15))))}
-                            onZoomY={(delta) => setZoomY((z) => Math.max(0.25, Math.min(4, z * (delta > 0 ? 1.15 : 1 / 1.15))))}
                         />
                     ) : (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: 'var(--space-px) dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>

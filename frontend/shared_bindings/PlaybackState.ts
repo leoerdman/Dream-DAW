@@ -38,4 +38,8 @@ loop_start: bigint,
 /**
  * Loop end position in sample frames.
  */
-loop_end: bigint, };
+loop_end: bigint, 
+/**
+ * Whether the metronome/click track is enabled.
+ */
+metronome_enabled: boolean, };

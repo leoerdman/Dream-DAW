@@ -111,7 +111,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
             <div style={previewRootStyle}>
                 <div style={previewControlsRowStyle}>
                     <div style={previewWaveContainerStyle}>
-                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={28} /> : <div style={previewPlaceholderStyle} />}
+                        {logic.previewPeaks ? <PreviewWaveform peaks={logic.previewPeaks} height={20} /> : <div style={previewPlaceholderStyle} />}
                     </div>
                     <button
                         onClick={() => {
@@ -247,7 +247,7 @@ const previewRootStyle: React.CSSProperties = {
 const previewControlsRowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    padding: 'var(--space-1) var(--space-1-5)',
+    padding: 'var(--space-0-5) var(--space-1)',
     gap: 'var(--space-1)',
     fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-secondary)',
@@ -256,7 +256,7 @@ const previewControlsRowStyle: React.CSSProperties = {
 const previewWaveContainerStyle: React.CSSProperties = {
     flex: 1,
     minWidth: 0,
-    height: 28,
+    height: 22,
     borderRadius: 'var(--radius-md)',
     border: 'var(--space-px) solid var(--color-border-subtle)',
     background: 'color-mix(in srgb, var(--color-bg-base) 30%, transparent)',
@@ -274,9 +274,9 @@ const previewPlaceholderStyle: React.CSSProperties = {
 };
 
 const previewToggleStyle: React.CSSProperties = {
-    width: 22,
-    height: 22,
-    minWidth: 22,
+    width: 18,
+    height: 18,
+    minWidth: 18,
     borderRadius: '50%',
     border: 'var(--space-px) solid var(--color-border-subtle)',
     cursor: 'pointer',

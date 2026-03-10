@@ -146,12 +146,40 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         const leftFadeOut = 0; // Split edge has no fade out
         const rightFadeIn = 0; // Split edge has no fade in
         const rightFadeOut = Math.min(clip.fadeOut ?? 0, rightDurationFrames);
+
+        // ENTERPRISE FIX: Correctly partition warp source for warped clip split.
+        // For warped clips, `warpSourceDurationFrames` represents total source frames
+        // that span the entire clip duration. When splitting, each half gets a proportional
+        // share of source frames so that `linear_warp_rate` remains identical for both
+        // fragments — exactly matching the backend `split_clip` logic in mutators.rs.
+        const parentDurationFrames = Math.max(1, beatDurationToFrames(clip.durationBeats, env.bpm, env.sampleRate));
+        const sourceTotal = clip.warpSourceDurationFrames ?? parentDurationFrames;
+
+        let leftWarpSource: number | undefined;
+        let rightWarpSource: number | undefined;
+        let rightSourceOffset: number;
+
+        if (clip.isWarped && clip.warpSourceDurationFrames != null && clip.warpSourceDurationFrames > 0) {
+            // Warped clips: proportional source partition using warp ratio
+            const warpRatio = sourceTotal / parentDurationFrames;
+            const consumedSource = Math.round(leftDurationFrames * warpRatio);
+            leftWarpSource = Math.max(1, consumedSource);
+            rightWarpSource = Math.max(1, sourceTotal - consumedSource);
+            rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
+        } else {
+            // Non-warped clips: source offset advances linearly
+            leftWarpSource = clip.warpSourceDurationFrames;
+            rightWarpSource = clip.warpSourceDurationFrames;
+            rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames);
+        }
+
         const leftClip: TimelineClip = {
             ...clip,
             durationBeats: leftDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(leftDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
             fadeIn: leftFadeIn,
             fadeOut: leftFadeOut,
+            warpSourceDurationFrames: leftWarpSource,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
                 // BUG-036 FIX: Use exclusive boundary for left clip to prevent notes from appearing in both clips.
                 // Previously, notes within 2e-9 of the split boundary appeared in BOTH left and right clips.
@@ -164,9 +192,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             startBeat: splitBeat,
             durationBeats: rightDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(rightDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
-            sourceOffset: Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames),
+            sourceOffset: rightSourceOffset,
             fadeIn: rightFadeIn,
             fadeOut: rightFadeOut,
+            warpSourceDurationFrames: rightWarpSource,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
                 // BUG-036 FIX: Use strict exclusive boundary — notes starting AT the split go to right clip only.
                 ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))

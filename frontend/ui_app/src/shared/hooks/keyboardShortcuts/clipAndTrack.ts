@@ -115,7 +115,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                     startBeat: range.startBeat,
                     endBeat: range.endBeat,
                 };
-                void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id));
+                void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id)).catch((err) => console.warn('[Dream] copyClips failed:', err));
             }
             return true;
         }
@@ -126,11 +126,11 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (selected.length > 0) {
             clipboardRef.current = selected.map((c) => ({ ...c }));
             _clipboardRegionBounds = null;
-            void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
+            void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id)).catch((err) => console.warn('[Dream] copyClips failed:', err));
         } else if (selectedTrackIndex >= 0) {
             clipboardRef.current = [];
             _clipboardRegionBounds = null;
-            void engine.copyTrackToGlobalClipboard(selectedTrackIndex);
+            void engine.copyTrackToGlobalClipboard(selectedTrackIndex).catch((err) => console.warn('[Dream] copyTrack failed:', err));
         }
         return true;
     }
@@ -234,7 +234,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             // Copy portions to clipboard with region bounds
             clipboardRef.current = regionClips.map((c) => ({ ...c }));
             _clipboardRegionBounds = { startBeat: range.startBeat, endBeat: range.endBeat };
-            void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id));
+            void engine.copyClipsToGlobalClipboard(regionClips.map((c) => c.id)).catch((err) => console.warn('[Dream] copyClips failed:', err));
             // Delete only the portions within the region
             const rollback = optimisticRemoveClips(regionClips.map((c) => c.id));
             onClipSelectionChanged([]);
@@ -258,7 +258,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         if (selected.length === 0) return true;
         clipboardRef.current = selected.map((c) => ({ ...c }));
         _clipboardRegionBounds = null;
-        void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id));
+        void engine.copyClipsToGlobalClipboard(selected.map((c) => c.id)).catch((err) => console.warn('[Dream] copyClips failed:', err));
         const rollback = optimisticRemoveClips(selected.map((c) => c.id));
         onClipSelectionChanged([]);
         try {

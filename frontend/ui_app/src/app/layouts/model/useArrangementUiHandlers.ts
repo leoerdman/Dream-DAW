@@ -32,7 +32,10 @@ export function useArrangementUiHandlers({
     }, [setFitTimelineToken]);
 
     const handlePlayheadChange = useCallback((beat: number) => {
-        void engineApi.seekToBeat(Math.max(0, beat));
+        void engineApi.seekToBeat(Math.max(0, beat)).catch((err) => {
+            console.warn('[Dream] seekToBeat failed:', err);
+            useStatusStore.getState().setError(`Seek failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
     }, []);
 
     const handleEditCursorChange = useCallback((beat: number, trackStart: number, trackEnd: number) => {

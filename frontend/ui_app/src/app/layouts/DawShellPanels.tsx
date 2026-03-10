@@ -289,7 +289,7 @@ export const SessionWorkspace = ({
                         height: 'var(--daw-resize-handle-size)',
                         cursor: 'ns-resize',
                         zIndex: 'var(--z-panel, 10)',
-                        background: draggingMixerEdge ? 'var(--color-accent-primary)' : 'transparent',
+                        background: draggingMixerEdge ? 'var(--color-accent-primary)' : 'var(--daw-resize-strip-bg)',
                         transition: 'background 0.1s linear',
                         display: 'flex',
                         alignItems: 'center',

@@ -31,6 +31,11 @@ export interface TransportLeftSectionProps {
     setGridDivision: (division: GridDivision) => void;
     metronomeEnabled: boolean;
     onToggleMetronome: () => void;
+    metronomeVolume: number;
+    onMetronomeVolumeChange: (volume: number) => void;
+    metronomeMenuRef: React.RefObject<HTMLDivElement | null>;
+    metronomeMenuOpen: boolean;
+    setMetronomeMenuOpen: (open: boolean) => void;
 }
 
 export interface TransportCenterSectionProps {

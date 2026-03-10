@@ -287,6 +287,9 @@ pub enum EngineCommand {
     /// Enable or disable the click/metronome.
     SetMetronomeEnabled(bool),
 
+    /// Set metronome volume (linear gain, 0.0–2.0, default 1.0).
+    SetMetronomeVolume(f32),
+
     // ── Track Control ────────────────────────────────────────────────
     /// Set a track's volume (linear gain, 0.0–2.0). `track_index` is 0-based.
     SetTrackVolume { track_index: u16, volume: f32 },

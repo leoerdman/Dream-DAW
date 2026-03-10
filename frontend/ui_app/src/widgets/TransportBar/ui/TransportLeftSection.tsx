@@ -238,37 +238,125 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                     )}
                 </div>
             </PillSection>
-            {/* ── Metronome Toggle ── */}
+            {/* ── Metronome Toggle + Context Menu ── */}
             <PillSection>
-                <button
-                    onClick={onToggleMetronome}
-                    title={metronomeEnabled ? 'Metronome ON – click to disable' : 'Metronome OFF – click to enable'}
-                    aria-label="Toggle metronome"
-                    aria-pressed={metronomeEnabled}
-                    style={{
-                        ...valueChipStyle,
-                        minWidth: 30,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 0,
-                        background: metronomeEnabled
-                            ? 'var(--color-accent-primary-dim)'
-                            : TRANSPORT_UI.controlBg,
-                        color: metronomeEnabled
-                            ? 'var(--color-accent-primary)'
-                            : 'var(--color-text-tertiary)',
-                        border: metronomeEnabled
-                            ? 'var(--space-px) solid var(--color-accent-primary)'
-                            : `var(--space-px) solid ${TRANSPORT_UI.controlBorder}`,
-                    }}
+                <div
+                    ref={props.metronomeMenuRef}
+                    style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
                 >
-                    {/* Inline SVG metronome icon — triangular pendulum */}
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 2 L5 22 H19 L12 2 Z" />
-                        <line x1="12" y1="22" x2="18" y2="8" />
-                    </svg>
-                </button>
+                    <button
+                        onClick={onToggleMetronome}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            props.setMetronomeMenuOpen(!props.metronomeMenuOpen);
+                        }}
+                        title={metronomeEnabled ? 'Metronome ON – click to disable · Right-click for settings' : 'Metronome OFF – click to enable · Right-click for settings'}
+                        aria-label="Toggle metronome"
+                        aria-pressed={metronomeEnabled}
+                        style={{
+                            ...valueChipStyle,
+                            minWidth: 30,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 0,
+                            background: metronomeEnabled
+                                ? 'var(--color-accent-primary-dim)'
+                                : TRANSPORT_UI.controlBg,
+                            color: metronomeEnabled
+                                ? 'var(--color-accent-primary)'
+                                : 'var(--color-text-tertiary)',
+                            border: metronomeEnabled
+                                ? 'var(--space-px) solid var(--color-accent-primary)'
+                                : `var(--space-px) solid ${TRANSPORT_UI.controlBorder}`,
+                        }}
+                    >
+                        {/* Inline SVG metronome icon — triangular pendulum */}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 2 L5 22 H19 L12 2 Z" />
+                            <line x1="12" y1="22" x2="18" y2="8" />
+                        </svg>
+                    </button>
+                    {props.metronomeMenuOpen && (
+                        <div
+                            style={{
+                                position: 'absolute',
+                                left: 0,
+                                top: 30,
+                                minWidth: 180,
+                                background: 'var(--color-bg-elevated)',
+                                border: 'var(--space-px) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-md)',
+                                boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
+                                zIndex: 'var(--z-tooltip)',
+                                padding: 'var(--space-2)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 8,
+                            }}
+                        >
+                            {/* ── Volume Fader ── */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{
+                                    fontSize: 'var(--font-size-2xs)',
+                                    color: 'var(--color-text-secondary)',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                }}>
+                                    Volume
+                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={200}
+                                        step={1}
+                                        value={Math.round(props.metronomeVolume * 100)}
+                                        onChange={(e) => {
+                                            const pct = Number(e.target.value);
+                                            props.onMetronomeVolumeChange(pct / 100);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            height: 4,
+                                            accentColor: 'var(--color-accent-primary)',
+                                            cursor: 'pointer',
+                                        }}
+                                    />
+                                    <span style={{
+                                        fontSize: 'var(--font-size-xs)',
+                                        fontFamily: 'var(--font-role-data)',
+                                        color: 'var(--color-text-primary)',
+                                        minWidth: 36,
+                                        textAlign: 'right',
+                                    }}>
+                                        {Math.round(props.metronomeVolume * 100)}%
+                                    </span>
+                                </div>
+                            </div>
+                            {/* ── Sound Type ── */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{
+                                    fontSize: 'var(--font-size-2xs)',
+                                    color: 'var(--color-text-secondary)',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                }}>
+                                    Sound
+                                </span>
+                                <div style={{
+                                    fontSize: 'var(--font-size-xs)',
+                                    color: 'var(--color-text-tertiary)',
+                                    padding: '4px 0',
+                                }}>
+                                    Click (Sine)
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </PillSection>
         </div>
     );

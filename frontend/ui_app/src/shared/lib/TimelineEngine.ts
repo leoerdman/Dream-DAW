@@ -15,9 +15,7 @@ import {
     DEFAULT_FADE_CURVE,
     DragMode,
     EDGE_GRIP_PX,
-    EDGE_WIDTH_MAX_RATIO,
-    EDGE_WIDTH_MIN_PX,
-    EDGE_WIDTH_MIN_RATIO,
+    EDGE_WIDTH_FIXED_PX,
     FADE_CURVE_HANDLE_RADIUS_PX,
     FADE_CURVE_PRESETS,
     FADE_HANDLE_HOTSPOT_PX,
@@ -93,6 +91,8 @@ export class TimelineEngine {
 
     /** Whether the snap-override key is held (⌘ on Mac, Ctrl on Win/Linux). */
     private _metaKeyHeld = false;
+    /** Whether the duplicate-drag key is held (⌥/Alt on Mac, Alt on Win/Linux). */
+    private _altKeyHeld = false;
 
     private _boundWheel: (e: WheelEvent) => void;
     private _boundPointerDown: (e: PointerEvent) => void;
@@ -945,7 +945,7 @@ export class TimelineEngine {
                 }
 
                 let edge: 'left' | 'right' | undefined;
-                const edgeWidth = Math.min(clipWidthPx * EDGE_WIDTH_MAX_RATIO, Math.max(EDGE_WIDTH_MIN_PX, clipWidthPx * EDGE_WIDTH_MIN_RATIO));
+                const edgeWidth = EDGE_WIDTH_FIXED_PX;
                 if (localX >= clipLeftPx - EDGE_RESIZE_PAD_PX && localX <= clipLeftPx + edgeWidth) {
                     edge = 'left';
                 } else if (localX <= clipRightPx + EDGE_RESIZE_PAD_PX && localX >= clipRightPx - edgeWidth) {
@@ -1204,6 +1204,7 @@ export class TimelineEngine {
         if (!this._canvas) return;
 
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
+        this._altKeyHeld = e.altKey;
         const hit = this.hitTest(e.clientX, e.clientY);
 
         switch (hit.type) {
@@ -1542,6 +1543,7 @@ export class TimelineEngine {
 
     private _onPointerMove(e: PointerEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
+        this._altKeyHeld = e.altKey;
         const canvas = this._canvas;
         if (!canvas) return;
 
@@ -1588,7 +1590,7 @@ export class TimelineEngine {
                     break;
                 }
                 this._drag.mode = DragMode.ClipMove;
-                canvas.style.cursor = this._metaKeyHeld ? 'copy' : 'grabbing';
+                canvas.style.cursor = this._altKeyHeld ? 'copy' : 'grabbing';
                 const coMoverOrigins = new Map<string, { beat: number; track: number }>();
                 for (const c of this._clips) {
                     if (c.selected && c.id !== this._drag.clipId) {
@@ -1651,6 +1653,25 @@ export class TimelineEngine {
                         leftBound = cEnd;
                     }
                 }
+
+                // ENTERPRISE: Audio boundary clamping — prevent left edge from
+                // extending beyond the start of the source audio data.
+                // Only applies when NOT in warp-stretch mode (Shift held).
+                const resizeClipL = this._clipById.get(this._drag.clipId);
+                if (resizeClipL && resizeClipL.type === 'audio' && !this._drag.clipResizeAllowStretch) {
+                    const clipSourceOffset = Math.max(0, resizeClipL.sourceOffset ?? 0);
+                    if (clipSourceOffset > 0) {
+                        // How far left can we extend? By the amount of sourceOffset available.
+                        const expandableFrames = clipSourceOffset;
+                        const expandableBeats = framesToBeatDuration(expandableFrames, this._bpm, this._sampleRate);
+                        const audioLeftBound = this._drag.clipOriginalBeat - expandableBeats;
+                        leftBound = Math.max(leftBound, audioLeftBound);
+                    } else {
+                        // sourceOffset is 0 — cannot extend left at all beyond original start.
+                        leftBound = Math.max(leftBound, this._drag.clipOriginalBeat);
+                    }
+                }
+
                 const clampedStart = Math.max(leftBound, Math.min(maxNewStart, rawNewStart));
                 const newStart = this._snapBeat(clampedStart);
                 const safeStart = Math.max(leftBound, newStart);
@@ -1682,6 +1703,20 @@ export class TimelineEngine {
                         rightBound = c.startBeat;
                     }
                 }
+
+                // ENTERPRISE: Audio boundary clamping — prevent right edge from
+                // extending beyond the end of the source audio data.
+                // Only applies when NOT in warp-stretch mode (Shift held).
+                const resizeClipR = this._clipById.get(this._drag.clipId);
+                if (resizeClipR && resizeClipR.type === 'audio' && !this._drag.clipResizeAllowStretch) {
+                    const sourceTotal = Math.max(1, resizeClipR.warpSourceDurationFrames ?? resizeClipR.durationSamples ?? 1);
+                    const clipSourceOffset = Math.max(0, resizeClipR.sourceOffset ?? 0);
+                    const availableFrames = Math.max(1, sourceTotal - clipSourceOffset);
+                    const maxDurationBeats = framesToBeatDuration(availableFrames, this._bpm, this._sampleRate);
+                    const audioRightBound = this._drag.clipOriginalBeat + maxDurationBeats;
+                    rightBound = Math.min(rightBound, audioRightBound);
+                }
+
                 const clampedEnd = Math.min(rightBound, rawNewEnd);
                 const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + MIN_RESIZE_DURATION_BEATS, clampedEnd));
                 const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
@@ -1940,8 +1975,8 @@ export class TimelineEngine {
                         finalBeat !== this._drag.clipOriginalBeat ||
                         finalTrack !== this._drag.clipOriginalTrack
                     ) {
-                        if (e.metaKey || e.ctrlKey) {
-                            // ENTERPRISE: Cmd+Drag → duplicate.
+                        if (e.altKey) {
+                            // ENTERPRISE: Alt+Drag → duplicate.
                             // _applyClipMoveVisuals() already keeps originals at their
                             // positions when Cmd held, so just emit duplicate callback.
                             this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
@@ -2462,8 +2497,8 @@ export class TimelineEngine {
 
         const primaryTarget = computeTarget(this._drag.clipOriginalBeat, this._drag.clipOriginalTrack);
 
-        if (this._metaKeyHeld) {
-            // ── DUPLICATE MODE ──
+        if (this._altKeyHeld) {
+            // ── DUPLICATE MODE (Alt/Option held) ──
             canvas.style.cursor = 'copy';
 
             // Restore originals to their original positions
@@ -2532,9 +2567,10 @@ export class TimelineEngine {
 
     private _onKeyDown(e: KeyboardEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
+        this._altKeyHeld = e.altKey;
 
-        // ENTERPRISE: Live toggle Cmd+Drag visual state
-        if (this._drag.mode === DragMode.ClipMove && e.key === 'Meta') {
+        // ENTERPRISE: Live toggle Alt+Drag duplicate visual state
+        if (this._drag.mode === DragMode.ClipMove && (e.key === 'Alt' || e.key === 'Meta')) {
             this._applyClipMoveVisuals();
         }
 
@@ -2596,13 +2632,15 @@ export class TimelineEngine {
 
     private _onKeyUp(e: KeyboardEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
-        // ENTERPRISE: Live toggle Cmd+Drag visual state (Meta key only)
-        if (this._drag.mode === DragMode.ClipMove && e.key === 'Meta') {
+        this._altKeyHeld = e.altKey;
+        // ENTERPRISE: Live toggle Alt+Drag duplicate visual state
+        if (this._drag.mode === DragMode.ClipMove && (e.key === 'Alt' || e.key === 'Meta')) {
             this._applyClipMoveVisuals();
         }
     }
 
     private _onWindowBlur(): void {
         this._metaKeyHeld = false;
+        this._altKeyHeld = false;
     }
 }

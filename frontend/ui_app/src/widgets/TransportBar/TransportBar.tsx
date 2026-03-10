@@ -239,19 +239,22 @@ export const TransportBar = ({
         const next = Math.max(0, Math.min(KEY_TONICS.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode])
-            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'));
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'))
+            .catch((err) => console.warn('[Dream] setKeySignature failed:', err));
     }, [keyEnabled, keyMode]);
     const setKeyModeAt = useCallback((index: number) => {
         const next = Math.max(0, Math.min(KEY_MODES.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next])
-            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'));
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'))
+            .catch((err) => console.warn('[Dream] setKeySignature failed:', err));
     }, [keyEnabled, keyTonic]);
     const toggleKeyEnabled = useCallback(() => {
         const next = !keyEnabled;
         void engineApi
             .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
-            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'))
+            .catch((err) => console.warn('[Dream] setKeySignature failed:', err));
     }, [keyEnabled, keyTonic, keyMode]);
     const cycleTimeSignature = useCallback(() => {
         const currentIndex = TIME_SIGNATURES.findIndex(([n, d]) => n === timeSigNum && d === timeSigDen);
@@ -259,7 +262,7 @@ export const TransportBar = ({
             ? (currentIndex + 1) % TIME_SIGNATURES.length
             : 0;
         const [nextNum, nextDen] = TIME_SIGNATURES[nextIndex] ?? [4, 4];
-        void engineSetTimeSignature(nextNum, nextDen);
+        void engineSetTimeSignature(nextNum, nextDen).catch((err) => console.warn('[Dream] setTimeSignature failed:', err));
     }, [engineSetTimeSignature, timeSigNum, timeSigDen]);
     // BUG-11 FIX: Replaced 2 inline click-outside effects with shared useClickOutside hook.
     const closeKeyMenu = useCallback(() => setKeyMenuOpen(false), []);
@@ -272,23 +275,36 @@ export const TransportBar = ({
     const handleToggleMetronome = useCallback(() => {
         setMetronomeEnabled((prev) => {
             const next = !prev;
-            void engineApi.setMetronomeEnabled(next);
+            void engineApi.setMetronomeEnabled(next).catch((err) => console.warn('[Dream] setMetronomeEnabled failed:', err));
             return next;
         });
     }, []);
 
+    // ── Metronome Context Menu (Volume / Sound) ─────────────────────
+    const [metronomeVolume, setMetronomeVolume] = useState(1.0);
+    const [metronomeMenuOpen, setMetronomeMenuOpen] = useState(false);
+    const metronomeMenuRef = useRef<HTMLDivElement>(null);
+    const closeMetronomeMenu = useCallback(() => setMetronomeMenuOpen(false), []);
+    useClickOutside(metronomeMenuRef, closeMetronomeMenu, metronomeMenuOpen);
+
+    const handleMetronomeVolumeChange = useCallback((volume: number) => {
+        setMetronomeVolume(volume);
+        void engineApi.setMetronomeVolume(volume).catch((err) => console.warn('[Dream] setMetronomeVolume failed:', err));
+    }, []);
+
     // BUG-42 FIX: Escape key closes open menus.
     useEffect(() => {
-        if (!keyMenuOpen && !gridOpen) return;
+        if (!keyMenuOpen && !gridOpen && !metronomeMenuOpen) return;
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 if (keyMenuOpen) setKeyMenuOpen(false);
                 if (gridOpen) setGridOpen(false);
+                if (metronomeMenuOpen) setMetronomeMenuOpen(false);
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [keyMenuOpen, gridOpen]);
+    }, [keyMenuOpen, gridOpen, metronomeMenuOpen]);
 
     // ── ENTERPRISE: "A" keyboard shortcut toggles automation mode ─────
     // Matches Bitwig Studio 6 behavior: pressing [A] switches to Automation Mode.
@@ -337,6 +353,11 @@ export const TransportBar = ({
                     setGridDivision={setGridDivision}
                     metronomeEnabled={metronomeEnabled}
                     onToggleMetronome={handleToggleMetronome}
+                    metronomeVolume={metronomeVolume}
+                    onMetronomeVolumeChange={handleMetronomeVolumeChange}
+                    metronomeMenuRef={metronomeMenuRef}
+                    metronomeMenuOpen={metronomeMenuOpen}
+                    setMetronomeMenuOpen={setMetronomeMenuOpen}
                 />
                 <TransportCenterSection
                     isPlaying={isPlaying}

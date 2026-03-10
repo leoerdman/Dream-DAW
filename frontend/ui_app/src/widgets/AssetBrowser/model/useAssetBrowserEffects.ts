@@ -170,6 +170,15 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         setShowTypeColumn(settings.browserShowTypeColumn);
         setLeftPaneWidth(Math.max(84, Math.min(180, settings.browserLeftPaneWidth || 92)));
     }, [settingsLoaded, settings.browserShowSizeColumn, settings.browserShowTypeColumn, settings.browserLeftPaneWidth, setLeftPaneWidth, setShowSizeColumn, setShowTypeColumn]);
+    // ENTERPRISE FIX: Reset scan-triggered flag whenever sample paths change,
+    // regardless of which browser tab is active. Without this, changing the
+    // samples folder in Settings while on e.g. the Plugins tab leaves
+    // scanTriggeredRef stale — and the scan effect bails when the user later
+    // navigates back to the Samples tab.
+    useEffect(() => {
+        scanTriggeredRef.current = false;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on path change
+    }, [settings.samplesPath, settings.userFolderPath]);
     useEffect(() => {
         if (!isSamplesCategory) return;
         if (scanTriggeredRef.current && libraryScanNonce === 0) return;

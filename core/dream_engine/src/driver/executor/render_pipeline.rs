@@ -82,6 +82,47 @@ pub(super) fn process_master_bus(
     process_ctx: &ProcessContext,
     export_active: bool,
 ) {
+    // ── ENTERPRISE FIX: Metronome click synthesis in graph path ─────────
+    // Previously, metronome clicks were only generated in the non-graph
+    // render() method of RenderContext. Since the DAW always uses the
+    // audio graph path, the metronome never produced sound. This block
+    // replicates the exact RT-safe click synthesis logic here, mixing
+    // clicks into graph_out before master FX processing so the metronome
+    // goes through the master chain (compression, limiting, etc).
+    if render_ctx.metronome_enabled && is_playing {
+        let sr = sample_rate_f64;
+        let beats_per_bar = (time_sig_numerator.max(1)) as f64;
+        let samples_per_beat = (sr * 60.0) / bpm;
+        let current_beat_start = playhead_pos as f64 / samples_per_beat;
+
+        for i in 0..n {
+            let beat_at_sample = current_beat_start + (i as f64 / samples_per_beat);
+            let beat_floor = beat_at_sample.floor() as i64;
+
+            if beat_floor != render_ctx.metronome_state.prev_beat_floor
+                && render_ctx.metronome_state.prev_playing
+            {
+                let beat_in_bar = beat_floor.rem_euclid(beats_per_bar as i64);
+                let (freq, amp) = if beat_in_bar == 0 {
+                    (880.0, 0.32_f32)  // Downbeat: high pitch, louder
+                } else {
+                    (660.0, 0.20_f32)  // Other beats: lower pitch, softer
+                };
+                render_ctx.metronome_state.trigger(freq, amp * render_ctx.metronome_volume, sr);
+            }
+            render_ctx.metronome_state.prev_beat_floor = beat_floor;
+            render_ctx.metronome_state.prev_playing = true;
+
+            let click_sample = render_ctx.metronome_state.next_sample(sr);
+            if click_sample.abs() > 1e-10 {
+                graph_out_left[i] += click_sample;
+                graph_out_right[i] += click_sample;
+            }
+        }
+    } else if !is_playing {
+        render_ctx.metronome_state.prev_beat_floor = i64::MIN;
+        render_ctx.metronome_state.prev_playing = false;
+    }
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
         if !master_slots.is_empty() {

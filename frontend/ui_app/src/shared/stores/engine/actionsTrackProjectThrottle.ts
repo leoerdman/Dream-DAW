@@ -15,7 +15,9 @@ export const pendingSendLevelValues = new Map<string, { trackIndex: number; send
 let pendingMasterVolume: number | null = null;
 
 export const throttledMasterVolumeSend = throttle((volume: number) => {
-    void engine.setMasterVolume(volume);
+    void engine.setMasterVolume(volume).catch((err) => {
+        console.warn('[Dream] setMasterVolume failed:', err);
+    });
 }, 16);
 
 export function setPendingMasterVolume(value: number | null): void {

@@ -210,10 +210,16 @@ export function useTimelineClipHandlers({
         // collapsing to stale store values (causing waveform snap-back) on mouseUp.
         //
         // CRITICAL: Update the SSOT clips store.
+        // BUG-WARP-01 FIX: For warped clips, `durationSamples` represents the source
+        // material window (NOT timeline duration). Writing timeline frames as
+        // `durationSamples` corrupts the waveform rendering until the backend delta
+        // corrects it. Only write `durationSamples` for non-warped clips.
+        const liveClip = resolveClipById(liveState, clipId);
+        const isWarpedClip = Boolean(liveClip?.isWarped);
         useEngineStore.getState().patchClip(clipId, {
             startBeat: newStartBeat,
             durationBeats: newDurationBeats,
-            durationSamples: newDurationFrames,
+            ...(isWarpedClip ? {} : { durationSamples: newDurationFrames }),
             ...(typeof optSourceOffset === 'number'
                 ? { sourceOffset: Math.round(optSourceOffset) }
                 : {}),

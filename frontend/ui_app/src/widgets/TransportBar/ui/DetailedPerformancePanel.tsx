@@ -479,7 +479,7 @@ export function DetailedPerformancePanel({ onClose }: Props) {
             lines.push('  No per-plugin timing (requires sandbox mode)');
         }
 
-        navigator.clipboard.writeText(lines.join('\n')).catch(e => console.error('Failed to copy', e));
+        navigator.clipboard.writeText(lines.join('\n')).catch(e => console.error('[Dream] Failed to copy diagnostics:', e));
     };
 
     return (

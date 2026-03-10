@@ -205,7 +205,7 @@ pub fn resize_clip(
     // Find and remove the clip
     let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
     let original_duration = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
-    let original_source_offset = clip.source_offset.sample_frame.max(0);
+    let _original_source_offset = clip.source_offset.sample_frame.max(0);
     let original_source_total = clip
         .warp_source_duration_frames
         .max(clip.duration.sample_frame)
@@ -253,12 +253,24 @@ pub fn resize_clip(
         clip.source_offset =
             AbsoluteTime::new(clip.source_offset.sample_frame.clamp(0, max_source_offset));
         if clip.is_warped && original_source_total > 0 {
-            // In trim mode, preserve the current source/timeline mapping ratio for
-            // warped clips so non-shift resize behaves like crop, not re-stretch.
-            let source_available_before =
-                (original_source_total - original_source_offset).max(MIN_CLIP_FRAMES);
+            // In trim mode, preserve the EXACT playback rate for warped clips so
+            // non-shift resize behaves like crop, not re-stretch.
+            //
+            // The audio renderer computes warp rate as:
+            //   linear_warp_rate = warp_source_duration_frames / clip.duration
+            // (see render_callback.rs, line ~703)
+            //
+            // To preserve the original rate:
+            //   new_warp_source / new_duration == old_warp_source / old_duration
+            //   new_warp_source = new_duration * (old_warp_source / old_duration)
+            //
+            // CRITICAL: We use `original_source_total / original_duration`, NOT
+            // `(original_source_total - original_source_offset) / original_duration`.
+            // The latter was a bug (BUG-WARP-TRIM) that changed the playback rate
+            // when left-handle trimming a warped clip with non-zero source_offset.
             let source_per_timeline =
-                source_available_before as f64 / original_duration.max(1) as f64;
+                original_source_total as f64 / original_duration.max(1) as f64;
+            // Clamp timeline duration to available source material.
             let source_available_after = (original_source_total
                 - clip.source_offset.sample_frame.max(0))
             .max(MIN_CLIP_FRAMES);
@@ -266,11 +278,12 @@ pub fn resize_clip(
                 (source_available_after as f64 / source_per_timeline.max(1e-9)).floor(),
             );
             next_duration = next_duration.min(max_duration_by_source.max(MIN_CLIP_FRAMES));
+            // warp_source_duration_frames is the source WINDOW size (not absolute position).
+            // The renderer reads from source_offset for warp_source_duration_frames frames.
             let consumed_source = clamp_f64_to_i64(
                 (next_duration.max(MIN_CLIP_FRAMES) as f64 * source_per_timeline).round(),
             );
-            clip.warp_source_duration_frames =
-                clip.source_offset.sample_frame.max(0) + consumed_source.max(MIN_CLIP_FRAMES);
+            clip.warp_source_duration_frames = consumed_source.max(MIN_CLIP_FRAMES);
         } else {
             let source_total_frames = original_source_total;
             let available_frames =
@@ -1363,7 +1376,11 @@ mod tests {
             .unwrap();
         assert_eq!(clip_a.duration.sample_frame, 22050);
         assert_eq!(clip_a.source_offset.sample_frame, 22050);
-        assert_eq!(clip_a.warp_source_duration_frames, 44100);
+        // BUG-WARP-TRIM FIX: warp_source_duration_frames is now the source WINDOW,
+        // not offset + consumed. Original clip had rate = 44100/44100 = 1.0.
+        // After left-trim: rate = 22050/22050 = 1.0 (preserved).
+        // Old buggy value was 44100 (rate = 44100/22050 = 2.0, broken).
+        assert_eq!(clip_a.warp_source_duration_frames, 22050);
     }
     #[test]
     fn move_clip_splits_existing_clip() {

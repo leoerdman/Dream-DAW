@@ -280,6 +280,18 @@ async fn resize_clip_with_deltas_cmd(
         clip_id: clip_uuid,
         new_position: actual_position,
         new_duration: actual_duration,
+        // ENTERPRISE ROOT-CAUSE FIX: Propagate source_file_total_frames,
+        // source_offset, and warp_source_duration_frames so the frontend
+        // can correctly clamp boundaries without waiting for full snapshot.
+        // Without these, the frontend falls back to shrinking values → ratchet bug.
+        new_source_offset: after_audio_state.map(|a| a.2),
+        source_file_total_frames: {
+            let project = project_state.project.lock().map_err(|_| "lock failed".to_string())?;
+            project.tracks.iter().flat_map(|t| t.clips.iter())
+                .find(|c| c.id == clip_uuid)
+                .map(|c| c.source_file_total_frames)
+        },
+        warp_source_duration_frames: after_audio_state.map(|a| a.6),
     }];
 
     if let (Some(before), Some(after)) = (before_audio_state, after_audio_state) {
@@ -566,6 +578,8 @@ async fn duplicate_clip_with_deltas_cmd(
             new_position: result.new_position_frames,
             new_track_index: result.track_index,
             new_duration: result.new_duration_frames,
+            source_file_total_frames: None, // Snapshot follows immediately
+            new_source_offset: None,
         },
         dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
             project: Box::new(project.clone()),
@@ -625,6 +639,8 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
             new_position: res.new_position_frames,
             new_track_index: res.track_index,
             new_duration: res.new_duration_frames,
+            source_file_total_frames: None, // Snapshot follows immediately
+            new_source_offset: None,
         });
     }
 

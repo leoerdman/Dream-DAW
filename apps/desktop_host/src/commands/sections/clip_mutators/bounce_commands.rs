@@ -711,6 +711,10 @@ async fn bounce_track_with_deltas_cmd(
                 file_path: Some(new_clip.file_path.clone()),
                 position: new_clip.position.sample_frame,
                 duration: new_clip.duration.sample_frame,
+                source_file_total_frames: Some(new_clip.source_file_total_frames),
+                source_offset: Some(new_clip.source_offset.sample_frame),
+                is_warped: Some(new_clip.is_warped),
+                warp_source_duration_frames: Some(new_clip.warp_source_duration_frames),
                 // Bounced files: metadata not available without re-reading.
                 // The full snapshot that follows will populate the frontend.
                 sample_rate: None,

@@ -65,6 +65,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             sampleRate: delta.data.sample_rate ?? undefined,
             channels: delta.data.channels ?? undefined,
             numFrames: delta.data.num_frames ?? undefined,
+            // ENTERPRISE ROOT-CAUSE FIX: Use source_file_total_frames from delta
+            // directly. This is the immutable total source file length set at import.
+            // Without it, the frontend falls back to shrinking values → ratchet bug.
+            sourceFileTotalFrames: delta.data.source_file_total_frames ?? delta.data.num_frames ?? delta.data.duration,
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -83,21 +87,25 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipResized') {
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return false;
-        // BUG-TRIM-03 FIX: For warped clips, `durationSamples` represents the source
-        // material window (which DIFFERS from timeline duration). `delta.data.new_duration`
-        // is timeline duration in frames. Writing it as `durationSamples` would break the
-        // waveform window size for warped clips. The subsequent `ClipWarpChanged` delta
-        // or `ProjectSnapshotReplaced` will provide the correct `warpSourceDurationFrames`.
-        // For non-warped clips, `durationSamples` === timeline duration, so direct copy is safe.
-        const nextDurationSamples = clip.isWarped
-            ? clip.durationSamples  // Keep — will be corrected by ClipWarpChanged/Snapshot
-            : delta.data.new_duration;
+        // ENTERPRISE FIX: For warped clips, durationSamples is the timeline duration
+        // (how many output frames the clip occupies). The OLD code kept the stale
+        // pre-resize value, but this caused the waveform to use the wrong window
+        // size until a full snapshot arrived. new_duration IS the correct timeline
+        // duration — the warp rate is encoded in warpSourceDurationFrames which
+        // the ClipWarpChanged delta (or snapshot) will update separately.
+        // For non-warped clips, durationSamples === timeline duration already.
         const next = {
             ...clip,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
             durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
-            durationSamples: nextDurationSamples,
+            durationSamples: delta.data.new_duration,
             ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
+            // ENTERPRISE ROOT-CAUSE FIX: Extract source_file_total_frames and
+            // warp_source_duration_frames from delta. Without these, the frontend
+            // uses shrinking fallback values for boundary clamping — causing the
+            // "ratchet bug" where clips can't be re-expanded after trimming.
+            ...(delta.data.source_file_total_frames != null ? { sourceFileTotalFrames: delta.data.source_file_total_frames } : {}),
+            ...(delta.data.warp_source_duration_frames != null ? { warpSourceDurationFrames: delta.data.warp_source_duration_frames } : {}),
         };
         upsertClip(state, next);
         state.changed = true;
@@ -167,13 +175,22 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             rightWarpSource = Math.max(1, sourceTotal - consumedSource);
             rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
         } else {
-            // Non-warped clips: source offset advances linearly.
-            // ENTERPRISE FIX (SSOT): Do NOT copy warpSourceDurationFrames to halves.
-            // For non-warped clips, this field is meaningless or matches `durationSamples`.
-            // Leave undefined — the backend SSOT snapshot will provide correct values.
-            leftWarpSource = undefined;
-            rightWarpSource = undefined;
-            rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames);
+            // Non-warped clips: source offset advances linearly, scaled by pitch.
+            // ENTERPRISE FIX (PITCH-SHIFT SPLIT DESYNC): For pitch-shifted non-warped
+            // clips, the engine reads `pitchMultiplier` source frames per timeline frame.
+            // The right half's sourceOffset must advance by `splitOffsetFrames * pitchMul`,
+            // not raw `splitOffsetFrames`. Mirrors the backend `split_clip()` fix.
+            const pitchSemitones = clip.pitchShiftSemitones ?? 0;
+            const pitchMul = pitchSemitones !== 0
+                ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
+                : 1.0;
+            const consumedSource = Math.round(splitOffsetFrames * pitchMul);
+            rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
+            // ENTERPRISE FIX: Proportionally split warpSourceDurationFrames for non-warped
+            // clips too (mirrors backend split_clip fix). This ensures correct warp rate
+            // if the clip is later Shift+resized into warp mode.
+            leftWarpSource = Math.max(1, consumedSource);
+            rightWarpSource = Math.max(1, Math.round(sourceTotal - consumedSource));
         }
 
         const leftClip: TimelineClip = {
@@ -183,6 +200,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             fadeIn: leftFadeIn,
             fadeOut: leftFadeOut,
             warpSourceDurationFrames: leftWarpSource,
+            // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
+            // the same source file. Without this, right-edge resize can't re-expand.
+            sourceFileTotalFrames: clip.sourceFileTotalFrames,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
                 // BUG-036 FIX: Use exclusive boundary for left clip to prevent notes from appearing in both clips.
                 // Previously, notes within 2e-9 of the split boundary appeared in BOTH left and right clips.
@@ -199,6 +219,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             fadeIn: rightFadeIn,
             fadeOut: rightFadeOut,
             warpSourceDurationFrames: rightWarpSource,
+            // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
+            // the same source file.
+            sourceFileTotalFrames: clip.sourceFileTotalFrames,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
                 // BUG-036 FIX: Use strict exclusive boundary — notes starting AT the split go to right clip only.
                 ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
@@ -234,6 +257,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             sourceOffset: earliestClip.sourceOffset ?? 0,
             fadeIn: 0,
             fadeOut: 0,
+            // ENTERPRISE FIX: Inherit sourceFileTotalFrames from earliest clip
+            // (same source file). Without this, merged clips can't re-expand.
+            sourceFileTotalFrames: earliestClip.sourceFileTotalFrames ?? representative.sourceFileTotalFrames,
             midiNotes: representative.type === 'midi'
                 ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat })))
                 : representative.midiNotes,

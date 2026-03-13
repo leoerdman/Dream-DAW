@@ -28,7 +28,7 @@ export interface TimelineProps {
     onClipSelectionChange?: (clipIds: string[]) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     onClipDuplicate?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean, sourceOffset?: number) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onClipContextMenu?: (clipId: string, beat: number, trackIndex: number, clientX: number, clientY: number) => void;

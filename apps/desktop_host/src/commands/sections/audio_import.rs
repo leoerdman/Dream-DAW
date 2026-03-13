@@ -71,8 +71,6 @@ async fn import_audio_file(
         return Err(format!("Unsupported audio format: .{ext}"));
     }
 
-    // Snapshot for undo BEFORE mutation
-    push_undo(&project_state)?;
 
     // Decode audio file (NOT real-time safe — runs on async thread pool)
     let decoded = AudioReader::read(&file_path)
@@ -305,6 +303,10 @@ async fn import_audio_file_with_deltas(
                 file_path: Some(file_path),
                 position,
                 duration,
+                source_file_total_frames: Some(response.frames as i64),
+                source_offset: Some(0),
+                is_warped: None,
+                warp_source_duration_frames: Some(response.frames as i64),
                 sample_rate: Some(response.sample_rate),
                 channels: Some(response.channels as u16),
                 num_frames: Some(response.frames),

@@ -124,6 +124,13 @@ pub fn move_clip(
             reason: "Cannot place clips on a group track".into(),
         });
     }
+    // ENTERPRISE FIX: Clamp negative positions to frame 0 instead of placing
+    // clips at invalid positions. Matches move_clip_protected behavior.
+    let new_position = if new_position.sample_frame < 0 {
+        AbsoluteTime::new(0)
+    } else {
+        new_position
+    };
     // Find and remove the clip from its current track
     let (_source_track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
     // Update position
@@ -235,8 +242,19 @@ pub fn resize_clip(
             clip.source_offset =
                 AbsoluteTime::new((clip.source_offset.sample_frame + source_delta).max(0));
         } else {
+            // ENTERPRISE FIX (PITCH-SHIFT WAVEFORM DESYNC): For non-warped clips with
+            // pitch shift, the audio engine reads source at `pitch_multiplier` rate
+            // (render_callback.rs L778: "T * pitch_multiplier in source frames").
+            // The source_offset must be scaled accordingly so the waveform stays anchored
+            // when the left edge is trimmed.
+            let pitch_mul = if clip.pitch_shift_semitones != 0.0 {
+                2.0_f64.powf(clip.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
+            } else {
+                1.0
+            };
+            let source_delta = (left_edge_delta as f64 * pitch_mul).round() as i64;
             clip.source_offset =
-                AbsoluteTime::new((clip.source_offset.sample_frame + left_edge_delta).max(0));
+                AbsoluteTime::new((clip.source_offset.sample_frame + source_delta).max(0));
         }
     }
 
@@ -293,10 +311,22 @@ pub fn resize_clip(
             );
             clip.warp_source_duration_frames = consumed_source.max(MIN_CLIP_FRAMES);
         } else {
-            // Non-warped: clamp to raw available source frames
-            let available_frames =
+            // Non-warped: clamp to raw available source frames.
+            // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips, the engine
+            // reads `pitch_multiplier` source frames per timeline frame (render_callback.rs
+            // L778). Available source frames must be divided by pitch_multiplier to get
+            // the max timeline duration; otherwise the clip extends beyond the audio data.
+            let available_source =
                 (source_file_total - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
-            next_duration = next_duration.min(available_frames);
+            let pitch_mul = if clip.pitch_shift_semitones != 0.0 {
+                2.0_f64.powf(clip.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
+            } else {
+                1.0
+            };
+            let max_timeline_duration = clamp_f64_to_i64(
+                (available_source as f64 / pitch_mul.max(1e-9)).floor(),
+            ).max(MIN_CLIP_FRAMES);
+            next_duration = next_duration.min(max_timeline_duration);
         }
     }
 
@@ -422,7 +452,14 @@ pub fn split_clip(
         fade_out_frames: 0,
         // BUG-H7 FIX: Clamp inherited fade_in to not exceed new left duration
         fade_in_frames: original.fade_in_frames.min(left_duration / 2),
-        warp_source_duration_frames: if original.is_warped { left_warp_source.max(MIN_CLIP_FRAMES) } else { original.warp_source_duration_frames },
+        // ENTERPRISE FIX: For non-warped clips, warp_source_duration_frames must also be
+        // proportionally split. If inherited verbatim, each half has a value larger than
+        // its duration, causing incorrect warp rate if the clip is later Shift+resized.
+        warp_source_duration_frames: if original.is_warped {
+            left_warp_source.max(MIN_CLIP_FRAMES)
+        } else {
+            consumed_source_frames.max(MIN_CLIP_FRAMES)
+        },
         warp_markers: original.warp_markers.clone(),
         ..original.clone()
     };
@@ -438,7 +475,13 @@ pub fn split_clip(
         // BUG-H7 FIX: Clamp inherited fade_out to not exceed new right duration
         fade_out_frames: original.fade_out_frames.min(right_duration / 2),
         is_selected: false,
-        warp_source_duration_frames: if original.is_warped { right_warp_source.max(MIN_CLIP_FRAMES) } else { original.warp_source_duration_frames },
+        // ENTERPRISE FIX: Non-warped clips also get proportionally split warp_source_duration_frames.
+        // consumed_source_frames corresponds to the left half's source; the remainder goes to right.
+        warp_source_duration_frames: if original.is_warped {
+            right_warp_source.max(MIN_CLIP_FRAMES)
+        } else {
+            (source_total - consumed_source_frames).max(MIN_CLIP_FRAMES)
+        },
         warp_markers: if original.is_warped { vec![] } else { original.warp_markers.clone() },
         ..original.clone()
     };

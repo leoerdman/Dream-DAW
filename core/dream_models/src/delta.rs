@@ -62,6 +62,18 @@ pub enum ProjectDelta {
         file_path: Option<String>,
         position: i64,
         duration: i64,
+        /// ENTERPRISE: Immutable total source file length — prevents ratchet bug.
+        /// Without this, the frontend can never re-expand a trimmed clip.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_file_total_frames: Option<i64>,
+        /// Source offset in frames from the start of the audio file.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_offset: Option<i64>,
+        /// Warp state fields for the new clip.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_warped: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warp_source_duration_frames: Option<i64>,
         /// ENTERPRISE: Audio file metadata — propagated from clip pool.
         /// These are `None` for MIDI clips or when the source file is offline.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +89,15 @@ pub enum ProjectDelta {
         clip_id: Uuid,
         new_position: i64,
         new_duration: i64,
+        /// ENTERPRISE: Updated source offset after resize (left-edge trim).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_source_offset: Option<i64>,
+        /// ENTERPRISE: Immutable total source file length for frontend boundary clamping.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_file_total_frames: Option<i64>,
+        /// ENTERPRISE: Updated warp source duration after non-stretch resize.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warp_source_duration_frames: Option<i64>,
     },
 
     /// A clip was split into two parts.
@@ -97,6 +118,12 @@ pub enum ProjectDelta {
         new_position: i64,
         new_track_index: usize,
         new_duration: i64,
+        /// ENTERPRISE: Immutable total source file length for the duplicate.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_file_total_frames: Option<i64>,
+        /// Source offset for the duplicate.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_source_offset: Option<i64>,
     },
 
     /// A clip's mute state changed.

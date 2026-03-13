@@ -182,6 +182,9 @@ async fn set_clip_pitch_with_deltas_cmd(
             clip_id: clip_uuid,
             new_position: after_pos,
             new_duration: after_dur,
+            new_source_offset: None,
+            source_file_total_frames: None,
+            warp_source_duration_frames: None,
         });
     }
     Ok(DeltaMutationResponse {
@@ -251,6 +254,9 @@ async fn set_clip_warp_with_deltas_cmd(
             clip_id: clip_uuid,
             new_position: after_pos,
             new_duration: after_dur,
+            new_source_offset: None,
+            source_file_total_frames: None,
+            warp_source_duration_frames: None,
         });
     }
     if before_state.is_warped != after_state.is_warped

@@ -290,7 +290,6 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         const newIndex = moveResult.newIndex;
         if (oldIndex === newIndex) return true;
 
-        let changedClips = false;
 
         for (const id of state.clips.allIds) {
             const clip = state.clips.byId[id];
@@ -298,17 +297,17 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
 
             if (clip.trackIndex === oldIndex) {
                 state.clips.byId[id] = { ...clip, trackIndex: newIndex };
-                changedClips = true;
             } else if (oldIndex < newIndex && clip.trackIndex > oldIndex && clip.trackIndex <= newIndex) {
                 state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex - 1 };
-                changedClips = true;
             } else if (oldIndex > newIndex && clip.trackIndex >= newIndex && clip.trackIndex < oldIndex) {
                 state.clips.byId[id] = { ...clip, trackIndex: clip.trackIndex + 1 };
-                changedClips = true;
             }
         }
 
-        if (changedClips) state.changed = true;
+        // ENTERPRISE FIX (Phase 32): Track move is a structural mutation — MUST
+        // unconditionally dirty the project, not gated behind changedClips.
+        // Same pattern as TrackAdded (line 236) and TrackRemoved (line 270).
+        state.changed = true;
         return true;
     }
 

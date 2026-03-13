@@ -771,20 +771,31 @@ export class TimelineEngine {
                         let trimmedBeats = preview.edge === 'left' ? preview.startBeat - preview.originalStartBeat : 0;
                         let trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
 
-                        // Prevent expanding left beyond the beginning of the audio source
-                        if (trimmedFrames < -clipSourceOffset) {
-                            trimmedFrames = -clipSourceOffset;
-                            trimmedBeats = framesToBeatDuration(trimmedFrames, this._bpm, this._sampleRate);
-                        }
+                        // ENTERPRISE FIX (PITCH-SHIFT WAVEFORM DESYNC): For pitch-shifted
+                        // non-warped clips, source advances at pitchMultiplier rate per
+                        // timeline frame (render_callback.rs: "T * pitch_multiplier in
+                        // source frames"). Scale trimmedFrames to source domain.
+                        const pitchSemitones = clip.pitchShiftSemitones ?? 0;
+                        const pitchMul = pitchSemitones !== 0
+                            ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
+                            : 1.0;
+                        const sourceTrimmedFrames = Math.round(trimmedFrames * pitchMul);
 
-                        const nextSourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
+                        // Prevent expanding left beyond the beginning of the audio source
+                        const clampedSourceTrimmed = Math.max(-clipSourceOffset, sourceTrimmedFrames);
+
+                        const nextSourceOffset = Math.max(0, clipSourceOffset + clampedSourceTrimmed);
                         // ENTERPRISE FIX (RATCHET BUG): Use sourceFileTotalFrames as the
                         // immutable boundary. durationSamples shrinks on trim, making re-expansion
                         // impossible. sourceFileTotalFrames is set once at import and never changes.
                         const sourceTotal = Math.max(1, clip.sourceFileTotalFrames ?? clip.durationSamples ?? 1);
-                        const availableFrames = Math.max(1, sourceTotal - nextSourceOffset);
+                        const availableSource = Math.max(1, sourceTotal - nextSourceOffset);
+                        // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
+                        // each timeline frame consumes pitchMul source frames.
+                        // Available timeline frames = available source / pitch_multiplier.
+                        const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
 
-                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, availableFrames));
+                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, availableTimeline));
 
                         nextClip.durationSamples = clampedPreviewFrames;
                         nextClip.sourceOffset = nextSourceOffset;
@@ -1812,8 +1823,17 @@ export class TimelineEngine {
                             ? Math.max(1, (resizeClipR.warpSourceDurationFrames ?? 0) + (resizeClipR.sourceOffset ?? 0))
                             : Math.max(1, resizeClipR.durationSamples ?? 1));
                     const clipSourceOffset = Math.max(0, resizeClipR.sourceOffset ?? 0);
-                    const availableFrames = Math.max(1, sourceTotal - clipSourceOffset);
-                    const maxDurationBeats = framesToBeatDuration(availableFrames, this._bpm, this._sampleRate);
+                    const availableSource = Math.max(1, sourceTotal - clipSourceOffset);
+                    // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
+                    // each timeline frame consumes pitchMul source frames
+                    // (render_callback.rs L778-784). Available timeline frames =
+                    // available source / pitch_multiplier.
+                    const pitchSemitones = resizeClipR.pitchShiftSemitones ?? 0;
+                    const pitchMul = pitchSemitones !== 0
+                        ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
+                        : 1.0;
+                    const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
+                    const maxDurationBeats = framesToBeatDuration(availableTimeline, this._bpm, this._sampleRate);
                     const audioRightBound = this._drag.clipOriginalBeat + maxDurationBeats;
                     rightBound = Math.min(rightBound, audioRightBound);
                 }

@@ -33,7 +33,7 @@ type Result = {
     handleDoubleClickTrack: (trackIndex: number, beat: number) => void;
     handleClipMove: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     handleClipDuplicate: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => void;
+    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, sourceOffset?: number) => void;
     handleClipFades: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     handleOpenMidiClip: (clipId: string) => void;
 };

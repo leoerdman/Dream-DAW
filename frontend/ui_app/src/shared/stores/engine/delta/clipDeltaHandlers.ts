@@ -167,9 +167,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             rightWarpSource = Math.max(1, sourceTotal - consumedSource);
             rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
         } else {
-            // Non-warped clips: source offset advances linearly
-            leftWarpSource = clip.warpSourceDurationFrames;
-            rightWarpSource = clip.warpSourceDurationFrames;
+            // Non-warped clips: source offset advances linearly.
+            // ENTERPRISE FIX (SSOT): Do NOT copy warpSourceDurationFrames to halves.
+            // For non-warped clips, this field is meaningless or matches `durationSamples`.
+            // Leave undefined — the backend SSOT snapshot will provide correct values.
+            leftWarpSource = undefined;
+            rightWarpSource = undefined;
             rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames);
         }
 

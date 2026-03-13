@@ -99,11 +99,11 @@ export const DawShellMainView = memo(({
                         </ErrorBoundary>
                     </div>
 
-                    {/* ── TrackInspector left-edge visual separator strip ── */}
+                    {/* ── TrackInspector left-edge visual separator — 1px divider, NOT a resize handle ── */}
                     <div
                         className="relative shrink-0 z-50"
                         style={{
-                            width: 'var(--daw-resize-handle-size)',
+                            width: 'var(--daw-divider-width)',
                             background: 'var(--daw-resize-strip-bg)',
                             flexShrink: 0,
                         }}

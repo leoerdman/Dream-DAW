@@ -415,6 +415,7 @@ export const Timeline = (props: TimelineProps) => {
                 />
                 <canvas
                     ref={canvasRef}
+                    data-timeline="true"
                     style={{
                         position: 'absolute',
                         left: 0,
@@ -423,6 +424,8 @@ export const Timeline = (props: TimelineProps) => {
                         height: '100%',
                         display: 'block',
                         zIndex: 'var(--z-timeline-canvas)',
+                        // BUG-EXT-DND: Expose track height so OS file drop can calculate target track.
+                        ['--track-height' as string]: `${normalizedTrackHeight}`,
                     }}
                 />
                 {/* ── Loop bracket lines above clips ── */}

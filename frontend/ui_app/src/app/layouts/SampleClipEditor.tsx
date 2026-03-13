@@ -68,7 +68,10 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
 
         if (!liveClip.isWarped) {
             const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
-            const sourceFrames = Math.max(1, liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
+            // ENTERPRISE FIX (SSOT): Use sourceFileTotalFrames (immutable total)
+            // not warpSourceDurationFrames (shrinks on trim). Previously, pitch change
+            // after trim computed duration from the trimmed-down value.
+            const sourceFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.durationSamples ?? 1);
             nextDurationSamples = Math.max(1, Math.round(sourceFrames / pitchMultiplier));
             nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
         }
@@ -120,7 +123,9 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         const previousDurationSamples = liveClip.durationSamples;
         const previousSourceFrames = liveClip.warpSourceDurationFrames;
 
-        const sourceFrames = Math.max(1, liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
+        // ENTERPRISE FIX (SSOT): Use sourceFileTotalFrames (immutable) for
+        // warp enable/disable calculations, not warpSourceDurationFrames (shrinks on trim).
+        const sourceFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
         const pitchMultiplier = Math.pow(2.0, (liveClip.pitchShiftSemitones ?? 0) / 12.0);
         const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.round(sourceFrames / pitchMultiplier), projectTempo, sr);
         const nextDurationSamples = next.enabled ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr)) : Math.max(1, Math.round(sourceFrames / pitchMultiplier));

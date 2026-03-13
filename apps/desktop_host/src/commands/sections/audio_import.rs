@@ -194,6 +194,7 @@ async fn import_audio_file(
         // NOT the SR-scaled timeline duration, to prevent double SR compensation
         // when warp is enabled.
         clip.warp_source_duration_frames = num_frames.max(1) as i64;
+        clip.source_file_total_frames = num_frames.max(1) as i64;
         clip_id = clip.id.to_string();
 
         let idx = track_index as usize;

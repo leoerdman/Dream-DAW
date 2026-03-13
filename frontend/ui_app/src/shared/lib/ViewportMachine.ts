@@ -4,11 +4,11 @@
 // Note: useViewportStore uses SPP (samples-per-pixel) domain — separate zoom scale.
 // Both have independent clamp bounds for their respective coordinate systems.
 
-/** Minimum pixels per beat — maximum zoom out. Lowered to support 200+ bar projects. */
-const MIN_PPB = 0.5;
+/** Minimum pixels per beat — maximum zoom out. Lowered to support 400+ bar projects. */
+const MIN_PPB = 0.15;
 
-/** Maximum pixels per beat — maximum zoom in to overview. */
-const MAX_PPB = 800;
+/** Maximum pixels per beat — maximum zoom in for sample-level editing. */
+const MAX_PPB = 3000;
 
 /** Exponential zoom factor per wheel tick. Professional DAWs use 1.06-1.10. */
 const ZOOM_FACTOR = 1.08;

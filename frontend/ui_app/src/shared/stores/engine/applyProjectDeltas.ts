@@ -179,6 +179,11 @@ export function applyProjectDeltasToState(
                         // BUG-098: Allow ambient/drone content with very slow tempos.
                         warpBaseBpm: Math.max(1, toFiniteNumber(clip.warp_base_bpm, bpm)),
                         warpSourceDurationFrames: Math.max(1, toFiniteNumber(clip.warp_source_duration_frames, durFrames)),
+                        // ENTERPRISE FIX (SSOT): sourceFileTotalFrames is the IMMUTABLE
+                        // total source length set at import. Its fallback must NOT use
+                        // warp_source_duration_frames (which shrinks on resize/trim).
+                        // Fallback to durFrames — conservative but safe for legacy clips.
+                        sourceFileTotalFrames: Math.max(1, toFiniteNumber((clip as Record<string, unknown>).source_file_total_frames as number | undefined, durFrames)),
                         sourceOffset: Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0)),
                         // BUG-TRIM-05 FIX: Include pitchShiftSemitones from snapshot.
                         // Previously missing — after EVERY operation (resize/split/move/merge)

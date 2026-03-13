@@ -69,6 +69,7 @@ export function useTimelineClipSync({
                 trackDisabled: !trackActiveStates[c.trackIndex],
                 isWarped: c.isWarped,
                 warpSourceDurationFrames: c.warpSourceDurationFrames,
+                sourceFileTotalFrames: c.sourceFileTotalFrames,
                 pitchShiftSemitones: c.pitchShiftSemitones,
                 midiNotes: c.midiNotes,
             });

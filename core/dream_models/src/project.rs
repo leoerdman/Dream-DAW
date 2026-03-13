@@ -1246,6 +1246,13 @@ pub struct AudioClip {
     #[serde(default)]
     pub warp_source_duration_frames: i64,
 
+    /// Immutable total source audio file length in frames.
+    ///
+    /// Set once during audio import and NEVER modified by resize/trim/split/warp.
+    /// Used as the absolute upper bound when re-expanding a trimmed clip.
+    #[serde(default)]
+    pub source_file_total_frames: i64,
+
     /// Complex Pro formant preservation amount (0–100).
     #[serde(default)]
     pub complex_pro_formants: f64,
@@ -1409,6 +1416,7 @@ impl AudioClip {
             warp_markers: Vec::new(),
             warp_base_bpm: default_clip_warp_base_bpm(),
             warp_source_duration_frames: duration.sample_frame.max(1),
+            source_file_total_frames: duration.sample_frame.max(1),
             complex_pro_formants: 0.0,
             complex_pro_envelope: default_complex_pro_envelope(),
             granularity_texture: default_granularity_texture(),

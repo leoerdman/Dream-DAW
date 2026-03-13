@@ -142,24 +142,54 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
         let unlistenDrop: (() => void) | undefined;
         let cancelled = false;
 
+        // BUG-EXT-DND FIX: Track cursor position during OS drag-over so we
+        // know which track to target when the drop fires.
+        // Tauri's drag-drop event has `position` with {x,y} in physical coords.
+        let lastDragPosition: { x: number; y: number } | null = null;
+
+        const resolveTrackIndexFromPosition = (pos: { x: number; y: number } | null): number => {
+            if (!pos) return 0;
+            // Find the timeline canvas and use its geometry to convert screen Y → track index.
+            const canvas = document.querySelector<HTMLCanvasElement>('canvas[data-timeline]');
+            if (!canvas) return 0;
+            const rect = canvas.getBoundingClientRect();
+            // Tauri gives logical pixel coordinates matching clientX/clientY.
+            const localY = pos.y - rect.top;
+            if (localY < 0) return 0;
+            // Read track height from the engine's CSS custom property or fallback.
+            const trackHeight = parseInt(canvas.style.getPropertyValue('--track-height') || '0', 10) || 80;
+            const scrollY = parseFloat(canvas.style.getPropertyValue('--vp-scroll-y') || '0') || 0;
+            const trackIndex = Math.floor((localY + scrollY) / trackHeight);
+            return Math.max(0, trackIndex);
+        };
+
         const setup = async () => {
             // ENTERPRISE FIX: Guard against HMR race — Tauri IPC bridge may not
             // be injected yet when Vite hot-reloads the JS context.
             if (!window.__TAURI_INTERNALS__) return;
             try {
-                const hoverFn = await listen('tauri://drag-over', () => {
-                    if (!dreamGlobals.isInAppDrag()) {
-                        // no-op
+                const hoverFn = await listen<{ position: { x: number; y: number } }>('tauri://drag-over', (event) => {
+                    // BUG-EXT-DND FIX: Track the cursor position on every drag-over tick.
+                    if (event.payload?.position) {
+                        lastDragPosition = event.payload.position;
+                        // ENTERPRISE: Dispatch to TimelineEngine for ghost clip preview.
+                        window.dispatchEvent(new CustomEvent('dream:ext-drag-over', {
+                            detail: { position: event.payload.position, filename: 'Audio' },
+                        }));
                     }
                 });
                 if (cancelled) hoverFn(); else unlistenHover = hoverFn;
 
                 const leaveFn = await listen('tauri://drag-leave', () => {
-                    // no-op
+                    lastDragPosition = null;
+                    // ENTERPRISE: Clear ghost clip on drag-leave.
+                    window.dispatchEvent(new CustomEvent('dream:ext-drag-leave'));
                 });
                 if (cancelled) leaveFn(); else unlistenLeave = leaveFn;
 
-                const dropFn = await listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
+                const dropFn = await listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', async (event) => {
+                    // ENTERPRISE: Clear ghost clip immediately on drop.
+                    window.dispatchEvent(new CustomEvent('dream:ext-drag-leave'));
                     if (importingRef.current) return;
                     importingRef.current = true;
                     try {
@@ -185,12 +215,17 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                             console.warn('[Dream] No supported audio files in drop');
                             return;
                         }
+                        // BUG-EXT-DND FIX: Use the drop position (or last drag-over position)
+                        // to resolve the target track instead of always importing to track i.
+                        const dropPos = event.payload.position ?? lastDragPosition;
+                        const baseTrack = resolveTrackIndexFromPosition(dropPos);
                         for (let i = 0; i < audioFiles.length; i++) {
-                            await importFile(audioFiles[i], i);
+                            await importFile(audioFiles[i], baseTrack + i);
                         }
 
                     } finally {
                         importingRef.current = false;
+                        lastDragPosition = null;
                     }
                 });
                 if (cancelled) dropFn(); else unlistenDrop = dropFn;

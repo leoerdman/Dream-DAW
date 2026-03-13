@@ -23,6 +23,8 @@ export interface TimelineClipData {
     trackDisabled?: boolean;
     isWarped?: boolean;
     warpSourceDurationFrames?: number;
+    /** Immutable total source file length in frames. Never changes during resize/trim/split. */
+    sourceFileTotalFrames?: number;
     pitchShiftSemitones?: number;
     midiNotes?: Array<{
         pitch: number;

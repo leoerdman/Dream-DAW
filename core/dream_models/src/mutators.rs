@@ -204,29 +204,47 @@ pub fn resize_clip(
     }
     // Find and remove the clip
     let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+
+    // ── Capture IMMUTABLE originals BEFORE any mutation ──────────────
     let original_duration = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
-    let _original_source_offset = clip.source_offset.sample_frame.max(0);
-    let original_source_total = clip
-        .warp_source_duration_frames
-        .max(clip.duration.sample_frame)
-        .max(MIN_CLIP_FRAMES);
+    let original_warp_source = clip.warp_source_duration_frames.max(MIN_CLIP_FRAMES);
+    // ENTERPRISE FIX (RATCHET BUG): Use source_file_total_frames as the absolute
+    // upper bound. This field is set once at import and NEVER modified by resize.
+    // Fallback: if source_file_total_frames is 0 (legacy clips), use the old heuristic.
+    let source_file_total = if clip.source_file_total_frames > 0 {
+        clip.source_file_total_frames
+    } else {
+        // Legacy fallback for clips created before this field existed
+        clip.warp_source_duration_frames
+            .max(clip.duration.sample_frame)
+            .max(MIN_CLIP_FRAMES)
+    };
+
     // Left-edge move semantics:
     // - trim (allow_stretch=false): advance source_offset, waveform stays static
     // - stretch (allow_stretch=true): keep source_offset fixed, timeline duration changes
     let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
+
     if left_edge_delta != 0 && !allow_stretch {
-        clip.source_offset =
-            AbsoluteTime::new((clip.source_offset.sample_frame + left_edge_delta).max(0));
+        // ENTERPRISE FIX (LEFT-EDGE COMPRESSION): For warped clips, source offset
+        // advancement must be scaled by the warp ratio to match the actual
+        // source-domain distance, not the timeline-domain distance.
+        if clip.is_warped && original_duration > 0 {
+            let warp_ratio = original_warp_source as f64 / original_duration as f64;
+            let source_delta = (left_edge_delta as f64 * warp_ratio).round() as i64;
+            clip.source_offset =
+                AbsoluteTime::new((clip.source_offset.sample_frame + source_delta).max(0));
+        } else {
+            clip.source_offset =
+                AbsoluteTime::new((clip.source_offset.sample_frame + left_edge_delta).max(0));
+        }
     }
-    // Update bounds
+
+    // Update position
     clip.position = new_position;
     let mut next_duration = new_duration.sample_frame;
-    // Default resize behavior is TRIM (no stretch): keep playback rate stable
-    // and clamp timeline duration to available source material.
-    //
-    // Shift-resize (allow_stretch=true):
-    // convert this clip into warped timeline behavior so duration changes
-    // stretch/compress source instead of trimming it.
+
+    // ── Stretch mode (Shift-resize) ─────────────────────────────────
     if allow_stretch {
         clip.is_warped = true;
         if clip.warp_mode.is_none() {
@@ -239,81 +257,64 @@ pub fn resize_clip(
         if clip.warp_source_duration_frames <= 0 {
             clip.warp_source_duration_frames = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
         }
-        // BUG-B10 FIX: Clear stale warp markers when stretch-resizing.
-        // The duration has changed, so existing absolute markers are invalid.
-        // They will be re-derived from warp_source_duration_frames + warp_base_bpm
-        // by the SetClipWarp command when the user adjusts warp settings.
         clip.warp_markers.clear();
     }
-    // Trim behavior (allow_stretch=false): keep playback rate stable and clamp
-    // timeline duration to available source material.
+
+    // ── Trim mode (default, no stretch) ─────────────────────────────
     if !allow_stretch {
-        // Prevent trim-left drags from pushing source offset beyond source tail.
-        let max_source_offset = original_source_total.saturating_sub(MIN_CLIP_FRAMES).max(0);
+        // Clamp source_offset to valid range using immutable source_file_total
+        let max_source_offset = source_file_total.saturating_sub(MIN_CLIP_FRAMES).max(0);
         clip.source_offset =
             AbsoluteTime::new(clip.source_offset.sample_frame.clamp(0, max_source_offset));
 
-        // BUG-W3 FIX: If we moved the left edge (trim left), we MUST clear warp_markers
-        // because they are anchored to timeline 0 of the clip. Unshifted markers cause jumps.
+        // Clear warp markers if left edge moved (they're anchored to clip timeline 0)
         if left_edge_delta != 0 && clip.is_warped {
             clip.warp_markers.clear();
         }
-        if clip.is_warped && original_source_total > 0 {
-            // In trim mode, preserve the EXACT playback rate for warped clips so
-            // non-shift resize behaves like crop, not re-stretch.
-            //
-            // The audio renderer computes warp rate as:
-            //   linear_warp_rate = warp_source_duration_frames / clip.duration
-            // (see render_callback.rs, line ~703)
-            //
-            // To preserve the original rate:
-            //   new_warp_source / new_duration == old_warp_source / old_duration
-            //   new_warp_source = new_duration * (old_warp_source / old_duration)
-            //
-            // CRITICAL: We use `original_source_total / original_duration`, NOT
-            // `(original_source_total - original_source_offset) / original_duration`.
-            // The latter was a bug (BUG-WARP-TRIM) that changed the playback rate
-            // when left-handle trimming a warped clip with non-zero source_offset.
+
+        if clip.is_warped && original_warp_source > 0 && original_duration > 0 {
+            // ENTERPRISE FIX (DRIFT BUG): Compute ratio from ORIGINAL pre-mutation
+            // values only. This prevents cumulative floating-point error.
             let source_per_timeline =
-                original_source_total as f64 / original_duration.max(1) as f64;
-            // Clamp timeline duration to available source material.
-            let source_available_after = (original_source_total
+                original_warp_source as f64 / original_duration as f64;
+
+            // Clamp timeline duration to available source after offset
+            let source_available = (source_file_total
                 - clip.source_offset.sample_frame.max(0))
             .max(MIN_CLIP_FRAMES);
             let max_duration_by_source = clamp_f64_to_i64(
-                (source_available_after as f64 / source_per_timeline.max(1e-9)).floor(),
+                (source_available as f64 / source_per_timeline.max(1e-9)).floor(),
             );
             next_duration = next_duration.min(max_duration_by_source.max(MIN_CLIP_FRAMES));
-            // warp_source_duration_frames is the source WINDOW size (not absolute position).
-            // The renderer reads from source_offset for warp_source_duration_frames frames.
+
+            // Recompute warp_source_duration_frames for the new timeline duration
             let consumed_source = clamp_f64_to_i64(
                 (next_duration.max(MIN_CLIP_FRAMES) as f64 * source_per_timeline).round(),
             );
             clip.warp_source_duration_frames = consumed_source.max(MIN_CLIP_FRAMES);
         } else {
-            let source_total_frames = original_source_total;
+            // Non-warped: clamp to raw available source frames
             let available_frames =
-                (source_total_frames - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
+                (source_file_total - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
             next_duration = next_duration.min(available_frames);
         }
     }
+
     clip.duration = AbsoluteTime::new(next_duration.max(MIN_CLIP_FRAMES));
-    // BUG-B07 FIX: Clamp fades to not exceed new duration BOTH individually
-    // and combined. Previously, fade_in=49% + fade_out=49% passed the per-fade
-    // check but exceeded 100% total.
+
+    // Clamp fades
     let max_single_fade = (clip.duration.sample_frame / 2).max(0);
     clip.fade_in_frames = clip.fade_in_frames.min(max_single_fade);
     clip.fade_out_frames = clip.fade_out_frames.min(max_single_fade);
-    // Combined guard: shrink proportionally if sum > duration
     let total_fade = clip.fade_in_frames.saturating_add(clip.fade_out_frames);
     if total_fade > clip.duration.sample_frame && total_fade > 0 {
         let ratio = clip.duration.sample_frame as f64 / total_fade as f64;
         clip.fade_in_frames = clamp_f64_to_i64((clip.fade_in_frames as f64 * ratio).floor());
         clip.fade_out_frames = clamp_f64_to_i64((clip.fade_out_frames as f64 * ratio).floor());
     }
+
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];
-    // Handle overlaps before final insertion
     handle_overlaps(track, &clip, &[]);
     let insert_pos = track
         .clips
@@ -322,6 +323,7 @@ pub fn resize_clip(
     track.clips.insert(insert_pos, clip);
     Ok(())
 }
+
 // ── Split Clip ────────────────────────────────────────────────────────────
 /// Result of a successful clip split operation.
 #[derive(Debug, Clone)]

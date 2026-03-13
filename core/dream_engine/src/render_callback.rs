@@ -1107,10 +1107,21 @@ impl RenderContext {
                 let beat_at_sample = current_beat_start + (i as f64 / samples_per_beat);
                 let beat_floor = beat_at_sample.floor() as i64;
 
-                // Detect beat crossing: current beat floor differs from previous
-                if beat_floor != self.metronome_state.prev_beat_floor
-                    && self.metronome_state.prev_playing
-                {
+                // BUG-RT015 FIX: Trigger metronome on the very first downbeat.
+                // Same fix as render_pipeline.rs — allow first beat when playback starts.
+                let mut trigger = false;
+                if self.metronome_state.prev_playing {
+                    if beat_floor != self.metronome_state.prev_beat_floor {
+                        trigger = true;
+                    }
+                } else {
+                    // Playback just started — trigger if near a beat boundary.
+                    if beat_at_sample - (beat_floor as f64) < 0.005 {
+                        trigger = true;
+                    }
+                }
+
+                if trigger {
                     // Determine if this is a downbeat (bar start)
                     let beat_in_bar = beat_floor.rem_euclid(beats_per_bar as i64);
                     let (freq, amp) = if beat_in_bar == 0 {

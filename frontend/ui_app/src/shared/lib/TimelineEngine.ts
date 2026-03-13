@@ -103,6 +103,10 @@ export class TimelineEngine {
     private _boundKeyDown: (e: KeyboardEvent) => void;
     private _boundKeyUp: (e: KeyboardEvent) => void;
     private _boundWindowBlur: () => void;
+    /** Bound handler for external OS drag-over ghost clip. */
+    private _boundExtDragOver: ((e: Event) => void) | null = null;
+    /** Bound handler for external OS drag-leave ghost clip. */
+    private _boundExtDragLeave: ((e: Event) => void) | null = null;
 
     /** Deferred prefetch redraw handle (idle callback or fallback timeout). */
     private _prefetchDeferredId: IdleHandle | null = null;
@@ -213,6 +217,13 @@ export class TimelineEngine {
         window.addEventListener('keyup', this._boundKeyUp, { capture: true });
         window.addEventListener('blur', this._boundWindowBlur);
 
+        // ENTERPRISE: External OS file drag-and-drop ghost clip preview.
+        // useTauriFileDropImport dispatches these custom events; we show a ghost clip.
+        this._boundExtDragOver = this._onExtDragOver.bind(this);
+        this._boundExtDragLeave = this._onExtDragLeave.bind(this);
+        window.addEventListener('dream:ext-drag-over', this._boundExtDragOver as EventListener);
+        window.addEventListener('dream:ext-drag-leave', this._boundExtDragLeave as EventListener);
+
         this._tick();
     }
 
@@ -244,6 +255,12 @@ export class TimelineEngine {
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
         window.removeEventListener('keyup', this._boundKeyUp, { capture: true });
         window.removeEventListener('blur', this._boundWindowBlur);
+        if (this._boundExtDragOver) {
+            window.removeEventListener('dream:ext-drag-over', this._boundExtDragOver as EventListener);
+        }
+        if (this._boundExtDragLeave) {
+            window.removeEventListener('dream:ext-drag-leave', this._boundExtDragLeave as EventListener);
+        }
 
         cancelIdle(this._prefetchDeferredId);
         this._prefetchDeferredId = null;
@@ -261,6 +278,40 @@ export class TimelineEngine {
         this.detach();
         this._viewport.destroy();
         this._waveformCache.clear();
+    }
+
+    // ── External OS DnD ghost clip handlers ──────────────────────────────
+    // These are dispatched by useTauriFileDropImport via CustomEvent.
+
+    private _onExtDragOver(e: Event): void {
+        const detail = (e as CustomEvent).detail;
+        if (!detail?.position || !this._canvas) return;
+        const rect = this._canvas.getBoundingClientRect();
+        const { x, y } = detail.position;
+        const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+        if (!inside) {
+            if (this._ghost) {
+                this._ghost = null;
+                this._requestRedraw();
+            }
+            return;
+        }
+        const beat = Math.max(0, this._snapBeat(this._viewport.screenToBeats(x, rect)));
+        const track = this._viewport.screenToTrack(y, rect);
+        this.setGhostClip({
+            trackIndex: track,
+            beat,
+            widthBeats: 4, // Default width — actual duration unknown until file is decoded.
+            name: detail.filename ?? 'Audio',
+            type: 'audio',
+        });
+    }
+
+    private _onExtDragLeave(_e: Event): void {
+        if (this._ghost) {
+            this._ghost = null;
+            this._requestRedraw();
+        }
     }
 
     setClips(clips: TimelineClipData[]): void {
@@ -671,26 +722,51 @@ export class TimelineEngine {
                     const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
                     const clipSourceOffset = Math.max(0, clip.sourceOffset ?? 0);
                     if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0 && (clip.durationSamples ?? 0) > 0) {
-                        const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? 1);
-                        const sourceAvailableBefore = Math.max(1, sourceTotal - clipSourceOffset);
-                        const sourcePerTimeline = sourceAvailableBefore / Math.max(1, clip.durationSamples ?? 1);
+                        // ENTERPRISE FIX (SSOT): `warpSourceDurationFrames` = source consumed
+                        // by visible duration (Rust SSOT). It must NOT be used as the total
+                        // source boundary — it shrinks on trim, making re-expansion impossible.
+                        // Use sourceFileTotalFrames (immutable) for boundary clamping.
+                        // Use warpSourceDurationFrames / durationSamples for the warp ratio.
+                        const consumedSource = Math.max(1, clip.warpSourceDurationFrames ?? 1);
+                        // ENTERPRISE FIX: Reconstruct total source from consumed + offset.
+                        // warpSourceDurationFrames = source consumed starting from sourceOffset.
+                        // Adding sourceOffset gives the full file length for boundary clamping.
+                        const sourceFileTotal = Math.max(1, clip.sourceFileTotalFrames ?? (consumedSource + clipSourceOffset));
+                        const sourcePerTimeline = consumedSource / Math.max(1, clip.durationSamples ?? 1);
 
                         let nextSourceOffset = clipSourceOffset;
                         if (preview.edge === 'left') {
-                            const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
-                            const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                            // ENTERPRISE FIX: Allow negative trimmedBeats for left-edge EXPANSION.
+                            // Previously Math.max(0, ...) blocked leftward expansion, keeping
+                            // sourceOffset stuck — trimmed warped clips couldn't be re-expanded left.
+                            const trimmedBeats = preview.startBeat - preview.originalStartBeat;
+                            const trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
                             nextSourceOffset = Math.max(0, Math.round(clipSourceOffset + trimmedFrames * sourcePerTimeline));
                         }
-                        nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceTotal - 1));
+                        nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceFileTotal - 1));
 
-                        const sourceAvailableAfter = Math.max(1, sourceTotal - nextSourceOffset);
+                        const sourceAvailableAfter = Math.max(1, sourceFileTotal - nextSourceOffset);
                         const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
                         const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, maxPreviewFrames));
-                        const consumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
+                        // warpSourceDurationFrames = source consumed by the new visible duration
+                        const newConsumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
 
                         nextClip.durationSamples = clampedPreviewFrames;
                         nextClip.sourceOffset = nextSourceOffset;
-                        nextClip.warpSourceDurationFrames = nextSourceOffset + consumedSource;
+                        nextClip.warpSourceDurationFrames = newConsumedSource;
+                        // ENTERPRISE FIX (WAVEFORM-DESYNC): durationBeats must derive from
+                        // clampedPreviewFrames (same as durationSamples), not from preview.durationBeats
+                        // (raw mouse position). Otherwise visual width ≠ data window → stretching.
+                        nextClip.durationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
+                        if (preview.edge === 'left') {
+                            nextClip.startBeat = preview.originalStartBeat + framesToBeatDuration(
+                                Math.round(beatDurationToFrames(
+                                    Math.max(0, preview.startBeat - preview.originalStartBeat),
+                                    this._bpm, this._sampleRate,
+                                )),
+                                this._bpm, this._sampleRate,
+                            );
+                        }
                     } else {
                         let trimmedBeats = preview.edge === 'left' ? preview.startBeat - preview.originalStartBeat : 0;
                         let trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
@@ -702,7 +778,10 @@ export class TimelineEngine {
                         }
 
                         const nextSourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
-                        const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
+                        // ENTERPRISE FIX (RATCHET BUG): Use sourceFileTotalFrames as the
+                        // immutable boundary. durationSamples shrinks on trim, making re-expansion
+                        // impossible. sourceFileTotalFrames is set once at import and never changes.
+                        const sourceTotal = Math.max(1, clip.sourceFileTotalFrames ?? clip.durationSamples ?? 1);
                         const availableFrames = Math.max(1, sourceTotal - nextSourceOffset);
 
                         const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, availableFrames));
@@ -710,11 +789,21 @@ export class TimelineEngine {
                         nextClip.durationSamples = clampedPreviewFrames;
                         nextClip.sourceOffset = nextSourceOffset;
 
+                        // ENTERPRISE FIX (WAVEFORM-DESYNC): For BOTH edges, derive
+                        // durationBeats from clampedPreviewFrames (same as durationSamples).
+                        // Previously, left-edge used `originalDurationBeats - trimmedBeats`
+                        // while durationSamples came from clamped frames — floating-point
+                        // beats↔frames conversion made them disagree, causing the waveform
+                        // visual width to not match the data window (stretching/squishing).
+                        const derivedDurationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
                         if (preview.edge === 'left') {
-                            nextClip.startBeat = preview.originalStartBeat + trimmedBeats;
-                            nextClip.durationBeats = preview.originalDurationBeats - trimmedBeats;
+                            // Derive startBeat from nextSourceOffset consistently
+                            nextClip.startBeat = preview.originalStartBeat + framesToBeatDuration(
+                                Math.round(trimmedFrames), this._bpm, this._sampleRate,
+                            );
+                            nextClip.durationBeats = derivedDurationBeats;
                         } else {
-                            nextClip.durationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
+                            nextClip.durationBeats = derivedDurationBeats;
                         }
                     }
                 } else {
@@ -1709,7 +1798,19 @@ export class TimelineEngine {
                 // Only applies when NOT in warp-stretch mode (Shift held).
                 const resizeClipR = this._clipById.get(this._drag.clipId);
                 if (resizeClipR && resizeClipR.type === 'audio' && !this._drag.clipResizeAllowStretch) {
-                    const sourceTotal = Math.max(1, resizeClipR.warpSourceDurationFrames ?? resizeClipR.durationSamples ?? 1);
+                    // ENTERPRISE FIX (RATCHET BUG): Use sourceFileTotalFrames as the
+                    // immutable upper bound. This field never shrinks during resize, so
+                    // the clip can always be re-expanded back to full source length.
+                    // SSOT FIX: Fallback must NOT use warpSourceDurationFrames — it means
+                    // "source consumed by visible duration" and shrinks on trim.
+                    // Use numFrames (clip pool total) or durationSamples as safe fallback.
+                    const sourceTotal = resizeClipR.sourceFileTotalFrames
+                        ?? (resizeClipR.isWarped && (resizeClipR.warpSourceDurationFrames ?? 0) > 0
+                            // ENTERPRISE FIX: For warped clips, warpSourceDurationFrames is
+                            // "source consumed by visible duration". Add sourceOffset to recover
+                            // the total source file length for re-expansion capability.
+                            ? Math.max(1, (resizeClipR.warpSourceDurationFrames ?? 0) + (resizeClipR.sourceOffset ?? 0))
+                            : Math.max(1, resizeClipR.durationSamples ?? 1));
                     const clipSourceOffset = Math.max(0, resizeClipR.sourceOffset ?? 0);
                     const availableFrames = Math.max(1, sourceTotal - clipSourceOffset);
                     const maxDurationBeats = framesToBeatDuration(availableFrames, this._bpm, this._sampleRate);

@@ -178,6 +178,13 @@ warp_base_bpm: number,
  */
 warp_source_duration_frames: bigint, 
 /**
+ * Immutable total source audio file length in frames.
+ *
+ * Set once during audio import and NEVER modified by resize/trim/split/warp.
+ * Used as the absolute upper bound when re-expanding a trimmed clip.
+ */
+source_file_total_frames: bigint, 
+/**
  * Complex Pro formant preservation amount (0–100).
  */
 complex_pro_formants: number, 

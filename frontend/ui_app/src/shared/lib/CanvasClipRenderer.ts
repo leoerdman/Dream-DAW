@@ -881,12 +881,16 @@ export class CanvasClipRenderer {
         // at a different rate. Scale by pitchShift to get source-domain window.
         let sourceWindowSamples: number;
         if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0) {
+            // ENTERPRISE: warpSourceDurationFrames represents the amount of source
+            // audio consumed by this clip's visible timeline duration (Rust SSOT:
+            // mutators.rs line 411: "represents the amount of source that spans
+            // duration. It does NOT mean 'end position in source'").
             sourceWindowSamples = clip.warpSourceDurationFrames as number;
         } else {
             const pitchSemitones = clip.pitchShiftSemitones ?? 0;
             const pitchMultiplier = Math.pow(2, pitchSemitones / 12);
             // Source samples consumed = timeline_samples * pitch_multiplier
-            sourceWindowSamples = Math.round(clip.durationSamples * pitchMultiplier);
+            sourceWindowSamples = Math.round((clip.durationSamples ?? 1) * pitchMultiplier);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -998,36 +1002,38 @@ export class CanvasClipRenderer {
 
         const pixelsPerPeak = clipW / peakCount;
 
-        if (pixelsPerPeak >= 1) {
-            // ── Bar mode (zoomed in — each peak gets ≥1px) ───────────────
-            for (let i = 0; i < peakCount; i++) {
-                const px = clipX + (i / peakCount) * clipW;
-                const barW = Math.max(1, pixelsPerPeak);
-                const minVal = renderMins[i];
-                const maxVal = renderMaxs[i];
-                const top = centerY - maxVal * halfH;
-                const bottom = centerY - minVal * halfH;
-                const barH = Math.max(1, bottom - top);
-                ctx.fillRect(px, top, barW, barH);
-            }
-        } else {
-            // ── Path mode (zoomed out — multiple peaks per pixel) ─────────
-            ctx.beginPath();
-            ctx.moveTo(clipX, centerY);
+        // ENTERPRISE: Always use smooth path rendering (like Ableton).
+        // The old bar-mode (fillRect per peak) created blocky/pixelated waveforms.
+        ctx.beginPath();
+        ctx.moveTo(clipX, centerY);
 
+        if (pixelsPerPeak >= 2) {
+            // ── Zoomed-in: draw smooth filled waveform with sub-pixel positioning ──
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 ctx.lineTo(px, centerY - renderMaxs[i] * halfH);
             }
-
+            // Close top edge to right
+            ctx.lineTo(clipX + clipW, centerY);
+            // Draw bottom (mins) in reverse
             for (let i = peakCount - 1; i >= 0; i--) {
                 const px = clipX + (i / peakCount) * clipW;
                 ctx.lineTo(px, centerY - renderMins[i] * halfH);
             }
-
-            ctx.closePath();
-            ctx.fill();
+        } else {
+            // ── Zoomed-out: multiple peaks per pixel — same smooth path ──
+            for (let i = 0; i < peakCount; i++) {
+                const px = clipX + (i / peakCount) * clipW;
+                ctx.lineTo(px, centerY - renderMaxs[i] * halfH);
+            }
+            for (let i = peakCount - 1; i >= 0; i--) {
+                const px = clipX + (i / peakCount) * clipW;
+                ctx.lineTo(px, centerY - renderMins[i] * halfH);
+            }
         }
+
+        ctx.closePath();
+        ctx.fill();
 
         // ── Center line ──────────────────────────────────────────────────
         if (this._waveformStyle === 'colored') {

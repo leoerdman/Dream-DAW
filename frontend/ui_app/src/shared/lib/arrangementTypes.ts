@@ -48,6 +48,8 @@ export interface TimelineClip {
     warpMode?: number | null;
     warpBaseBpm?: number;
     warpSourceDurationFrames?: number;
+    /** Immutable total source file length in frames. Never changes during resize/trim/split. */
+    sourceFileTotalFrames?: number;
     pitchShiftSemitones?: number;
     muted?: boolean;
     isOffline?: boolean;

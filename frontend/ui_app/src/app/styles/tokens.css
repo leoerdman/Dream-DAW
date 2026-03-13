@@ -72,8 +72,8 @@
   /* visual drag-indicator pill width  */
   --daw-resize-handle-pill-h: 2px;
   /* visual drag-indicator pill height */
-  --daw-resize-strip-bg: var(--color-bg-elevated);
-  /* visible separator strip — matches panel header bars */
+  --daw-resize-strip-bg: color-mix(in srgb, var(--color-bg-header) 88%, black 12%);
+  /* ENTERPRISE: matches transport toolbar bg (TransportUiTokens.controlBg) */
 
   /* ─────────────────────────────────────────────────────────────
      Z-INDICES (DAW Layer Stack — Enterprise 12-Level)

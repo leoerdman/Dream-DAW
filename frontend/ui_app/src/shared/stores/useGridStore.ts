@@ -76,7 +76,10 @@ export const useGridStore = create<GridStore>((set, get) => {
                 ntoles: nextTriplet ? 3 : 1,
                 snapToGrid: get().snapEnabled,
                 fixed: nextFixed,
-                expiresAtMs: Date.now() + 1500,
+                // BUG-032 FIX: Reduced from 1500ms to 300ms. 
+                // 1500ms was too long, causing incoming collaborative grid changes 
+                // to be silently dropped if they arrived right after a local change.
+                expiresAtMs: Date.now() + 300,
             };
             set({
                 division: d,
@@ -120,7 +123,7 @@ export const useGridStore = create<GridStore>((set, get) => {
                     ntoles: t ? 3 : 1,
                     snapToGrid: stBefore.snapEnabled,
                     fixed: stBefore.fixedMode,
-                    expiresAtMs: Date.now() + 1500,
+                    expiresAtMs: Date.now() + 300,
                 },
             });
             syncGridToEngine('grid:set-triplet');
@@ -135,7 +138,7 @@ export const useGridStore = create<GridStore>((set, get) => {
                     ntoles: stBefore.triplet ? 3 : 1,
                     snapToGrid: enabled,
                     fixed: stBefore.fixedMode,
-                    expiresAtMs: Date.now() + 1500,
+                    expiresAtMs: Date.now() + 300,
                 },
             });
             syncGridToEngine('grid:set-snap-enabled');

@@ -384,6 +384,12 @@ export function createTrackProjectActions(
             }
             try {
                 const response = await engine.importAudioFileWithDeltas(path, trackIndex, positionFrames);
+                // BUG-036 FIX: Validate that at least one delta was produced (i.e. clip created).
+                // If deltas is empty (e.g. attempting to drop audio onto a MIDI track),
+                // throw so the user gets visible feedback rather than silent failure.
+                if (!response.deltas || response.deltas.length === 0) {
+                    throw new Error('Import produced no changes. (Is this an audio track?)');
+                }
                 await get().applyProjectDeltas(response.deltas, 'importFile');
                 return response;
             } catch (err) {

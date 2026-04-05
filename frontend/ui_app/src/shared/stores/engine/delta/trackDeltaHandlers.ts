@@ -24,7 +24,7 @@ function patchSampleRackPad(
     state: DeltaWorkingState,
     trackId: string,
     padIndex: number,
-    patch: Record<string, unknown>,
+    patch: Partial<NonNullable<ProjectTrack['sample_rack']>['pads'][number]>,
 ): boolean {
     const track = state.tracks.byId[trackId];
     if (!track || !track.sample_rack || !Array.isArray(track.sample_rack.pads)) return false;

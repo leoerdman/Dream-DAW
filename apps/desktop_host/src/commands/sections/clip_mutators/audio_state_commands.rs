@@ -329,12 +329,10 @@ async fn set_clip_fades_cmd(
 
     let fades = execute_orchestrator_command(&project_state, &cmd)?;
 
-    rebuild_clip_views_and_mark_dirty(
+    rebuild_clips_only_and_mark_dirty(
         project_state,
         &clip_pool_state,
-        &handle,
         &app,
-        ClipRebuildMode::ClipsOnly,
     )?;
     Ok(fades)
 }

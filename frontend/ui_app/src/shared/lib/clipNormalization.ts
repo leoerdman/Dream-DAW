@@ -22,6 +22,10 @@ export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readon
         if (!clip || typeof clip.id !== 'string') continue;
         const id = clip.id.trim();
         if (!id) continue;
+        if (byId.has(id)) {
+            console.warn(`[Dream] normalizeTimelineClips: Dropping duplicate clip id ${id}`);
+            continue;
+        }
         if (!Number.isFinite(clip.startBeat) || !Number.isFinite(clip.durationBeats)) continue;
         const normalized = {
             ...clip,

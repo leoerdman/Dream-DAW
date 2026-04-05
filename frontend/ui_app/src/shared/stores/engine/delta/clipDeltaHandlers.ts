@@ -224,7 +224,8 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 const noteEnd = n.startBeat + n.durationBeats;
                 if (n.startBeat >= splitOffsetBeats) {
                     // Note starts at or after split → right half only, shift to local time
-                    rightNotes.push({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) });
+                    const newStart = Math.max(0, n.startBeat - splitOffsetBeats);
+                    rightNotes.push({ ...n, id: `${delta.data.right_id}:n${n.pitch}:${newStart.toFixed(6)}`, startBeat: newStart });
                 } else if (noteEnd <= splitOffsetBeats) {
                     // Note ends at or before split → left half only
                     leftNotes.push(n);
@@ -233,7 +234,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                     leftNotes.push({ ...n, durationBeats: Math.max(0.001, splitOffsetBeats - n.startBeat) });
                     const remainderDuration = noteEnd - splitOffsetBeats;
                     if (remainderDuration > 0.001) {
-                        rightNotes.push({ ...n, startBeat: 0, durationBeats: remainderDuration });
+                        rightNotes.push({ ...n, id: `${delta.data.right_id}:n${n.pitch}:0.000000`, startBeat: 0, durationBeats: remainderDuration });
                     }
                 }
             }
@@ -302,7 +303,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             // (same source file). Without this, merged clips can't re-expand.
             sourceFileTotalFrames: earliestClip.sourceFileTotalFrames ?? representative.sourceFileTotalFrames,
             midiNotes: representative.type === 'midi'
-                ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat })))
+                ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat - frameToBeat(c.sourceOffset ?? 0, env.bpm, env.sampleRate) })))
                 : representative.midiNotes,
         };
         const nextById: Record<string, TimelineClip> = {};
@@ -354,7 +355,8 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 const startBeat = n.start_beat;
                 const pitch = n.pitch;
                 let matchedId: string | undefined;
-                const tolerance = 1e-6;
+                // BUG-014 FIX: Use tolerance proportional to grid resolution instead of fixed 1e-6.
+                const tolerance = Math.max(1e-6, 2 / (env.bpm * env.sampleRate));
                 for (let i = 0; i < existingNotes.length; i++) {
                     if (usedExistingIndices.has(i)) continue;
                     const existing = existingNotes[i];

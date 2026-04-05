@@ -204,9 +204,12 @@ export function createTelemetryActions(
                     telemetryMetersBinaryUnlisten = await listen<number[] | Uint8Array | ArrayBuffer>(
                         'telemetry_meters_binary',
                         (event) => {
-                            // BUG-055 FIX: Modular wrap to prevent precision loss at 2^53.
-                            // At ~30Hz tick rate, 0x7FFFFFFF gives ~2.3 billion cycles (~2.4 years).
-                            meterFrameCounter = (meterFrameCounter + 1) & 0x7FFFFFFF;
+                            // BUG-055/BUG-038 FIX: Clean wrap boundary that is perfectly divisible by any reasonable METER_STATE_UPDATE_EVERY_TICKS.
+                            // 1,000,000,000 frames is ~9.5 months of continuous play at 60fps.
+                            meterFrameCounter++;
+                            if (meterFrameCounter >= 1000000000) {
+                                meterFrameCounter = 0;
+                            }
                             if (meterFrameCounter % METER_STATE_UPDATE_EVERY_TICKS !== 0) return;
                             const packet = payloadToUint8Array(event.payload);
                             const decodedMeters = decodeMetersBinaryPacket(packet);

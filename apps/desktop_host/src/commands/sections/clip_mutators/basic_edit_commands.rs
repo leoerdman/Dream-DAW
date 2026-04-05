@@ -74,16 +74,12 @@ async fn move_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let deltas = vec![
         dream_models::delta::ProjectDelta::ClipMoved {
             clip_id: clip_uuid,
             old_track_index,
             new_track_index,
             new_position: new_position_frames,
-        },
-        dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
         },
     ];
 
@@ -156,8 +152,7 @@ async fn move_multiple_clips_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    let mut deltas: Vec<dream_models::delta::ProjectDelta> = Vec::with_capacity(old_track_indices.len() + 1);
+    let mut deltas: Vec<dream_models::delta::ProjectDelta> = Vec::with_capacity(old_track_indices.len());
     for ((uid, old_idx), req) in old_track_indices.iter().zip(requests.iter()) {
         deltas.push(dream_models::delta::ProjectDelta::ClipMoved {
             clip_id: *uid,
@@ -166,9 +161,6 @@ async fn move_multiple_clips_with_deltas_cmd(
             new_position: req.new_position_frames,
         });
     }
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -327,13 +319,6 @@ async fn resize_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    // SSOT FIX: Append full snapshot so frontend state is always replaced by
-    // the authoritative backend state — eliminates beat↔frame conversion drift.
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
-
     Ok(DeltaMutationResponse { deltas })
 }
 
@@ -409,13 +394,6 @@ async fn split_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    // SSOT FIX: Append full snapshot so frontend receives authoritative split
-    // results — eliminates independent duration/sourceOffset recalculation.
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
-
     Ok(SplitClipWithDeltasResponse {
         left_id: result.left_id.to_string(),
         right_id: result.right_id.to_string(),
@@ -489,13 +467,6 @@ async fn delete_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
     clip_pool_state.evict_unused_clips(&project_state);
-
-    // SSOT FIX: Append full snapshot so frontend sees collateral overlap
-    // effects (clips trimmed/removed by overlap resolution during delete).
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -571,16 +542,18 @@ async fn duplicate_clip_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     // BUG-012 FIX: Read source_file_total_frames and source_offset from the newly
     // created clip instead of sending None. During the milliseconds between delta
     // processing and snapshot processing, the frontend clip has
     // sourceFileTotalFrames: undefined, which causes the ratchet bug if the user
     // immediately resizes the duplicated clip.
-    let (dup_source_total, dup_source_offset) = project.tracks.iter().flat_map(|t| t.clips.iter())
-        .find(|c| c.id == result.new_id)
-        .map(|c| (Some(c.source_file_total_frames), Some(c.source_offset.sample_frame)))
-        .unwrap_or((None, None));
+    let (dup_source_total, dup_source_offset) = {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        project.tracks.iter().flat_map(|t| t.clips.iter())
+            .find(|c| c.id == result.new_id)
+            .map(|c| (Some(c.source_file_total_frames), Some(c.source_offset.sample_frame)))
+            .unwrap_or((None, None))
+    };
     let deltas = vec![
         dream_models::delta::ProjectDelta::ClipDuplicated {
             source_clip_id: source_clip_uuid,
@@ -590,9 +563,6 @@ async fn duplicate_clip_with_deltas_cmd(
             new_duration: result.new_duration_frames,
             source_file_total_frames: dup_source_total,
             new_source_offset: dup_source_offset,
-        },
-        dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
         },
     ];
 
@@ -678,11 +648,7 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
         ClipRebuildMode::ClipsOnly,
     )?;
 
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
     let mut deltas = clip_duplicated_deltas;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: first_new_id,
@@ -757,12 +723,7 @@ async fn merge_clips_with_deltas_cmd(
         ClipRebuildMode::FullSnapshot,
     )?;
 
-    // SSOT FIX: Append full snapshot so frontend receives authoritative
-    // merged clip state — eliminates independent MIDI note recalculation.
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
+
 
     Ok(MergeClipsWithDeltasResponse {
         new_id: result.new_id.to_string(),
@@ -802,12 +763,9 @@ async fn consolidate_midi_region_with_deltas_cmd(
         ClipRebuildMode::FullSnapshot,
     )?;
 
-    // SSOT FIX: Append full snapshot so frontend receives authoritative
-    // merged clip state — eliminates independent MIDI note recalculation.
-    let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    deltas.push(dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-        project: Box::new(project.clone()),
-    });
+    // Merged clips deltas alone aren't fully robust yet, frontend will request
+    // an async project refresh to fill in the new clip structure correctly without O(N) stall.
+    deltas.push(dream_models::delta::ProjectDelta::ProjectRefreshRequested);
 
     Ok(MergeClipsWithDeltasResponse {
         new_id: result.new_id.to_string(),

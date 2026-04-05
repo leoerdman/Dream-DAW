@@ -100,9 +100,9 @@ function summarizeChain(chain: RackChain): RackChainSummary {
     const deviceNames: string[] = [];
     for (const dev of chain.devices ?? []) {
         if (dev.type === 'Single') {
-            deviceNames.push((dev as unknown as { name?: string }).name ?? 'Device');
+            deviceNames.push(dev.name ?? 'Device');
         } else if (dev.type === 'Rack') {
-            deviceNames.push((dev as unknown as DeviceRack).name ?? 'Rack');
+            deviceNames.push(dev.name ?? 'Rack');
         }
     }
     return {
@@ -142,7 +142,9 @@ function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
         };
     }
     // Rack DeviceNode — preserve full rack structure for UI rendering.
-    const rack = node as unknown as DeviceRack;
+    // DeviceNode type='Rack' is structurally compatible with DeviceRack 
+    // due to Rust ts-rs codegen. We use a typed local variable for clarity.
+    const rack: DeviceRack = node as DeviceRack;
     const rackType = rack.rack_type ?? 'AudioEffect';
     return {
         id: rack.id ?? '',

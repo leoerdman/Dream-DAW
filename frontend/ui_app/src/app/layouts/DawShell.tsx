@@ -185,7 +185,11 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     }), []);
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
     useEffect(() => {
-        const onOpenExport = () => setExportOpen(true);
+        // ENTERPRISE TYPE SAFETY: Two separate handlers to satisfy both the DOM EventListener
+        // signature (`(e: Event) => void`) and the dreamGlobals OpenExportModalFn (`() => void`).
+        // Eliminates all `as EventListener` casts without introducing type mismatches.
+        const openExport = () => setExportOpen(true);
+        const onOpenExportEvent = (_e: Event) => openExport();
         // ENTERPRISE FIX: Wire the `dream:layout-toggle-panel` event so that
         // the sampler's "Replace Sample" button actually opens the Missing Assets panel.
         const onTogglePanel = (e: Event) => {
@@ -194,15 +198,15 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
                 setMissingAssetsOpen(true);
             }
         };
-        window.addEventListener('dream:open-export', onOpenExport as EventListener);
-        document.addEventListener('dream:open-export', onOpenExport as EventListener);
+        window.addEventListener('dream:open-export', onOpenExportEvent);
+        document.addEventListener('dream:open-export', onOpenExportEvent);
         window.addEventListener('dream:layout-toggle-panel', onTogglePanel);
-        dreamGlobals.setOpenExportModal(onOpenExport);
+        dreamGlobals.setOpenExportModal(openExport);
         return () => {
-            window.removeEventListener('dream:open-export', onOpenExport as EventListener);
-            document.removeEventListener('dream:open-export', onOpenExport as EventListener);
+            window.removeEventListener('dream:open-export', onOpenExportEvent);
+            document.removeEventListener('dream:open-export', onOpenExportEvent);
             window.removeEventListener('dream:layout-toggle-panel', onTogglePanel);
-            dreamGlobals.clearOpenExportModal(onOpenExport);
+            dreamGlobals.clearOpenExportModal(openExport);
         };
     }, []);
     useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });

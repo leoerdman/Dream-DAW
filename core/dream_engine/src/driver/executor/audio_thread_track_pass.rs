@@ -64,6 +64,10 @@ pub(crate) struct TrackPassContext<'a> {
     /// caused interleaved process() calls that corrupted plugin DSP
     /// state, producing crackling/distortion in the exported audio.
     pub export_active: bool,
+    /// PERF-010: When false, skip sidechain tap buffer copies.
+    /// Most tracks have no sidechain consumers — saving 4 × copy_from_slice(c)
+    /// per unused track (2 pre-FX + 2 post-FX).
+    pub has_sidechain_consumers: bool,
 }
 
 pub(crate) fn process_track_graph_node(
@@ -87,8 +91,11 @@ pub(crate) fn process_track_graph_node(
     // ── SIDECHAIN TAP: Pre-FX snapshot ──
     // Capture the raw signal (after clip read / bus summing, before FX chain)
     // so other tracks requesting Pre-FX sidechain can read it.
-    ctx.slot.sidechain_pre_fx_left[..c].copy_from_slice(&left[..c]);
-    ctx.slot.sidechain_pre_fx_right[..c].copy_from_slice(&right[..c]);
+    // PERF-010: Only copy when at least one track consumes this sidechain.
+    if ctx.has_sidechain_consumers {
+        ctx.slot.sidechain_pre_fx_left[..c].copy_from_slice(&left[..c]);
+        ctx.slot.sidechain_pre_fx_right[..c].copy_from_slice(&right[..c]);
+    }
 
     // 2. Process Inserts (Native FX + VSTs in chain order)
     if let Some(runtime_slots) = ctx.external_fx_map.get(ctx.track_idx) {
@@ -435,8 +442,11 @@ pub(crate) fn process_track_graph_node(
     // ── SIDECHAIN TAP: Post-FX snapshot ──
     // Capture the signal after all FX processing but before the mixer strip
     // (volume/pan/mute). Other tracks requesting Post-FX sidechain read this.
-    ctx.slot.sidechain_post_fx_left[..c].copy_from_slice(&left[..c]);
-    ctx.slot.sidechain_post_fx_right[..c].copy_from_slice(&right[..c]);
+    // PERF-010: Only copy when this track has sidechain consumers.
+    if ctx.has_sidechain_consumers {
+        ctx.slot.sidechain_post_fx_left[..c].copy_from_slice(&left[..c]);
+        ctx.slot.sidechain_post_fx_right[..c].copy_from_slice(&right[..c]);
+    }
 
     // 3. Process Mixer Strip
     if ctx.slot.strip.is_output_enabled() {

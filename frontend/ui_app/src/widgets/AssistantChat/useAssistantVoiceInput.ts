@@ -16,7 +16,7 @@ export type SpeechRecognitionInstance = {
 };
 
 function createSpeechRecognition(): SpeechRecognitionInstance | null {
-    const w = window as unknown as Record<string, unknown>;
+    const w = window;
     const Ctor = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as (new () => SpeechRecognitionInstance) | undefined;
     if (!Ctor) return null;
     try {
@@ -56,7 +56,7 @@ export function useAssistantVoiceInput({
             }
 
             intentionalStopRef.current = false;
-            const isTauri = !!((window as unknown as Record<string, unknown>).__TAURI__ || (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__);
+            const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
             const micPermCacheKey = 'dream-ai-mic-permission';
             const cachedPermission = localStorage.getItem(micPermCacheKey);
 

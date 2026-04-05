@@ -115,10 +115,13 @@ async fn move_multiple_clips_with_deltas_cmd(
     let mut old_track_indices: Vec<(Uuid, usize)> = Vec::with_capacity(requests.len());
     {
         let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-        // DIAGNOSTIC: Log clip counts before move
+        // BUG-022 FIX: Changed from log::info! to log::debug! — info! is always
+        // enabled in release builds. Multi-clip moves (10 selected clips) generate
+        // 22+ log lines per operation at 60Hz during drag, causing I/O contention
+        // on the log file that impacts audio thread timing.
         let total_audio: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
         let total_midi: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
-        log::info!("[CLIP-MOVE-DIAG] BEFORE move: {} audio clips, {} midi clips across {} tracks. Moving {} clips.",
+        log::debug!("[CLIP-MOVE-DIAG] BEFORE move: {} audio clips, {} midi clips across {} tracks. Moving {} clips.",
             total_audio, total_midi, project.tracks.len(), requests.len());
         for req in &requests {
             if let Ok(uid) = Uuid::parse_str(&req.id) {
@@ -128,7 +131,7 @@ async fn move_multiple_clips_with_deltas_cmd(
                 }).unwrap_or(0);
                 old_track_indices.push((uid, old_idx));
                 valid_clips.push((uid, req.new_track_index, req.new_position_frames));
-                log::info!("[CLIP-MOVE-DIAG]   clip {} from track {} → track {} @ frame {}",
+                log::debug!("[CLIP-MOVE-DIAG]   clip {} from track {} → track {} @ frame {}",
                     uid, old_idx, req.new_track_index, req.new_position_frames);
             }
         }
@@ -137,12 +140,12 @@ async fn move_multiple_clips_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::MoveMultipleClipsCommand { clips: valid_clips };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
-    // DIAGNOSTIC: Log clip counts after move
+    // BUG-022 FIX: Debug level for diagnostics.
     {
         let project = project_state.project.lock().map_err(|_| "diag lock failed".to_string())?;
         let total_audio: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
         let total_midi: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
-        log::info!("[CLIP-MOVE-DIAG] AFTER move: {} audio clips, {} midi clips.", total_audio, total_midi);
+        log::debug!("[CLIP-MOVE-DIAG] AFTER move: {} audio clips, {} midi clips.", total_audio, total_midi);
     }
 
     rebuild_clip_views_and_mark_dirty(
@@ -569,8 +572,15 @@ async fn duplicate_clip_with_deltas_cmd(
     )?;
 
     let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
-    // SSOT FIX: Emit ClipDuplicated delta so frontend can extract new clip ID
-    // for auto-selection. ProjectSnapshotReplaced handles full state rebuild.
+    // BUG-012 FIX: Read source_file_total_frames and source_offset from the newly
+    // created clip instead of sending None. During the milliseconds between delta
+    // processing and snapshot processing, the frontend clip has
+    // sourceFileTotalFrames: undefined, which causes the ratchet bug if the user
+    // immediately resizes the duplicated clip.
+    let (dup_source_total, dup_source_offset) = project.tracks.iter().flat_map(|t| t.clips.iter())
+        .find(|c| c.id == result.new_id)
+        .map(|c| (Some(c.source_file_total_frames), Some(c.source_offset.sample_frame)))
+        .unwrap_or((None, None));
     let deltas = vec![
         dream_models::delta::ProjectDelta::ClipDuplicated {
             source_clip_id: source_clip_uuid,
@@ -578,8 +588,8 @@ async fn duplicate_clip_with_deltas_cmd(
             new_position: result.new_position_frames,
             new_track_index: result.track_index,
             new_duration: result.new_duration_frames,
-            source_file_total_frames: None, // Snapshot follows immediately
-            new_source_offset: None,
+            source_file_total_frames: dup_source_total,
+            new_source_offset: dup_source_offset,
         },
         dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
             project: Box::new(project.clone()),
@@ -626,6 +636,18 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
 
     // SSOT FIX: Collect ALL new IDs and emit ClipDuplicated deltas for each.
     // This enables the frontend to auto-select all duplicated clips.
+    // BUG-012 FIX: Build a lookup for source_file_total_frames from the project
+    // state AFTER orchestrator command, so duplicated clips carry authoritative
+    // boundary values immediately (prevents ratchet bug before snapshot arrives).
+    let new_ids: Vec<Uuid> = results.iter().map(|r| r.new_id).collect();
+    let clip_meta: std::collections::HashMap<Uuid, (i64, i64)> = {
+        let project = project_state.project.lock().map_err(|_| "lock failed".to_string())?;
+        let new_id_set: std::collections::HashSet<Uuid> = new_ids.iter().copied().collect();
+        project.tracks.iter().flat_map(|t| t.clips.iter())
+            .filter(|c| new_id_set.contains(&c.id))
+            .map(|c| (c.id, (c.source_file_total_frames, c.source_offset.sample_frame)))
+            .collect()
+    };
     let mut first_new_id = String::new();
     let mut clip_duplicated_deltas: Vec<dream_models::delta::ProjectDelta> = Vec::with_capacity(results.len());
     for (idx, res) in results.iter().enumerate() {
@@ -633,14 +655,18 @@ async fn duplicate_multiple_clips_with_deltas_cmd(
             first_new_id = res.new_id.to_string();
         }
         let source_id = source_ids.get(idx).copied().unwrap_or(res.new_id);
+        let (source_total, source_offset) = clip_meta.get(&res.new_id)
+            .copied()
+            .map(|(t, o)| (Some(t), Some(o)))
+            .unwrap_or((None, None));
         clip_duplicated_deltas.push(dream_models::delta::ProjectDelta::ClipDuplicated {
             source_clip_id: source_id,
             new_clip_id: res.new_id,
             new_position: res.new_position_frames,
             new_track_index: res.track_index,
             new_duration: res.new_duration_frames,
-            source_file_total_frames: None, // Snapshot follows immediately
-            new_source_offset: None,
+            source_file_total_frames: source_total,
+            new_source_offset: source_offset,
         });
     }
 

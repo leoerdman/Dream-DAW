@@ -178,13 +178,27 @@ async fn set_clip_pitch_with_deltas_cmd(
         pitch_shift_semitones: pitch,
     }];
     if before_pos != after_pos || before_dur != after_dur {
+        // ENTERPRISE FIX: Read actual post-mutation values instead of None.
+        // Without these, the frontend retains stale boundary values after
+        // pitch changes, causing the ratchet bug on subsequent resize.
+        let (sftf, new_so, wsdf) = {
+            let project = project_state.project.lock().map_err(|_| "lock failed".to_string())?;
+            project.tracks.iter().flat_map(|t| t.clips.iter())
+                .find(|c| c.id == clip_uuid)
+                .map(|c| (
+                    Some(c.source_file_total_frames),
+                    Some(c.source_offset.sample_frame),
+                    Some(c.warp_source_duration_frames),
+                ))
+                .unwrap_or((None, None, None))
+        };
         deltas.push(dream_models::delta::ProjectDelta::ClipResized {
             clip_id: clip_uuid,
             new_position: after_pos,
             new_duration: after_dur,
-            new_source_offset: None,
-            source_file_total_frames: None,
-            warp_source_duration_frames: None,
+            new_source_offset: new_so,
+            source_file_total_frames: sftf,
+            warp_source_duration_frames: wsdf,
         });
     }
     Ok(DeltaMutationResponse {
@@ -250,13 +264,27 @@ async fn set_clip_warp_with_deltas_cmd(
 
     let mut deltas = Vec::new();
     if before_pos != after_pos || before_dur != after_dur {
+        // ENTERPRISE FIX: Read actual post-mutation values instead of None.
+        // Without these, the frontend retains stale boundary values after
+        // warp changes, causing the ratchet bug on subsequent resize.
+        let (sftf, new_so, wsdf) = {
+            let project = project_state.project.lock().map_err(|_| "lock failed".to_string())?;
+            project.tracks.iter().flat_map(|t| t.clips.iter())
+                .find(|c| c.id == clip_uuid)
+                .map(|c| (
+                    Some(c.source_file_total_frames),
+                    Some(c.source_offset.sample_frame),
+                    Some(c.warp_source_duration_frames),
+                ))
+                .unwrap_or((None, None, None))
+        };
         deltas.push(dream_models::delta::ProjectDelta::ClipResized {
             clip_id: clip_uuid,
             new_position: after_pos,
             new_duration: after_dur,
-            new_source_offset: None,
-            source_file_total_frames: None,
-            warp_source_duration_frames: None,
+            new_source_offset: new_so,
+            source_file_total_frames: sftf,
+            warp_source_duration_frames: wsdf,
         });
     }
     if before_state.is_warped != after_state.is_warped
@@ -497,9 +525,26 @@ async fn set_clips_muted_with_deltas_cmd(
     )?;
     }
 
-    let deltas = parsed_ids
-        .into_iter()
-        .map(|clip_id| dream_models::delta::ProjectDelta::ClipMuteChanged { clip_id, muted })
-        .collect();
+    // BUG-008 FIX: Only emit ClipMuteChanged deltas for clips that were ACTUALLY
+    // mutated. Previously assumed all parsed IDs were successfully changed, but
+    // some clips may have been already deleted or already in the target mute state.
+    // Read post-mutation state from the project for accurate delta emission.
+    let deltas = if applied > 0 {
+        let project = project_state.project.lock().map_err(|_| "Application state error. Please restart Dream DAW.".to_string())?;
+        let applied_set: std::collections::HashSet<Uuid> = project.tracks.iter()
+            .flat_map(|t| t.clips.iter().chain(
+                // Check MIDI clips too
+                std::iter::empty() // MIDI clips don't have is_disabled in same way
+            ))
+            .filter(|c| parsed_ids.contains(&c.id) && c.is_disabled == muted)
+            .map(|c| c.id)
+            .collect();
+        parsed_ids.into_iter()
+            .filter(|id| applied_set.contains(id))
+            .map(|clip_id| dream_models::delta::ProjectDelta::ClipMuteChanged { clip_id, muted })
+            .collect()
+    } else {
+        Vec::new()
+    };
     Ok(DeltaMutationResponse { deltas })
 }

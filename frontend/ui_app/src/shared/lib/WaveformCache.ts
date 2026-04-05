@@ -91,10 +91,17 @@ export class WaveformCache {
             return null;
         }
 
-        // O(1) LRU Touch: Move to end of insertion order
-        this._cache.delete(cacheKey);
-        this._cache.set(cacheKey, entry);
-        entry.lastAccessed = performance.now();
+        // BUG-025 FIX: Throttle LRU touch — only move entry to end of Map
+        // insertion order if lastAccessed is more than 1 second old.
+        // Previously, getDrawData() performed delete+set on EVERY call (up to
+        // 2x per clip per frame). With 50 visible clips, that's 200 Map operations
+        // per frame. V8's Map implementation rehashes on delete.
+        const now = performance.now();
+        if (now - entry.lastAccessed > 1000) {
+            this._cache.delete(cacheKey);
+            this._cache.set(cacheKey, entry);
+            entry.lastAccessed = now;
+        }
 
         return this._extractDrawData(sourceOffset, durationSamples, entry);
     }
@@ -126,10 +133,13 @@ export class WaveformCache {
             return null;
         }
 
-        // LRU touch
-        this._cache.delete(fineCacheKey);
-        this._cache.set(fineCacheKey, fineEntry);
-        fineEntry.lastAccessed = performance.now();
+        // BUG-025 FIX: Throttled LRU touch for fine entry
+        const now = performance.now();
+        if (now - fineEntry.lastAccessed > 1000) {
+            this._cache.delete(fineCacheKey);
+            this._cache.set(fineCacheKey, fineEntry);
+            fineEntry.lastAccessed = now;
+        }
 
         const fineData = this._extractDrawData(sourceOffset, durationSamples, fineEntry);
 
@@ -160,10 +170,12 @@ export class WaveformCache {
             return { fine: fineData, coarse: null, blendFactor: 0 };
         }
 
-        // LRU touch
-        this._cache.delete(coarseCacheKey);
-        this._cache.set(coarseCacheKey, coarseEntry);
-        coarseEntry.lastAccessed = performance.now();
+        // BUG-025 FIX: Throttled LRU touch for coarse entry
+        if (performance.now() - coarseEntry.lastAccessed > 1000) {
+            this._cache.delete(coarseCacheKey);
+            this._cache.set(coarseCacheKey, coarseEntry);
+            coarseEntry.lastAccessed = performance.now();
+        }
 
         const coarseData = this._extractDrawData(sourceOffset, durationSamples, coarseEntry);
         return { fine: fineData, coarse: coarseData, blendFactor };
@@ -197,6 +209,16 @@ export class WaveformCache {
         if (this._pending.has(cacheKey)) return;
         // Double-check negative cache inside _fetchAsync for safety.
         if (this._isNegCached(cacheKey)) return;
+        // BUG-006 FIX: Limit pending promise map to prevent unbounded growth.
+        // Under rapid project switching, promises accumulate and their callbacks
+        // capture stale `this` references. Cap at MAX_CACHE_ENTRIES.
+        if (this._pending.size >= MAX_CACHE_ENTRIES) {
+            // Evict oldest pending entry
+            const firstKey = this._pending.keys().next().value;
+            if (firstKey !== undefined) {
+                this._pending.delete(firstKey);
+            }
+        }
 
         const promise = getPeaks(clipId, lodLevel)
             .then((bytes: Uint8Array) => {
@@ -305,15 +327,18 @@ export class WaveformCache {
     }
 
     private _releaseBufferToPool(arr: Float32Array): void {
-        // BUG-012 FIX: Use arr.length (typed array element count) not
-        // arr.buffer.byteLength / 4 (underlying buffer size after slice).
+        // BUG-054 FIX: Use power-of-2 bucketing instead of exact-size matching.
+        // Previously, only buffers with sizes exactly matching 64/128/256/512/1024
+        // were returned to the pool. Real waveform data rarely has these exact
+        // counts, so most buffers were discarded, defeating the pooling purpose.
+        // Now a 65-element array goes to the 128-pool, a 130-element to the 256-pool.
         const size = arr.length;
         let pool: Float32Array[] | null = null;
-        if (size === 64) pool = WaveformCache._pool64;
-        else if (size === 128) pool = WaveformCache._pool128;
-        else if (size === 256) pool = WaveformCache._pool256;
-        else if (size === 512) pool = WaveformCache._pool512;
-        else if (size === 1024) pool = WaveformCache._pool1024;
+        if (size <= 64) pool = WaveformCache._pool64;
+        else if (size <= 128) pool = WaveformCache._pool128;
+        else if (size <= 256) pool = WaveformCache._pool256;
+        else if (size <= 512) pool = WaveformCache._pool512;
+        else if (size <= 1024) pool = WaveformCache._pool1024;
 
         // BUG-084 FIX: Cap pool at MAX_POOL_SIZE to prevent unbounded growth.
         if (pool && pool.length < WaveformCache.MAX_POOL_SIZE) {

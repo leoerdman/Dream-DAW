@@ -118,7 +118,8 @@ function App() {
       setFatalError((prev) => prev ?? message)
       try {
         if ('__TAURI_INTERNALS__' in window) {
-          engineApi.logFrontendError('AppRuntime', message).catch(() => { })
+          // ENTERPRISE: Intentional silent catch — this IS the error logger; logging its own failure would recurse.
+          engineApi.logFrontendError('AppRuntime', message).catch(() => { /* self-referential: error logger cannot log its own failures */ })
         }
       } catch (reportErr) {
         console.warn('[Dream] Tauri reporting failed:', reportErr);
@@ -297,7 +298,8 @@ function App() {
           {/* BUG-037 FIX: Copy Error button for support/debugging */}
           <button
             onClick={() => {
-              navigator.clipboard?.writeText(fatalError ?? '').catch(() => { });
+              // ENTERPRISE: Intentional silent catch — clipboard API may be unavailable in sandboxed/crash recovery context.
+              navigator.clipboard?.writeText(fatalError ?? '').catch(() => { /* clipboard may be unavailable in crash recovery context */ });
             }}
             style={{
               marginTop: 24, marginRight: 12, padding: '10px 24px', fontSize: 14, fontWeight: 600,

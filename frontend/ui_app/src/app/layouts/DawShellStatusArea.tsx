@@ -14,6 +14,7 @@ interface DawShellStatusAreaProps {
 }
 
 export const DawShellStatusArea = memo(({
+    missingAssetsOpen,
     missingMediaSummary,
     onToggleMissingAssets,
     panelMode,
@@ -33,6 +34,7 @@ export const DawShellStatusArea = memo(({
                 onMainViewModeChange={onMainViewModeChange}
                 isFlowAvailable={isFlowAvailable}
                 missingMediaSummary={missingMediaSummary}
+                missingAssetsOpen={missingAssetsOpen}
                 onToggleMissingAssets={onToggleMissingAssets}
             />
         </div>

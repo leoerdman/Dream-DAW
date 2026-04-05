@@ -138,11 +138,11 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             if (typeof detail?.query === 'string') setDebouncedQuery(detail.query);
             searchRef.current?.focus();
         };
-        window.addEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
-        window.addEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
+        window.addEventListener('dream:browser-focus-search', focusBrowserSearch);
+        window.addEventListener('dream:browser-set-search', setBrowserSearch);
         return () => {
-            window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
-            window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
+            window.removeEventListener('dream:browser-focus-search', focusBrowserSearch);
+            window.removeEventListener('dream:browser-set-search', setBrowserSearch);
         };
     }, [searchRef, setDebouncedQuery, setExpandedFolders, setFolderChildrenCache, setSelectedCategoryId]);
     useEffect(() => {
@@ -161,7 +161,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     useEffect(() => {
         if (selectedCategoryId !== 'currentProject') return;
         let mounted = true;
-        void engineApi.getProjectStatus().then((status) => { if (mounted) setCurrentProjectFolder(status.projectFolder ?? null); }).catch(() => { if (mounted) setCurrentProjectFolder(null); });
+        void engineApi.getProjectStatus().then((status) => { if (mounted) setCurrentProjectFolder(status.projectFolder ?? null); }).catch((err: unknown) => { console.warn('[Dream] getProjectStatus failed:', err); if (mounted) setCurrentProjectFolder(null); });
         return () => { mounted = false; };
     }, [selectedCategoryId, setCurrentProjectFolder]);
     useEffect(() => {
@@ -304,7 +304,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     useEffect(() => {
         if (prevCatForPreviewRef.current !== selectedCategoryId) {
             prevCatForPreviewRef.current = selectedCategoryId;
-            engineApi.stopPreview().catch(() => undefined);
+            engineApi.stopPreview().catch((err) => console.warn('[Dream] stopPreview (category-change cleanup):', err));
             isPreviewPlayingRef.current = false;
         }
     }, [selectedCategoryId, prevCatForPreviewRef, isPreviewPlayingRef]);

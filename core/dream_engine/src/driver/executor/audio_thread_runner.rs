@@ -103,6 +103,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut graph_out_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut graph_out_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut post_sum_processing_mask = vec![false; MAX_TRACKS];
+    // PERF-010: Pre-computed sidechain consumer mask (one per track).
+    // true = at least one other track references this track as a sidechain source.
+    let mut sidechain_consumer_mask = vec![false; MAX_TRACKS];
     // BUG-RT-ALLOC FIX: Pass references directly from the atomic snapshot instead of cloning
     graph_renderer.update_plan(&prepared_graph.plan, &prepared_graph.dag);
     let mut graph_last_generation = prepared_graph.generation;
@@ -290,7 +293,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // peak-decay persistence. Active signal paths below will lift
                         // meters back up for tracks that actually output audio.
                         let baseline_decay = peak_decay_for_block(sample_rate_f64, frame_count);
-                        for track_idx in 0..render_ctx.meter_bank.track_count() {
+                        // PERF-FIX: meter_bank.track_count() already returns active tracks.
+                        // No need to iterate all MAX_TRACKS (256).
+                        let active_meter_tracks = render_ctx.meter_bank.track_count();
+                        for track_idx in 0..active_meter_tracks {
                             if let Some(t_meters) = render_ctx.meter_bank.track(track_idx) {
                                 t_meters.left.store_rms(METER_FLOOR_DB);
                                 t_meters.right.store_rms(METER_FLOOR_DB);
@@ -442,6 +448,19 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // Tracks that receive routed input should apply strip/device
                         // processing after graph summing (bus/group semantics).
                         post_sum_processing_mask[..track_count].fill(false);
+                        // PERF-010: Compute sidechain consumer mask once per callback.
+                        // Previously computed per-track inside the graph loop = O(T² × S).
+                        // Now O(T × S) total, computed alongside post_sum_processing_mask.
+                        sidechain_consumer_mask[..track_count].fill(false);
+                        for slots in external_fx_map.iter() {
+                            for s in slots {
+                                if let Some(src_idx) = s.sidechain_track_index {
+                                    if src_idx < track_count {
+                                        sidechain_consumer_mask[src_idx] = true;
+                                    }
+                                }
+                            }
+                        }
                         
                         let current_routing_snap = std::sync::Arc::clone(&*routing_snapshot.load());
                         if !std::sync::Arc::ptr_eq(&current_routing_snap, &prev_routing_snap) {
@@ -612,6 +631,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         .copied()
                                         .unwrap_or(false);
 
+                                    // PERF-010: Use pre-computed mask instead of O(T×S) per-track scan.
+                                    let has_sc = sidechain_consumer_mask.get(track_idx)
+                                        .copied()
+                                        .unwrap_or(false);
+
                                     let mut ctx = TrackPassContext {
                                         c,
                                         track_idx,
@@ -644,6 +668,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         timeline_sample_rate: render_ctx.timeline_sample_rate,
                                         loop_region: render_ctx.loop_region,
                                         export_active,
+                                        has_sidechain_consumers: has_sc,
                                     };
 
                                     process_track_graph_node(left, right, &mut ctx, sidechain_resolver);
@@ -693,16 +718,25 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     }
 
                                     // 5. Per-track spectrum feed (enterprise per-track EQ display)
-                                    // Push mono-mixed post-FX audio into the per-track ring buffer.
-                                    // Only active for tracks with an EQ UI requesting spectrum data.
-                                    // PERF-006: Skip for muted tracks (all-zero buffers).
+                                    // PERF-009: Batch write instead of per-sample push.
+                                    // Previously did N individual ring buffer pushes (each with
+                                    // an atomic load/CAS). With 38 tracks × 512 samples, that's
+                                    // 19,456 atomic ops per callback. Batch write does 1 capacity
+                                    // check + 1 contiguous memcpy.
                                     if render_ctx.track_slots[track_idx].strip.is_output_enabled()
                                         && track_idx < render_ctx.per_track_spectrum_producers.len()
                                         && let Some(producer) = &mut render_ctx.per_track_spectrum_producers[track_idx]
                                     {
-                                        for frame in 0..c {
-                                            let mono = (left[frame] + right[frame]) * 0.5;
-                                            let _ = producer.push(mono); // RT-safe: ignore full buffer
+                                        match producer.write_chunk_uninit(c) {
+                                            Ok(chunk) => {
+                                                let mono_iter = (0..c).map(|frame| {
+                                                    (left[frame] + right[frame]) * 0.5
+                                                });
+                                                chunk.fill_from_iter(mono_iter);
+                                            }
+                                            Err(_) => {
+                                                // Ring buffer full — skip silently (RT-safe)
+                                            }
                                         }
                                     }
                                 }

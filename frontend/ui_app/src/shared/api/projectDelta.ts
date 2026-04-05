@@ -10,7 +10,7 @@ export interface MidiClipDeltaNote {
 
 export type ProjectDelta =
     | { kind: 'ClipMoved'; data: { clip_id: string; old_track_index: number; new_track_index: number; new_position: number } }
-    | { kind: 'ClipAdded'; data: { clip_id: string; track_index: number; name: string; clip_type: string; file_path: string | null; position: number; duration: number; source_file_total_frames?: number; source_offset?: number; is_warped?: boolean; warp_source_duration_frames?: number; warp_mode?: number | null; warp_base_bpm?: number; pitch_shift_semitones?: number; sample_rate?: number; channels?: number; num_frames?: number } }
+    | { kind: 'ClipAdded'; data: { clip_id: string; track_index: number; name: string; clip_type: string; file_path: string | null; position: number; duration: number; source_file_total_frames?: number; source_offset?: number; is_warped?: boolean; warp_source_duration_frames?: number; warp_mode?: number | null; warp_base_bpm?: number; pitch_shift_semitones?: number; sample_rate?: number; channels?: number; num_frames?: number; color?: string | null } }
     | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number; new_source_offset?: number; source_file_total_frames?: number; warp_source_duration_frames?: number } }
     | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
     | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }
@@ -26,7 +26,7 @@ export type ProjectDelta =
     | { kind: 'ClipRenamed'; data: { clip_id: string; new_name: string } }
     | { kind: 'TrackVolumeChanged'; data: { track_id: string; volume: number } }
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
-    | { kind: 'TrackDisabledChanged'; data: { track_id: string; disabled: boolean } }
+    | { kind: 'TrackDisabledChanged'; data: { track_id: string; disabled: boolean; /** @deprecated Legacy field — backend migration from `muted` → `disabled`. */ muted?: boolean } }
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
     | { kind: 'TrackArmChanged'; data: { track_index: number; armed: boolean } }
     | { kind: 'TrackRoutingChanged'; data: { track_id: string; output_destination_id: string | null } }

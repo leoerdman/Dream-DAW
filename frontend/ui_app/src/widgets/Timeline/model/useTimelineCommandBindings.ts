@@ -110,7 +110,7 @@ export function useTimelineCommandBusBindings({
                     callbacksRef.current.onClipDuplicate?.(command.clipId, command.beat, command.trackIndex);
                     break;
                 case 'clip-resize':
-                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration, command.allowStretch, command.sourceOffset);
+                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration, command.allowStretch, command.sourceOffset, command.warpSourceDurationFrames, command.durationSamples);
                     break;
                 case 'track-dblclick':
                     callbacksRef.current.onDoubleClickTrack?.(command.trackIndex, command.beat);
@@ -165,8 +165,8 @@ export function useTimelineEngineCommandBindings({
         engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
         engine.onClipContextMenu = (clipId, beat, trackIndex, clientX, clientY) => callbacksRef.current.onClipContextMenu?.(clipId, beat, trackIndex, clientX, clientY);
         engine.onClipBoxSelection = (clipIds) => commandBusRef.current.emit({ type: 'clip-selection', clipIds });
-        engine.onClipResize = (clipId, newStartBeat, newDuration, allowStretch, optSourceOffset) => {
-            commandBusRef.current.emit({ type: 'clip-resize', clipId, startBeat: newStartBeat, duration: newDuration, allowStretch, sourceOffset: optSourceOffset });
+        engine.onClipResize = (clipId, newStartBeat, newDuration, allowStretch, optSourceOffset, optWarpSourceDurationFrames, optDurationSamples) => {
+            commandBusRef.current.emit({ type: 'clip-resize', clipId, startBeat: newStartBeat, duration: newDuration, allowStretch, sourceOffset: optSourceOffset, warpSourceDurationFrames: optWarpSourceDurationFrames, durationSamples: optDurationSamples });
         };
         engine.onDoubleClickTrack = (trackIndex, beat) => commandBusRef.current.emit({ type: 'track-dblclick', trackIndex, beat });
         engine.onDoubleClickClip = (clipId, trackIndex) => commandBusRef.current.emit({ type: 'clip-dblclick', clipId, trackIndex });

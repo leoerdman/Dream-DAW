@@ -25,19 +25,34 @@ export function createFetchProjectAction(
                     const merged = mergeProjectHistory(s.projectHistory, s.projectHistoryCursor, delta);
                     // BUG-007: Cap history at 500 entries to prevent unbounded memory growth.
                     const MAX_HISTORY = 500;
-                    const history = merged.history.length > MAX_HISTORY
-                        ? merged.history.slice(merged.history.length - MAX_HISTORY)
-                        : merged.history;
-                    return { projectHistory: history, projectHistoryCursor: merged.cursor };
+                    if (merged.history.length > MAX_HISTORY) {
+                        const trimCount = merged.history.length - MAX_HISTORY;
+                        const history = merged.history.slice(trimCount);
+                        // ENTERPRISE FIX: Adjust cursor relative to the trimmed entries.
+                        // Previously used `merged.cursor` directly, but after slicing
+                        // the first N entries, the cursor must shift by the same amount.
+                        const cursor = Math.max(0, merged.cursor - trimCount);
+                        return { projectHistory: history, projectHistoryCursor: cursor };
+                    }
+                    return { projectHistory: merged.history, projectHistoryCursor: merged.cursor };
                 });
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 console.warn('[Dream] syncProjectHistory failed:', e);
-                // ENTERPRISE (Phase 32): Surface persistent sync failures to user.
-                // Lazy import avoids circular dependency with useStatusStore.
-                import('@/shared/stores/useStatusStore').then(({ useStatusStore: statusStore }) => {
+                // ENTERPRISE FIX: Use synchronous require() instead of async import()
+                // to avoid the same race condition as Bug 7 — async import in catch
+                // may resolve after additional state changes, applying the error
+                // message against stale state.
+                try {
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { useStatusStore: statusStore } = require('@/shared/stores/useStatusStore');
                     statusStore.getState().setError(`History sync failed: ${msg}`);
-                }).catch(() => { /* ignore import failure in test/SSR */ });
+                } catch {
+                    // Fallback for ESM-only environments
+                    import('@/shared/stores/useStatusStore').then(({ useStatusStore: statusStore }) => {
+                        statusStore.getState().setError(`History sync failed: ${msg}`);
+                    }).catch(() => { /* ignore import failure in test/SSR */ });
+                }
             }
         },
     };

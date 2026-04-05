@@ -68,11 +68,12 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
 
         if (!liveClip.isWarped) {
             const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
-            // ENTERPRISE FIX (SSOT): Use sourceFileTotalFrames (immutable total)
-            // not warpSourceDurationFrames (shrinks on trim). Previously, pitch change
-            // after trim computed duration from the trimmed-down value.
-            const sourceFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.durationSamples ?? 1);
-            nextDurationSamples = Math.max(1, Math.round(sourceFrames / pitchMultiplier));
+            // ENTERPRISE FIX (BUG-PITCH-TRIM-001): Subtract sourceOffset from total
+            // to get available source frames for THIS clip. Previously used full file
+            // length, causing trimmed clips to expand back to full size on pitch change.
+            const totalFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.durationSamples ?? 1);
+            const availableSource = Math.max(1, totalFrames - Math.max(0, liveClip.sourceOffset ?? 0));
+            nextDurationSamples = Math.max(1, Math.round(availableSource / pitchMultiplier));
             nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
         }
 
@@ -123,11 +124,14 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         const previousDurationSamples = liveClip.durationSamples;
         const previousSourceFrames = liveClip.warpSourceDurationFrames;
 
-        // ENTERPRISE FIX (SSOT): Use sourceFileTotalFrames (immutable) for
-        // warp enable/disable calculations, not warpSourceDurationFrames (shrinks on trim).
-        const sourceFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
+        // ENTERPRISE FIX (BUG-WARP-TRIM-001): Subtract sourceOffset from total to get
+        // available source for THIS clip. Previously used full sourceFileTotalFrames,
+        // causing trimmed clips to expand to full file length when toggling warp.
+        const totalFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
+        const clipSourceOffset = Math.max(0, liveClip.sourceOffset ?? 0);
+        const sourceFrames = Math.max(1, totalFrames - clipSourceOffset);
         const pitchMultiplier = Math.pow(2.0, (liveClip.pitchShiftSemitones ?? 0) / 12.0);
-        const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.round(sourceFrames / pitchMultiplier), projectTempo, sr);
+        const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.max(1, Math.round(sourceFrames / pitchMultiplier)), projectTempo, sr);
         const nextDurationSamples = next.enabled ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr)) : Math.max(1, Math.round(sourceFrames / pitchMultiplier));
 
         useEngineStore.getState().patchClip(clip.id, {

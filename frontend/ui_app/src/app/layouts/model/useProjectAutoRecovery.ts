@@ -35,7 +35,8 @@ export function useProjectAutoRecovery(): void {
             if (cancelled) return;
             if (generation !== recoveryGeneration) return;
             if (isProjectLoadInFlight()) {
-                if (Date.now() - startedAt < MAX_RETRY_WINDOW_MS) {
+                // Only retry if within the retry window AND recovery hasn't failed
+                if (!cancelled && Date.now() - startedAt < MAX_RETRY_WINDOW_MS) {
                     schedule(RETRY_DELAY_MS);
                 }
                 return;
@@ -95,9 +96,9 @@ export function useProjectAutoRecovery(): void {
 
         return () => {
             cancelled = true;
-            if (generation === recoveryGeneration) {
-                recoveryGeneration += 1;
-            }
+            // ENTERPRISE FIX: Don't mutate recoveryGeneration here —
+            // another mount may have already incremented it. The `cancelled`
+            // flag and `generation !== recoveryGeneration` check are sufficient.
             if (timerId) clearTimeout(timerId);
         };
     }, []);

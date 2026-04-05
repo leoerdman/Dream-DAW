@@ -15,14 +15,14 @@ export function extractNewClipIdsFromDeltas(
 ): string[] {
     const ids: string[] = [];
     for (const d of deltas) {
-        if (typeof d.data === 'object' && d.data !== null) {
-            const data = d.data as Record<string, unknown>;
-            if (d.kind === 'ClipDuplicated' && typeof data.new_clip_id === 'string') {
-                ids.push(data.new_clip_id);
-            } else if (d.kind === 'ClipAdded' && typeof data.clip_id === 'string') {
-                // BUG-018 FIX: Also capture ClipAdded for cross-project paste.
-                ids.push(data.clip_id);
-            }
+        // ENTERPRISE TYPE SAFETY: Use discriminated union narrowing instead of
+        // `as Record<string, unknown>` cast. Each `d.kind` narrows `d.data` to
+        // the correct typed branch of the ProjectDelta union.
+        if (d.kind === 'ClipDuplicated') {
+            ids.push(d.data.new_clip_id);
+        } else if (d.kind === 'ClipAdded') {
+            // BUG-018 FIX: Also capture ClipAdded for cross-project paste.
+            ids.push(d.data.clip_id);
         }
     }
     // Fallback for legacy single-clip duplicate responses that don't emit ClipDuplicated deltas.

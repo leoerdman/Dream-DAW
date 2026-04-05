@@ -129,13 +129,25 @@ export function useArrangementTrackViewModel({
         const hidden = new Set<number>();
         if (collapsedGroups.size === 0) return hidden;
 
+        // PERF-012: Cache ancestor-collapsed results to avoid redundant walks.
+        // Previously walked the parent chain independently for EVERY track = O(N×D).
+        // With memoization, each unique parent is checked once = O(N) amortized.
+        const cache = new Map<string, boolean>();
         const isAncestorCollapsed = (trackId: string): boolean => {
-            let parentId = trackById[trackId]?.parent_track_id;
-            while (parentId) {
-                if (collapsedGroups.has(parentId)) return true;
-                parentId = trackById[parentId]?.parent_track_id;
+            const cached = cache.get(trackId);
+            if (cached !== undefined) return cached;
+            const parentId = trackById[trackId]?.parent_track_id;
+            if (!parentId) {
+                cache.set(trackId, false);
+                return false;
             }
-            return false;
+            if (collapsedGroups.has(parentId)) {
+                cache.set(trackId, true);
+                return true;
+            }
+            const result = isAncestorCollapsed(parentId);
+            cache.set(trackId, result);
+            return result;
         };
 
         for (let i = 0; i < orderedTrackIds.length; i++) {

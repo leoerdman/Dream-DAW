@@ -1285,7 +1285,7 @@ export const WaveformDisplay = React.memo(function WaveformDisplay({
     const uid = useId();
     const lineGradId = `wf-line-fill-${uid}`;
     const M = 10;
-    const count = data.length || 1;
+    const count = Math.max(1, data.length);
     const barWidth = (VB_W - 2 * M) / count;
     const maxH = VB_H - 2 * M;
 
@@ -1364,7 +1364,7 @@ export const SpectrumBars = React.memo(function SpectrumBars({
     const uid = useId();
     const gradId = `spectrum-bar-grad-${uid}`;
     const M = 10;
-    const count = data?.length ?? barCount;
+    const count = Math.max(1, data?.length ?? barCount);
     const barWidth = (VB_W - 2 * M) / count;
     const maxH = VB_H - 2 * M;
 

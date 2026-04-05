@@ -127,7 +127,7 @@ export async function duplicateRegion(range: RegionBox): Promise<string[]> {
         );
         return extractNewClipIdsFromDeltas(response.deltas, response.new_id);
     } catch (err) {
-        engine.logFrontendError('keyboard', `duplicateRegion: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `duplicateRegion: ${err instanceof Error ? err.message : String(err)}`);
         return [];
     }
 }
@@ -159,7 +159,7 @@ export async function moveRegion(range: RegionBox, direction: -1 | 1): Promise<n
         );
         return clips.length;
     } catch (err) {
-        engine.logFrontendError('keyboard', `moveRegion: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `moveRegion: ${err instanceof Error ? err.message : String(err)}`);
         return 0;
     }
 }
@@ -214,7 +214,7 @@ export async function swapRegions(regionA: RegionBox, regionB: RegionBox): Promi
         }
         return clipsA.length + clipsB.length;
     } catch (err) {
-        engine.logFrontendError('keyboard', `swapRegions: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `swapRegions: ${err instanceof Error ? err.message : String(err)}`);
         return 0;
     }
 }

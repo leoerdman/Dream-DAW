@@ -23,7 +23,15 @@ export type { DeltaApplyResult, DeltaApplyState } from './delta/types';
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
     if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
-    if (typeof value === 'bigint') return Number(value);
+    // BUG-011 FIX: BigInt → Number conversion loses precision for values
+    // exceeding Number.MAX_SAFE_INTEGER (2^53). A 96kHz/32-bit float audio
+    // file at ~6.5 hours exceeds this. Clamp to MAX_SAFE_INTEGER to prevent
+    // incorrect resize boundaries from truncated frame counts.
+    if (typeof value === 'bigint') {
+        if (value > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+        if (value < BigInt(-Number.MAX_SAFE_INTEGER)) return -Number.MAX_SAFE_INTEGER;
+        return Number(value);
+    }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -179,11 +187,10 @@ export function applyProjectDeltasToState(
                         // BUG-098: Allow ambient/drone content with very slow tempos.
                         warpBaseBpm: Math.max(1, toFiniteNumber(clip.warp_base_bpm, bpm)),
                         warpSourceDurationFrames: Math.max(1, toFiniteNumber(clip.warp_source_duration_frames, durFrames)),
-                        // ENTERPRISE FIX (SSOT): sourceFileTotalFrames is the IMMUTABLE
-                        // total source length set at import. Its fallback must NOT use
-                        // warp_source_duration_frames (which shrinks on resize/trim).
-                        // Fallback to durFrames — conservative but safe for legacy clips.
-                        sourceFileTotalFrames: Math.max(1, toFiniteNumber((clip as Record<string, unknown>).source_file_total_frames as number | undefined, durFrames)),
+                        // ENTERPRISE FIX (TYPE-SAFE): source_file_total_frames is bigint in
+                        // the Rust binding. Convert to number safely (BigInt → Number).
+                        // toFiniteNumber handles NaN/Infinity from overly large values.
+                        sourceFileTotalFrames: Math.max(1, toFiniteNumber(Number(clip.source_file_total_frames ?? 0), durFrames)),
                         sourceOffset: Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0)),
                         // BUG-TRIM-05 FIX: Include pitchShiftSemitones from snapshot.
                         // Previously missing — after EVERY operation (resize/split/move/merge)
@@ -233,7 +240,17 @@ export function applyProjectDeltasToState(
                                 velocity: note.velocity,
                             };
                         }),
-                        midiEnvelopes: [],
+                        // BUG-004 FIX: Extract MIDI envelope data from snapshot instead
+                        // of hardcoding to empty array. Without this, per-clip MIDI
+                        // automation (pitch bend, mod wheel, CC envelopes) is silently
+                        // discarded on every ProjectSnapshotReplaced delta.
+                        midiEnvelopes: (clip.envelopes ?? []).map((env: { param_id?: string; points?: Array<{ beat?: number; value?: number }> }) => ({
+                            paramId: env.param_id ?? '',
+                            points: (env.points ?? []).map((pt: { beat?: number; value?: number }) => ({
+                                beat: toFiniteNumber(pt.beat, 0),
+                                value: toFiniteNumber(pt.value, 0),
+                            })),
+                        })),
                     });
                 }
             }

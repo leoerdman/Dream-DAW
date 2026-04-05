@@ -78,7 +78,7 @@ export function useMissingMediaSummary(timelineClipsForView: TimelineClip[]): Mi
                 const missingCount = existsArray.filter((e: boolean) => !e).length;
                 setMissingSamplerCount(missingCount);
             })
-            .catch((err: Error | unknown) => {
+            .catch((err: unknown) => {
                 if (cancelled) return;
                 console.error('[useMissingMediaSummary] checkFilesExist failed:', err);
                 // Fallback: assume all are missing if check fails

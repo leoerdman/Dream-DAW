@@ -559,9 +559,14 @@ export const connectMidiInput = (portName: string) =>
     safeInvoke<void>('connect_midi_input', { portName });
 export const generateDemoSamples = () =>
     safeInvoke<number>('generate_demo_samples_cmd');
-// BUG-015 FIX: Auto-stop previous preview before starting new one to prevent overlap.
+// BUG-023 FIX: Auto-stop previous preview before starting new one to prevent overlap.
+// Added 500ms timeout on stop_preview_cmd — if it hangs (e.g., audio device disconnected),
+// the preview still starts instead of blocking forever.
 export const previewAudioFile = async (path: string) => {
-    await safeInvoke<void>('stop_preview_cmd').catch(() => { });
+    await Promise.race([
+        safeInvoke<void>('stop_preview_cmd'),
+        new Promise<void>(resolve => setTimeout(resolve, 500)),
+    ]).catch((err) => console.warn('[Dream] stop_preview_cmd (pre-preview cleanup):', err));
     return safeInvoke<void>('preview_audio_file_cmd', { path });
 };
 export const stopPreview = () =>
@@ -626,12 +631,20 @@ export interface ArrangementViewportState {
     scroll_left: number | null;
     scroll_top?: number | null;
 }
-export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number, scrollTop?: number) =>
-    safeInvoke<void>('set_arrangement_viewport_cmd', {
-        pixelsPerBeat,
-        scrollLeft,
-        scrollTop,
+// BUG-030 FIX: Clamp all viewport values before IPC.
+// NaN pixelsPerBeat would corrupt the saved viewport state in the project file,
+// causing all future project loads to have broken zoom. Unlike setBpm (line 107)
+// and setTrackVolume (line 140) which are clamped, viewport values were raw.
+export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number, scrollTop?: number) => {
+    const safePpb = Number.isFinite(pixelsPerBeat) ? Math.max(0.5, Math.min(5000, pixelsPerBeat)) : 20;
+    const safeSL = Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0;
+    const safeST = scrollTop != null && Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : undefined;
+    return safeInvoke<void>('set_arrangement_viewport_cmd', {
+        pixelsPerBeat: safePpb,
+        scrollLeft: safeSL,
+        scrollTop: safeST,
     });
+};
 export const getArrangementViewport = () =>
     safeInvoke<ArrangementViewportState>('get_arrangement_viewport_cmd');
 export const createBackup = () => safeInvoke<string>('create_backup_cmd');

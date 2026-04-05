@@ -116,7 +116,7 @@ export class TimelineEngine {
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipDuplicate?: (clipId: string, newBeat: number, newTrack: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean, optSourceOffset?: number) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean, optSourceOffset?: number, optWarpSourceDurationFrames?: number, optDurationSamples?: number) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onClipContextMenu?: (clipId: string, beat: number, trackIndex: number, clientX: number, clientY: number) => void;
@@ -221,8 +221,8 @@ export class TimelineEngine {
         // useTauriFileDropImport dispatches these custom events; we show a ghost clip.
         this._boundExtDragOver = this._onExtDragOver.bind(this);
         this._boundExtDragLeave = this._onExtDragLeave.bind(this);
-        window.addEventListener('dream:ext-drag-over', this._boundExtDragOver as EventListener);
-        window.addEventListener('dream:ext-drag-leave', this._boundExtDragLeave as EventListener);
+        window.addEventListener('dream:ext-drag-over', this._boundExtDragOver);
+        window.addEventListener('dream:ext-drag-leave', this._boundExtDragLeave);
 
         this._tick();
     }
@@ -256,10 +256,10 @@ export class TimelineEngine {
         window.removeEventListener('keyup', this._boundKeyUp, { capture: true });
         window.removeEventListener('blur', this._boundWindowBlur);
         if (this._boundExtDragOver) {
-            window.removeEventListener('dream:ext-drag-over', this._boundExtDragOver as EventListener);
+            window.removeEventListener('dream:ext-drag-over', this._boundExtDragOver);
         }
         if (this._boundExtDragLeave) {
-            window.removeEventListener('dream:ext-drag-leave', this._boundExtDragLeave as EventListener);
+            window.removeEventListener('dream:ext-drag-leave', this._boundExtDragLeave);
         }
 
         cancelIdle(this._prefetchDeferredId);
@@ -711,6 +711,13 @@ export class TimelineEngine {
                             })).filter(note => note.startBeat + note.durationBeats > 0);
                         }
                     }
+                    // ENTERPRISE FIX (BUG-MIDI-RESIZE-001): Update durationSamples for MIDI
+                    // clips too. Without this, the optimistic commit (lines 2201-2214) carries
+                    // a stale durationSamples value, causing the clip to briefly display with
+                    // wrong proportions until the backend snapshot arrives.
+                    // ENTERPRISE FIX: Use 128 (Rust MIN_CLIP_FRAMES) as floor to match backend invariant.
+                    const previewFrames = Math.max(128, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
+                    nextClip.durationSamples = previewFrames;
                     return nextClip;
                 }
 
@@ -719,7 +726,8 @@ export class TimelineEngine {
                 }
 
                 if (!preview.allowStretch) {
-                    const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
+                    // ENTERPRISE FIX: Use 128 (Rust MIN_CLIP_FRAMES) as floor to match backend invariant.
+                    const previewFrames = Math.max(128, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
                     const clipSourceOffset = Math.max(0, clip.sourceOffset ?? 0);
                     if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0 && (clip.durationSamples ?? 0) > 0) {
                         // ENTERPRISE FIX (SSOT): `warpSourceDurationFrames` = source consumed
@@ -747,7 +755,7 @@ export class TimelineEngine {
 
                         const sourceAvailableAfter = Math.max(1, sourceFileTotal - nextSourceOffset);
                         const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
-                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, maxPreviewFrames));
+                        const clampedPreviewFrames = Math.max(128, Math.min(previewFrames, maxPreviewFrames));
                         // warpSourceDurationFrames = source consumed by the new visible duration
                         const newConsumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
 
@@ -759,12 +767,17 @@ export class TimelineEngine {
                         // (raw mouse position). Otherwise visual width ≠ data window → stretching.
                         nextClip.durationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
                         if (preview.edge === 'left') {
+                            // ENTERPRISE FIX (WAVEFORM-SHIFT BUG): Derive startBeat from
+                            // the actual clamped source offset change, not from raw mouse
+                            // position. Previously Math.max(0, trimmedBeats) blocked leftward
+                            // expansion: sourceOffset moved (line 744 allows negative), but
+                            // startBeat stayed at originalStartBeat — causing the waveform to
+                            // shift inside the clip. Now convert actual source delta back to
+                            // timeline domain for pixel-perfect startBeat derivation.
+                            const actualSourceDelta = nextSourceOffset - clipSourceOffset;
+                            const actualTimelineDelta = Math.round(actualSourceDelta / Math.max(1e-9, sourcePerTimeline));
                             nextClip.startBeat = preview.originalStartBeat + framesToBeatDuration(
-                                Math.round(beatDurationToFrames(
-                                    Math.max(0, preview.startBeat - preview.originalStartBeat),
-                                    this._bpm, this._sampleRate,
-                                )),
-                                this._bpm, this._sampleRate,
+                                actualTimelineDelta, this._bpm, this._sampleRate,
                             );
                         }
                     } else {
@@ -795,7 +808,7 @@ export class TimelineEngine {
                         // Available timeline frames = available source / pitch_multiplier.
                         const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
 
-                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, availableTimeline));
+                        const clampedPreviewFrames = Math.max(128, Math.min(previewFrames, availableTimeline));
 
                         nextClip.durationSamples = clampedPreviewFrames;
                         nextClip.sourceOffset = nextSourceOffset;
@@ -808,9 +821,15 @@ export class TimelineEngine {
                         // visual width to not match the data window (stretching/squishing).
                         const derivedDurationBeats = framesToBeatDuration(clampedPreviewFrames, this._bpm, this._sampleRate);
                         if (preview.edge === 'left') {
-                            // Derive startBeat from nextSourceOffset consistently
+                            // ENTERPRISE FIX (LEFT-EDGE DESYNC): Derive startBeat from the
+                            // CLAMPED source delta, not raw trimmedFrames. When expanding left
+                            // beyond source data, nextSourceOffset clamps to 0 but raw
+                            // trimmedFrames keeps decreasing — causing startBeat to move left
+                            // while the data window stays put. Convert clamped source delta
+                            // back to timeline domain (÷ pitchMul) for consistent startBeat.
+                            const clampedTimelineTrimFrames = Math.round(clampedSourceTrimmed / Math.max(1e-9, pitchMul));
                             nextClip.startBeat = preview.originalStartBeat + framesToBeatDuration(
-                                Math.round(trimmedFrames), this._bpm, this._sampleRate,
+                                clampedTimelineTrimFrames, this._bpm, this._sampleRate,
                             );
                             nextClip.durationBeats = derivedDurationBeats;
                         } else {
@@ -819,10 +838,18 @@ export class TimelineEngine {
                     }
                 } else {
                     const ratio = preview.durationBeats / (clip.durationBeats || 1);
-                    nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
+                    nextClip.durationSamples = Math.max(128, Math.round(clip.durationSamples * ratio));
                     if (!clip.isWarped) {
                         nextClip.isWarped = true;
-                        nextClip.warpSourceDurationFrames = clip.durationSamples;
+                        // ENTERPRISE FIX (BUG-STRETCH-PITCH-001): For pitch-shifted clips,
+                        // warpSourceDurationFrames must be the source frames CONSUMED by the
+                        // current duration, not the timeline duration. The engine reads source
+                        // at pitchMultiplier rate per timeline frame, so consumed source =
+                        // durationSamples * pitchMultiplier. Using raw durationSamples would
+                        // give a warp ratio of 1.0, effectively nullifying the pitch shift.
+                        const pitchSt = clip.pitchShiftSemitones ?? 0;
+                        const pitchMul = pitchSt !== 0 ? Math.pow(2, pitchSt / 12) : 1.0;
+                        nextClip.warpSourceDurationFrames = Math.max(1, Math.round(clip.durationSamples * pitchMul));
                     }
                 }
 
@@ -1761,9 +1788,25 @@ export class TimelineEngine {
                 if (resizeClipL && resizeClipL.type === 'audio' && !this._drag.clipResizeAllowStretch) {
                     const clipSourceOffset = Math.max(0, resizeClipL.sourceOffset ?? 0);
                     if (clipSourceOffset > 0) {
-                        // How far left can we extend? By the amount of sourceOffset available.
-                        const expandableFrames = clipSourceOffset;
-                        const expandableBeats = framesToBeatDuration(expandableFrames, this._bpm, this._sampleRate);
+                        // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
+                        // sourceOffset is in source domain. Each timeline frame consumes
+                        // pitchMultiplier source frames (render_callback.rs L778-784).
+                        // Available expansion = sourceOffset / pitchMultiplier timeline frames.
+                        const pitchSemitones = resizeClipL.pitchShiftSemitones ?? 0;
+                        const pitchMul = pitchSemitones !== 0
+                            ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
+                            : 1.0;
+                        // For warped clips, sourceOffset is already in source domain,
+                        // and the warp ratio is sourcePerTimeline. Use sourcePerTimeline
+                        // if available, otherwise fall back to pitchMul.
+                        let expandableTimeline: number;
+                        if (resizeClipL.isWarped && (resizeClipL.warpSourceDurationFrames ?? 0) > 0 && (resizeClipL.durationSamples ?? 0) > 0) {
+                            const sourcePerTimeline = (resizeClipL.warpSourceDurationFrames ?? 1) / Math.max(1, resizeClipL.durationSamples ?? 1);
+                            expandableTimeline = Math.floor(clipSourceOffset / Math.max(1e-9, sourcePerTimeline));
+                        } else {
+                            expandableTimeline = Math.floor(clipSourceOffset / Math.max(1e-9, pitchMul));
+                        }
+                        const expandableBeats = framesToBeatDuration(expandableTimeline, this._bpm, this._sampleRate);
                         const audioLeftBound = this._drag.clipOriginalBeat - expandableBeats;
                         leftBound = Math.max(leftBound, audioLeftBound);
                     } else {
@@ -1821,7 +1864,15 @@ export class TimelineEngine {
                             // "source consumed by visible duration". Add sourceOffset to recover
                             // the total source file length for re-expansion capability.
                             ? Math.max(1, (resizeClipR.warpSourceDurationFrames ?? 0) + (resizeClipR.sourceOffset ?? 0))
-                            : Math.max(1, resizeClipR.durationSamples ?? 1));
+                            // ENTERPRISE FIX (BUG-RIGHT-PITCH-FALLBACK-001): For non-warped
+                            // pitch-shifted clips, durationSamples is in timeline domain.
+                            // Source consumed = durationSamples * pitchMultiplier. Without
+                            // this, the clip can't be expanded past its current trimmed size.
+                            : (() => {
+                                const pSt = resizeClipR.pitchShiftSemitones ?? 0;
+                                const pMul = pSt !== 0 ? Math.pow(2, Math.max(-36, Math.min(36, pSt)) / 12) : 1.0;
+                                return Math.max(1, Math.round((resizeClipR.durationSamples ?? 1) * pMul) + (resizeClipR.sourceOffset ?? 0));
+                            })());
                     const clipSourceOffset = Math.max(0, resizeClipR.sourceOffset ?? 0);
                     const availableSource = Math.max(1, sourceTotal - clipSourceOffset);
                     // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
@@ -2157,7 +2208,9 @@ export class TimelineEngine {
                                 preview.startBeat,
                                 preview.durationBeats,
                                 preview.allowStretch,
-                                previewClip?.sourceOffset
+                                previewClip?.sourceOffset,
+                                previewClip?.warpSourceDurationFrames,
+                                previewClip?.durationSamples,
                             );
 
                             // ENTERPRISE: Optimistic in-place update — keep the clip

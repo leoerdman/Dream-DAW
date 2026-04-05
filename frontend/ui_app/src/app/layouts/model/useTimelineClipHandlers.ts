@@ -33,7 +33,7 @@ type Result = {
     handleDoubleClickTrack: (trackIndex: number, beat: number) => void;
     handleClipMove: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     handleClipDuplicate: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, sourceOffset?: number) => void;
+    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, sourceOffset?: number, warpSourceDurationFrames?: number, durationSamples?: number) => void;
     handleClipFades: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     handleOpenMidiClip: (clipId: string) => void;
 };
@@ -189,7 +189,7 @@ export function useTimelineClipHandlers({
         trackCountRaw,
     ]);
 
-    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, optSourceOffset?: number) => {
+    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean, optSourceOffset?: number, optWarpSourceDurationFrames?: number, optDurationSamples?: number) => {
         // BUG-008: Validate inputs before IPC — reject negative, NaN, zero-duration.
         if (!Number.isFinite(newStartBeat) || newStartBeat < 0) return;
         if (!Number.isFinite(newDurationBeats) || newDurationBeats <= 0) return;
@@ -203,25 +203,36 @@ export function useTimelineClipHandlers({
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
         const newPositionFrames = Math.round(beatToFrame(newStartBeat, bpm, sampleRate));
-        const newDurationFrames = Math.round(Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate)));
+        // ENTERPRISE FIX (WAVEFORM-DESYNC): Prefer the precisely-clamped durationSamples
+        // from the composed preview when available. The preview computes durationSamples
+        // with source-boundary clamping; recomputing from beats introduces floating-point
+        // drift that causes the waveform to snap during the IPC gap.
+        // CRITICAL: Both paths must enforce MIN_CLIP_FRAMES (128) to match the Rust
+        // backend's minimum (mutators.rs L78). Without this, the backend rejects the
+        // resize with ClipTooShort, causing the clip to snap to a 1px strip.
+        const MIN_CLIP_FRAMES = 128;
+        const newDurationFrames = typeof optDurationSamples === 'number' && optDurationSamples > 0
+            ? Math.max(MIN_CLIP_FRAMES, optDurationSamples)
+            : Math.round(Math.max(MIN_CLIP_FRAMES, beatDurationToFrames(newDurationBeats, bpm, sampleRate)));
 
         // ENTERPRISE FIX: Apply optimistic Zustand update BEFORE async IPC logic.
         // This bridges the 100-200ms IPC gap, preventing the TimelineEngine from
         // collapsing to stale store values (causing waveform snap-back) on mouseUp.
         //
-        // CRITICAL: Update the SSOT clips store.
-        // BUG-WARP-01 FIX: For warped clips, `durationSamples` represents the source
-        // material window (NOT timeline duration). Writing timeline frames as
-        // `durationSamples` corrupts the waveform rendering until the backend delta
-        // corrects it. Only write `durationSamples` for non-warped clips.
-        const liveClip = resolveClipById(liveState, clipId);
-        const isWarpedClip = Boolean(liveClip?.isWarped);
+        // CRITICAL: Update the SSOT clips store with ALL preview-computed fields.
         useEngineStore.getState().patchClip(clipId, {
             startBeat: newStartBeat,
             durationBeats: newDurationBeats,
-            ...(isWarpedClip ? {} : { durationSamples: newDurationFrames }),
+            durationSamples: newDurationFrames,
             ...(typeof optSourceOffset === 'number'
                 ? { sourceOffset: Math.round(optSourceOffset) }
+                : {}),
+            // ENTERPRISE FIX (ROOT CAUSE): Propagate warpSourceDurationFrames from
+            // the composed preview. Without this, the store keeps the stale pre-resize
+            // value → the waveform renderer reads the wrong source window → visible
+            // stretching/squishing during the 100-200ms IPC gap.
+            ...(typeof optWarpSourceDurationFrames === 'number'
+                ? { warpSourceDurationFrames: optWarpSourceDurationFrames }
                 : {}),
         });
 

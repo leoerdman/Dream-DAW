@@ -104,6 +104,11 @@ export class CanvasClipRenderer {
             headerDisabled: `rgba(${r},${g},${b},${CLIP_HEADER_ALPHA})`,
         };
         CanvasClipRenderer._clipColorStringCache.set(hexColor, result);
+        // BUG-065 FIX: Cap cache at 500 entries to prevent unbounded growth.
+        // Custom per-clip colors accumulate indefinitely in long sessions.
+        if (CanvasClipRenderer._clipColorStringCache.size > 500) {
+            CanvasClipRenderer._clipColorStringCache.clear();
+        }
         return result;
     }
 
@@ -176,6 +181,10 @@ export class CanvasClipRenderer {
         if (cached !== undefined) return cached;
         const result = getContrastColor(hexColor);
         CanvasClipRenderer._contrastColorCache.set(hexColor, result);
+        // BUG-064 FIX: Cap cache at 500 entries to prevent unbounded growth.
+        if (CanvasClipRenderer._contrastColorCache.size > 500) {
+            CanvasClipRenderer._contrastColorCache.clear();
+        }
         return result;
     }
 

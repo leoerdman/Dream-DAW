@@ -416,6 +416,10 @@ pub fn split_clip(
     // If a clip is stretched 2x (is_warped), 10 timeline frames = 5 source frames.
     // If we just added 10 to right_source_offset, it would incorrectly skip 10 source frames.
     let source_start = original.source_offset.sample_frame;
+    // NOTE: source_total = source frames consumed by the clip's visible duration.
+    // This is NOT the total file length (which is source_file_total_frames).
+    // The warp ratio source_total/timeline_total must reflect the CURRENT clip's
+    // proportions, not the total file, so we use warp_source_duration_frames here.
     let source_total = original.warp_source_duration_frames.max(original.duration.sample_frame).max(MIN_CLIP_FRAMES);
     let timeline_total = original.duration.sample_frame.max(MIN_CLIP_FRAMES);
     

@@ -66,7 +66,7 @@ export function useAutoSave(intervalMs: number = AUTO_SAVE_INTERVAL_MS) {
             } catch (err) {
                 // Non-fatal: log and keep timer running
                 if (!cancelledRef.current) {
-                    console.warn('[Dream] Failed:', err);
+                    console.warn('[Dream] Auto-save failed:', err);
                 }
             } finally {
                 inFlightRef.current = false;

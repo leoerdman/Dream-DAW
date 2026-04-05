@@ -8,6 +8,19 @@ import { smoothMeterSnapshot } from '@/shared/stores/engine/actionsTelemetrySmoo
 import { enqueuePendingStoreUpdate, payloadToUint8Array } from '@/shared/stores/engine/actionsTelemetryQueue';
 import { createPluginEditorActions } from '@/shared/stores/engine/actionsTelemetryEditors';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
+
+// BUG-035 FIX: Shallow array equality for Tauri IPC arrays.
+// Tauri IPC always deserializes a new array reference on each tick, so
+// reference comparison (`!==`) is always true. This helper prevents
+// 30Hz re-renders by comparing length + elements.
+function arraysShallowEqual(a: number[] | undefined, b: number[] | undefined): boolean {
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
+}
 let telemetryStarted = false;
 let telemetryUnlisten: UnlistenFn | null = null;
 let pluginSandboxUnlisten: UnlistenFn | null = null;
@@ -157,7 +170,10 @@ export function createTelemetryActions(
                                 perf.dsp_load_instant !== prev_perf.dspLoadInstant ||
                                 perf.callback_duration_us !== prev_perf.callbackDurationUs ||
                                 perf.xrun_count !== prev_perf.xrunCount ||
-                                perf.cpu_per_core !== prev_perf.cpuPerCore // We can skip deep equality here since it's a new array reference from Tauri IPC on changes, but to be 100% safe:
+                                // BUG-035 FIX: Array reference from Tauri IPC is ALWAYS different (new array on each tick).
+                                // Previous reference comparison `!==` was always true, causing 30Hz re-renders for all
+                                // performance subscribers. Use length+element deep comparison instead.
+                                !arraysShallowEqual(perf.cpu_per_core, prev_perf.cpuPerCore)
                             ) {
                                 telemetryUpdate.performance = {
                                     cpuUsage: perf.cpu_usage,
@@ -326,7 +342,7 @@ export function createTelemetryActions(
                         'audio_stream_error',
                         (event) => {
                             const msg = `Audio engine error: ${event.payload.error}`;
-                            engine.logFrontendError('telemetry', `audio_stream_error: ${event.payload.error}`);
+                            void engine.logFrontendError('telemetry', `audio_stream_error: ${event.payload.error}`);
                             enqueuePendingStoreUpdate(set, {
                                 lastError: msg,
                                 connected: false,
@@ -361,7 +377,7 @@ export function createTelemetryActions(
                     exportResumePlaybackUnlisten = await listen<void>(
                         'export_resume_playback',
                         () => {
-                            engine.logFrontendError('telemetry', 'export_resume_playback — resuming');
+                            void engine.logFrontendError('telemetry', 'export_resume_playback — resuming');
                             void engine.play();
                         },
                     );

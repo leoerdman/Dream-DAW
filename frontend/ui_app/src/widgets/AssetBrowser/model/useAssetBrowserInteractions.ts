@@ -192,7 +192,7 @@ export function usePreviewSync({
 }: PreviewSyncParams) {
     const enqueuePreviewCommand = useCallback((command: () => Promise<void>) => {
         previewCommandQueueRef.current = previewCommandQueueRef.current
-            .catch(() => undefined)
+            .catch((err) => { console.warn('[Dream] preview queue: previous command failed, continuing chain:', err); })
             .then(command)
             .catch((err) => {
                 console.warn('[Dream] preview command failed:', err);
@@ -211,14 +211,15 @@ export function usePreviewSync({
                         audioDurationSecRef.current[item.path] = peaks.total_samples / peaks.sample_rate;
                     }
                 })
-                .catch(() => {
+                .catch((err: unknown) => {
+                    console.warn('[Dream] getWaveformPeaksBinary failed:', item.path, err);
                     if (previewRequestTokenRef.current === token) setPreviewPeaks(null);
                 });
 
             if (previewEnabled) {
                 isPreviewPlayingRef.current = true;
                 enqueuePreviewCommand(async () => {
-                    await engineApi.stopPreview().catch(() => undefined);
+                    await engineApi.stopPreview().catch((err) => console.warn('[Dream] stopPreview (pre-new-preview):', err));
                     if (previewRequestTokenRef.current !== token) return;
                     await engineApi.previewAudioFile(audioPath)
                         .catch((err: unknown) => console.error('[Preview] Failed to preview:', audioPath, err));
@@ -226,14 +227,14 @@ export function usePreviewSync({
             } else {
                 isPreviewPlayingRef.current = false;
                 enqueuePreviewCommand(async () => {
-                    await engineApi.stopPreview().catch(() => undefined);
+                    await engineApi.stopPreview().catch((err) => console.warn('[Dream] stopPreview (preview-disabled):', err));
                 });
             }
             return;
         }
         isPreviewPlayingRef.current = false;
         enqueuePreviewCommand(async () => {
-            await engineApi.stopPreview().catch(() => undefined);
+            await engineApi.stopPreview().catch((err) => console.warn('[Dream] stopPreview (non-audio-selection):', err));
         });
         if (previewRequestTokenRef.current === token) setPreviewPeaks(null);
     }, [

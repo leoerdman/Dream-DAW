@@ -20,7 +20,13 @@ function upsertClip(state: DeltaWorkingState, clip: TimelineClip): void {
     if (!isValidClipId(clip.id)) return;
     const existing = state.clips.byId[clip.id];
     if (!existing) {
-        state.clips.allIds.push(clip.id);
+        // BUG-010 FIX: Guard against duplicate allIds entries.
+        // After undo/redo + snapshot race, allIds could accumulate duplicates
+        // because the `existing` check uses byId (which gets overwritten) but
+        // allIds grows monotonically. Use indexOf for O(n) safety check.
+        if (!state.clips.allIds.includes(clip.id)) {
+            state.clips.allIds.push(clip.id);
+        }
     }
     state.clips.byId[clip.id] = clip;
 }
@@ -48,12 +54,19 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
             // BUG-H10 FIX: Prefer color from delta data (backend may send custom clip color).
             // Falls back to track color, then DEFAULT_TRACK_COLOR if track not found.
-            color: (typeof (delta.data as Record<string, unknown>).color === 'string'
-                ? (delta.data as Record<string, unknown>).color as string
+            color: (typeof delta.data.color === 'string'
+                ? delta.data.color
                 : null) ?? track?.color ?? DEFAULT_TRACK_COLOR,
             filePath: delta.data.file_path ?? undefined,
             sourceOffset: delta.data.source_offset ?? 0,
             muted: false,
+            // BUG-039 FIX: Initialize all fade fields to prevent NaN in fade rendering.
+            // Without these, a subsequent ClipFadesChanged delta comparing against
+            // undefined produces NaN in Math.round(undefined * durationFrames).
+            fadeIn: 0,
+            fadeOut: 0,
+            fadeInCurve: 0.5,
+            fadeOutCurve: 0.5,
             midiNotes: delta.data.clip_type === 'midi' ? [] : undefined,
             // BUG-F004 FIX: Carry over warp/pitch if provided by backend.
             isWarped: delta.data.is_warped ?? false,
@@ -128,6 +141,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 : sourceClip.durationBeats,
             durationSamples: delta.data.new_duration ?? sourceClip.durationSamples,
             ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
+            // ENTERPRISE FIX: Extract source_file_total_frames from delta when
+            // available. Without this, duplicated clips inherit stale values from
+            // the source clip, causing the ratchet bug on the duplicate.
+            ...(delta.data.source_file_total_frames != null ? { sourceFileTotalFrames: delta.data.source_file_total_frames } : {}),
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -193,6 +210,37 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             rightWarpSource = Math.max(1, Math.round(sourceTotal - consumedSource));
         }
 
+        // ENTERPRISE FIX (BUG-SPLIT-MIDI-001): Partition MIDI notes into three
+        // categories, mirroring the backend split_midi_clip() logic in mutators.rs:
+        // 1. Notes ending at/before split → left half verbatim
+        // 2. Notes starting at/after split → right half, shifted by splitOffsetBeats
+        // 3. Notes SPANNING the split → TRUNCATED in left half (previously DROPPED)
+        let leftMidiNotes = clip.midiNotes;
+        let rightMidiNotes = clip.midiNotes;
+        if (clip.type === 'midi' && Array.isArray(clip.midiNotes)) {
+            const leftNotes: typeof clip.midiNotes = [];
+            const rightNotes: typeof clip.midiNotes = [];
+            for (const n of clip.midiNotes) {
+                const noteEnd = n.startBeat + n.durationBeats;
+                if (n.startBeat >= splitOffsetBeats) {
+                    // Note starts at or after split → right half only, shift to local time
+                    rightNotes.push({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) });
+                } else if (noteEnd <= splitOffsetBeats) {
+                    // Note ends at or before split → left half only
+                    leftNotes.push(n);
+                } else {
+                    // Note SPANS the split boundary → truncate in left, create remainder in right
+                    leftNotes.push({ ...n, durationBeats: Math.max(0.001, splitOffsetBeats - n.startBeat) });
+                    const remainderDuration = noteEnd - splitOffsetBeats;
+                    if (remainderDuration > 0.001) {
+                        rightNotes.push({ ...n, startBeat: 0, durationBeats: remainderDuration });
+                    }
+                }
+            }
+            leftMidiNotes = leftNotes;
+            rightMidiNotes = rightNotes;
+        }
+
         const leftClip: TimelineClip = {
             ...clip,
             durationBeats: leftDuration,
@@ -203,11 +251,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
             // the same source file. Without this, right-edge resize can't re-expand.
             sourceFileTotalFrames: clip.sourceFileTotalFrames,
-            midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
-                // BUG-036 FIX: Use exclusive boundary for left clip to prevent notes from appearing in both clips.
-                // Previously, notes within 2e-9 of the split boundary appeared in BOTH left and right clips.
-                ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats <= splitOffsetBeats)
-                : clip.midiNotes,
+            midiNotes: leftMidiNotes,
         };
         const rightClip: TimelineClip = {
             ...clip,
@@ -222,10 +266,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
             // the same source file.
             sourceFileTotalFrames: clip.sourceFileTotalFrames,
-            midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
-                // BUG-036 FIX: Use strict exclusive boundary — notes starting AT the split go to right clip only.
-                ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
-                : clip.midiNotes,
+            midiNotes: rightMidiNotes,
         };
         upsertClip(state, leftClip);
         upsertClip(state, rightClip);
@@ -368,7 +409,10 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             ...clip,
             isWarped: delta.data.is_warped,
             warpMode: delta.data.warp_mode,
-            warpBaseBpm: delta.data.warp_base_bpm,
+            // BUG-021 FIX: Clamp warpBaseBpm to Math.max(1, ...) matching the
+            // snapshot path (applyProjectDeltas.ts:180). A warp_base_bpm of 0
+            // from the backend causes division-by-zero in warp rate calculations.
+            warpBaseBpm: Math.max(1, delta.data.warp_base_bpm ?? clip.warpBaseBpm ?? env.bpm),
             warpSourceDurationFrames: delta.data.warp_source_duration_frames != null
                 ? Math.max(1, delta.data.warp_source_duration_frames)
                 : clip.warpSourceDurationFrames,
@@ -393,9 +437,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipColorChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return false;
+        // BUG-042 FIX: null color means "remove color override, revert to track color".
+        // Previously null preserved the old custom color, making it impossible to reset.
+        const trackColor = getTrackByIndex(state, clip.trackIndex)?.color ?? DEFAULT_TRACK_COLOR;
         const next = {
             ...clip,
-            color: delta.data.color ?? clip.color,
+            color: delta.data.color ?? trackColor,
         };
         upsertClip(state, next);
         state.changed = true;

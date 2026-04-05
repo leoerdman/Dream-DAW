@@ -189,7 +189,7 @@ function FloatingPresetBar() {
                 style={{
                     fontSize: 'var(--font-size-sm)',
                     color: 'var(--color-text-secondary)',
-                    fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                    fontWeight: 500,
                     minWidth: 60,
                     textAlign: 'center',
                     userSelect: 'none',

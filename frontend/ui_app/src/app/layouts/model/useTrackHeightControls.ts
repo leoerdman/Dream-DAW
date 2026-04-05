@@ -201,6 +201,22 @@ export function useTrackHeightControls({
     }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, tracksByIdSnapshot, resolveHeightTargetTrackIds]);
 
     const timelineTrackHeights = useMemo(() => {
+        // PERF-011: Pre-compute per-track visible lane count ONCE = O(L).
+        // Previously did Object.values(lanes).filter(l => l.trackId === trackId)
+        // inside the per-track map loop = O(N×L). With 38 tracks × 38 lanes,
+        // that's 1,444 iterations per render.
+        let visibleLaneCountByTrack: Map<string, number> | null = null;
+        if (automationVisible) {
+            visibleLaneCountByTrack = new Map();
+            for (const lane of Object.values(lanes)) {
+                if (!lane.visible) continue;
+                visibleLaneCountByTrack.set(
+                    lane.trackId,
+                    (visibleLaneCountByTrack.get(lane.trackId) ?? 0) + 1,
+                );
+            }
+        }
+
         return trackIdsSnapshot.map((trackId, idx) => {
             if (hiddenTrackIndices.has(idx)) return 0;
             const track = tracksByIdSnapshot[trackId];
@@ -208,10 +224,10 @@ export function useTrackHeightControls({
 
             // ENTERPRISE FIX: Add automation lane heights so Timeline perfectly syncs with TrackInspector
             let additionalHeight = 0;
-            if (automationVisible) {
-                const trackLanes = Object.values(lanes).filter(l => l.trackId === trackId && l.visible);
-                if (trackLanes.length > 0) {
-                    additionalHeight = Math.max(0, trackLanes.length - 1) * AUTOMATION_LANE_HEIGHT_PX;
+            if (visibleLaneCountByTrack) {
+                const count = visibleLaneCountByTrack.get(trackId) ?? 0;
+                if (count > 0) {
+                    additionalHeight = Math.max(0, count - 1) * AUTOMATION_LANE_HEIGHT_PX;
                 }
             }
 

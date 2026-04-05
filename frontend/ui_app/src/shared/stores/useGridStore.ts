@@ -22,6 +22,17 @@ export const useGridStore = create<GridStore>((set, get) => {
     // Replaces 3 identical IPC call patterns in setDivision, setTriplet, setSnapEnabled.
     const syncGridToEngine = (reason: string): void => {
         const st = get();
+        // BUG-018 FIX: Capture pre-call state for rollback on IPC failure.
+        // Previously only cleared pendingSync, leaving the UI grid state
+        // desynchronized from the backend after a failed IPC call.
+        const rollbackState = {
+            division: st.division,
+            triplet: st.triplet,
+            snapEnabled: st.snapEnabled,
+            fixedMode: st.fixedMode,
+            fixedNumerator: st.fixedNumerator,
+            fixedDenominator: st.fixedDenominator,
+        };
         void engine
             .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
@@ -32,7 +43,8 @@ export const useGridStore = create<GridStore>((set, get) => {
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, reason))
             .catch((err: unknown) => {
-                set({ pendingSync: null });
+                // BUG-018 FIX: Rollback optimistic grid state on failure.
+                set({ ...rollbackState, pendingSync: null });
                 const msg = err instanceof Error ? err.message : String(err);
                 console.error(`[GridStore] setArrangementGrid(${reason}) failed:`, err);
                 useStatusStore.getState().setError(`Grid sync failed: ${msg}`);

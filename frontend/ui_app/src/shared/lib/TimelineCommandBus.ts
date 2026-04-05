@@ -7,7 +7,7 @@ export type TimelineCommand =
     | { type: 'clip-selection'; clipIds: string[] }
     | { type: 'clip-move'; clipId: string; beat: number; trackIndex: number }
     | { type: 'clip-duplicate'; clipId: string; beat: number; trackIndex: number }
-    | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number; allowStretch: boolean; sourceOffset?: number }
+    | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number; allowStretch: boolean; sourceOffset?: number; warpSourceDurationFrames?: number; durationSamples?: number }
     | { type: 'track-dblclick'; trackIndex: number; beat: number }
     | { type: 'clip-dblclick'; clipId: string; trackIndex: number }
     | { type: 'marquee-start' }

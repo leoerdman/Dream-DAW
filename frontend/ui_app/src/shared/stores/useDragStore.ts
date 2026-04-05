@@ -125,6 +125,12 @@ export const useDragStore = create<DragState>((set, get) => ({
     },
 
     updateDraggingItem: (patch) => {
+        // BUG-037 FIX: Return early before set() if no drag is active.
+        // Callers may still call updateDraggingItem after endDrag() if their
+        // async operations (e.g., getAudioFileDuration) resolve late. The guard
+        // inside set() prevented mutation but still triggered a Zustand state
+        // transition cycle (Object.assign + subscriber notification for a no-op).
+        if (!get().draggingItem) return;
         set((state) => {
             if (!state.draggingItem) return state;
             return {

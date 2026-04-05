@@ -5,6 +5,16 @@
  * Replaces inconsistent patterns like `String(e)`, `err instanceof Error ? err.message : String(err)`, etc.
  */
 
+/** ENTERPRISE TYPE GUARD: Safely narrows `unknown` to an error-like object with `message` and optional `name`. */
+function isErrorLike(err: unknown): err is { message: string; name?: string } {
+    return (
+        err != null &&
+        typeof err === 'object' &&
+        'message' in err &&
+        typeof (err as { message: unknown }).message === 'string'
+    );
+}
+
 /**
  * Extracts a human-readable error message from any thrown value.
  *
@@ -17,12 +27,12 @@ export function toErrorMessage(err: unknown, fallback = 'Unknown error'): string
         return err.name && err.name !== 'Error' ? `${err.name}: ${err.message}` : err.message;
     }
     if (typeof err === 'string') return err;
-    if (err != null && typeof (err as Record<string, unknown>).message === 'string') {
-        const name = (err as Record<string, unknown>).name;
+    if (isErrorLike(err)) {
+        const name = err.name;
         if (typeof name === 'string' && name && name !== 'Error') {
-            return `${name}: ${(err as Record<string, unknown>).message as string}`;
+            return `${name}: ${err.message}`;
         }
-        return (err as Record<string, unknown>).message as string;
+        return err.message;
     }
     try {
         const str = String(err);

@@ -151,7 +151,7 @@ export function pixelToSnappedBeat(
     interval: number,
     freeMode: boolean = false,
 ): number {
-    const rawBeat = px / pixelsPerBeat;
+    const rawBeat = px / Math.max(1e-6, pixelsPerBeat);
     if (freeMode || interval <= 0) return Math.max(0, rawBeat);
     return snapToGrid(rawBeat, interval);
 }

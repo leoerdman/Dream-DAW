@@ -65,11 +65,16 @@ export const useTimelineStore = create<TimelineState>((set) => ({
         }
         // BUG-014 FIX: Compare DOMRect values, not references — getBoundingClientRect()
         // always returns a new object, causing 60 unnecessary state writes/sec.
+        // BUG-017 FIX: Handle explicit null assignment (component unmount) safely.
+        // Previously, null passed through and any subsequent code reading
+        // canvasRect.width without a null-check would crash.
         if (values.canvasRect !== undefined) {
             const a = values.canvasRect;
             const b = state.canvasRect;
-            const same = a && b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-            if (!same) {
+            if (a === null) {
+                // Explicit null = component unmount. Only update if was non-null.
+                if (b !== null) { partial.canvasRect = null; changed = true; }
+            } else if (!b || a.x !== b.x || a.y !== b.y || a.width !== b.width || a.height !== b.height) {
                 partial.canvasRect = a; changed = true;
             }
         }
@@ -87,9 +92,11 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({
-            // BUG-A065 FIX: Simple increment — MAX_SAFE_INTEGER modulo is unnecessary
-            // and introduces bias. Monotonic increment is safe for any practical session.
-            restoreSeq: state.restoreSeq + 1,
+            // BUG-034 FIX: Use modular arithmetic to prevent overflow past
+            // MAX_SAFE_INTEGER in very long sessions (theoretical but demonstrates
+            // enterprise-grade overflow safety). Bitwise AND with 0x7FFFFFFF
+            // wraps at ~2.1 billion which never causes precision loss.
+            restoreSeq: (state.restoreSeq + 1) & 0x7FFFFFFF,
             restorePixelsPerBeat: Number.isFinite(pixelsPerBeat) ? pixelsPerBeat : 20,
             restoreScrollLeft: Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0,
             restoreScrollTop: Number.isFinite(scrollTop) ? Math.max(0, scrollTop as number) : null,

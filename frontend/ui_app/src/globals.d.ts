@@ -13,7 +13,11 @@ interface Window {
     __dreamSaveProject?: () => Promise<void>;
     __dreamSaveAsProject?: () => Promise<void>;
     // BUG-056 FIX: Declared here so Tauri guards don't need `as any` casts.
+    __TAURI__?: unknown;
     __TAURI_INTERNALS__?: unknown;
+    // Web Speech API — may not exist in all WebView environments.
+    SpeechRecognition?: new () => unknown;
+    webkitSpeechRecognition?: new () => unknown;
 }
 
 declare module 'lodash.throttle' {

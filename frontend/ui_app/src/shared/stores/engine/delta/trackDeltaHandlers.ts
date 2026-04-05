@@ -51,17 +51,17 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackDisabledChanged') {
-        // BUG-H11 FIX: Proper type narrowing instead of fragile dual-cast.
+        // ENTERPRISE TYPE SAFETY: Both `disabled` and `muted` (legacy) are now
+        // declared in the ProjectDelta type — no `as Record<string, unknown>` needed.
         // Backend schema migrated from `muted` → `disabled`. Support both
         // with explicit fallback and deprecation warning for old field.
-        const data = delta.data as Record<string, unknown>;
         let nextDisabled: boolean;
-        if ('disabled' in data && typeof data.disabled === 'boolean') {
-            nextDisabled = data.disabled;
-        } else if ('muted' in data && typeof data.muted === 'boolean') {
-            nextDisabled = data.muted;
+        if (typeof delta.data.disabled === 'boolean') {
+            nextDisabled = delta.data.disabled;
+        } else if (typeof delta.data.muted === 'boolean') {
+            nextDisabled = delta.data.muted;
         } else {
-            // BUG-H11 FIX: Neither field present — log warning and skip.
+            // Neither field present — log warning and skip.
             // Previously defaulted to `false`, silently un-disabling the track.
             console.warn('[TrackDelta] TrackDisabledChanged: neither `disabled` nor `muted` field found — skipping.');
             return true;
@@ -175,21 +175,44 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             curve_type: point.curve_type,
             tension: point.tension ?? undefined,
         }));
+        // BUG-040 FIX: Keep lanes with 0 points instead of removing them.
+        // Previously, `.filter(lane => lane.points.length > 0)` removed the lane
+        // entirely when all points were deleted, losing the param_id association.
+        // When the user adds a new point after clearing, the lane was re-created
+        // without any previous parameter metadata. Now we keep the lane structure
+        // intact with empty points array — the param_id is preserved for undo.
         const nextLanes = track.automation_lanes.some((lane) => lane.param_id === delta.data.param_id)
             ? track.automation_lanes
                 .map((lane) => lane.param_id === delta.data.param_id
                     ? { ...lane, points: lanePoints }
                     : lane)
-                .filter((lane) => lane.points.length > 0)
             : (lanePoints.length > 0
                 ? [...track.automation_lanes, { param_id: delta.data.param_id, points: lanePoints }]
                 : track.automation_lanes);
         const nextPatch: Partial<ProjectTrack> = { automation_lanes: nextLanes };
+        // BUG-041 FIX: Derive send_a/send_b from the point with the highest
+        // beat value (last in time), not from array position .at(-1).
+        // After undo, the backend may send unsorted points — .at(-1) gives
+        // the wrong value because it's just the last array element, not the
+        // temporally last point.
         const param = (delta.data.param_id ?? '').toLowerCase();
-        if (param === 'send.a') {
-            nextPatch.send_a = clamp01(delta.data.points.at(-1)?.value ?? 0);
-        } else if (param === 'send.b') {
-            nextPatch.send_b = clamp01(delta.data.points.at(-1)?.value ?? 0);
+        if (param === 'send.a' || param === 'send.b') {
+            const points = delta.data.points;
+            let lastValue = 0;
+            if (points.length > 0) {
+                let maxBeat = -Infinity;
+                for (const p of points) {
+                    if (p.beat >= maxBeat) {
+                        maxBeat = p.beat;
+                        lastValue = p.value;
+                    }
+                }
+            }
+            if (param === 'send.a') {
+                nextPatch.send_a = clamp01(lastValue);
+            } else {
+                nextPatch.send_b = clamp01(lastValue);
+            }
         }
         patchTrack(state, delta.data.track_id, nextPatch);
         return true;
@@ -269,16 +292,37 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         // Removing an empty track previously wouldn't trigger auto-save.
         state.changed = true;
 
-        // ENTERPRISE FIX: Clean up automation lanes for the removed track.
-        // Without this, undo/redo track removal leaves stale lanes + breakpoints
-        // in useAutomationStore — memory leak and data integrity bug.
-        import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
-            useAutomationStore.getState().cleanupTrackLanes(delta.data.track_id);
-        }).catch((err: unknown) => {
-            // ENTERPRISE (Phase 32): Log import failures instead of swallowing.
-            // In SSR/test, this is expected and harmless. In production, it's a real issue.
-            console.warn('[TrackDelta] AutomationStore cleanup import failed:', err);
-        });
+        // BUG-007 FIX: Use synchronous cleanup instead of dynamic import().
+        // Previously used async `import()` inside this synchronous delta handler,
+        // creating a race condition: by the time the import resolved, additional
+        // deltas may have mutated the state. The cleanup would run against
+        // potentially inconsistent state. Now we queue cleanup as a microtask
+        // with a pre-captured reference, ensuring it runs after all deltas in
+        // the current batch are applied but before the next event loop cycle.
+        try {
+            // Attempt synchronous resolution — works in bundled production code.
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const automationMod = require('@/shared/stores/useAutomationStore');
+            const trackIdToClean = delta.data.track_id;
+            queueMicrotask(() => {
+                try {
+                    automationMod.useAutomationStore.getState().cleanupTrackLanes(trackIdToClean);
+                } catch (cleanupErr) {
+                    console.warn('[TrackDelta] AutomationStore cleanup failed:', cleanupErr);
+                }
+            });
+        } catch {
+            // Fallback: dynamic import for ESM-only environments.
+            // Still uses queueMicrotask to batch after all deltas are processed.
+            const trackIdToClean = delta.data.track_id;
+            import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
+                queueMicrotask(() => {
+                    useAutomationStore.getState().cleanupTrackLanes(trackIdToClean);
+                });
+            }).catch((err: unknown) => {
+                console.warn('[TrackDelta] AutomationStore cleanup import failed:', err);
+            });
+        }
 
         return true;
     }

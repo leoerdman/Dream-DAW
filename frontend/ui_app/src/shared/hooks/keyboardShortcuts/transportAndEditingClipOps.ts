@@ -55,7 +55,7 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
         await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'keyboard:split-clips');
         return clipsAtPlayhead.map((clip) => clip.id);
     } catch (err) {
-        engine.logFrontendError('keyboard', `splitSelectedClipsAtCursor: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `splitSelectedClipsAtCursor: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
 }
@@ -168,7 +168,7 @@ export async function nudgeSelectedClips(
         useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'left' : 'right'} ${stepLabel} (${selected.length} clip(s))`);
         return selected.map((clip) => clip.id);
     } catch (err) {
-        engine.logFrontendError('keyboard', `nudgeSelectedClips: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `nudgeSelectedClips: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
 }
@@ -215,7 +215,7 @@ export async function nudgeSelectedClipsTrack(
         useStatusStore.getState().setInfo(`Nudge ${direction < 0 ? 'up' : 'down'} ${Math.abs(deltaTrack)} track(s) • ${stepLabel} (${selected.length} clip(s))`);
         return selected.map((clip) => clip.id);
     } catch (err) {
-        engine.logFrontendError('keyboard', `nudgeSelectedClipsTrack: ${err instanceof Error ? err.message : String(err)}`);
+        void engine.logFrontendError('keyboard', `nudgeSelectedClipsTrack: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
 }

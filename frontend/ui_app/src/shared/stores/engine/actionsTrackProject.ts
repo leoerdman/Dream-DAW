@@ -27,13 +27,14 @@ function patchTrackByIndex(
     patch: Partial<ProjectTrack>,
 ): TrackStatePatch<ProjectTrack> {
     const trackId = state.tracks.allIds[trackIndex];
-    // BUG-025 FIX: Always return TrackStatePatch, never the full EngineStore.
-    // Previously returned `state` on not-found, which when passed to `set()`
-    // would replace the entire store with a stale snapshot.
-    if (!trackId) return buildTrackStatePatch(state.tracks.allIds, state.tracks.byId);
+    // BUG-026 FIX: Return empty object for not-found tracks to preserve
+    // Zustand reference equality. Previously returned a full track state
+    // patch (structurally different from `state`) which triggered needless
+    // re-renders even though nothing changed.
+    if (!trackId) return {} as TrackStatePatch<ProjectTrack>;
 
     const sourceTrack = state.tracks.byId[trackId];
-    if (!sourceTrack) return buildTrackStatePatch(state.tracks.allIds, state.tracks.byId);
+    if (!sourceTrack) return {} as TrackStatePatch<ProjectTrack>;
 
     const updatedTrack = { ...sourceTrack, ...patch };
     const nextTracksById = { ...state.tracks.byId, [trackId]: updatedTrack };
@@ -332,7 +333,19 @@ export function createTrackProjectActions(
                     // BUG-034 FIX: Clean up all device caches for this track.
                     // Each track can have one Flow device — its deviceId IS the trackId in our model.
                     flowState.cleanupDeviceCache(trackId);
-                } catch { /* FlowSynth not loaded — safe to skip */ }
+                } catch (flowErr: unknown) {
+                    // BUG-019 FIX: Only swallow module-not-found errors.
+                    // Previously caught ALL errors, including runtime crashes from
+                    // closeFlowEditor() (e.g., closing while a node is being evaluated).
+                    // Non-import errors must propagate to avoid silent state corruption.
+                    const isModuleNotFound = flowErr instanceof Error &&
+                        (flowErr.message.includes('Failed to fetch dynamically imported module') ||
+                         flowErr.message.includes('Loading chunk') ||
+                         flowErr.message.includes('Cannot find module'));
+                    if (!isModuleNotFound) {
+                        console.error('[Dream] FlowSynth cleanup failed during track delete:', flowErr);
+                    }
+                }
 
                 try {
                     const { useAutomationStore } = await import('@/shared/stores/useAutomationStore');
@@ -383,6 +396,14 @@ export function createTrackProjectActions(
         },
 
         createMidiClip: async (trackIndex: number, positionFrames: number, durationFrames: number) => {
+            // BUG-020 FIX: Validate trackIndex bounds before IPC.
+            // Unlike setTrackVolume (line 67) and deleteTrack (line 321),
+            // createMidiClip previously skipped bounds validation. Negative or
+            // out-of-range indices cause a Rust panic in the backend.
+            if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) {
+                console.error(`[Dream] createMidiClip: trackIndex ${trackIndex} out of bounds (${get().tracks.allIds.length} tracks)`);
+                return;
+            }
             // BUG-036: Validate inputs — reject NaN, negative, zero-duration.
             const safePosition = Number.isFinite(positionFrames) ? Math.max(0, Math.round(positionFrames)) : 0;
             const safeDuration = Number.isFinite(durationFrames) ? Math.max(1, Math.round(durationFrames)) : 1;

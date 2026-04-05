@@ -35,6 +35,8 @@ interface StatusBarProps {
     isFlowAvailable?: boolean;
     /** Missing media summary for inline badge in the status bar. */
     missingMediaSummary?: { offlineClipCount: number; missingPluginCount: number; missingSamplerCount: number; total: number };
+    /** Whether the Missing Assets panel is currently open (controls badge persistence). */
+    missingAssetsOpen?: boolean;
     /** Toggle the missing assets panel. */
     onToggleMissingAssets?: () => void;
 }
@@ -50,6 +52,7 @@ export const StatusBar = ({
     onMainViewModeChange,
     isFlowAvailable = false,
     missingMediaSummary,
+    missingAssetsOpen = false,
     onToggleMissingAssets,
 }: StatusBarProps) => {
     const prefetchRackPanel = () => {
@@ -226,7 +229,9 @@ export const StatusBar = ({
                         </div>
                     )}
                     {/* ── Inline Missing Media Badge ── */}
-                    {missingMediaSummary && missingMediaSummary.total > 0 && onToggleMissingAssets && (
+                    {/* ENTERPRISE: Show badge when (1) there are missing items, OR (2) panel is open but all resolved. */}
+                    {/* Case 2 lets the user close the panel from the status bar. */}
+                    {((missingMediaSummary && missingMediaSummary.total > 0) || missingAssetsOpen) && onToggleMissingAssets && (
                         <button
                             type="button"
                             onClick={onToggleMissingAssets}
@@ -234,12 +239,12 @@ export const StatusBar = ({
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: 4,
-                                border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 40%, transparent)',
+                                border: `var(--space-px) solid color-mix(in srgb, ${missingMediaSummary && missingMediaSummary.total > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)'} 40%, transparent)`,
                                 borderRadius: 'var(--radius-md)',
                                 padding: '2px 8px',
                                 height: 22,
-                                background: 'color-mix(in srgb, var(--color-status-error) 12%, transparent)',
-                                color: 'var(--color-status-error)',
+                                background: `color-mix(in srgb, ${missingMediaSummary && missingMediaSummary.total > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)'} 12%, transparent)`,
+                                color: missingMediaSummary && missingMediaSummary.total > 0 ? 'var(--color-status-error)' : 'var(--color-status-success)',
                                 fontSize: 'var(--font-size-2xs)',
                                 fontWeight: 'var(--font-weight-medium)',
                                 cursor: 'pointer',
@@ -247,23 +252,29 @@ export const StatusBar = ({
                                 letterSpacing: '0.01em',
                                 flexShrink: 0,
                             }}
-                            title="Open Missing Media Manager"
+                            title={missingMediaSummary && missingMediaSummary.total > 0 ? 'Open Missing Media Manager' : 'Close Missing Media Manager'}
                         >
-                            <span style={{ fontSize: 9, lineHeight: 1 }}>⚠</span>
-                            {missingMediaSummary.offlineClipCount > 0 && (
-                                <span>{missingMediaSummary.offlineClipCount} file{missingMediaSummary.offlineClipCount !== 1 ? 's' : ''} offline</span>
-                            )}
-                            {missingMediaSummary.offlineClipCount > 0 && (missingMediaSummary.missingPluginCount > 0 || missingMediaSummary.missingSamplerCount > 0) && (
-                                <span>·</span>
-                            )}
-                            {missingMediaSummary.missingPluginCount > 0 && (
-                                <span>{missingMediaSummary.missingPluginCount} plugin{missingMediaSummary.missingPluginCount !== 1 ? 's' : ''}</span>
-                            )}
-                            {missingMediaSummary.missingPluginCount > 0 && missingMediaSummary.missingSamplerCount > 0 && (
-                                <span>·</span>
-                            )}
-                            {missingMediaSummary.missingSamplerCount > 0 && (
-                                <span>{missingMediaSummary.missingSamplerCount} sample{missingMediaSummary.missingSamplerCount !== 1 ? 's' : ''}</span>
+                            <span style={{ fontSize: 9, lineHeight: 1 }}>{missingMediaSummary && missingMediaSummary.total > 0 ? '⚠' : '✓'}</span>
+                            {missingMediaSummary && missingMediaSummary.total > 0 ? (
+                                <>
+                                    {missingMediaSummary.offlineClipCount > 0 && (
+                                        <span>{missingMediaSummary.offlineClipCount} file{missingMediaSummary.offlineClipCount !== 1 ? 's' : ''} offline</span>
+                                    )}
+                                    {missingMediaSummary.offlineClipCount > 0 && (missingMediaSummary.missingPluginCount > 0 || missingMediaSummary.missingSamplerCount > 0) && (
+                                        <span>·</span>
+                                    )}
+                                    {missingMediaSummary.missingPluginCount > 0 && (
+                                        <span>{missingMediaSummary.missingPluginCount} plugin{missingMediaSummary.missingPluginCount !== 1 ? 's' : ''}</span>
+                                    )}
+                                    {missingMediaSummary.missingPluginCount > 0 && missingMediaSummary.missingSamplerCount > 0 && (
+                                        <span>·</span>
+                                    )}
+                                    {missingMediaSummary.missingSamplerCount > 0 && (
+                                        <span>{missingMediaSummary.missingSamplerCount} sample{missingMediaSummary.missingSamplerCount !== 1 ? 's' : ''}</span>
+                                    )}
+                                </>
+                            ) : (
+                                <span>All resolved</span>
                             )}
                         </button>
                     )}

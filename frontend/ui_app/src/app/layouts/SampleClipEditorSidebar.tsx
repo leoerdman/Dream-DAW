@@ -218,5 +218,5 @@ const editorMetaTextStyle: CSSProperties = {
     color: 'var(--color-text-tertiary)',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
-    fontWeight: 'var(--font-weight-bold)',
+    fontWeight: 700,
 };

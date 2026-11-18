@@ -1,4 +1,6 @@
 {
+  "private": true,
+  "license": "MIT",
   "dependencies": {
     "ws": "^8.19.0"
   }

@@ -23,7 +23,7 @@ resolver = "3"
 [workspace.package]
 version = "1.1.136"
 edition = "2024"
-license = "Proprietary"
+license = "MIT"
 
 # ── Shared Dependencies ──────────────────────────────────────────────────
 # All crates inherit these versions via `workspace = true` in their own Cargo.toml.

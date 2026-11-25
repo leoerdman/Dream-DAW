@@ -119,13 +119,6 @@ export function ConnectionsLayer({ viewportRef }: { viewportRef: React.RefObject
         return maps;
     }, [nodes]);
 
-    // BUG-008 FIX: Cache occupiedInputs set — rebuilt only when connections change,
-    // not on every pointermove (~60Hz). Eliminates 1200+ string allocs/sec during drag.
-    const occupiedInputsRef = useRef(new Set<string>());
-    useMemo(() => {
-        occupiedInputsRef.current = new Set(connections.map((c) => `${c.toNode}:${c.toPort}`));
-    }, [connections]);
-
     // O(1) node lookup
     const nodePositionData = useMemo(
         () => nodes.map(n => ({ id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),

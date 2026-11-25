@@ -16,15 +16,15 @@ import {
     ModulationWave,
     PluginSurfaceLayout,
     SaturationCurve,
-    usePluginSurfaceProps,
+    getPluginSurfaceProps,
     VizCard,
     VizColumn,
     WaveformDisplay,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 import { DryWetSection } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
-function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function ChorusSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const rate = readSurfaceParam(device, 'rate', 1.2, 'Hz');
     const depth = readSurfaceParam(device, 'depth', 40, '%');
     const depthNorm = clamp01(depth.value / 100);
@@ -47,9 +47,9 @@ function renderChorusSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
     );
 }
 
-function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
+function SaturatorSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
     const normalizedInternalId = getDevicePluginKey(device);
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const isDrumBuss = normalizedInternalId === 'internal://effect/drum-buss';
     const isDynamicTube = normalizedInternalId === 'internal://effect/dynamic-tube';
     const driveParam = readSurfaceParam(device, 'drive', 3, 'dB');
@@ -82,7 +82,7 @@ function renderSaturatorSurface(device: DeviceSlot, handlers: SurfaceHandlers): 
 }
 
 export function renderTimeToneSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    if (device.effectType === 'chorus') return renderChorusSurface(device, handlers);
-    if (device.effectType === 'saturator' || device.effectType === 'drumBuss' || device.effectType === 'dynamicTube') return renderSaturatorSurface(device, handlers);
+    if (device.effectType === 'chorus') return <ChorusSurface device={device} handlers={handlers} />;
+    if (device.effectType === 'saturator' || device.effectType === 'drumBuss' || device.effectType === 'dynamicTube') return <SaturatorSurface device={device} handlers={handlers} />;
     return null;
 }

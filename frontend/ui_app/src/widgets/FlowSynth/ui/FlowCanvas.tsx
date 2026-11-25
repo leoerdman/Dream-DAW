@@ -130,6 +130,7 @@ export function FlowCanvas() {
     const spacePressedRef = useRef(false);
     const ctrlPressedRef = useRef(false);
     const [ctrlPressed, setCtrlPressed] = useState(false);
+    const [isPanning, setIsPanning] = useState(false);
     const [tool, setTool] = useState<'cursor' | 'hand'>('cursor');
     const panStateRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
@@ -357,7 +358,9 @@ export function FlowCanvas() {
     ]);
 
     useEffect(() => {
-        setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));
+        queueMicrotask(() => {
+            setMenuIndex((idx) => Math.max(0, Math.min(idx, filteredCatalog.length - 1)));
+        });
     }, [filteredCatalog.length]);
 
     return (
@@ -387,6 +390,7 @@ export function FlowCanvas() {
                         origX: vp.x,
                         origY: vp.y,
                     };
+                    setIsPanning(true);
                     return;
                 }
 
@@ -423,6 +427,7 @@ export function FlowCanvas() {
             onPointerUp={() => {
                 if (panStateRef.current) {
                     panStateRef.current = null;
+                    setIsPanning(false);
                 }
                 if (selectionBox) {
                     const x = Math.min(selectionBox.startX, selectionBox.currentX);
@@ -452,7 +457,7 @@ export function FlowCanvas() {
                 height: '100%',
                 overflow: 'hidden',
                 backgroundColor: 'var(--color-bg-canvas)',
-                cursor: panStateRef.current
+                cursor: isPanning
                     ? 'grabbing'
                     : ((ctrlPressed || tool === 'hand') ? 'grab' : 'default'),
             }}

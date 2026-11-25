@@ -38,15 +38,25 @@ export const VerticalMixerStrip = ({
     const [peakHoldNorm, setPeakHoldNorm] = useState(0);
     const [clipLatched, setClipLatched] = useState(false);
     const holdTimerRef = useRef<number | null>(null);
+    const peakHoldNormRef = useRef(peakHoldNorm);
+
+    useEffect(() => {
+        peakHoldNormRef.current = peakHoldNorm;
+    }, [peakHoldNorm]);
 
     useEffect(() => {
         const meterNorm = Math.max(meterNormL, meterNormR);
         // ENTERPRISE: Peak hold — update only when new peak exceeds held value.
-        if (meterNorm > peakHoldNorm) {
-            setPeakHoldNorm(meterNorm);
+        let cancelled = false;
+        if (meterNorm > peakHoldNormRef.current) {
+            queueMicrotask(() => {
+                if (!cancelled) setPeakHoldNorm((prev) => Math.max(prev, meterNorm));
+            });
         }
         if (peakDb >= 0) {
-            setClipLatched(true);
+            queueMicrotask(() => {
+                if (!cancelled) setClipLatched(true);
+            });
         }
         // ENTERPRISE: 4-second peak hold (professional mixer standard).
         // After 4s of no new peak, reset to 0 so the indicator disappears cleanly.
@@ -55,12 +65,13 @@ export const VerticalMixerStrip = ({
             setPeakHoldNorm(0);
         }, 4000);
         return () => {
+            cancelled = true;
             if (holdTimerRef.current !== null) {
                 window.clearTimeout(holdTimerRef.current);
                 holdTimerRef.current = null;
             }
         };
-    }, [meterNormL, meterNormR, peakDb, peakHoldNorm]);
+    }, [meterNormL, meterNormR, peakDb]);
 
     const applyVolumeFromY = useCallback((clientY: number) => {
         const el = stripRef.current;

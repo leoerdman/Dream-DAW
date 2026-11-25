@@ -85,28 +85,19 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         };
     }, []);
-
-
-    // ENTERPRISE: Port offsets are computed deterministically from PORT_REGISTRY
-    // by ConnectionsLayer and passed as stable props. No proxy timing dependency.
-    const fromOffsetRef = useRef(fromPortOffsetY);
-    const toOffsetRef = useRef(toPortOffsetY);
-    fromOffsetRef.current = fromPortOffsetY;
-    toOffsetRef.current = toPortOffsetY;
-
     useEffect(() => {
         let isDisposed = false;
 
         const unsubStart = nodeMotionProxy.subscribe(conn.fromNode, (pos) => {
             if (isDisposed) return;
             // Output port X = node.x + FLOW_NODE_WIDTH (right edge)
-            setStart({ x: pos.x + FLOW_NODE_WIDTH, y: pos.y + fromOffsetRef.current });
+            setStart({ x: pos.x + FLOW_NODE_WIDTH, y: pos.y + fromPortOffsetY });
         });
 
         const unsubEnd = nodeMotionProxy.subscribe(conn.toNode, (pos) => {
             if (isDisposed) return;
             // Input port X = node.x (left edge)
-            setEnd({ x: pos.x, y: pos.y + toOffsetRef.current });
+            setEnd({ x: pos.x, y: pos.y + toPortOffsetY });
         });
 
         return () => {
@@ -114,7 +105,7 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
             unsubStart();
             unsubEnd();
         };
-    }, [conn.fromNode, conn.toNode]);
+    }, [conn.fromNode, conn.toNode, fromPortOffsetY, toPortOffsetY]);
 
     // ENTERPRISE FIX: Only sync from props when actual VALUES change (not object references).
     // ConnectionsLayer creates new objects every render → old useEffect fired on every frame,
@@ -127,10 +118,12 @@ export const FlowConnectionComponent = React.memo(function FlowConnectionCompone
         if (!sameStart || !sameEnd) {
             prevInitStart.current = initialStart;
             prevInitEnd.current = initialEnd;
-            setStart(initialStart);
-            setEnd(initialEnd);
+            queueMicrotask(() => {
+                setStart(initialStart);
+                setEnd(initialEnd);
+            });
         }
-    }, [initialStart.x, initialStart.y, initialEnd.x, initialEnd.y]);
+    }, [initialStart, initialEnd, initialStart.x, initialStart.y, initialEnd.x, initialEnd.y]);
 
     const signalType = conn.signalType ?? 'audio';
     const baseColor = signalColor(signalType);

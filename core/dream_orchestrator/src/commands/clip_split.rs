@@ -44,6 +44,19 @@ impl Command for SplitClipCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<SplitClipResult> {
         let mut project = ctx.lock_project()?;
 
+        for track in &mut project.tracks {
+            if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
+                if let Some(audio) = ctx.clip_pool.get_clip_audio(&clip.file_path) {
+                    clip.set_source_media_with_visible_window(
+                        (audio.num_frames as i64).max(1),
+                        clip.warp_source_duration_frames.max(1),
+                        Some(audio.sample_rate.max(1)),
+                    );
+                }
+                break;
+            }
+        }
+
         let result = match mutators::split_clip(&mut project, self.clip_id, self.split_frame) {
             Ok(r) => r,
             Err(_audio_err) => {

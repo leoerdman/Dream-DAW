@@ -37,11 +37,9 @@ export function useMissingMediaSummary(timelineClipsForView: TimelineClip[]): Mi
 
     // 2. Sampler Samples (async IPC check, debounced via effect)
     const [missingSamplerCount, setMissingSamplerCount] = useState(0);
-
-    useEffect(() => {
+    const samplerPaths = useMemo(() => {
         const uniquePaths = new Set<string>();
 
-        // Collect all sampler/pad paths
         for (const trackId of tracksEntity.allIds) {
             const track = tracksEntity.byId[trackId];
             if (!track) continue;
@@ -62,16 +60,18 @@ export function useMissingMediaSummary(timelineClipsForView: TimelineClip[]): Mi
             }
         }
 
-        const paths = Array.from(uniquePaths);
-        if (paths.length === 0) {
-            setMissingSamplerCount(0);
+        return Array.from(uniquePaths);
+    }, [tracksEntity]);
+
+    useEffect(() => {
+        if (samplerPaths.length === 0) {
             return;
         }
 
         let cancelled = false;
 
         // Fast IPC check
-        checkFilesExist(paths)
+        checkFilesExist(samplerPaths)
             .then((existsArray: boolean[]) => {
                 if (cancelled) return;
                 // Count how many of the paths returned false
@@ -82,16 +82,18 @@ export function useMissingMediaSummary(timelineClipsForView: TimelineClip[]): Mi
                 if (cancelled) return;
                 console.error('[useMissingMediaSummary] checkFilesExist failed:', err);
                 // Fallback: assume all are missing if check fails
-                setMissingSamplerCount(paths.length);
+                setMissingSamplerCount(samplerPaths.length);
             });
 
         return () => { cancelled = true; };
-    }, [tracksEntity]); // Re-run when tracks change (handles path additions/removals)
+    }, [samplerPaths]); // Re-run when sampler path set changes
+
+    const resolvedMissingSamplerCount = samplerPaths.length === 0 ? 0 : missingSamplerCount;
 
     return {
         offlineClipCount: storeMissing.offlineClipCount,
         missingPluginCount: storeMissing.missingPluginCount,
-        missingSamplerCount,
-        total: storeMissing.offlineClipCount + storeMissing.missingPluginCount + missingSamplerCount,
+        missingSamplerCount: resolvedMissingSamplerCount,
+        total: storeMissing.offlineClipCount + storeMissing.missingPluginCount + resolvedMissingSamplerCount,
     };
 }

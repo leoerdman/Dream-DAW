@@ -2,6 +2,7 @@ import type { StoreApi } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { mergeProjectHistory } from '@/shared/stores/engine/storeHelpers';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 // BUG-024: Throttle guard — prevents IPC flood during rapid undo/redo.
 let lastSyncMs = 0;
@@ -39,20 +40,7 @@ export function createFetchProjectAction(
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 console.warn('[Dream] syncProjectHistory failed:', e);
-                // ENTERPRISE FIX: Use synchronous require() instead of async import()
-                // to avoid the same race condition as Bug 7 — async import in catch
-                // may resolve after additional state changes, applying the error
-                // message against stale state.
-                try {
-                    // eslint-disable-next-line @typescript-eslint/no-var-requires
-                    const { useStatusStore: statusStore } = require('@/shared/stores/useStatusStore');
-                    statusStore.getState().setError(`History sync failed: ${msg}`);
-                } catch {
-                    // Fallback for ESM-only environments
-                    import('@/shared/stores/useStatusStore').then(({ useStatusStore: statusStore }) => {
-                        statusStore.getState().setError(`History sync failed: ${msg}`);
-                    }).catch(() => { /* ignore import failure in test/SSR */ });
-                }
+                useStatusStore.getState().setError(`History sync failed: ${msg}`);
             }
         },
     };

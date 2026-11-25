@@ -56,9 +56,9 @@ interface GPUDevice {
     queue: GPUQueue;
 }
 
-interface GPUShaderModule { }
+type GPUShaderModule = object;
 
-interface GPURenderPipeline { }
+type GPURenderPipeline = object;
 
 interface GPUQueue {
     writeBuffer(buffer: GPUBuffer, offset: number, data: Float32Array): void;
@@ -70,7 +70,7 @@ interface GPUCommandEncoder {
     finish(): GPUCommandBuffer;
 }
 
-interface GPUCommandBuffer { }
+type GPUCommandBuffer = object;
 
 interface GPURenderPassEncoder {
     setPipeline(pipeline: GPURenderPipeline): void;
@@ -88,7 +88,7 @@ interface GPUTexture {
     createView(): GPUTextureView;
 }
 
-interface GPUTextureView { }
+type GPUTextureView = object;
 
 interface GPUAdapter {
     requestDevice(): Promise<GPUDevice>;

@@ -255,7 +255,7 @@ ToggleButton.displayName = 'ToggleButton';
  * Quick-build helper: assembles a full EQ-style surface from minimal inputs.
  * Use this when you don't need per-section customization.
  */
-export function usePluginSurfaceProps(device: DeviceSlot) {
+export function getPluginSurfaceProps(device: DeviceSlot) {
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     return { showDryWet, knobParams };

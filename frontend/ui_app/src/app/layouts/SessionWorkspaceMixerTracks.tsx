@@ -69,9 +69,7 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
     const rafIdRef = useRef(0);
     const mountedRef = useRef(true);
     const lastRef = useRef({ mL: 0, mR: 0 });
-    const [, setTick] = useState(0);
-    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
-    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+    const [meterState, setMeterState] = useState({ mL: 0, mR: 0 });
 
     useEffect(() => {
         mountedRef.current = true;
@@ -87,7 +85,9 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
             if (rafIdRef.current) return;
             rafIdRef.current = requestAnimationFrame(() => {
                 rafIdRef.current = 0;
-                if (mountedRef.current) forceUpdateRef.current();
+                if (mountedRef.current) {
+                    setMeterState({ mL: meterLRef.current, mR: meterRRef.current });
+                }
             });
         });
         return () => { mountedRef.current = false; unsub(); if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
@@ -113,8 +113,8 @@ const SessionWorkspaceMixerTrackStrip = React.memo(({
                     trackColor={trackColor}
                     gain={track.volume}
                     pan={track.pan}
-                    meterL={meterLRef.current}
-                    meterR={meterRRef.current}
+                    meterL={meterState.mL}
+                    meterR={meterState.mR}
                     onGainChange={(nextGain) => { void setTrackVolume(trackIndex, nextGain); }}
                     onPanChange={(nextPan) => { void setTrackPan(trackIndex, nextPan); }}
                     trackIndex={trackIndex}

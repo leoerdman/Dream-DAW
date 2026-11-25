@@ -189,7 +189,7 @@ export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
         // signature (`(e: Event) => void`) and the dreamGlobals OpenExportModalFn (`() => void`).
         // Eliminates all `as EventListener` casts without introducing type mismatches.
         const openExport = () => setExportOpen(true);
-        const onOpenExportEvent = (_e: Event) => openExport();
+        const onOpenExportEvent = () => openExport();
         // ENTERPRISE FIX: Wire the `dream:layout-toggle-panel` event so that
         // the sampler's "Replace Sample" button actually opens the Missing Assets panel.
         const onTogglePanel = (e: Event) => {

@@ -4,6 +4,7 @@ import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostC
 import { FADE_HANDLE_SIZE, FADE_HANDLE_EDGE_PAD, CLIP_BODY_INSET, EDGE_RESIZE_PAD_PX, FADE_CURVE_CLAMP_MIN, FADE_CURVE_CLAMP_MAX, MIN_FADE_WIDTH_PX, MIN_FADE_BODY_HEIGHT_PX } from './CanvasClipRenderer.constants';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames, framesToBeatDuration } from './audioMath';
+import { getClipSourcePerTimelineFrame, getClipSourceTotalFrames, getClipSourceWindowFramesForTimelineFrames } from './clipSourceMath';
 import { normalizeTimelineClips } from './clipNormalization';
 import { cancelIdle, scheduleIdle, type IdleHandle } from './idleScheduler';
 import {
@@ -54,6 +55,15 @@ export class TimelineEngine {
     private _clipsByTrack = new Map<number, TimelineClipData[]>();
     /** Deferred clips from setClips() calls during active drag. */
     private _pendingClips: TimelineClipData[] | null = null;
+    /**
+     * Canonical optimistic clip patches registered by local user actions.
+     * They protect post-commit visuals from stale external setClips() payloads
+     * until the store/backend converges to the same canonical clip state.
+     */
+    private _optimisticClipPatches = new Map<string, {
+        base: Partial<TimelineClipData>;
+        patch: Partial<TimelineClipData>;
+    }>();
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
@@ -307,7 +317,7 @@ export class TimelineEngine {
         });
     }
 
-    private _onExtDragLeave(_e: Event): void {
+    private _onExtDragLeave(): void {
         if (this._ghost) {
             this._ghost = null;
             this._requestRedraw();
@@ -325,7 +335,7 @@ export class TimelineEngine {
         }
 
         const prevClips = this._clips;
-        const normalizedInput = normalizeTimelineClips(clips);
+        const normalizedInput = normalizeTimelineClips(clips).map((clip) => this._reconcileOptimisticClip(clip));
 
         // PERF FIX: Only spread-copy clips whose hovered/fade flags actually differ.
         // Previously .map() spread-copied EVERY clip on EVERY setClips() call.
@@ -404,6 +414,9 @@ export class TimelineEngine {
 
         for (const id of Object.keys(this._fadeCurvePoints)) {
             if (!currentIds.has(id)) delete this._fadeCurvePoints[id];
+        }
+        for (const id of this._optimisticClipPatches.keys()) {
+            if (!currentIds.has(id)) this._optimisticClipPatches.delete(id);
         }
         if (this._hoverClipId && !currentIds.has(this._hoverClipId)) {
             this._hoverClipId = null;
@@ -735,12 +748,8 @@ export class TimelineEngine {
                         // source boundary — it shrinks on trim, making re-expansion impossible.
                         // Use sourceFileTotalFrames (immutable) for boundary clamping.
                         // Use warpSourceDurationFrames / durationSamples for the warp ratio.
-                        const consumedSource = Math.max(1, clip.warpSourceDurationFrames ?? 1);
-                        // ENTERPRISE FIX: Reconstruct total source from consumed + offset.
-                        // warpSourceDurationFrames = source consumed starting from sourceOffset.
-                        // Adding sourceOffset gives the full file length for boundary clamping.
-                        const sourceFileTotal = Math.max(1, clip.sourceFileTotalFrames ?? (consumedSource + clipSourceOffset));
-                        const sourcePerTimeline = consumedSource / Math.max(1, clip.durationSamples ?? 1);
+                        const sourceFileTotal = getClipSourceTotalFrames(clip, this._sampleRate);
+                        const sourcePerTimeline = getClipSourcePerTimelineFrame(clip, this._sampleRate);
 
                         let nextSourceOffset = clipSourceOffset;
                         if (preview.edge === 'left') {
@@ -751,7 +760,9 @@ export class TimelineEngine {
                             const trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
                             nextSourceOffset = Math.max(0, Math.round(clipSourceOffset + trimmedFrames * sourcePerTimeline));
                         }
-                        nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceFileTotal - 1));
+                        const requestedSourceWindow = getClipSourceWindowFramesForTimelineFrames(clip, previewFrames, this._sampleRate);
+                        const maxSourceOffset = Math.max(0, sourceFileTotal - requestedSourceWindow);
+                        nextSourceOffset = Math.min(nextSourceOffset, maxSourceOffset);
 
                         const sourceAvailableAfter = Math.max(1, sourceFileTotal - nextSourceOffset);
                         const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
@@ -781,18 +792,16 @@ export class TimelineEngine {
                             );
                         }
                     } else {
-                        let trimmedBeats = preview.edge === 'left' ? preview.startBeat - preview.originalStartBeat : 0;
-                        let trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
+                        const trimmedBeats = preview.edge === 'left' ? preview.startBeat - preview.originalStartBeat : 0;
+                        const trimmedFrames = beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate);
 
-                        // ENTERPRISE FIX (PITCH-SHIFT WAVEFORM DESYNC): For pitch-shifted
-                        // non-warped clips, source advances at pitchMultiplier rate per
-                        // timeline frame (render_callback.rs: "T * pitch_multiplier in
-                        // source frames"). Scale trimmedFrames to source domain.
-                        const pitchSemitones = clip.pitchShiftSemitones ?? 0;
-                        const pitchMul = pitchSemitones !== 0
-                            ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
-                            : 1.0;
-                        const sourceTrimmedFrames = Math.round(trimmedFrames * pitchMul);
+                        // SSOT: non-warped clips advance through source at the full
+                        // source-domain ratio, which includes both pitch shift and
+                        // source SR -> project SR conversion. Using pitch alone makes
+                        // trim/expand math drift after snapshot reconciliation for
+                        // files whose source sample rate differs from the project.
+                        const sourcePerTimeline = getClipSourcePerTimelineFrame(clip, this._sampleRate);
+                        const sourceTrimmedFrames = Math.round(trimmedFrames * sourcePerTimeline);
 
                         // Prevent expanding left beyond the beginning of the audio source
                         const clampedSourceTrimmed = Math.max(-clipSourceOffset, sourceTrimmedFrames);
@@ -801,17 +810,20 @@ export class TimelineEngine {
                         // ENTERPRISE FIX (RATCHET BUG): Use sourceFileTotalFrames as the
                         // immutable boundary. durationSamples shrinks on trim, making re-expansion
                         // impossible. sourceFileTotalFrames is set once at import and never changes.
-                        const sourceTotal = Math.max(1, clip.sourceFileTotalFrames ?? clip.durationSamples ?? 1);
-                        const availableSource = Math.max(1, sourceTotal - nextSourceOffset);
+                        const sourceTotal = getClipSourceTotalFrames(clip, this._sampleRate);
+                        const requestedSourceWindow = getClipSourceWindowFramesForTimelineFrames(clip, previewFrames, this._sampleRate);
+                        const maxSourceOffset = Math.max(0, sourceTotal - requestedSourceWindow);
+                        const clampedSourceOffset = Math.min(nextSourceOffset, maxSourceOffset);
+                        const availableSource = Math.max(1, sourceTotal - clampedSourceOffset);
                         // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
                         // each timeline frame consumes pitchMul source frames.
                         // Available timeline frames = available source / pitch_multiplier.
-                        const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
+                        const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, sourcePerTimeline)));
 
                         const clampedPreviewFrames = Math.max(128, Math.min(previewFrames, availableTimeline));
 
                         nextClip.durationSamples = clampedPreviewFrames;
-                        nextClip.sourceOffset = nextSourceOffset;
+                        nextClip.sourceOffset = clampedSourceOffset;
 
                         // ENTERPRISE FIX (WAVEFORM-DESYNC): For BOTH edges, derive
                         // durationBeats from clampedPreviewFrames (same as durationSamples).
@@ -826,8 +838,9 @@ export class TimelineEngine {
                             // beyond source data, nextSourceOffset clamps to 0 but raw
                             // trimmedFrames keeps decreasing — causing startBeat to move left
                             // while the data window stays put. Convert clamped source delta
-                            // back to timeline domain (÷ pitchMul) for consistent startBeat.
-                            const clampedTimelineTrimFrames = Math.round(clampedSourceTrimmed / Math.max(1e-9, pitchMul));
+                            // back to timeline domain (÷ sourcePerTimeline) for consistent startBeat.
+                            const actualSourceDelta = clampedSourceOffset - clipSourceOffset;
+                            const clampedTimelineTrimFrames = Math.round(actualSourceDelta / Math.max(1e-9, sourcePerTimeline));
                             nextClip.startBeat = preview.originalStartBeat + framesToBeatDuration(
                                 clampedTimelineTrimFrames, this._bpm, this._sampleRate,
                             );
@@ -847,8 +860,7 @@ export class TimelineEngine {
                         // at pitchMultiplier rate per timeline frame, so consumed source =
                         // durationSamples * pitchMultiplier. Using raw durationSamples would
                         // give a warp ratio of 1.0, effectively nullifying the pitch shift.
-                        const pitchSt = clip.pitchShiftSemitones ?? 0;
-                        const pitchMul = pitchSt !== 0 ? Math.pow(2, pitchSt / 12) : 1.0;
+                        const pitchMul = getClipSourcePerTimelineFrame(clip, this._sampleRate);
                         nextClip.warpSourceDurationFrames = Math.max(1, Math.round(clip.durationSamples * pitchMul));
                     }
                 }
@@ -1116,6 +1128,70 @@ export class TimelineEngine {
             const tIdx = trackArr.indexOf(oldClip);
             if (tIdx >= 0) trackArr[tIdx] = newClip;
         }
+    }
+
+    private _registerOptimisticClipPatch(
+        clipId: string,
+        base: Partial<TimelineClipData>,
+        patch: Partial<TimelineClipData>,
+    ): void {
+        const sanitizedBase = Object.fromEntries(
+            Object.entries(base).filter(([, value]) => value !== undefined),
+        ) as Partial<TimelineClipData>;
+        const sanitizedPatch = Object.fromEntries(
+            Object.entries(patch).filter(([, value]) => value !== undefined),
+        ) as Partial<TimelineClipData>;
+        if (Object.keys(sanitizedPatch).length === 0) return;
+
+        const existing = this._optimisticClipPatches.get(clipId);
+        if (!existing) {
+            this._optimisticClipPatches.set(clipId, { base: sanitizedBase, patch: sanitizedPatch });
+            return;
+        }
+
+        this._optimisticClipPatches.set(clipId, {
+            base: { ...existing.base, ...sanitizedBase },
+            patch: { ...existing.patch, ...sanitizedPatch },
+        });
+    }
+
+    private _reconcileOptimisticClip(clip: TimelineClipData): TimelineClipData {
+        const optimistic = this._optimisticClipPatches.get(clip.id);
+        if (!optimistic) return clip;
+
+        const stalePatch: Partial<TimelineClipData> = {};
+        let hasStaleKeys = false;
+        const patchKeys = Object.keys(optimistic.patch) as Array<keyof TimelineClipData>;
+
+        for (const key of patchKeys) {
+            const incoming = clip[key];
+            const expected = optimistic.patch[key];
+            const base = optimistic.base[key];
+
+            if (this._clipFieldEquals(incoming, expected)) {
+                continue;
+            }
+
+            if (base !== undefined && this._clipFieldEquals(incoming, base)) {
+                stalePatch[key] = expected;
+                hasStaleKeys = true;
+                continue;
+            }
+        }
+
+        if (!hasStaleKeys) {
+            this._optimisticClipPatches.delete(clip.id);
+            return clip;
+        }
+
+        return { ...clip, ...stalePatch };
+    }
+
+    private _clipFieldEquals(a: unknown, b: unknown): boolean {
+        if (typeof a === 'number' && typeof b === 'number') {
+            return Math.abs(a - b) <= 1e-6;
+        }
+        return a === b;
     }
 
     /** Clears selection state on a single clip by index (avoids copy-paste). */
@@ -1442,7 +1518,10 @@ export class TimelineEngine {
                     this._selectSingleClip(hit.clipId);
                     this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
-                    const allowStretch = e.shiftKey;
+                    if (e.shiftKey && clip.type === 'audio' && clip.isWarped !== true) {
+                        break;
+                    }
+                    const allowStretch = e.shiftKey && clip.type === 'audio' && clip.isWarped === true;
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -1472,7 +1551,10 @@ export class TimelineEngine {
                     this._selectSingleClip(hit.clipId);
                     this._requestRedraw();
                     this.onClipClick?.(hit.clipId, false, false);
-                    const allowStretch = e.shiftKey;
+                    if (e.shiftKey && clip.type === 'audio' && clip.isWarped !== true) {
+                        break;
+                    }
+                    const allowStretch = e.shiftKey && clip.type === 'audio' && clip.isWarped === true;
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,
@@ -1788,24 +1870,11 @@ export class TimelineEngine {
                 if (resizeClipL && resizeClipL.type === 'audio' && !this._drag.clipResizeAllowStretch) {
                     const clipSourceOffset = Math.max(0, resizeClipL.sourceOffset ?? 0);
                     if (clipSourceOffset > 0) {
-                        // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
-                        // sourceOffset is in source domain. Each timeline frame consumes
-                        // pitchMultiplier source frames (render_callback.rs L778-784).
-                        // Available expansion = sourceOffset / pitchMultiplier timeline frames.
-                        const pitchSemitones = resizeClipL.pitchShiftSemitones ?? 0;
-                        const pitchMul = pitchSemitones !== 0
-                            ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
-                            : 1.0;
-                        // For warped clips, sourceOffset is already in source domain,
-                        // and the warp ratio is sourcePerTimeline. Use sourcePerTimeline
-                        // if available, otherwise fall back to pitchMul.
-                        let expandableTimeline: number;
-                        if (resizeClipL.isWarped && (resizeClipL.warpSourceDurationFrames ?? 0) > 0 && (resizeClipL.durationSamples ?? 0) > 0) {
-                            const sourcePerTimeline = (resizeClipL.warpSourceDurationFrames ?? 1) / Math.max(1, resizeClipL.durationSamples ?? 1);
-                            expandableTimeline = Math.floor(clipSourceOffset / Math.max(1e-9, sourcePerTimeline));
-                        } else {
-                            expandableTimeline = Math.floor(clipSourceOffset / Math.max(1e-9, pitchMul));
-                        }
+                        // SSOT: sourceOffset lives in source-domain frames, so the
+                        // available left expansion must be converted back using the
+                        // same source-per-timeline ratio as resize/renderer math.
+                        const sourcePerTimeline = getClipSourcePerTimelineFrame(resizeClipL, this._sampleRate);
+                        const expandableTimeline = Math.floor(clipSourceOffset / Math.max(1e-9, sourcePerTimeline));
                         const expandableBeats = framesToBeatDuration(expandableTimeline, this._bpm, this._sampleRate);
                         const audioLeftBound = this._drag.clipOriginalBeat - expandableBeats;
                         leftBound = Math.max(leftBound, audioLeftBound);
@@ -1858,32 +1927,19 @@ export class TimelineEngine {
                     // SSOT FIX: Fallback must NOT use warpSourceDurationFrames — it means
                     // "source consumed by visible duration" and shrinks on trim.
                     // Use numFrames (clip pool total) or durationSamples as safe fallback.
-                    const sourceTotal = resizeClipR.sourceFileTotalFrames
-                        ?? (resizeClipR.isWarped && (resizeClipR.warpSourceDurationFrames ?? 0) > 0
-                            // ENTERPRISE FIX: For warped clips, warpSourceDurationFrames is
-                            // "source consumed by visible duration". Add sourceOffset to recover
-                            // the total source file length for re-expansion capability.
-                            ? Math.max(1, (resizeClipR.warpSourceDurationFrames ?? 0) + (resizeClipR.sourceOffset ?? 0))
-                            // ENTERPRISE FIX (BUG-RIGHT-PITCH-FALLBACK-001): For non-warped
-                            // pitch-shifted clips, durationSamples is in timeline domain.
-                            // Source consumed = durationSamples * pitchMultiplier. Without
-                            // this, the clip can't be expanded past its current trimmed size.
-                            : (() => {
-                                const pSt = resizeClipR.pitchShiftSemitones ?? 0;
-                                const pMul = pSt !== 0 ? Math.pow(2, Math.max(-36, Math.min(36, pSt)) / 12) : 1.0;
-                                return Math.max(1, Math.round((resizeClipR.durationSamples ?? 1) * pMul) + (resizeClipR.sourceOffset ?? 0));
-                            })());
+                    const sourceTotal = getClipSourceTotalFrames(resizeClipR, this._sampleRate);
                     const clipSourceOffset = Math.max(0, resizeClipR.sourceOffset ?? 0);
                     const availableSource = Math.max(1, sourceTotal - clipSourceOffset);
-                    // ENTERPRISE FIX (PITCH-SHIFT BOUNDARY): For pitch-shifted clips,
-                    // each timeline frame consumes pitchMul source frames
-                    // (render_callback.rs L778-784). Available timeline frames =
-                    // available source / pitch_multiplier.
-                    const pitchSemitones = resizeClipR.pitchShiftSemitones ?? 0;
-                    const pitchMul = pitchSemitones !== 0
-                        ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
-                        : 1.0;
-                    const availableTimeline = Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
+                    // Warped clips must use sourcePerTimeline, not pitchMul, to match
+                    // the backend resize mutator and avoid collapsing on re-expansion.
+                    const availableTimeline = (() => {
+                        if (resizeClipR.isWarped && (resizeClipR.warpSourceDurationFrames ?? 0) > 0 && (resizeClipR.durationSamples ?? 0) > 0) {
+                            const sourcePerTimeline = getClipSourcePerTimelineFrame(resizeClipR, this._sampleRate);
+                            return Math.max(1, Math.floor(availableSource / Math.max(1e-9, sourcePerTimeline)));
+                        }
+                        const pitchMul = getClipSourcePerTimelineFrame(resizeClipR, this._sampleRate);
+                        return Math.max(1, Math.floor(availableSource / Math.max(1e-9, pitchMul)));
+                    })();
                     const maxDurationBeats = framesToBeatDuration(availableTimeline, this._bpm, this._sampleRate);
                     const audioRightBound = this._drag.clipOriginalBeat + maxDurationBeats;
                     rightBound = Math.min(rightBound, audioRightBound);
@@ -2153,6 +2209,33 @@ export class TimelineEngine {
                             // positions when Cmd held, so just emit duplicate callback.
                             this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
                         } else {
+                            const movePatches = new Map<string, { beat: number; track: number }>();
+                            movePatches.set(this._drag.clipId!, { beat: finalBeat, track: finalTrack });
+                            if (this._drag.coMoverOrigins) {
+                                const dBeat = finalBeat - this._drag.clipOriginalBeat;
+                                const dTrack = finalTrack - this._drag.clipOriginalTrack;
+                                for (const [id, origin] of this._drag.coMoverOrigins) {
+                                    movePatches.set(id, {
+                                        beat: this._snapBeat(Math.max(0, origin.beat + dBeat)),
+                                        track: Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + dTrack)),
+                                    });
+                                }
+                            }
+                            for (const [id, target] of movePatches) {
+                                const currentClip = this._clipById.get(id);
+                                if (!currentClip) continue;
+                                this._registerOptimisticClipPatch(
+                                    currentClip.id,
+                                    {
+                                        startBeat: currentClip.startBeat,
+                                        trackIndex: currentClip.trackIndex,
+                                    },
+                                    {
+                                        startBeat: target.beat,
+                                        trackIndex: target.track,
+                                    },
+                                );
+                            }
                             this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
 
                             // ENTERPRISE FIX: Optimistic position update in pending clips.
@@ -2163,18 +2246,7 @@ export class TimelineEngine {
                             // the async delta arrives. Apply the move delta to pending
                             // clips so they reflect the new positions immediately.
                             if (this._pendingClips) {
-                                const moveMap = new Map<string, { beat: number; track: number }>();
-                                moveMap.set(this._drag.clipId!, { beat: finalBeat, track: finalTrack });
-                                if (this._drag.coMoverOrigins) {
-                                    const dBeat = finalBeat - this._drag.clipOriginalBeat;
-                                    const dTrack = finalTrack - this._drag.clipOriginalTrack;
-                                    for (const [id, origin] of this._drag.coMoverOrigins) {
-                                        moveMap.set(id, {
-                                            beat: this._snapBeat(Math.max(0, origin.beat + dBeat)),
-                                            track: Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + dTrack)),
-                                        });
-                                    }
-                                }
+                                const moveMap = movePatches;
                                 this._pendingClips = this._pendingClips.map((c) => {
                                     const moved = moveMap.get(c.id);
                                     if (moved) {
@@ -2203,10 +2275,13 @@ export class TimelineEngine {
                             const composedPreview = this._composeDrawClips();
                             const previewClip = composedPreview.find((c) => c.id === this._drag.clipId);
 
+                            const committedStartBeat = previewClip?.startBeat ?? preview.startBeat;
+                            const committedDurationBeats = previewClip?.durationBeats ?? preview.durationBeats;
+
                             this.onClipResize?.(
                                 this._drag.clipId,
-                                preview.startBeat,
-                                preview.durationBeats,
+                                committedStartBeat,
+                                committedDurationBeats,
                                 preview.allowStretch,
                                 previewClip?.sourceOffset,
                                 previewClip?.warpSourceDurationFrames,
@@ -2222,22 +2297,41 @@ export class TimelineEngine {
                             // This mirrors the ClipMove pattern (lines 1870-1978).
                             const currentClip = this._clipById.get(this._drag.clipId!);
                             if (currentClip) {
+                                const optimisticPatch: Partial<TimelineClipData> = {
+                                    startBeat: committedStartBeat,
+                                    durationBeats: committedDurationBeats,
+                                    ...(previewClip ? {
+                                        sourceOffset: previewClip.sourceOffset,
+                                        durationSamples: previewClip.durationSamples,
+                                        warpSourceDurationFrames: previewClip.warpSourceDurationFrames,
+                                        isWarped: previewClip.isWarped,
+                                        sourceFileTotalFrames: previewClip.sourceFileTotalFrames,
+                                        numFrames: previewClip.numFrames,
+                                    } : {}),
+                                };
+                                this._registerOptimisticClipPatch(
+                                    currentClip.id,
+                                    {
+                                        startBeat: currentClip.startBeat,
+                                        durationBeats: currentClip.durationBeats,
+                                        sourceOffset: currentClip.sourceOffset,
+                                        durationSamples: currentClip.durationSamples,
+                                        warpSourceDurationFrames: currentClip.warpSourceDurationFrames,
+                                        isWarped: currentClip.isWarped,
+                                        sourceFileTotalFrames: currentClip.sourceFileTotalFrames,
+                                        numFrames: currentClip.numFrames,
+                                    },
+                                    optimisticPatch,
+                                );
                                 const clipIdx = this._clips.indexOf(currentClip);
                                 if (clipIdx >= 0) {
                                     const optimistic: TimelineClipData = {
                                         ...currentClip,
-                                        startBeat: preview.startBeat,
-                                        durationBeats: preview.durationBeats,
+                                        ...optimisticPatch,
                                         // Carry over computed source fields from the
                                         // preview composite (sourceOffset, durationSamples,
                                         // warpSourceDurationFrames) so the waveform
                                         // doesn't jump when the store later reconciles.
-                                        ...(previewClip ? {
-                                            sourceOffset: previewClip.sourceOffset,
-                                            durationSamples: previewClip.durationSamples,
-                                            warpSourceDurationFrames: previewClip.warpSourceDurationFrames,
-                                            isWarped: previewClip.isWarped,
-                                        } : {}),
                                     };
                                     this._updateClipInStores(clipIdx, currentClip, optimistic);
                                 }
@@ -2246,8 +2340,8 @@ export class TimelineEngine {
                             // SSOT FIX: Optimistic update for pending clips (same pattern as ClipMove)
                             if (this._pendingClips) {
                                 const resizeId = this._drag.clipId;
-                                const resizeBeat = preview.startBeat;
-                                const resizeDur = preview.durationBeats;
+                                const resizeBeat = committedStartBeat;
+                                const resizeDur = committedDurationBeats;
                                 this._pendingClips = this._pendingClips.map((c) =>
                                     c.id === resizeId
                                         ? {
@@ -2284,6 +2378,17 @@ export class TimelineEngine {
                     const prevFadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeIn ?? 0) * durationFrames)));
                     const prevFadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeOut ?? 0) * durationFrames)));
                     if (fadeInFrames !== prevFadeInFrames || fadeOutFrames !== prevFadeOutFrames) {
+                        this._registerOptimisticClipPatch(
+                            clip.id,
+                            {
+                                fadeIn: this._drag.clipOriginalFadeIn,
+                                fadeOut: this._drag.clipOriginalFadeOut,
+                            },
+                            {
+                                fadeIn: clip.fadeIn,
+                                fadeOut: clip.fadeOut,
+                            },
+                        );
                         this.onClipFades?.(this._drag.clipId, fadeInFrames, fadeOutFrames);
                         // SSOT FIX: Optimistic update for pending clips (same pattern as ClipMove)
                         if (this._pendingClips) {
@@ -2312,6 +2417,17 @@ export class TimelineEngine {
                         const prevIn = this._clampFadeCurve(this._drag.clipOriginalFadeInCurve ?? DEFAULT_FADE_CURVE);
                         const prevOut = this._clampFadeCurve(this._drag.clipOriginalFadeOutCurve ?? DEFAULT_FADE_CURVE);
                         if (Math.abs(nextIn - prevIn) > 0.0001 || Math.abs(nextOut - prevOut) > 0.0001) {
+                            this._registerOptimisticClipPatch(
+                                clip.id,
+                                {
+                                    fadeInCurve: this._drag.clipOriginalFadeInCurve,
+                                    fadeOutCurve: this._drag.clipOriginalFadeOutCurve,
+                                },
+                                {
+                                    fadeInCurve: nextIn,
+                                    fadeOutCurve: nextOut,
+                                },
+                            );
                             this.onClipFadeCurves?.(clip.id, nextIn, nextOut);
                             // SSOT FIX: Optimistic update for pending clips
                             if (this._pendingClips) {

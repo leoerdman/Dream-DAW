@@ -199,6 +199,11 @@ export function useTimelineClipHandlers({
             pruneGhostClip(clipId);
             return;
         }
+        const liveClip = resolveClipById(liveState, clipId);
+        if (!liveClip) {
+            pruneGhostClip(clipId);
+            return;
+        }
         // BUG-026: Use projectBpm as single source of truth.
         const bpm = resolveBpm(projectBpm);
         const sampleRate = projectSampleRate;
@@ -224,6 +229,8 @@ export function useTimelineClipHandlers({
             startBeat: newStartBeat,
             durationBeats: newDurationBeats,
             durationSamples: newDurationFrames,
+            sourceFileTotalFrames: liveClip.sourceFileTotalFrames ?? liveClip.numFrames,
+            numFrames: liveClip.numFrames ?? liveClip.sourceFileTotalFrames,
             ...(typeof optSourceOffset === 'number'
                 ? { sourceOffset: Math.round(optSourceOffset) }
                 : {}),

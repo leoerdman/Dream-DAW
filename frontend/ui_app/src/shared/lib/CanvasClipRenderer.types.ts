@@ -25,6 +25,10 @@ export interface TimelineClipData {
     warpSourceDurationFrames?: number;
     /** Immutable total source file length in frames. Never changes during resize/trim/split. */
     sourceFileTotalFrames?: number;
+    /** Decoded source file length from clip metadata / clip pool. */
+    numFrames?: number;
+    sampleRate?: number;
+    channels?: number;
     pitchShiftSemitones?: number;
     midiNotes?: Array<{
         pitch: number;

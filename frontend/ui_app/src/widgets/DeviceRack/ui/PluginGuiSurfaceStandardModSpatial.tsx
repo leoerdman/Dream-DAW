@@ -17,13 +17,13 @@ import {
     ModulationWave,
     PluginSurfaceLayout,
     SpectrumBars,
-    usePluginSurfaceProps,
+    getPluginSurfaceProps,
     VizCard,
     VizColumn,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 
-function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function AutoPanSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const modRate = readSurfaceParam(device, 'rate', 1, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
     const depthNorm = clamp01(modDepth.value / 100);
@@ -46,8 +46,8 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     );
 }
 
-function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function PhaserSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const modRate = readSurfaceParam(device, 'rate', 0.5, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 60, '%');
     const stages = readSurfaceParam(device, 'stages', 6, '');
@@ -78,8 +78,8 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
     );
 }
 
-function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function FlangerSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const modRate = readSurfaceParam(device, 'rate', 0.3, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
     const fb = readSurfaceParam(device, ['fb', 'feedback'], 40, '%');
@@ -109,8 +109,8 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 }
 
 export function renderModSpatialSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    if (device.effectType === 'autoPan') return renderAutoPanSurface(device, handlers);
-    if (device.effectType === 'phaser' || device.effectType === 'phaserFlanger') return renderPhaserSurface(device, handlers);
-    if (device.effectType === 'flanger') return renderFlangerSurface(device, handlers);
+    if (device.effectType === 'autoPan') return <AutoPanSurface device={device} handlers={handlers} />;
+    if (device.effectType === 'phaser' || device.effectType === 'phaserFlanger') return <PhaserSurface device={device} handlers={handlers} />;
+    if (device.effectType === 'flanger') return <FlangerSurface device={device} handlers={handlers} />;
     return null;
 }

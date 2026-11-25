@@ -95,6 +95,10 @@ pub enum ProjectDelta {
         /// ENTERPRISE: Immutable total source file length for frontend boundary clamping.
         #[serde(skip_serializing_if = "Option::is_none")]
         source_file_total_frames: Option<i64>,
+        /// Source audio sample rate in Hz. Required for exact source-domain math
+        /// when legacy clips are lazily hydrated from the clip pool.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
         /// ENTERPRISE: Updated warp source duration after non-stretch resize.
         #[serde(skip_serializing_if = "Option::is_none")]
         warp_source_duration_frames: Option<i64>,
@@ -106,6 +110,18 @@ pub enum ProjectDelta {
         left_id: Uuid,
         right_id: Uuid,
         split_frame: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        left_source_offset: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        left_warp_source_duration_frames: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        right_source_offset: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        right_warp_source_duration_frames: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_file_total_frames: Option<i64>,
     },
 
     /// A clip was deleted.
@@ -118,6 +134,8 @@ pub enum ProjectDelta {
         new_position: i64,
         new_track_index: usize,
         new_duration: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
         /// ENTERPRISE: Immutable total source file length for the duplicate.
         #[serde(skip_serializing_if = "Option::is_none")]
         source_file_total_frames: Option<i64>,
@@ -180,6 +198,18 @@ pub enum ProjectDelta {
     ClipsMerged {
         source_clip_ids: Vec<Uuid>,
         new_clip_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_position: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_duration: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sample_rate: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_offset: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_file_total_frames: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warp_source_duration_frames: Option<i64>,
     },
 
     // ── Track Mutations ─────────────────────────────────────────────────

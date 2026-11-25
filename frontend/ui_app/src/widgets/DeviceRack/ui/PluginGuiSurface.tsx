@@ -37,16 +37,16 @@ export const PluginGuiSurface = React.memo(({
     onLoadSample?: () => void;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
-    const [waveformPeaks, setWaveformPeaks] = useState<engineApi.PeakPair[] | null>(null);
-    const [sampleMissing, setSampleMissing] = useState(false);
+    const [waveformState, setWaveformState] = useState<{
+        samplePath: string;
+        peaks: engineApi.PeakPair[] | null;
+        missing: boolean;
+    }>({ samplePath: '', peaks: null, missing: false });
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
     const [dragEqBand, setDragEqBand] = useState<number | null>(null);
     const [selectedEqBand, setSelectedEqBand] = useState<number | null>(null);
     const [eqContextMenu, setEqContextMenu] = useState<{ x: number; y: number; bandIdx: number } | null>(null);
-    const [eqBandFilterTypes, setEqBandFilterTypes] = useState<string[]>(() => {
-        const cached = eqFilterTypeCache.get(device.id);
-        return cached ?? EQ_DEFAULT_TYPES;
-    });
+    const eqBandFilterTypes = eqFilterTypeCache.get(device.id) ?? EQ_DEFAULT_TYPES;
     const resolvedEqBandFilterTypes = useMemo(
         () => deriveEqBandFilterTypes(device.params, eqBandFilterTypes),
         [device.params, eqBandFilterTypes],
@@ -61,51 +61,46 @@ export const PluginGuiSurface = React.memo(({
                 if (firstKey !== undefined) eqFilterTypeCache.delete(firstKey);
             }
         }
-        setEqBandFilterTypes((prev) => {
-            if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
-            return next;
-        });
     }, [device.id, resolvedEqBandFilterTypes]);
 
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
 
     const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(true);
+    const isSamplerSurface = device.effectType === 'sampler' || device.effectType === 'instrument';
+    const samplePath = isSamplerSurface ? (device.samplePath?.trim() ?? '') : '';
 
     useEffect(() => {
-        const isSamplerSurface = device.effectType === 'sampler' || device.effectType === 'instrument';
-        if (!isSamplerSurface) {
-            setWaveformPeaks(null);
-            return;
-        }
-        const samplePath = device.samplePath?.trim();
         if (!samplePath) {
-            setWaveformPeaks(null);
-            setSampleMissing(false);
             return;
         }
         let cancelled = false;
-        setSampleMissing(false);
         engineApi.getWaveformPeaksBinary(samplePath)
             .then((wf) => {
                 if (cancelled) return;
                 const rawPeaks = selectFinestMipLevel(wf.mip_levels);
-                if (rawPeaks.length === 0) {
-                    setWaveformPeaks(null);
-                    return;
-                }
-                setWaveformPeaks(downsamplePeaks(rawPeaks, 960));
+                setWaveformState({
+                    samplePath,
+                    peaks: rawPeaks.length === 0 ? null : downsamplePeaks(rawPeaks, 960),
+                    missing: false,
+                });
             })
             .catch((err) => {
                 if (!cancelled) {
                     console.warn('[Dream] sampler waveform load failed:', err);
-                    setWaveformPeaks(null);
-                    setSampleMissing(true);
+                    setWaveformState({
+                        samplePath,
+                        peaks: null,
+                        missing: true,
+                    });
                 }
             });
         return () => {
             cancelled = true;
         };
-    }, [device.id, device.effectType, device.samplePath]);
+    }, [samplePath]);
+
+    const waveformPeaks = waveformState.samplePath === samplePath ? waveformState.peaks : null;
+    const sampleMissing = waveformState.samplePath === samplePath ? waveformState.missing : false;
 
     const samplerWaveformPath = useMemo(() => {
         if (!waveformPeaks || waveformPeaks.length === 0) return null;
@@ -147,26 +142,31 @@ export const PluginGuiSurface = React.memo(({
     // During band drag, param changes are applied to a local Map for
     // zero-latency visual feedback. The IPC call still fires normally.
     const pendingDragOverrides = useRef<Map<string, number>>(new Map());
-    const [dragRenderTick, setDragRenderTick] = useState(0);
+    const [dragOverrideSnapshot, setDragOverrideSnapshot] = useState<Map<string, number>>(() => new Map());
     const dragRenderRafRef = useRef<number | null>(null);
 
     // When drag ends, clear local overrides (store state will have caught up).
     const prevDragBandRef = useRef<number | null>(null);
-    if (prevDragBandRef.current !== null && dragEqBand === null) {
-        pendingDragOverrides.current.clear();
-    }
-    prevDragBandRef.current = dragEqBand;
+    useEffect(() => {
+        if (prevDragBandRef.current !== null && dragEqBand === null) {
+            pendingDragOverrides.current.clear();
+            queueMicrotask(() => setDragOverrideSnapshot(new Map()));
+        }
+        prevDragBandRef.current = dragEqBand;
+    }, [dragEqBand]);
 
     // BUG-EQ01 FIX: Use ref for dragEqBand so the callback identity is stable
     // and the useEqBandDragEffect always has the latest callback.
     const dragEqBandRef = useRef(dragEqBand);
-    dragEqBandRef.current = dragEqBand;
+    useEffect(() => {
+        dragEqBandRef.current = dragEqBand;
+    }, [dragEqBand]);
     const onParamChangeLocal = useCallback((paramName: string, value: number) => {
         if (dragEqBandRef.current !== null) {
             pendingDragOverrides.current.set(paramName.toLowerCase(), value);
             if (dragRenderRafRef.current === null) {
                 dragRenderRafRef.current = requestAnimationFrame(() => {
-                    setDragRenderTick((t) => t + 1);
+                    setDragOverrideSnapshot(new Map(pendingDragOverrides.current));
                     dragRenderRafRef.current = null;
                 });
             }
@@ -174,14 +174,22 @@ export const PluginGuiSurface = React.memo(({
         onParamChange(paramName, value);
     }, [onParamChange]);
 
+    useEffect(() => {
+        return () => {
+            if (dragRenderRafRef.current !== null) {
+                cancelAnimationFrame(dragRenderRafRef.current);
+            }
+        };
+    }, []);
+
     // Merge device.params with local drag overrides for instant curve feedback.
     const mergedEqParams = useMemo(() => {
-        if (pendingDragOverrides.current.size === 0) return device.params;
+        if (dragOverrideSnapshot.size === 0) return device.params;
         return device.params.map((p) => {
-            const override = pendingDragOverrides.current.get(p.name.toLowerCase());
+            const override = dragOverrideSnapshot.get(p.name.toLowerCase());
             return override !== undefined ? { ...p, value: override } : p;
         });
-    }, [device.params, dragRenderTick]);
+    }, [device.params, dragOverrideSnapshot]);
 
     useEqBandDragEffect({
         dragEqBand,

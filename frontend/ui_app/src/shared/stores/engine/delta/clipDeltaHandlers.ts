@@ -1,6 +1,7 @@
 import { beatDurationToFrames, beatToFrame, frameToBeat } from '@/shared/lib/audioMath';
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { getClipSourcePerTimelineFrame } from '@/shared/lib/clipSourceMath';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { getTrackByIndex } from './trackStateOps';
 
@@ -51,7 +52,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             startBeat: frameToBeat(delta.data.position, env.bpm, env.sampleRate),
             durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.duration,
-            type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
+            type: (() => {
+                const ct = delta.data.clip_type;
+                if (ct === 'midi' || ct === 'audio') return ct;
+                console.warn(`[Dream] Unknown clip_type: ${ct}, falling back to audio`);
+                return 'audio';
+            })(),
             // BUG-H10 FIX: Prefer color from delta data (backend may send custom clip color).
             // Falls back to track color, then DEFAULT_TRACK_COLOR if track not found.
             color: (typeof delta.data.color === 'string'
@@ -77,11 +83,11 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             // ENTERPRISE: Audio file metadata for clip info display.
             sampleRate: delta.data.sample_rate ?? undefined,
             channels: delta.data.channels ?? undefined,
-            numFrames: delta.data.num_frames ?? undefined,
+            numFrames: delta.data.num_frames ?? delta.data.source_file_total_frames ?? undefined,
             // ENTERPRISE ROOT-CAUSE FIX: Use source_file_total_frames from delta
             // directly. This is the immutable total source file length set at import.
             // Without it, the frontend falls back to shrinking values → ratchet bug.
-            sourceFileTotalFrames: delta.data.source_file_total_frames ?? delta.data.num_frames ?? delta.data.duration,
+            sourceFileTotalFrames: delta.data.source_file_total_frames ?? delta.data.num_frames ?? undefined,
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -118,6 +124,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             // uses shrinking fallback values for boundary clamping — causing the
             // "ratchet bug" where clips can't be re-expanded after trimming.
             ...(delta.data.source_file_total_frames != null ? { sourceFileTotalFrames: delta.data.source_file_total_frames } : {}),
+            ...(
+                delta.data.source_file_total_frames != null
+                    ? { numFrames: delta.data.source_file_total_frames }
+                    : {}
+            ),
+            ...(delta.data.sample_rate != null ? { sampleRate: delta.data.sample_rate } : {}),
             ...(delta.data.warp_source_duration_frames != null ? { warpSourceDurationFrames: delta.data.warp_source_duration_frames } : {}),
         };
         upsertClip(state, next);
@@ -141,10 +153,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 : sourceClip.durationBeats,
             durationSamples: delta.data.new_duration ?? sourceClip.durationSamples,
             ...(delta.data.new_source_offset != null ? { sourceOffset: delta.data.new_source_offset } : {}),
+            ...(delta.data.sample_rate != null ? { sampleRate: delta.data.sample_rate } : {}),
             // ENTERPRISE FIX: Extract source_file_total_frames from delta when
             // available. Without this, duplicated clips inherit stale values from
             // the source clip, causing the ratchet bug on the duplicate.
             ...(delta.data.source_file_total_frames != null ? { sourceFileTotalFrames: delta.data.source_file_total_frames } : {}),
+            ...(delta.data.source_file_total_frames != null ? { numFrames: delta.data.source_file_total_frames } : {}),
         };
         upsertClip(state, nextClip);
         state.changed = true;
@@ -192,16 +206,11 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             rightWarpSource = Math.max(1, sourceTotal - consumedSource);
             rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
         } else {
-            // Non-warped clips: source offset advances linearly, scaled by pitch.
-            // ENTERPRISE FIX (PITCH-SHIFT SPLIT DESYNC): For pitch-shifted non-warped
-            // clips, the engine reads `pitchMultiplier` source frames per timeline frame.
-            // The right half's sourceOffset must advance by `splitOffsetFrames * pitchMul`,
-            // not raw `splitOffsetFrames`. Mirrors the backend `split_clip()` fix.
-            const pitchSemitones = clip.pitchShiftSemitones ?? 0;
-            const pitchMul = pitchSemitones !== 0
-                ? Math.pow(2, Math.max(-36, Math.min(36, pitchSemitones)) / 12)
-                : 1.0;
-            const consumedSource = Math.round(splitOffsetFrames * pitchMul);
+            // Non-warped clips: source offset advances by the same canonical
+            // source-per-timeline ratio as resize/render math, including source
+            // SR -> project SR conversion for mismatched files.
+            const sourcePerTimeline = getClipSourcePerTimelineFrame(clip, env.sampleRate);
+            const consumedSource = Math.round(splitOffsetFrames * sourcePerTimeline);
             rightSourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + consumedSource);
             // ENTERPRISE FIX: Proportionally split warpSourceDurationFrames for non-warped
             // clips too (mirrors backend split_clip fix). This ensures correct warp rate
@@ -246,12 +255,15 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             ...clip,
             durationBeats: leftDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(leftDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
+            sourceOffset: delta.data.left_source_offset ?? clip.sourceOffset,
             fadeIn: leftFadeIn,
             fadeOut: leftFadeOut,
-            warpSourceDurationFrames: leftWarpSource,
+            warpSourceDurationFrames: delta.data.left_warp_source_duration_frames ?? leftWarpSource,
+            sampleRate: delta.data.sample_rate ?? clip.sampleRate,
             // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
             // the same source file. Without this, right-edge resize can't re-expand.
-            sourceFileTotalFrames: clip.sourceFileTotalFrames,
+            sourceFileTotalFrames: delta.data.source_file_total_frames ?? clip.sourceFileTotalFrames,
+            numFrames: delta.data.source_file_total_frames ?? clip.numFrames,
             midiNotes: leftMidiNotes,
         };
         const rightClip: TimelineClip = {
@@ -260,13 +272,15 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             startBeat: splitBeat,
             durationBeats: rightDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(rightDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
-            sourceOffset: rightSourceOffset,
+            sourceOffset: delta.data.right_source_offset ?? rightSourceOffset,
             fadeIn: rightFadeIn,
             fadeOut: rightFadeOut,
-            warpSourceDurationFrames: rightWarpSource,
+            warpSourceDurationFrames: delta.data.right_warp_source_duration_frames ?? rightWarpSource,
+            sampleRate: delta.data.sample_rate ?? clip.sampleRate,
             // ENTERPRISE FIX: Inherit sourceFileTotalFrames — both halves reference
             // the same source file.
-            sourceFileTotalFrames: clip.sourceFileTotalFrames,
+            sourceFileTotalFrames: delta.data.source_file_total_frames ?? clip.sourceFileTotalFrames,
+            numFrames: delta.data.source_file_total_frames ?? clip.numFrames,
             midiNotes: rightMidiNotes,
         };
         upsertClip(state, leftClip);
@@ -293,15 +307,26 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             ...representative,
             id: delta.data.new_clip_id,
             name: representative.name || 'Merged Clip',
-            startBeat: mergedStart,
-            durationBeats: mergedDuration,
-            durationSamples: representative.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(mergedDuration, env.bpm, env.sampleRate))) : representative.durationSamples,
-            sourceOffset: earliestClip.sourceOffset ?? 0,
+            startBeat: delta.data.new_position != null
+                ? frameToBeat(delta.data.new_position, env.bpm, env.sampleRate)
+                : mergedStart,
+            durationBeats: delta.data.new_duration != null
+                ? frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate)
+                : mergedDuration,
+            durationSamples: delta.data.new_duration != null
+                ? Math.max(1, delta.data.new_duration)
+                : representative.durationSamples != null
+                    ? Math.max(1, Math.round(beatDurationToFrames(mergedDuration, env.bpm, env.sampleRate)))
+                    : representative.durationSamples,
+            sampleRate: delta.data.sample_rate ?? earliestClip.sampleRate ?? representative.sampleRate,
+            sourceOffset: delta.data.source_offset ?? earliestClip.sourceOffset ?? 0,
             fadeIn: 0,
             fadeOut: 0,
             // ENTERPRISE FIX: Inherit sourceFileTotalFrames from earliest clip
             // (same source file). Without this, merged clips can't re-expand.
-            sourceFileTotalFrames: earliestClip.sourceFileTotalFrames ?? representative.sourceFileTotalFrames,
+            sourceFileTotalFrames: delta.data.source_file_total_frames ?? earliestClip.sourceFileTotalFrames ?? representative.sourceFileTotalFrames,
+            numFrames: delta.data.source_file_total_frames ?? earliestClip.numFrames ?? representative.numFrames,
+            warpSourceDurationFrames: delta.data.warp_source_duration_frames ?? representative.warpSourceDurationFrames,
             midiNotes: representative.type === 'midi'
                 ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat - frameToBeat(c.sourceOffset ?? 0, env.bpm, env.sampleRate) })))
                 : representative.midiNotes,

@@ -16,9 +16,7 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
     const mountedRef = useRef(true);
     const lastRef = useRef({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
-    const [, setTick] = useState(0);
-    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
-    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+    const [meterState, setMeterState] = useState({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
     useEffect(() => {
         mountedRef.current = true;
@@ -44,7 +42,14 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
             if (rafIdRef.current) return;
             rafIdRef.current = requestAnimationFrame(() => {
                 rafIdRef.current = 0;
-                if (mountedRef.current) forceUpdateRef.current();
+                if (mountedRef.current) {
+                    setMeterState({
+                        mL: meterLRef.current,
+                        mR: meterRRef.current,
+                        hL: holdLRef.current,
+                        hR: holdRRef.current,
+                    });
+                }
             });
         });
         return () => { mountedRef.current = false; unsub(); if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
@@ -52,7 +57,7 @@ const MasterMeterPair = memo(function MasterMeterPair({ meterWidth }: { meterWid
 
     return (
         <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-            <MeterStrip levelL={meterLRef.current} levelR={meterRRef.current} peakHoldL={holdLRef.current} peakHoldR={holdRRef.current} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+            <MeterStrip levelL={meterState.mL} levelR={meterState.mR} peakHoldL={meterState.hL} peakHoldR={meterState.hR} isMidi={false} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
         </div>
     );
 });

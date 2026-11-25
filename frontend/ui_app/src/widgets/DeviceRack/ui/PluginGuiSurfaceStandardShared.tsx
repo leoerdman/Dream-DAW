@@ -374,7 +374,7 @@ export const KnobParamGridMemo = React.memo(({
     // Memoize the expensive param filtering based on device.params reference
     const params = React.useMemo(
         () => buildSurfaceKnobParams(device, options),
-        [device.params, options],
+        [device, options],
     );
     return <KnobParamGrid params={params} handlers={handlers} maxCols={maxCols} minCols={minCols} />;
 });

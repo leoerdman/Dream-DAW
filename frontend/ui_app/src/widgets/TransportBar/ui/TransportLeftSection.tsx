@@ -38,6 +38,11 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
         setGridDivision,
         metronomeEnabled,
         onToggleMetronome,
+        metronomeVolume,
+        onMetronomeVolumeChange,
+        metronomeMenuRef,
+        metronomeMenuOpen,
+        setMetronomeMenuOpen,
     } = props;
     const gridLabel = gridDivision === 'ADAPTIVE' ? 'Adaptive' : gridTriplet ? `${gridDivision}T` : gridDivision;
     return (
@@ -242,14 +247,14 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
             {/* ── Metronome Toggle + Context Menu ── */}
             <PillSection>
                 <div
-                    ref={props.metronomeMenuRef}
+                    ref={metronomeMenuRef}
                     style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
                 >
                     <button
                         onClick={onToggleMetronome}
                         onContextMenu={(e) => {
                             e.preventDefault();
-                            props.setMetronomeMenuOpen(!props.metronomeMenuOpen);
+                            setMetronomeMenuOpen(!metronomeMenuOpen);
                         }}
                         title={metronomeEnabled ? 'Metronome ON – click to disable · Right-click for settings' : 'Metronome OFF – click to enable · Right-click for settings'}
                         aria-label="Toggle metronome"
@@ -278,7 +283,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                             <line x1="12" y1="22" x2="18" y2="8" />
                         </svg>
                     </button>
-                    {props.metronomeMenuOpen && (
+                    {metronomeMenuOpen && (
                         <div
                             style={{
                                 position: 'absolute',
@@ -310,8 +315,8 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 20 }}>
                                     <VolumeFader
                                         compact
-                                        volumeLinear={props.metronomeVolume}
-                                        onVolumeChange={props.onMetronomeVolumeChange}
+                                        volumeLinear={metronomeVolume}
+                                        onVolumeChange={onMetronomeVolumeChange}
                                     />
                                     <span style={{
                                         fontSize: 'var(--font-size-xs)',
@@ -320,7 +325,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                         minWidth: 36,
                                         textAlign: 'right',
                                     }}>
-                                        {Math.round(props.metronomeVolume * 100)}%
+                                        {Math.round(metronomeVolume * 100)}%
                                     </span>
                                 </div>
                             </div>

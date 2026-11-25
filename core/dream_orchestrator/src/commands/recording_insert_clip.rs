@@ -46,8 +46,8 @@ impl Command for InsertRecordedClipCommand {
             AbsoluteTime::new(self.start_frame),
             AbsoluteTime::new(timeline_frames.max(1)),
         );
-        clip.warp_source_duration_frames = self.source_total_frames.max(1);
-        clip.source_file_total_frames = self.source_total_frames.max(1);
+        clip.sample_rate = Some(self.source_sample_rate.max(1));
+        clip.set_source_bounds(self.source_total_frames.max(1));
 
         project.tracks[track_index].clips.push(clip);
         Ok(())

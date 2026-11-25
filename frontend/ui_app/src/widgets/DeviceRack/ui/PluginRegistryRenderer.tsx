@@ -220,6 +220,51 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
     const toggleParams = useMemo(() => {
         return device.params.filter(p => toggleParamSet.has(p.name.toLowerCase()));
     }, [device.params, toggleParamSet]);
+    const delaySyncEnabled = Boolean(definition.delaySync);
+    const isSyncMode = delaySyncEnabled
+        ? getParamValue(device, ['sync l'], 1) > 0.5
+        : false;
+    const [isLinkActive, setLinkActive] = useState(false);
+
+    // Dynamic knob filtering for Delay: hide time knobs in Sync, hide note enums in Time
+    const filteredKnobParams = useMemo(() => {
+        if (!delaySyncEnabled) return allKnobParams;
+        const hideSet = isSyncMode
+            ? new Set(['time l', 'time r'])
+            : new Set<string>();
+        return allKnobParams.filter(p => !hideSet.has(p.name.toLowerCase()));
+    }, [allKnobParams, delaySyncEnabled, isSyncMode]);
+
+    // Dynamic enum filtering for Delay: only show note dropdowns in Sync mode
+    const filteredEnumParams = useMemo(() => {
+        if (!delaySyncEnabled) return enumParams;
+        if (isSyncMode) return enumParams;
+        return enumParams.filter(p => {
+            const n = p.name.toLowerCase();
+            return n !== 'note l' && n !== 'note r';
+        });
+    }, [enumParams, delaySyncEnabled, isSyncMode]);
+
+    // L↔R mirroring handler (active only when link is ON)
+    const wrappedHandlers = useMemo((): SurfaceHandlers => {
+        if (!isLinkActive || !delaySyncEnabled) return handlers;
+        const mirrorMap: Record<string, string> = {
+            'time l': 'time r', 'time r': 'time l',
+            'note l': 'note r', 'note r': 'note l',
+            'sync l': 'sync r', 'sync r': 'sync l',
+        };
+        return {
+            ...handlers,
+            onParamChange: (paramName: string, value: number) => {
+                handlers.onParamChange(paramName, value);
+                const mirrorTarget = mirrorMap[paramName.toLowerCase()];
+                if (mirrorTarget) {
+                    const canonical = device.params.find(p => p.name.toLowerCase() === mirrorTarget);
+                    if (canonical) handlers.onParamChange(canonical.name, value);
+                }
+            },
+        };
+    }, [handlers, isLinkActive, delaySyncEnabled, device.params]);
 
     // ── Utility layout (vertical, no viz card) ──────────────────────
     if (definition.isUtility) {
@@ -256,51 +301,6 @@ export const UniversalPluginRenderer = React.memo(function UniversalPluginRender
             </div>
         );
     }
-    // ── Delay-specific: Time/Sync mode + L↔R Link (Enterprise) ──
-    const isSyncMode = definition.delaySync
-        ? getParamValue(device, ['sync l'], 1) > 0.5
-        : false;
-    const [isLinkActive, setLinkActive] = useState(false);
-
-    // Dynamic knob filtering for Delay: hide time knobs in Sync, hide note enums in Time
-    const filteredKnobParams = useMemo(() => {
-        if (!definition.delaySync) return allKnobParams;
-        const hideSet = isSyncMode
-            ? new Set(['time l', 'time r'])   // In Sync: hide time knobs (notes shown as dropdowns)
-            : new Set<string>();               // In Time: show all knobs
-        return allKnobParams.filter(p => !hideSet.has(p.name.toLowerCase()));
-    }, [allKnobParams, definition.delaySync, isSyncMode]);
-
-    // Dynamic enum filtering for Delay: only show note dropdowns in Sync mode
-    const filteredEnumParams = useMemo(() => {
-        if (!definition.delaySync) return enumParams;
-        if (isSyncMode) return enumParams; // Show note l/r dropdowns in Sync
-        return enumParams.filter(p => {
-            const n = p.name.toLowerCase();
-            return n !== 'note l' && n !== 'note r'; // Hide note dropdowns in Time mode
-        });
-    }, [enumParams, definition.delaySync, isSyncMode]);
-
-    // L↔R mirroring handler (active only when link is ON)
-    const wrappedHandlers = useMemo((): SurfaceHandlers => {
-        if (!isLinkActive || !definition.delaySync) return handlers;
-        const mirrorMap: Record<string, string> = {
-            'time l': 'time r', 'time r': 'time l',
-            'note l': 'note r', 'note r': 'note l',
-            'sync l': 'sync r', 'sync r': 'sync l',
-        };
-        return {
-            ...handlers,
-            onParamChange: (paramName: string, value: number) => {
-                handlers.onParamChange(paramName, value);
-                const mirrorTarget = mirrorMap[paramName.toLowerCase()];
-                if (mirrorTarget) {
-                    const canonical = device.params.find(p => p.name.toLowerCase() === mirrorTarget);
-                    if (canonical) handlers.onParamChange(canonical.name, value);
-                }
-            },
-        };
-    }, [handlers, isLinkActive, definition.delaySync, device.params]);
 
     // ── Standard layout: ControlPanel | VizCard | DryWet ────────────
     const vizElement = resolveViz(definition.viz, device, accent, wrappedHandlers);

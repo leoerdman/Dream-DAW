@@ -1274,8 +1274,10 @@ export const useFlowSynthStore = create<FlowSynthState>()((set, get) => ({
      * Called from deleteTrack to prevent unbounded cache growth.
      */
     cleanupDeviceCache: (deviceId: string) => set((state: FlowSynthState) => {
-        const { [deviceId]: _g, ...remainingGraphs } = state.graphsByDeviceId;
-        const { [deviceId]: _v, ...remainingViewports } = state.viewportByDeviceId;
+        const remainingGraphs = { ...state.graphsByDeviceId };
+        const remainingViewports = { ...state.viewportByDeviceId };
+        delete remainingGraphs[deviceId];
+        delete remainingViewports[deviceId];
         return {
             graphsByDeviceId: remainingGraphs,
             viewportByDeviceId: remainingViewports,
@@ -1534,4 +1536,3 @@ useEngineStore.subscribe((state) => {
         }
     })();
 });
-

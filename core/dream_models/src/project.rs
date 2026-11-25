@@ -1253,6 +1253,13 @@ pub struct AudioClip {
     #[serde(default)]
     pub source_file_total_frames: i64,
 
+    /// Source audio file sample rate in Hz.
+    ///
+    /// Used to translate between timeline frames (project sample rate) and raw
+    /// source frames when the imported file SR differs from the project SR.
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+
     /// Complex Pro formant preservation amount (0–100).
     #[serde(default)]
     pub complex_pro_formants: f64,
@@ -1415,8 +1422,16 @@ impl AudioClip {
             warp_mode: None,
             warp_markers: Vec::new(),
             warp_base_bpm: default_clip_warp_base_bpm(),
+            // This field tracks how much source the CURRENT visible window spans.
+            // For a fresh clip without external metadata, the visible window is the
+            // clip duration, so this is the safest local default.
             warp_source_duration_frames: duration.sample_frame.max(1),
-            source_file_total_frames: duration.sample_frame.max(1),
+            // SSOT: unknown source total must remain unknown.
+            // Using the current visible duration here lies about the real file size
+            // and causes downstream trim/resize math to ratchet against a fake EOF.
+            // Authoritative import/record/bounce paths hydrate this field explicitly.
+            source_file_total_frames: 0,
+            sample_rate: None,
             complex_pro_formants: 0.0,
             complex_pro_envelope: default_complex_pro_envelope(),
             granularity_texture: default_granularity_texture(),
@@ -1445,6 +1460,48 @@ impl AudioClip {
             is_song_tempo_leader: false,
             annotation: None,
             grid: None,
+        }
+    }
+
+    /// Hydrates canonical source-domain metadata from authoritative audio data.
+    ///
+    /// `source_file_total_frames` is the immutable full source length.
+    /// `warp_source_duration_frames` is the amount of source currently consumed
+    /// by the visible clip window.
+    pub fn set_source_bounds(&mut self, source_total_frames: i64) {
+        self.set_source_media_with_visible_window(source_total_frames, source_total_frames, self.sample_rate);
+    }
+
+    /// Same as `set_source_bounds`, but allows callers to provide a visible
+    /// source window that differs from the total source length.
+    pub fn set_source_bounds_with_visible_window(
+        &mut self,
+        source_total_frames: i64,
+        visible_source_frames: i64,
+    ) {
+        self.set_source_media_with_visible_window(
+            source_total_frames,
+            visible_source_frames,
+            self.sample_rate,
+        );
+    }
+
+    /// Hydrates source bounds together with optional source sample-rate metadata.
+    ///
+    /// This is the canonical helper for clip-pool-driven hydration paths so clip
+    /// math and deltas never receive updated source bounds without the matching
+    /// sample-rate needed to interpret them.
+    pub fn set_source_media_with_visible_window(
+        &mut self,
+        source_total_frames: i64,
+        visible_source_frames: i64,
+        sample_rate: Option<u32>,
+    ) {
+        let source_total = source_total_frames.max(1);
+        self.source_file_total_frames = source_total;
+        self.warp_source_duration_frames = visible_source_frames.max(1).min(source_total);
+        if let Some(sr) = sample_rate.filter(|sr| *sr > 0) {
+            self.sample_rate = Some(sr);
         }
     }
 

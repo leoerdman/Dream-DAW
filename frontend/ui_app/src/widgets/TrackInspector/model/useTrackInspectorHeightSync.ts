@@ -12,7 +12,7 @@ export function useTrackInspectorHeightSync(
     setRowHeightOverrides: React.Dispatch<React.SetStateAction<RowHeightOverrides>>,
 ) {
     useEffect(() => {
-        const onReset = (_e: Event) => {
+        const onReset = () => {
             setRowHeightOverrides({});
         };
         window.addEventListener('dream:track-heights-reset', onReset);

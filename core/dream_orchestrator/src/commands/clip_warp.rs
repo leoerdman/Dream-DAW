@@ -77,13 +77,27 @@ impl Command for SetClipWarpCommand {
                     .map(|audio| audio.sample_rate.max(1) as f64)
                     .unwrap_or(timeline_sr);
 
+                if let Some(audio) = source_audio.as_ref() {
+                    // SSOT: preserve the real decoded source length so later trim/resize
+                    // operations clamp against the file, not against stale project data.
+                    clip.set_source_media_with_visible_window(
+                        (audio.num_frames.max(1)) as i64,
+                        clip.warp_source_duration_frames.max(1),
+                        Some(audio.sample_rate.max(1)),
+                    );
+                }
+
                 // Lazily initialize warp_source_duration_frames from clip pool
                 if clip.warp_source_duration_frames <= 0 {
                     let source_frames = source_audio
                         .as_ref()
                         .map(|audio| audio.num_frames.max(1) as i64)
                         .unwrap_or(clip.duration.sample_frame.max(1));
-                    clip.warp_source_duration_frames = source_frames;
+                    clip.set_source_media_with_visible_window(
+                        clip.source_file_total_frames.max(source_frames.max(1)),
+                        source_frames,
+                        source_audio.as_ref().map(|audio| audio.sample_rate.max(1)),
+                    );
                 }
 
                 clip.is_warped = self.is_warped;

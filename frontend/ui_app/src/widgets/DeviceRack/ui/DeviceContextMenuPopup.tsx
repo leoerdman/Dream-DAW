@@ -16,7 +16,6 @@ export interface DeviceContextMenuPopupProps {
 export const DeviceContextMenuPopup = ({
     x,
     y,
-    deviceId: _deviceId,
     deviceName,
     isEnabled,
     onGroup,

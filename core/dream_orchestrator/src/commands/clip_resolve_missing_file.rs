@@ -36,6 +36,13 @@ impl Command for ResolveMissingClipFileCommand {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
                 clip.file_path = self.new_path.clone();
                 clip.is_offline = false;
+                if let Some(audio) = ctx.clip_pool.get_clip_audio(&clip.file_path) {
+                    clip.set_source_media_with_visible_window(
+                        (audio.num_frames as i64).max(1),
+                        clip.warp_source_duration_frames.max(1),
+                        Some(audio.sample_rate.max(1)),
+                    );
+                }
                 return Ok(());
             }
         }

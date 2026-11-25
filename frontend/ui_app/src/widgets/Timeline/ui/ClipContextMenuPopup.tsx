@@ -14,7 +14,6 @@ export interface ClipContextMenuPopupProps {
 export const ClipContextMenuPopup = ({
     x,
     y,
-    clipId: _clipId,
     onDuplicate,
     onDelete,
     onResetFades,

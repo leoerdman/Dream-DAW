@@ -19,14 +19,14 @@ import {
     MiniFilterEq,
     PluginSurfaceLayout,
     SpectrumBars,
-    usePluginSurfaceProps,
+    getPluginSurfaceProps,
     VizCard,
     VizColumn,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 import { renderModSpatialSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardModSpatial';
 
-function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function LimiterSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const thrParam = readSurfaceParam(device, 'thr', -0.3, 'dB');
     const ceilParam = readSurfaceParam(device, 'ceil', -0.1, 'dB');
     const limGr = Math.max(0, Math.abs(thrParam.value) * 0.8);
@@ -53,8 +53,8 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     );
 }
 
-function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function GateSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
     const thrNorm = clamp01((thrParam.value + 60) / 60);
 
@@ -81,8 +81,8 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
     );
 }
 
-function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+function AutoFilterSurface({ device, handlers }: { device: DeviceSlot; handlers: SurfaceHandlers }): React.ReactNode {
+    const { showDryWet, knobParams } = getPluginSurfaceProps(device);
     const normalizedInternalId = getDevicePluginKey(device);
     const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
     const modFreq = readSurfaceParam(device, ['freq', 'frequency', 'cutoff', 'center'], 1000, 'Hz');
@@ -114,8 +114,8 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
 }
 
 export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    if (device.effectType === 'limiter') return renderLimiterSurface(device, handlers);
-    if (device.effectType === 'gate') return renderGateSurface(device, handlers);
-    if (device.effectType === 'autoFilter') return renderAutoFilterSurface(device, handlers);
+    if (device.effectType === 'limiter') return <LimiterSurface device={device} handlers={handlers} />;
+    if (device.effectType === 'gate') return <GateSurface device={device} handlers={handlers} />;
+    if (device.effectType === 'autoFilter') return <AutoFilterSurface device={device} handlers={handlers} />;
     return renderModSpatialSurface(device, handlers);
 }

@@ -6,6 +6,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { beatDurationToFrames, frameToBeat, resolveBpm, resolveSampleRate, formatBeatsAsBBS, clampPitchShift, DEFAULT_TIME_SIG_NUMERATOR, MIN_BPM, MAX_BPM } from '@/shared/lib/audioMath';
+import { getClipAvailableSourceFrames, getClipSourcePerTimelineFrame } from '@/shared/lib/clipSourceMath';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { ClipEditorToolbar } from '@/widgets/ClipEditor/ClipEditorToolbar';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
@@ -67,13 +68,12 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         let nextDurationSamples = liveClip.durationSamples;
 
         if (!liveClip.isWarped) {
-            const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
-            // ENTERPRISE FIX (BUG-PITCH-TRIM-001): Subtract sourceOffset from total
-            // to get available source frames for THIS clip. Previously used full file
-            // length, causing trimmed clips to expand back to full size on pitch change.
-            const totalFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.durationSamples ?? 1);
-            const availableSource = Math.max(1, totalFrames - Math.max(0, liveClip.sourceOffset ?? 0));
-            nextDurationSamples = Math.max(1, Math.round(availableSource / pitchMultiplier));
+            const sourcePerTimeline = getClipSourcePerTimelineFrame(
+                { ...liveClip, pitchShiftSemitones: nextPitch },
+                sampleRate,
+            );
+            const availableSource = getClipAvailableSourceFrames(liveClip, sampleRate);
+            nextDurationSamples = Math.max(1, Math.round(availableSource / sourcePerTimeline));
             nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
         }
 
@@ -124,15 +124,10 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         const previousDurationSamples = liveClip.durationSamples;
         const previousSourceFrames = liveClip.warpSourceDurationFrames;
 
-        // ENTERPRISE FIX (BUG-WARP-TRIM-001): Subtract sourceOffset from total to get
-        // available source for THIS clip. Previously used full sourceFileTotalFrames,
-        // causing trimmed clips to expand to full file length when toggling warp.
-        const totalFrames = Math.max(1, liveClip.sourceFileTotalFrames ?? liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
-        const clipSourceOffset = Math.max(0, liveClip.sourceOffset ?? 0);
-        const sourceFrames = Math.max(1, totalFrames - clipSourceOffset);
-        const pitchMultiplier = Math.pow(2.0, (liveClip.pitchShiftSemitones ?? 0) / 12.0);
-        const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.max(1, Math.round(sourceFrames / pitchMultiplier)), projectTempo, sr);
-        const nextDurationSamples = next.enabled ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr)) : Math.max(1, Math.round(sourceFrames / pitchMultiplier));
+        const sourceFrames = getClipAvailableSourceFrames(liveClip, sr);
+        const sourcePerTimeline = getClipSourcePerTimelineFrame(liveClip, sr);
+        const nextDurationBeats = next.enabled ? frameToBeat(sourceFrames, base, sr) : frameToBeat(Math.max(1, Math.round(sourceFrames / sourcePerTimeline)), projectTempo, sr);
+        const nextDurationSamples = next.enabled ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr)) : Math.max(1, Math.round(sourceFrames / sourcePerTimeline));
 
         useEngineStore.getState().patchClip(clip.id, {
             isWarped: next.enabled,

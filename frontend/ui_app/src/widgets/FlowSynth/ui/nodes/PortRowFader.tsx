@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PortFaderConfig } from '../../model/portRegistry';
 import { useAutomationStore } from '../../../../shared/stores/useAutomationStore';
 import { useEngineStore } from '../../../../shared/stores/useEngineStore';
@@ -52,10 +52,13 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
     // ENTERPRISE FIX: Smooth dragging using local state
     const [localValue, setLocalValue] = useState(value);
     const inPropRef = useRef(value);
-    if (value !== inPropRef.current) {
+    useEffect(() => {
+        if (value === inPropRef.current) return;
         inPropRef.current = value;
-        if (!isDragging && !isEditing) setLocalValue(value);
-    }
+        if (!isDragging && !isEditing) {
+            queueMicrotask(() => setLocalValue(value));
+        }
+    }, [value, isDragging, isEditing]);
 
     const safeValue = Number.isFinite(localValue) ? Math.min(max, Math.max(min, localValue)) : min;
     const pct = (safeValue - min) / (max - min);
@@ -108,9 +111,11 @@ export const PortRowFader = React.memo(function PortRowFader({ nodeId, portId, v
     // re-subscribing the wheel event listener on every value change.
     // This prevents stale closure issues and avoids continuous teardown/recreation.
     const safeValueRef = useRef(safeValue);
-    safeValueRef.current = safeValue;
+    useEffect(() => {
+        safeValueRef.current = safeValue;
+    }, [safeValue]);
 
-    React.useEffect(() => {
+    useEffect(() => {
         const node = trackRef.current;
         if (!node) return;
         const handleWheel = (e: WheelEvent) => {

@@ -21,17 +21,23 @@ import {
     PluginSurfaceLayout,
     SpectrumBars,
     ToggleButton,
-    usePluginSurfaceProps,
+    getPluginSurfaceProps,
     VizCard,
     VizColumn,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 
-export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
+function StandardUtilityCompressorSurface({
+    device,
+    handlers,
+}: {
+    device: DeviceSlot;
+    handlers: SurfaceHandlers;
+}): React.ReactNode {
     const normalizedInternalId = getDevicePluginKey(device);
 
     if (device.effectType === 'utility') {
         const mono = getParamValue(device, ['mono'], 0) > 0.5;
-        const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+        const { showDryWet, knobParams } = getPluginSurfaceProps(device);
         return (
             <div data-no-drag style={{
                 display: 'flex',
@@ -59,7 +65,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const isTransientShaper = normalizedInternalId === 'internal://effect/transient-shaper';
         const isGlueCompressor = normalizedInternalId === 'internal://effect/glue-compressor';
         const isMultibandDynamics = normalizedInternalId === 'internal://effect/multiband-dynamics';
-        const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+        const { showDryWet, knobParams } = getPluginSurfaceProps(device);
         const thrParam = readSurfaceParam(device, 'thr', -18, 'dB');
         const ratioParam = readSurfaceParam(device, 'ratio', 4, ':1');
         const thr = thrParam.value;
@@ -128,4 +134,8 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
     }
 
     return null;
+}
+
+export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
+    return <StandardUtilityCompressorSurface device={device} handlers={handlers} />;
 }

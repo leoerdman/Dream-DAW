@@ -108,10 +108,17 @@ export function useDeviceRackCore(selectedTrackId: string) {
             }
             return changed ? next : prev;
         };
-        setLocalBypassByTrack(prune);
-        setLocalParamsByTrack(prune);
-        setSelectedDeviceIdsByTrack(prune);
-        setInlineSettingsOpenByTrack(prune);
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled) return;
+            setLocalBypassByTrack(prune);
+            setLocalParamsByTrack(prune);
+            setSelectedDeviceIdsByTrack(prune);
+            setInlineSettingsOpenByTrack(prune);
+        });
+        return () => {
+            cancelled = true;
+        };
     }, [trackIds]);
 
     const localBypass = useMemo(

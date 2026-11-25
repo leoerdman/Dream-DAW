@@ -49,22 +49,34 @@ impl Command for SetClipPitchCommand {
 
         for track in &mut project.tracks {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
+                let source_audio = ctx.clip_pool.get_clip_audio(&clip.file_path);
+                if let Some(audio) = source_audio.as_ref() {
+                    // SSOT: keep immutable source bounds aligned with the decoded file,
+                    // even for legacy projects that already carry a stale non-zero value.
+                    clip.set_source_media_with_visible_window(
+                        (audio.num_frames as i64).max(1),
+                        clip.warp_source_duration_frames.max(1),
+                        Some(audio.sample_rate.max(1)),
+                    );
+                }
                 clip.pitch_shift_semitones = self.pitch_shift_semitones.clamp(-48.0, 48.0);
                 if clip.warp_source_duration_frames <= 0 {
-                    let source_frames = ctx
-                        .clip_pool
-                        .get_clip_audio(&clip.file_path)
+                    let source_frames = source_audio
+                        .as_ref()
                         .map(|audio| audio.num_frames as i64)
                         .unwrap_or_else(|| clip.duration.sample_frame.max(1));
-                    clip.warp_source_duration_frames = source_frames.max(1);
+                    clip.set_source_media_with_visible_window(
+                        clip.source_file_total_frames.max(source_frames.max(1)),
+                        source_frames.max(1),
+                        source_audio.as_ref().map(|audio| audio.sample_rate.max(1)),
+                    );
                 }
 
                 // When not warped, pitch shift changes duration (vinyl speed effect)
                 if !clip.is_warped {
                     let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
-                    let source_sr = ctx
-                        .clip_pool
-                        .get_clip_audio(&clip.file_path)
+                    let source_sr = source_audio
+                        .as_ref()
                         .map(|audio| audio.sample_rate.max(1) as f64)
                         .unwrap_or(timeline_sr);
                     let source_len_timeline = source_to_timeline_frames(

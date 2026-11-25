@@ -122,3 +122,6 @@ bitwig_*.md
 
 # ── Lock files (npm) ──────────────────────────────────────────────
 package-lock.json
+
+# separate git repository with its own remote; not part of this repo
+/Dream DAW Website/

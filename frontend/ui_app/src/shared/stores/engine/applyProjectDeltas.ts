@@ -38,16 +38,11 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 
 function normalizeMidiNoteStartFrame(
     rawStartFrame: number,
-    clipStartFrame: number,
-    clipDurationFrame: number,
 ): number {
-    // BUG-011 FIX: Removed `clipStartFrame > 0` guard that skipped note
-    // remapping for clips at position 0. The >= checks below correctly
-    // handle all positions including 0.
-    const clipAbsEnd = clipStartFrame + clipDurationFrame;
-    if (rawStartFrame >= clipAbsEnd && rawStartFrame >= clipStartFrame) {
-        return Math.max(0, rawStartFrame - clipStartFrame);
-    }
+    // BUG-027 FIX: `rawStartFrame` from the backend is ALREADY a local offset (relative to clip start).
+    // The previous implementation wrongly treated it as an absolute timeline frame
+    // under certain conditions and subtracted `clipStartFrame`, causing notes 
+    // to incorrectly snap to the beginning of the clip.
     return Math.max(0, rawStartFrame);
 }
 
@@ -190,7 +185,18 @@ export function applyProjectDeltasToState(
                         // ENTERPRISE FIX (TYPE-SAFE): source_file_total_frames is bigint in
                         // the Rust binding. Convert to number safely (BigInt → Number).
                         // toFiniteNumber handles NaN/Infinity from overly large values.
-                        sourceFileTotalFrames: Math.max(1, toFiniteNumber(Number(clip.source_file_total_frames ?? 0), durFrames)),
+                        sourceFileTotalFrames: (() => {
+                            const sourceTotal = toFiniteNumber(clip.source_file_total_frames, 0);
+                            return sourceTotal > 0 ? Math.max(1, sourceTotal) : undefined;
+                        })(),
+                        numFrames: (() => {
+                            const sourceTotal = toFiniteNumber(clip.source_file_total_frames, 0);
+                            return sourceTotal > 0 ? Math.max(1, sourceTotal) : undefined;
+                        })(),
+                        sampleRate: (() => {
+                            const sourceSampleRate = toFiniteNumber(clip.sample_rate, 0);
+                            return sourceSampleRate > 0 ? Math.max(1, Math.round(sourceSampleRate)) : undefined;
+                        })(),
                         sourceOffset: Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0)),
                         // BUG-TRIM-05 FIX: Include pitchShiftSemitones from snapshot.
                         // Previously missing — after EVERY operation (resize/split/move/merge)

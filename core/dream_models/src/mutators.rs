@@ -76,6 +76,19 @@ impl std::error::Error for MutatorError {}
 /// At 44.1kHz, 128 frames ≈ 2.9ms — enough for a complete micro-fade cycle
 /// (88 frames at 44.1kHz). This prevents degenerate zero-length clips.
 const MIN_CLIP_FRAMES: i64 = 128;
+
+fn clip_source_frames_per_timeline_frame(clip: &AudioClip, project_sample_rate: f64) -> f64 {
+    let pitch_mul = if clip.pitch_shift_semitones != 0.0 {
+        2.0_f64.powf(clip.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
+    } else {
+        1.0
+    };
+    let source_rate_ratio = clip
+        .sample_rate
+        .map(|sr| sr.max(1) as f64 / project_sample_rate.max(1.0))
+        .unwrap_or(1.0);
+    pitch_mul * source_rate_ratio.max(1e-9)
+}
 #[inline]
 fn clamp_f64_to_i64(value: f64) -> i64 {
     if !value.is_finite() {
@@ -232,6 +245,8 @@ pub fn resize_clip(
     // - stretch (allow_stretch=true): keep source_offset fixed, timeline duration changes
     let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
 
+    let project_sample_rate = project.sample_rate.max(1.0);
+
     if left_edge_delta != 0 && !allow_stretch {
         // ENTERPRISE FIX (LEFT-EDGE COMPRESSION): For warped clips, source offset
         // advancement must be scaled by the warp ratio to match the actual
@@ -247,11 +262,7 @@ pub fn resize_clip(
             // (render_callback.rs L778: "T * pitch_multiplier in source frames").
             // The source_offset must be scaled accordingly so the waveform stays anchored
             // when the left edge is trimmed.
-            let pitch_mul = if clip.pitch_shift_semitones != 0.0 {
-                2.0_f64.powf(clip.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
-            } else {
-                1.0
-            };
+            let pitch_mul = clip_source_frames_per_timeline_frame(&clip, project_sample_rate);
             let source_delta = (left_edge_delta as f64 * pitch_mul).round() as i64;
             clip.source_offset =
                 AbsoluteTime::new((clip.source_offset.sample_frame + source_delta).max(0));
@@ -280,8 +291,25 @@ pub fn resize_clip(
 
     // ── Trim mode (default, no stretch) ─────────────────────────────
     if !allow_stretch {
+        let source_per_timeline = if clip.is_warped && original_warp_source > 0 && original_duration > 0 {
+            original_warp_source as f64 / original_duration as f64
+        } else {
+            clip_source_frames_per_timeline_frame(&clip, project_sample_rate)
+        };
+
+        // Clamp source_offset against the requested visible source window, not
+        // just MIN_CLIP_FRAMES. Otherwise left-edge trims near the source tail
+        // can push the offset almost to EOF and force the clip to collapse to
+        // a tiny strip instead of stopping at the last valid crop position.
+        let requested_source_window = clamp_f64_to_i64(
+            (new_duration.sample_frame.max(MIN_CLIP_FRAMES) as f64 * source_per_timeline.max(1e-9)).round(),
+        )
+        .max(MIN_CLIP_FRAMES);
+
         // Clamp source_offset to valid range using immutable source_file_total
-        let max_source_offset = source_file_total.saturating_sub(MIN_CLIP_FRAMES).max(0);
+        let max_source_offset = source_file_total
+            .saturating_sub(requested_source_window)
+            .max(0);
         clip.source_offset =
             AbsoluteTime::new(clip.source_offset.sample_frame.clamp(0, max_source_offset));
 
@@ -318,11 +346,7 @@ pub fn resize_clip(
             // the max timeline duration; otherwise the clip extends beyond the audio data.
             let available_source =
                 (source_file_total - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
-            let pitch_mul = if clip.pitch_shift_semitones != 0.0 {
-                2.0_f64.powf(clip.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
-            } else {
-                1.0
-            };
+            let pitch_mul = source_per_timeline;
             let max_timeline_duration = clamp_f64_to_i64(
                 (available_source as f64 / pitch_mul.max(1e-9)).floor(),
             ).max(MIN_CLIP_FRAMES);
@@ -424,11 +448,7 @@ pub fn split_clip(
     let timeline_total = original.duration.sample_frame.max(MIN_CLIP_FRAMES);
     
     // Pitch shift acts as a fixed playback rate scalar even for unwarped clips in the engine.
-    let pitch_multiplier = if original.pitch_shift_semitones != 0.0 {
-        2.0_f64.powf(original.pitch_shift_semitones.clamp(-36.0, 36.0) / 12.0)
-    } else {
-        1.0
-    };
+    let pitch_multiplier = clip_source_frames_per_timeline_frame(original, project.sample_rate.max(1.0));
 
     let consumed_source_frames = if original.is_warped {
         // Precise fractional source-to-timeline warp ratio for warped clips
@@ -1332,7 +1352,7 @@ mod tests {
         assert_eq!(clip_a.source_offset.sample_frame, 22050);
     }
     #[test]
-    fn resize_clip_left_trim_clamps_source_offset_to_source_tail() {
+    fn resize_clip_left_trim_clamps_source_offset_to_last_valid_crop_position() {
         let mut project = make_test_project();
         let clip_a_id = project.tracks[0].clips[0].id;
         resize_clip(
@@ -1348,8 +1368,80 @@ mod tests {
             .iter()
             .find(|c| c.id == clip_a_id)
             .unwrap();
-        assert_eq!(clip_a.source_offset.sample_frame, 44100 - 128);
-        assert_eq!(clip_a.duration.sample_frame, 128);
+        assert_eq!(clip_a.source_offset.sample_frame, 44100 - 22050);
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+    }
+    #[test]
+    fn resize_clip_left_trim_on_warped_clamps_to_last_valid_crop_position() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = true;
+            clip.warp_source_duration_frames = 44100;
+            clip.source_offset = AbsoluteTime::new(0);
+            clip.duration = AbsoluteTime::new(44100);
+        }
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(44100 * 10),
+            AbsoluteTime::new(22050),
+            false,
+        )
+        .unwrap();
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.source_offset.sample_frame, 44100 - 22050);
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.warp_source_duration_frames, 22050);
+    }
+
+    #[test]
+    fn resize_clip_right_can_restore_full_length_for_mismatched_source_sample_rate() {
+        let mut project = Project::new("Test", 120.0, 48_000.0);
+        let mut track = Track::new("Track 1");
+        let mut clip = AudioClip::new(
+            "Clip A",
+            "audio/a.wav",
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(48_000),
+        );
+        clip.sample_rate = Some(44_100);
+        clip.set_source_bounds(44_100);
+        let clip_id = clip.id;
+        track.clips.push(clip);
+        project.add_track(track);
+
+        resize_clip(
+            &mut project,
+            clip_id,
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(24_000),
+            false,
+        )
+        .unwrap();
+
+        resize_clip(
+            &mut project,
+            clip_id,
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(48_000),
+            false,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_id)
+            .unwrap();
+        assert_eq!(clip_a.duration.sample_frame, 48_000);
+        assert_eq!(clip_a.source_file_total_frames, 44_100);
+        assert_eq!(clip_a.source_offset.sample_frame, 0);
     }
     #[test]
     fn resize_clip_left_with_stretch_keeps_source_offset_and_enables_warp() {
@@ -1459,6 +1551,57 @@ mod tests {
         assert_eq!(project.tracks[0].clips[2].name, "Clip A");
         assert_eq!(project.tracks[0].clips[2].position.sample_frame, 44100 * 3);
         assert_eq!(project.tracks[0].clips[2].duration.sample_frame, 44100 * 7);
+    }
+
+    #[test]
+    fn overlap_trim_updates_non_warped_source_window_for_future_stretch() {
+        let mut project = make_test_project();
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.pitch_shift_semitones = 12.0;
+            clip.warp_source_duration_frames = 88200;
+        }
+        let clip_b_id = project.tracks[0].clips[1].id;
+
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(22050)).unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.name == "Clip A")
+            .unwrap();
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.warp_source_duration_frames, 44100);
+    }
+
+    #[test]
+    fn overlap_left_trim_on_warped_clears_markers_and_keeps_source_ratio() {
+        let mut project = make_test_project();
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = true;
+            clip.position = AbsoluteTime::new(22050);
+            clip.duration = AbsoluteTime::new(44100);
+            clip.warp_source_duration_frames = 88200;
+            clip.warp_markers.push(crate::project::WarpMarkerPoint {
+                sec_time: 0.0,
+                beat_time: 0.0,
+            });
+        }
+        let clip_b_id = project.tracks[0].clips[1].id;
+
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(0)).unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.name == "Clip A")
+            .unwrap();
+        assert_eq!(clip_a.position.sample_frame, 44100);
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.source_offset.sample_frame, 44100);
+        assert_eq!(clip_a.warp_source_duration_frames, 44100);
+        assert!(clip_a.warp_markers.is_empty());
     }
     // ── Edge Cases ───────────────────────────────────────────────────
     #[test]
@@ -1645,5 +1788,3 @@ mod tests {
         assert_eq!(clip.position.sample_frame, 0);
     }
 }
-
-

@@ -50,8 +50,8 @@ impl Command for InsertBouncedClipCommand {
             AbsoluteTime::new(self.start_frame.max(0)),
             AbsoluteTime::new(self.timeline_duration_frames.max(1)),
         );
-        clip.warp_source_duration_frames = self.source_duration_frames.max(1);
-        clip.source_file_total_frames = self.source_duration_frames.max(1);
+        clip.sample_rate = Some(project.sample_rate.max(1.0).round() as u32);
+        clip.set_source_bounds(self.source_duration_frames.max(1));
         let clip_id = clip.id;
         let clip_name = clip.name.clone();
         let clip_position = clip.position.sample_frame;
@@ -109,8 +109,8 @@ impl Command for InsertStemClipsCommand {
                 AbsoluteTime::new(self.start_frame.max(0)),
                 AbsoluteTime::new(stem.timeline_duration_frames.max(1)),
             );
-            clip.warp_source_duration_frames = stem.source_duration_frames.max(1);
-            clip.source_file_total_frames = stem.source_duration_frames.max(1);
+            clip.sample_rate = Some(project.sample_rate.max(1.0).round() as u32);
+            clip.set_source_bounds(stem.source_duration_frames.max(1));
 
             if let Some(track) = project.tracks.get_mut(new_track_index) {
                 track.clips.push(clip);
@@ -141,6 +141,7 @@ impl Command for ConsolidateClipsCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
         let track_count = project.tracks.len();
+        let timeline_sample_rate = project.sample_rate.max(1.0).round() as u32;
         
         let track = project.tracks.get_mut(self.track_index).ok_or(
             crate::error::OrchestratorError::TrackOutOfRange {
@@ -158,8 +159,8 @@ impl Command for ConsolidateClipsCommand {
             AbsoluteTime::new(self.start_frame.max(0)),
             AbsoluteTime::new(self.timeline_duration_frames.max(1)),
         );
-        clip.warp_source_duration_frames = self.source_duration_frames.max(1);
-        clip.source_file_total_frames = self.source_duration_frames.max(1);
+        clip.sample_rate = Some(timeline_sample_rate);
+        clip.set_source_bounds(self.source_duration_frames.max(1));
         clip.is_selected = true;
 
         track.clips.push(clip);

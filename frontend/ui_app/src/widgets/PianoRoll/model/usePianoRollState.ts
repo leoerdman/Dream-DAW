@@ -40,7 +40,7 @@ export function usePianoRollState({
     useEffect(() => {
         if (clipTransposeStateKeyRef.current !== clipResetKey) {
             clipTransposeStateKeyRef.current = clipResetKey;
-            setClipTransposeStateValue(0);
+            queueMicrotask(() => setClipTransposeStateValue(0));
         }
     }, [clipResetKey]);
     const [quantizeAmount, setQuantizeAmount] = useState(100);

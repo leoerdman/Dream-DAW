@@ -50,10 +50,7 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
     // Track last applied values to skip no-op updates (value-level equality).
     const lastValuesRef = useRef({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
-    // Minimal forceUpdate — increments a counter to trigger re-render.
-    const [, setTick] = useState(0);
-    const forceUpdateRef = useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
-    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+    const [meterState, setMeterState] = useState({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
     useEffect(() => {
         mountedRef.current = true;
@@ -84,7 +81,12 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
             rafIdRef.current = requestAnimationFrame(() => {
                 rafIdRef.current = 0;
                 if (mountedRef.current) {
-                    forceUpdateRef.current();
+                    setMeterState({
+                        mL: meterLRef.current,
+                        mR: meterRRef.current,
+                        hL: holdLRef.current,
+                        hR: holdRRef.current,
+                    });
                 }
             });
         });
@@ -98,7 +100,7 @@ export const MixerChannelMeters = memo(function MixerChannelMeters({
 
     return (
         <div style={{ width: meterWidth, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
-            <MeterStrip levelL={meterLRef.current} levelR={meterRRef.current} peakHoldL={holdLRef.current} peakHoldR={holdRRef.current} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+            <MeterStrip levelL={meterState.mL} levelR={meterState.mR} peakHoldL={meterState.hL} peakHoldR={meterState.hR} isMidi={isMidi} width={meterWidth} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
         </div>
     );
 });

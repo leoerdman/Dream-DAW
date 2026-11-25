@@ -262,8 +262,7 @@ fn hydrate_warp_source_duration_frames(
             resolved
         };
         if let Some(frames) = cached {
-            clip.warp_source_duration_frames = frames.max(1);
-            clip.source_file_total_frames = frames.max(1);
+            clip.set_source_bounds(frames.max(1));
             return;
         }
     }
@@ -273,8 +272,7 @@ fn hydrate_warp_source_duration_frames(
     // `DefaultSampleRate` inside `<SampleRef>`. These are always accurate
     // even when the audio file itself can't be found.
     if let Some(duration_frames) = extract_als_default_duration(clip_node, project_sample_rate) {
-        clip.warp_source_duration_frames = duration_frames.max(1);
-        clip.source_file_total_frames = duration_frames.max(1);
+        clip.set_source_bounds(duration_frames.max(1));
         log::info!(
             "[ALS Import] Warp source duration from XML metadata: {} frames (clip: {})",
             duration_frames,
@@ -291,8 +289,7 @@ fn hydrate_warp_source_duration_frames(
         if last.sec_time > 0.0 && last.sec_time.is_finite() {
             let inferred = (last.sec_time * project_sample_rate).round() as i64;
             if inferred > 0 {
-                clip.warp_source_duration_frames = inferred.max(1);
-                clip.source_file_total_frames = inferred.max(1);
+                clip.set_source_bounds(inferred.max(1));
                 log::info!(
                     "[ALS Import] Warp source duration from markers: {} frames (clip: {})",
                     inferred,

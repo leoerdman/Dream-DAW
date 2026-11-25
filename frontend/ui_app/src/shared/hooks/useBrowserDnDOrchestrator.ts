@@ -31,7 +31,6 @@ const resolvePluginSlot = (
 export const useBrowserDnDOrchestrator = ({
     tracks,
 
-    projectBpm: _projectBpm,
     transportBpm,
     projectSampleRate,
     importFile,

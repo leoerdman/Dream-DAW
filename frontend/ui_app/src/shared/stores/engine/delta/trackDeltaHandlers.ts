@@ -1,5 +1,6 @@
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { clamp01 } from '@/shared/lib/audioMath';
 import { DEFAULT_TRACK_HEIGHT_PX } from '@/shared/lib/TimelineEngine.types';
@@ -55,17 +56,11 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         // declared in the ProjectDelta type — no `as Record<string, unknown>` needed.
         // Backend schema migrated from `muted` → `disabled`. Support both
         // with explicit fallback and deprecation warning for old field.
-        let nextDisabled: boolean;
-        if (typeof delta.data.disabled === 'boolean') {
-            nextDisabled = delta.data.disabled;
-        } else if (typeof delta.data.muted === 'boolean') {
-            nextDisabled = delta.data.muted;
-        } else {
-            // Neither field present — log warning and skip.
-            // Previously defaulted to `false`, silently un-disabling the track.
-            console.warn('[TrackDelta] TrackDisabledChanged: neither `disabled` nor `muted` field found — skipping.');
+        if (typeof delta.data.disabled !== 'boolean') {
+            console.warn('[TrackDelta] TrackDisabledChanged: missing `disabled` field — skipping.');
             return true;
         }
+        const nextDisabled = delta.data.disabled;
         patchTrack(state, delta.data.track_id, { is_disabled: nextDisabled });
         return true;
     }
@@ -292,37 +287,14 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         // Removing an empty track previously wouldn't trigger auto-save.
         state.changed = true;
 
-        // BUG-007 FIX: Use synchronous cleanup instead of dynamic import().
-        // Previously used async `import()` inside this synchronous delta handler,
-        // creating a race condition: by the time the import resolved, additional
-        // deltas may have mutated the state. The cleanup would run against
-        // potentially inconsistent state. Now we queue cleanup as a microtask
-        // with a pre-captured reference, ensuring it runs after all deltas in
-        // the current batch are applied but before the next event loop cycle.
-        try {
-            // Attempt synchronous resolution — works in bundled production code.
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const automationMod = require('@/shared/stores/useAutomationStore');
-            const trackIdToClean = delta.data.track_id;
-            queueMicrotask(() => {
-                try {
-                    automationMod.useAutomationStore.getState().cleanupTrackLanes(trackIdToClean);
-                } catch (cleanupErr) {
-                    console.warn('[TrackDelta] AutomationStore cleanup failed:', cleanupErr);
-                }
-            });
-        } catch {
-            // Fallback: dynamic import for ESM-only environments.
-            // Still uses queueMicrotask to batch after all deltas are processed.
-            const trackIdToClean = delta.data.track_id;
-            import('@/shared/stores/useAutomationStore').then(({ useAutomationStore }) => {
-                queueMicrotask(() => {
-                    useAutomationStore.getState().cleanupTrackLanes(trackIdToClean);
-                });
-            }).catch((err: unknown) => {
-                console.warn('[TrackDelta] AutomationStore cleanup import failed:', err);
-            });
-        }
+        const trackIdToClean = delta.data.track_id;
+        queueMicrotask(() => {
+            try {
+                useAutomationStore.getState().cleanupTrackLanes(trackIdToClean);
+            } catch (cleanupErr) {
+                console.warn('[TrackDelta] AutomationStore cleanup failed:', cleanupErr);
+            }
+        });
 
         return true;
     }

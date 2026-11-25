@@ -35,6 +35,18 @@ fn clip_end_position() {
 }
 
 #[test]
+fn new_audio_clip_does_not_invent_source_file_total_frames() {
+    let clip = AudioClip::new(
+        "Test Clip",
+        "audio/test.wav",
+        AbsoluteTime::ZERO,
+        AbsoluteTime::new(88200),
+    );
+    assert_eq!(clip.warp_source_duration_frames, 88200);
+    assert_eq!(clip.source_file_total_frames, 0);
+}
+
+#[test]
 fn track_defaults() {
     let track = Track::new("Guitar");
     assert!((track.volume - 1.0).abs() < f64::EPSILON);

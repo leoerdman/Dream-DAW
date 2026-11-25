@@ -2,6 +2,7 @@ import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
 import { clampMidiPitch, DEFAULT_BPM } from './audioMath';
+import { getClipSourceWindowFrames } from './clipSourceMath';
 import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
@@ -872,7 +873,7 @@ export class CanvasClipRenderer {
         clip: TimelineClipData,
         bodyY: number,
         bodyH: number,
-        sampleRate: number,
+        _sampleRate: number,
         muted: boolean,
         clipX: number,
         clipW: number,
@@ -880,27 +881,17 @@ export class CanvasClipRenderer {
         if (!clip.durationSamples) return;
 
         const ppb = vp.pixelsPerBeat;
-        if (ppb <= 0) return;
-
-        const samplesPerBeat = sampleRate * 60 / this._bpm;
-        const samplesPerPixel = samplesPerBeat / ppb;
+        if (ppb <= 0 || clipW <= 0) return;
 
         // BUG-G01 FIX: For non-warped clips, if pitch is shifted,
         // durationSamples is in timeline-domain but the source file was read
         // at a different rate. Scale by pitchShift to get source-domain window.
-        let sourceWindowSamples: number;
-        if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0) {
-            // ENTERPRISE: warpSourceDurationFrames represents the amount of source
-            // audio consumed by this clip's visible timeline duration (Rust SSOT:
-            // mutators.rs line 411: "represents the amount of source that spans
-            // duration. It does NOT mean 'end position in source'").
-            sourceWindowSamples = clip.warpSourceDurationFrames as number;
-        } else {
-            const pitchSemitones = clip.pitchShiftSemitones ?? 0;
-            const pitchMultiplier = Math.pow(2, pitchSemitones / 12);
-            // Source samples consumed = timeline_samples * pitch_multiplier
-            sourceWindowSamples = Math.round((clip.durationSamples ?? 1) * pitchMultiplier);
-        }
+        const sourceWindowSamples = getClipSourceWindowFrames(clip, _sampleRate);
+
+        // For trim mode, waveform should crop with the clip edges rather than
+        // visually compress. The correct mip-selection unit is therefore the
+        // number of SOURCE samples currently visible per onscreen pixel.
+        const samplesPerPixel = Math.max(1e-6, sourceWindowSamples / Math.max(1, clipW));
 
         // ═══════════════════════════════════════════════════════════════════
         // ENTERPRISE: Ableton-style dual-mip blended waveform rendering.
@@ -1326,7 +1317,7 @@ export class CanvasClipRenderer {
 
     // ENTERPRISE: Static muted gray — avoids per-call object allocation
     private static readonly _MUTED_GRAY = { r: 120, g: 120, b: 120 };
-    private _toMutedGray(_rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+    private _toMutedGray(): { r: number; g: number; b: number } {
         return CanvasClipRenderer._MUTED_GRAY;
     }
 

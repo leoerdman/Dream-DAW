@@ -20,23 +20,26 @@ import {
     PluginSurfaceLayout,
     SaturationCurve,
     SpectrumBars,
-    usePluginSurfaceProps,
+    getPluginSurfaceProps,
     VizCard,
     VizColumn,
     WaveformDisplay,
 } from '@/widgets/DeviceRack/ui/PluginModules';
 
-export function renderStandardDistNoiseSurface(
-    device: DeviceSlot,
-    handlers: SurfaceHandlers,
-): React.ReactNode {
+function StandardDistNoiseSurface({
+    device,
+    handlers,
+}: {
+    device: DeviceSlot;
+    handlers: SurfaceHandlers;
+}): React.ReactNode {
     const normalizedInternalId = getDevicePluginKey(device);
 
     /* ═════════════════════════════════════════════════════════════════ */
     /* DISTORTION / BITCRUSHER                                          */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'distortion' || device.effectType === 'bitcrusher' || device.effectType === 'overdrive' || device.effectType === 'amp' || device.effectType === 'cabinet' || device.effectType === 'pedal' || device.effectType === 'roar' || device.effectType === 'erosion') {
-        const { showDryWet, knobParams } = usePluginSurfaceProps(device);
+        const { showDryWet, knobParams } = getPluginSurfaceProps(device);
         const title = device.effectType === 'bitcrusher'
             ? 'Bitcrusher'
             : (PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Distortion');
@@ -195,4 +198,11 @@ export function renderStandardDistNoiseSurface(
     }
 
     return null;
+}
+
+export function renderStandardDistNoiseSurface(
+    device: DeviceSlot,
+    handlers: SurfaceHandlers,
+): React.ReactNode {
+    return <StandardDistNoiseSurface device={device} handlers={handlers} />;
 }

@@ -99,6 +99,7 @@ export function useDeviceRackSlotActions({
         resolveTrackIdForSlot,
         setLocalBypass,
         applyProjectDeltas,
+        statusError,
         trackIndexById,
         tracksById,
         selectedTrack?.id,

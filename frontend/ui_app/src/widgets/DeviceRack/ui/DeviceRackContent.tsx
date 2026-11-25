@@ -29,9 +29,7 @@ const DeviceRackInputMeter = React.memo(function DeviceRackInputMeter({
     const mountedRef = React.useRef(true);
     const lastValuesRef = React.useRef({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
-    const [, setTick] = React.useState(0);
-    const forceUpdateRef = React.useRef<() => void>(() => setTick((t) => (t + 1) & 0x7FFFFFFF));
-    forceUpdateRef.current = () => setTick((t) => (t + 1) & 0x7FFFFFFF);
+    const [meterState, setMeterState] = React.useState({ mL: 0, mR: 0, hL: 0, hR: 0 });
 
     React.useEffect(() => {
         mountedRef.current = true;
@@ -63,7 +61,14 @@ const DeviceRackInputMeter = React.memo(function DeviceRackInputMeter({
             if (rafIdRef.current) return;
             rafIdRef.current = requestAnimationFrame(() => {
                 rafIdRef.current = 0;
-                if (mountedRef.current) forceUpdateRef.current();
+                if (mountedRef.current) {
+                    setMeterState({
+                        mL: meterLRef.current,
+                        mR: meterRRef.current,
+                        hL: holdLRef.current,
+                        hR: holdRRef.current,
+                    });
+                }
             });
         });
 
@@ -76,10 +81,10 @@ const DeviceRackInputMeter = React.memo(function DeviceRackInputMeter({
 
     return (
         <MeterStrip
-            levelL={meterLRef.current}
-            levelR={meterRRef.current}
-            peakHoldL={holdLRef.current}
-            peakHoldR={holdRRef.current}
+            levelL={meterState.mL}
+            levelR={meterState.mR}
+            peakHoldL={meterState.hL}
+            peakHoldR={meterState.hR}
             isMidi={isMidi}
         />
     );
